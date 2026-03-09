@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+:root {
+  --rol-primary: #1e40af;
+  --rol-primary-dark: #1e3a8a;
+  --rol-accent: #3b82f6;
+  --rol-bg: #f8fafc;
+  --rol-card: #ffffff;
+  --rol-border: #e2e8f0;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--rol-bg);
+  color: #1e293b;
+}
+
+#root {
+  min-height: 100vh;
+}
