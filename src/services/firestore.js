@@ -114,6 +114,80 @@ export async function addDepartmentEntry(data) {
   return ref.id
 }
 
+// Worship team members (director's full team list + former members)
+export async function getWorshipTeamMembers(department, options = {}) {
+  if (!db) return []
+  const q = query(
+    collection(db, 'worship_team_members'),
+    where('department', '==', department),
+    orderBy('memberSince', 'asc')
+  )
+  const snap = await getDocs(q)
+  let list = snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
+  })
+  if (options.former === true) list = list.filter((m) => m.isFormer)
+  if (options.former === false) list = list.filter((m) => !m.isFormer)
+  return list
+}
+
+export async function addWorshipTeamMember(department, data, addedBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, 'worship_team_members'), {
+    department,
+    name: data.name,
+    memberSince: data.memberSince || new Date().toISOString().slice(0, 10),
+    isFormer: data.isFormer ?? false,
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateWorshipTeamMember(id, data) {
+  if (!db) return
+  await updateDoc(doc(db, 'worship_team_members', id), data)
+}
+
+// Worship schedule: one doc per week, assignments array
+export async function getWorshipSchedules(department, weekStarts) {
+  if (!db || !weekStarts?.length) return {}
+  const out = {}
+  await Promise.all(
+    weekStarts.map(async (weekStart) => {
+      const q = query(
+        collection(db, 'worship_schedule'),
+        where('department', '==', department),
+        where('weekStart', '==', weekStart),
+        limit(1)
+      )
+      const snap = await getDocs(q)
+      const doc = snap.docs[0]
+      out[weekStart] = doc ? { id: doc.id, ...doc.data() } : { weekStart, assignments: [] }
+    })
+  )
+  return out
+}
+
+export async function setWorshipScheduleWeek(department, weekStart, assignments, updatedBy) {
+  if (!db) return null
+  const q = query(
+    collection(db, 'worship_schedule'),
+    where('department', '==', department),
+    where('weekStart', '==', weekStart),
+    limit(1)
+  )
+  const snap = await getDocs(q)
+  const payload = { department, weekStart, assignments, updatedBy, updatedAt: Timestamp.now() }
+  if (snap.docs.length) {
+    await updateDoc(doc(db, 'worship_schedule', snap.docs[0].id), payload)
+    return snap.docs[0].id
+  }
+  const ref = await addDoc(collection(db, 'worship_schedule'), payload)
+  return ref.id
+}
+
 // Attendance (Sunday Ministry)
 export async function getAttendance(filters = {}) {
   let q = collection(db, 'attendance')

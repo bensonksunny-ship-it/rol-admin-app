@@ -19,7 +19,7 @@ export default function Sidebar() {
 
   const visible = navItems.filter((item) =>
     item.orDepartment
-      ? hasPermission(item.permission) || userProfile?.department === item.orDepartment
+      ? hasPermission(item.permission) || userProfile?.department === item.orDepartment || user
       : hasPermission(item.permission)
   )
 
