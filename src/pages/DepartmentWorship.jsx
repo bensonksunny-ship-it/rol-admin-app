@@ -52,7 +52,7 @@ function nextFourWeekStarts() {
 }
 
 export default function DepartmentWorship() {
-  const { userProfile, hasPermission } = useAuth()
+  const { userProfile, hasPermission, isFounder } = useAuth()
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
@@ -75,6 +75,7 @@ export default function DepartmentWorship() {
 
   const isDirector = userProfile?.department === DEPARTMENT
   const isPastor = hasPermission('viewDepartmentInsights')
+  const canManageWorship = isDirector || isFounder
   const weekStarts = useMemo(() => nextFourWeekStarts(), [])
 
   useEffect(() => {
@@ -193,13 +194,12 @@ export default function DepartmentWorship() {
     return { period, planned, spent }
   })
 
-  const canEnter = isDirector
   const canViewInsights = isPastor
 
-  if (!canEnter && !canViewInsights) {
+  if (!canManageWorship && !canViewInsights) {
     return (
       <div className="p-8 text-slate-600">
-        You don't have access to the Worship department page. Ask an admin to set your <strong>department</strong> to &quot;Worship&quot; in Firestore (users collection) to enter data, or use a role that can view insights.
+        You don't have access to the Worship department page. Ask an admin to set your <strong>department</strong> to &quot;Worship&quot; in Firestore (users collection) to plan and enter data, or use a role that can view insights.
       </div>
     )
   }
@@ -209,14 +209,13 @@ export default function DepartmentWorship() {
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Worship Department</h1>
         <p className="text-slate-500 mt-1">
-          {isDirector && 'Plan your team, budget, and participation. Data is visible to the pastor for insights.'}
-          {isPastor && !isDirector && 'Insights from Worship director entries – participation, budget, and activity.'}
-          {isPastor && isDirector && 'Enter data as director; view insights below.'}
+          {canManageWorship && 'Plan worship team, assignments (4 weeks), budget, and participation. Add demo team or members in Summary. Founder and Worship director can edit and add.'}
+          {canViewInsights && !canManageWorship && 'Insights from Worship director entries – participation, budget, and activity.'}
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200">
-        {(canEnter || canViewInsights) && (
+        {(canManageWorship || canViewInsights) && (
           <>
             <button
               type="button"
@@ -238,7 +237,7 @@ export default function DepartmentWorship() {
             </button>
           </>
         )}
-        {canEnter && (
+        {canManageWorship && (
           <>
             <button
               type="button"
@@ -273,7 +272,7 @@ export default function DepartmentWorship() {
         )}
       </div>
 
-      {activeTab === 'summary' && (canEnter || canViewInsights) && (
+      {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <h2 className="font-semibold text-slate-800 mb-4">Department Summary Box</h2>
@@ -291,12 +290,12 @@ export default function DepartmentWorship() {
                   <p>Duration: <span className="text-slate-800">{differenceInDays(new Date(), new Date('2022-04-01'))} days</span></p>
                   <p>Members: <span className="text-slate-800 font-medium">{teamMembers.length}</span></p>
                 </div>
-                {canEnter && teamMembers.length === 0 && (
+                {canManageWorship && teamMembers.length === 0 && (
                   <button type="button" onClick={seedDemoTeam} className="mt-4 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
                     Add demo team (15 members)
                   </button>
                 )}
-                {canEnter && (
+                {canManageWorship && (
                   <div className="mt-4 pt-4 border-t border-slate-200">
                     <h3 className="text-sm font-medium text-slate-700 mb-2">Add team member</h3>
                     <form
@@ -405,7 +404,7 @@ export default function DepartmentWorship() {
         </div>
       )}
 
-      {activeTab === 'assign' && canEnter && (
+      {activeTab === 'assign' && canManageWorship && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
           <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Assign worship team – next 4 weeks (pick role per member per week)</h2>
           {loadingSchedules ? (
@@ -449,9 +448,9 @@ export default function DepartmentWorship() {
         </div>
       )}
 
-      {activeTab === 'budget' && (canEnter || canViewInsights) && (
+      {activeTab === 'budget' && (canManageWorship || canViewInsights) && (
         <div className="space-y-6">
-          {canEnter && (
+          {canManageWorship && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
               <h2 className="font-semibold text-slate-800 mb-4">Add budget / spending (per month)</h2>
               <form
@@ -530,7 +529,7 @@ export default function DepartmentWorship() {
         </div>
       )}
 
-      {activeTab === 'entry' && canEnter && (
+      {activeTab === 'entry' && canManageWorship && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <h2 className="font-semibold text-slate-800 mb-4">Add entry</h2>
