@@ -59,6 +59,7 @@ export default function DepartmentWorship() {
   const [teamMembers, setTeamMembers] = useState([])
   const [formerMembers, setFormerMembers] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(true)
+  const [teamError, setTeamError] = useState(null)
   const [schedules, setSchedules] = useState({})
   const [loadingSchedules, setLoadingSchedules] = useState(false)
   const [newMember, setNewMember] = useState({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false })
@@ -77,16 +78,28 @@ export default function DepartmentWorship() {
   const weekStarts = useMemo(() => nextFourWeekStarts(), [])
 
   useEffect(() => {
-    getDepartmentEntries(DEPARTMENT, { limit: 100 }).then(setEntries).finally(() => setLoading(false))
+    getDepartmentEntries(DEPARTMENT, { limit: 100 })
+      .then(setEntries)
+      .catch(() => setEntries([]))
+      .finally(() => setLoading(false))
   }, [])
 
   async function loadTeam() {
     setLoadingTeam(true)
-    const current = await getWorshipTeamMembers(DEPARTMENT, { former: false })
-    const former = await getWorshipTeamMembers(DEPARTMENT, { former: true })
-    setTeamMembers(current)
-    setFormerMembers(former)
-    setLoadingTeam(false)
+    setTeamError(null)
+    try {
+      const current = await getWorshipTeamMembers(DEPARTMENT, { former: false })
+      const former = await getWorshipTeamMembers(DEPARTMENT, { former: true })
+      setTeamMembers(current)
+      setFormerMembers(former)
+    } catch (e) {
+      console.error('Worship team load failed:', e)
+      setTeamError(e?.message || 'Could not load team. Check Firestore rules and indexes for worship_team_members.')
+      setTeamMembers([])
+      setFormerMembers([])
+    } finally {
+      setLoadingTeam(false)
+    }
   }
 
   useEffect(() => {
@@ -95,9 +108,15 @@ export default function DepartmentWorship() {
 
   async function loadSchedules() {
     setLoadingSchedules(true)
-    const data = await getWorshipSchedules(DEPARTMENT, weekStarts)
-    setSchedules(data)
-    setLoadingSchedules(false)
+    try {
+      const data = await getWorshipSchedules(DEPARTMENT, weekStarts)
+      setSchedules(data)
+    } catch (e) {
+      console.error('Worship schedule load failed:', e)
+      setSchedules({})
+    } finally {
+      setLoadingSchedules(false)
+    }
   }
 
   useEffect(() => {
@@ -258,6 +277,11 @@ export default function DepartmentWorship() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <h2 className="font-semibold text-slate-800 mb-4">Department Summary Box</h2>
+            {teamError && (
+              <p className="text-amber-700 text-sm mb-3 bg-amber-50 px-3 py-2 rounded">
+                {teamError} <button type="button" onClick={loadTeam} className="underline font-medium ml-1">Retry</button>
+              </p>
+            )}
             {loadingTeam ? (
               <p className="text-slate-500">Loading...</p>
             ) : (

@@ -115,18 +115,19 @@ export async function addDepartmentEntry(data) {
 }
 
 // Worship team members (director's full team list + former members)
+// No orderBy to avoid composite index; sort in memory
 export async function getWorshipTeamMembers(department, options = {}) {
   if (!db) return []
   const q = query(
     collection(db, 'worship_team_members'),
-    where('department', '==', department),
-    orderBy('memberSince', 'asc')
+    where('department', '==', department)
   )
   const snap = await getDocs(q)
   let list = snap.docs.map((d) => {
     const data = d.data()
     return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
   })
+  list.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
   if (options.former === true) list = list.filter((m) => m.isFormer)
   if (options.former === false) list = list.filter((m) => !m.isFormer)
   return list
@@ -150,23 +151,21 @@ export async function updateWorshipTeamMember(id, data) {
   await updateDoc(doc(db, 'worship_team_members', id), data)
 }
 
-// Worship schedule: one doc per week, assignments array
+// Worship schedule: one doc per week, assignments array (single query, filter in memory to avoid composite index)
 export async function getWorshipSchedules(department, weekStarts) {
   if (!db || !weekStarts?.length) return {}
-  const out = {}
-  await Promise.all(
-    weekStarts.map(async (weekStart) => {
-      const q = query(
-        collection(db, 'worship_schedule'),
-        where('department', '==', department),
-        where('weekStart', '==', weekStart),
-        limit(1)
-      )
-      const snap = await getDocs(q)
-      const doc = snap.docs[0]
-      out[weekStart] = doc ? { id: doc.id, ...doc.data() } : { weekStart, assignments: [] }
-    })
+  const weekSet = new Set(weekStarts)
+  const q = query(
+    collection(db, 'worship_schedule'),
+    where('department', '==', department)
   )
+  const snap = await getDocs(q)
+  const out = {}
+  weekStarts.forEach((ws) => { out[ws] = { weekStart: ws, assignments: [] } })
+  snap.docs.forEach((d) => {
+    const data = d.data()
+    if (weekSet.has(data.weekStart)) out[data.weekStart] = { id: d.id, ...data }
+  })
   return out
 }
 
