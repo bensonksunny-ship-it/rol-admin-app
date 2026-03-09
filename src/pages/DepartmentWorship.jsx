@@ -1,30 +1,39 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import {
   getDepartmentEntries,
   addDepartmentEntry,
   getWorshipTeamMembers,
   addWorshipTeamMember,
-  getWorshipSchedules,
-  setWorshipScheduleWeek,
+  getWorshipScheduleByDate,
+  setWorshipScheduleByDate,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
-import { format, subMonths, differenceInDays, addWeeks, startOfWeek } from 'date-fns'
+import { format, subMonths, differenceInDays } from 'date-fns'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
 
-const WORSHIP_ROLES = [
-  '—',
-  'Lead vocalist',
-  'Choir',
-  'Instrumentalist',
-  'Keys',
+// Fixed roles on the left of the assign table (master list for each week)
+const ASSIGNMENT_ROLES = [
+  'Lead Vocal-1',
+  'Lead Vocal-2',
+  'Lead Vocal-3',
+  'Lead Vocal-4',
+  'Parts-1',
+  'Parts-2',
+  'Choir member-1',
+  'Choir member-2',
+  'Choir member-3',
+  'Choir member-4',
+  'Choir member-5',
+  'Choir member-6',
+  'Keyboard',
+  'Lead Guitar',
+  'Bass Guitar',
+  'Acoustic guitar',
   'Drums',
-  'Guitar',
-  'Bass',
-  'Media / Sound',
-  'Other',
+  'Sound Engineer',
 ]
 
 const DEMO_TEAM = [
@@ -45,12 +54,6 @@ const DEMO_TEAM = [
   { name: 'Surya', memberSince: '2019-11-03' },
 ]
 
-function nextFourWeekStarts() {
-  const today = new Date()
-  const nextMonday = addWeeks(startOfWeek(today, { weekStartsOn: 1 }), today < startOfWeek(today, { weekStartsOn: 1 }) ? 0 : 1)
-  return Array.from({ length: 4 }, (_, i) => format(addWeeks(nextMonday, i), 'yyyy-MM-dd'))
-}
-
 export default function DepartmentWorship() {
   const { userProfile, hasPermission, isFounder } = useAuth()
   const [entries, setEntries] = useState([])
@@ -60,8 +63,6 @@ export default function DepartmentWorship() {
   const [formerMembers, setFormerMembers] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(true)
   const [teamError, setTeamError] = useState(null)
-  const [schedules, setSchedules] = useState({})
-  const [loadingSchedules, setLoadingSchedules] = useState(false)
   const [newMember, setNewMember] = useState({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false })
   const [form, setForm] = useState({
     type: 'team',
@@ -76,7 +77,9 @@ export default function DepartmentWorship() {
   const isDirector = userProfile?.department === DEPARTMENT
   const isPastor = hasPermission('viewDepartmentInsights')
   const canManageWorship = isDirector || isFounder
-  const weekStarts = useMemo(() => nextFourWeekStarts(), [])
+  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+  const [scheduleForDate, setScheduleForDate] = useState({ date: '', assignments: [] })
+  const [loadingSchedule, setLoadingSchedule] = useState(false)
 
   useEffect(() => {
     getDepartmentEntries(DEPARTMENT, { limit: 100 })
@@ -107,22 +110,46 @@ export default function DepartmentWorship() {
     loadTeam()
   }, [])
 
-  async function loadSchedules() {
-    setLoadingSchedules(true)
+  async function loadScheduleForDate(date) {
+    setLoadingSchedule(true)
     try {
-      const data = await getWorshipSchedules(DEPARTMENT, weekStarts)
-      setSchedules(data)
+      const data = await getWorshipScheduleByDate(DEPARTMENT, date)
+      setScheduleForDate(data)
     } catch (e) {
-      console.error('Worship schedule load failed:', e)
-      setSchedules({})
+      console.error(e)
+      setScheduleForDate({ date, assignments: [] })
     } finally {
-      setLoadingSchedules(false)
+      setLoadingSchedule(false)
     }
   }
 
   useEffect(() => {
-    if (activeTab === 'assign') loadSchedules()
-  }, [activeTab, weekStarts.join(',')])
+    if (activeTab === 'assign' && selectedDate) loadScheduleForDate(selectedDate)
+  }, [activeTab, selectedDate])
+
+  function getAssignedMemberId(role) {
+    const a = (scheduleForDate.assignments || []).find((x) => x.role === role)
+    return a?.memberId || ''
+  }
+
+  async function setAssignmentForRole(role, memberId, memberName) {
+    const list = [...(scheduleForDate.assignments || [])]
+    const idx = list.findIndex((x) => x.role === role)
+    if (!memberId) {
+      if (idx >= 0) list.splice(idx, 1)
+    } else {
+      const slot = { role, memberId, memberName }
+      if (idx >= 0) list[idx] = slot
+      else list.push(slot)
+    }
+    try {
+      await setWorshipScheduleByDate(DEPARTMENT, selectedDate, list, userProfile?.email)
+      setScheduleForDate((s) => ({ ...s, assignments: list }))
+    } catch (e) {
+      console.error(e)
+      alert('Failed to save')
+    }
+  }
 
   async function seedDemoTeam() {
     try {
@@ -134,28 +161,6 @@ export default function DepartmentWorship() {
       console.error(e)
       alert('Failed to add demo team')
     }
-  }
-
-  function getAssignment(weekStart, memberId) {
-    const week = schedules[weekStart]
-    const list = week?.assignments || []
-    const a = list.find((x) => x.memberId === memberId)
-    return a?.role || '—'
-  }
-
-  async function setAssignment(weekStart, memberId, memberName, role) {
-    const week = schedules[weekStart] || { weekStart, assignments: [] }
-    const list = [...(week.assignments || [])]
-    const idx = list.findIndex((x) => x.memberId === memberId)
-    if (role === '—' || !role) {
-      if (idx >= 0) list.splice(idx, 1)
-    } else {
-      const slot = { memberId, memberName, role }
-      if (idx >= 0) list[idx] = slot
-      else list.push(slot)
-    }
-    await setWorshipScheduleWeek(DEPARTMENT, weekStart, list, userProfile?.email)
-    setSchedules((s) => ({ ...s, [weekStart]: { ...week, assignments: list } }))
   }
 
   async function handleSubmit(e) {
@@ -209,7 +214,7 @@ export default function DepartmentWorship() {
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Worship Department</h1>
         <p className="text-slate-500 mt-1">
-          {canManageWorship && 'Plan worship team, assignments (4 weeks), budget, and participation. Add demo team or members in Summary. Founder and Worship director can edit and add.'}
+          {canManageWorship && 'Plan worship team, assign by date, budget, and participation. Add demo team or members in Summary. Founder and Worship director can edit and add.'}
           {canViewInsights && !canManageWorship && 'Insights from Worship director entries – participation, budget, and activity.'}
         </p>
       </div>
@@ -246,7 +251,7 @@ export default function DepartmentWorship() {
                 activeTab === 'assign' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              Assign (4 weeks)
+              Assign team
             </button>
             <button
               type="button"
@@ -406,40 +411,51 @@ export default function DepartmentWorship() {
 
       {activeTab === 'assign' && canManageWorship && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-          <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Assign worship team – next 4 weeks (pick role per member per week)</h2>
-          {loadingSchedules ? (
+          <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center gap-4">
+            <h2 className="font-semibold text-slate-800">Assign worship team</h2>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              Date
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-slate-300"
+              />
+            </label>
+            <p className="text-slate-500 text-sm">Pick a date (e.g. Sunday), then assign people from the team list to each role.</p>
+          </div>
+          {loadingSchedule ? (
             <div className="p-8 text-center text-slate-500">Loading...</div>
           ) : teamMembers.length === 0 ? (
-            <div className="p-8 text-center text-slate-500">Add team members in Summary first.</div>
+            <div className="p-8 text-center text-slate-500">Add team members in Summary first (e.g. &quot;Add demo team&quot; for demo names).</div>
           ) : (
-            <table className="w-full min-w-[640px]">
+            <table className="w-full">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="text-left px-4 py-3 text-sm font-medium text-slate-600 sticky left-0 bg-slate-50 z-10 min-w-[140px]">Member</th>
-                  {weekStarts.map((ws) => (
-                    <th key={ws} className="text-left px-4 py-3 text-sm font-medium text-slate-600 whitespace-nowrap">
-                      Week of {format(new Date(ws), 'dd MMM yyyy')}
-                    </th>
-                  ))}
+                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-[220px]">Role</th>
+                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Assigned to</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {teamMembers.map((m) => (
-                  <tr key={m.id} className="hover:bg-slate-50/50">
-                    <td className="px-4 py-2 font-medium text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100">{m.name}</td>
-                    {weekStarts.map((weekStart) => (
-                      <td key={weekStart} className="px-4 py-2">
-                        <select
-                          value={getAssignment(weekStart, m.id)}
-                          onChange={(e) => setAssignment(weekStart, m.id, m.name, e.target.value)}
-                          className="w-full max-w-[180px] px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
-                        >
-                          {WORSHIP_ROLES.map((r) => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
-                        </select>
-                      </td>
-                    ))}
+                {ASSIGNMENT_ROLES.map((role) => (
+                  <tr key={role} className="hover:bg-slate-50/50">
+                    <td className="px-5 py-2 font-medium text-slate-800">{role}</td>
+                    <td className="px-5 py-2">
+                      <select
+                        value={getAssignedMemberId(role)}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          const member = teamMembers.find((m) => m.id === val)
+                          setAssignmentForRole(role, val || '', member?.name || '')
+                        }}
+                        className="w-full max-w-[220px] px-3 py-2 text-sm rounded border border-slate-300 bg-white"
+                      >
+                        <option value="">— Not assigned</option>
+                        {teamMembers.map((m) => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </select>
+                    </td>
                   </tr>
                 ))}
               </tbody>

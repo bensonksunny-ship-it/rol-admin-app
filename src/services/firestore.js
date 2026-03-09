@@ -151,37 +151,30 @@ export async function updateWorshipTeamMember(id, data) {
   await updateDoc(doc(db, 'worship_team_members', id), data)
 }
 
-// Worship schedule: one doc per week, assignments array (single query, filter in memory to avoid composite index)
-export async function getWorshipSchedules(department, weekStarts) {
-  if (!db || !weekStarts?.length) return {}
-  const weekSet = new Set(weekStarts)
+// Worship schedule by date: one doc per date, assignments = [{ role, memberId, memberName }]
+export async function getWorshipScheduleByDate(department, date) {
+  if (!db) return { date, assignments: [] }
   const q = query(
     collection(db, 'worship_schedule'),
     where('department', '==', department)
   )
   const snap = await getDocs(q)
-  const out = {}
-  weekStarts.forEach((ws) => { out[ws] = { weekStart: ws, assignments: [] } })
-  snap.docs.forEach((d) => {
-    const data = d.data()
-    if (weekSet.has(data.weekStart)) out[data.weekStart] = { id: d.id, ...data }
-  })
-  return out
+  const d = snap.docs.find((doc) => doc.data().date === date)
+  return d ? { id: d.id, ...d.data() } : { date, assignments: [] }
 }
 
-export async function setWorshipScheduleWeek(department, weekStart, assignments, updatedBy) {
+export async function setWorshipScheduleByDate(department, date, assignments, updatedBy) {
   if (!db) return null
   const q = query(
     collection(db, 'worship_schedule'),
-    where('department', '==', department),
-    where('weekStart', '==', weekStart),
-    limit(1)
+    where('department', '==', department)
   )
   const snap = await getDocs(q)
-  const payload = { department, weekStart, assignments, updatedBy, updatedAt: Timestamp.now() }
-  if (snap.docs.length) {
-    await updateDoc(doc(db, 'worship_schedule', snap.docs[0].id), payload)
-    return snap.docs[0].id
+  const existing = snap.docs.find((doc) => doc.data().date === date)
+  const payload = { department, date, assignments, updatedBy, updatedAt: Timestamp.now() }
+  if (existing) {
+    await updateDoc(doc(db, 'worship_schedule', existing.id), payload)
+    return existing.id
   }
   const ref = await addDoc(collection(db, 'worship_schedule'), payload)
   return ref.id
