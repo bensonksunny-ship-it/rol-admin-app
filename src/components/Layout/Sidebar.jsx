@@ -7,6 +7,7 @@ const navItems = [
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
   { to: '/tasks', label: 'Tasks', icon: '✅', permission: 'tasks' },
   { to: '/sunday-ministry', label: 'Sunday Ministry', icon: '📅', permission: 'attendance' },
+  { to: '/sunday-planning', label: 'Sunday Planning', icon: '📋', permission: 'attendance' },
   { to: '/finance', label: 'Finance', icon: '💰', permission: 'finance' },
   { to: '/reports', label: 'Reports', icon: '📋', permission: 'reports' },
 ]

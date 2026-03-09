@@ -176,3 +176,21 @@ In Firestore: **Rules** tab → paste → **Publish**.
 - [ ] Vercel project created and connected to GitHub.
 - [ ] Same env vars added in Vercel; project redeployed.
 - [ ] Live production URL opened and login tested.
+
+---
+
+## Deploy current changes to Vercel (after you've pushed to GitHub)
+
+1. **Commit and push your code** (in terminal, from project folder):
+   ```bash
+   cd "d:\ROL Admin app"
+   git add .
+   git status
+   git commit -m "Sunday Planning, Office Secretary role, permissions doc"
+   git push origin main
+   ```
+   Use your GitHub repo and branch name if different.
+
+2. **Vercel** will auto-deploy if the project is already connected to GitHub. Otherwise: go to [vercel.com](https://vercel.com) → **Add New** → **Project** → import your repo → add all **VITE_FIREBASE_*** env vars → **Deploy**.
+
+3. **Open the live URL** from the Vercel dashboard. Log in and confirm Sunday Planning and the combined view work.

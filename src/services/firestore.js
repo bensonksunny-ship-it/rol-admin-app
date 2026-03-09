@@ -5,6 +5,7 @@ import {
   getDocs,
   addDoc,
   updateDoc,
+  setDoc,
   deleteDoc,
   query,
   where,
@@ -121,6 +122,68 @@ export async function updateAttendance(id, data) {
   const payload = { ...data }
   if (data.date) payload.date = Timestamp.fromDate(new Date(data.date))
   await updateDoc(doc(db, 'attendance', id), payload)
+}
+
+// Sunday Ministry Plans (one doc per date, sections filled by departments)
+export async function getSundayPlan(dateStr) {
+  if (!db) return null
+  const ref = doc(db, 'sunday_plans', dateStr)
+  const snap = await getDoc(ref)
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null
+}
+
+export async function setSundayPlanSection(dateStr, sectionKey, sectionData) {
+  if (!db) return
+  const ref = doc(db, 'sunday_plans', dateStr)
+  const snap = await getDoc(ref)
+  const dateTimestamp = Timestamp.fromDate(new Date(dateStr))
+  if (snap.exists()) {
+    await updateDoc(ref, {
+      [sectionKey]: sectionData,
+      updatedAt: Timestamp.now(),
+    })
+  } else {
+    await setDoc(ref, {
+      date: dateTimestamp,
+      [sectionKey]: sectionData,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    })
+  }
+}
+
+export async function setSundayPlanFull(dateStr, data) {
+  if (!db) return
+  const ref = doc(db, 'sunday_plans', dateStr)
+  const dateTimestamp = Timestamp.fromDate(new Date(dateStr))
+  const snap = await getDoc(ref)
+  const payload = {
+    ...data,
+    date: dateTimestamp,
+    updatedAt: Timestamp.now(),
+  }
+  if (snap.exists()) {
+    await updateDoc(ref, payload)
+  } else {
+    await setDoc(ref, { ...payload, createdAt: Timestamp.now() })
+  }
+}
+
+export async function getSundayPlansForYear(year) {
+  if (!db) return []
+  const start = new Date(year, 0, 1)
+  const end = new Date(year, 11, 31, 23, 59, 59)
+  const q = query(
+    collection(db, 'sunday_plans'),
+    where('date', '>=', Timestamp.fromDate(start)),
+    where('date', '<=', Timestamp.fromDate(end)),
+    orderBy('date', 'desc')
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, date: data.date?.toDate?.() ?? data.date }
+  })
 }
 
 // Finance Income

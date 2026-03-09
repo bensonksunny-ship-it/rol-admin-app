@@ -40,6 +40,11 @@ export function AuthProvider({ children }) {
     return ROLE_PERMISSIONS[userProfile.role]?.[permission] ?? false
   }
 
+  const canEditSundaySection = (sectionKey) => {
+    if (hasPermission('editSundayPlanFull')) return true
+    return userProfile?.sundaySection === sectionKey
+  }
+
   const value = {
     user,
     userProfile,
@@ -47,6 +52,7 @@ export function AuthProvider({ children }) {
     signIn,
     signOut,
     hasPermission,
+    canEditSundaySection,
     isFounder: userProfile?.role === ROLES.FOUNDER,
   }
 

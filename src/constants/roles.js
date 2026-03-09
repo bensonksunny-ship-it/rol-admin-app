@@ -4,6 +4,7 @@ export const ROLES = {
   ADMIN: 'Admin',
   FINANCE_TEAM: 'Finance Team',
   MINISTRY_LEADER: 'Ministry Leaders',
+  OFFICE_SECRETARY: 'Office Secretary',
   VIEWER: 'Viewer',
 }
 
@@ -20,6 +21,7 @@ export const ROLE_PERMISSIONS = {
     enterAttendance: true,
     enterFinance: true,
     exportReports: true,
+    editSundayPlanFull: true,
   },
   [ROLES.DIRECTOR]: {
     dashboard: true,
@@ -33,6 +35,7 @@ export const ROLE_PERMISSIONS = {
     enterAttendance: false,
     enterFinance: false,
     exportReports: true,
+    editSundayPlanFull: true,
   },
   [ROLES.ADMIN]: {
     dashboard: true,
@@ -46,6 +49,7 @@ export const ROLE_PERMISSIONS = {
     enterAttendance: true,
     enterFinance: false,
     exportReports: true,
+    editSundayPlanFull: true,
   },
   [ROLES.FINANCE_TEAM]: {
     dashboard: true,
@@ -59,6 +63,7 @@ export const ROLE_PERMISSIONS = {
     enterAttendance: false,
     enterFinance: true,
     exportReports: true,
+    editSundayPlanFull: false,
   },
   [ROLES.MINISTRY_LEADER]: {
     dashboard: true,
@@ -72,6 +77,21 @@ export const ROLE_PERMISSIONS = {
     enterAttendance: true,
     enterFinance: false,
     exportReports: false,
+    editSundayPlanFull: false,
+  },
+  [ROLES.OFFICE_SECRETARY]: {
+    dashboard: true,
+    departments: true,
+    tasks: true,
+    attendance: true,
+    finance: true,
+    reports: true,
+    manageUsers: false,
+    manageDepartments: false,
+    enterAttendance: false,
+    enterFinance: false,
+    exportReports: true,
+    editSundayPlanFull: false,
   },
   [ROLES.VIEWER]: {
     dashboard: true,
@@ -85,6 +105,7 @@ export const ROLE_PERMISSIONS = {
     enterAttendance: false,
     enterFinance: false,
     exportReports: false,
+    editSundayPlanFull: false,
   },
 }
 
@@ -141,3 +162,24 @@ export const TASK_STATUS = {
 }
 
 export const TASK_PRIORITY = ['Low', 'Medium', 'High', 'Urgent']
+
+// Sunday Ministry Planning – sections (each department fills one)
+export const SUNDAY_PLAN_SECTIONS = {
+  SUNDAY_MINISTRY: 'sundayMinistry',
+  WORSHIP: 'worship',
+  SUNDAY_LEADER: 'sundayLeader',
+  MEDIA: 'media',
+  ANNOUNCEMENTS: 'announcements',
+  D_LITE: 'dLite',
+  RIVER_KIDS: 'riverKids',
+}
+
+// Roles that can edit a specific section only (same login, different view)
+export const SECTION_ROLES = {
+  'Sunday Ministry': SUNDAY_PLAN_SECTIONS.SUNDAY_MINISTRY,
+  'Worship': SUNDAY_PLAN_SECTIONS.WORSHIP,
+  'Media': SUNDAY_PLAN_SECTIONS.MEDIA,
+  'D-Lite': SUNDAY_PLAN_SECTIONS.D_LITE,
+  'River Kids': SUNDAY_PLAN_SECTIONS.RIVER_KIDS,
+  'Announcements': SUNDAY_PLAN_SECTIONS.ANNOUNCEMENTS,
+}
