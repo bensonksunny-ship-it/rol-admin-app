@@ -11,6 +11,7 @@ import SundayMinistry from './pages/SundayMinistry'
 import SundayPlanning from './pages/SundayPlanning'
 import Finance from './pages/Finance'
 import Reports from './pages/Reports'
+import DepartmentWorship from './pages/DepartmentWorship'
 
 function App() {
   return (
@@ -34,6 +35,7 @@ function App() {
             <Route path="sunday-planning" element={<SundayPlanning />} />
             <Route path="finance" element={<Finance />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="department/worship" element={<DepartmentWorship />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

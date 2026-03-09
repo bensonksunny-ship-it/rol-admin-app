@@ -87,6 +87,33 @@ export async function deleteTask(id) {
   await deleteDoc(doc(db, 'tasks', id))
 }
 
+// Department entries (director data: team, budget, participation – same data for pastor insights)
+export async function getDepartmentEntries(department, filters = {}) {
+  if (!db) return []
+  const constraints = [where('department', '==', department)]
+  if (filters.period) constraints.push(where('period', '==', filters.period))
+  let q = query(
+    collection(db, 'department_entries'),
+    ...constraints,
+    orderBy('createdAt', 'desc')
+  )
+  if (filters.limit) q = query(q, limit(filters.limit))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
+  })
+}
+
+export async function addDepartmentEntry(data) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, 'department_entries'), {
+    ...data,
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
 // Attendance (Sunday Ministry)
 export async function getAttendance(filters = {}) {
   let q = collection(db, 'attendance')

@@ -8,6 +8,7 @@ const navItems = [
   { to: '/tasks', label: 'Tasks', icon: '✅', permission: 'tasks' },
   { to: '/sunday-ministry', label: 'Sunday Ministry', icon: '📅', permission: 'attendance' },
   { to: '/sunday-planning', label: 'Sunday Planning', icon: '📋', permission: 'attendance' },
+  { to: '/department/worship', label: 'Worship', icon: '🎵', permission: 'viewDepartmentInsights', orDepartment: 'Worship' },
   { to: '/finance', label: 'Finance', icon: '💰', permission: 'finance' },
   { to: '/reports', label: 'Reports', icon: '📋', permission: 'reports' },
 ]
@@ -16,7 +17,11 @@ export default function Sidebar() {
   const { userProfile, signOut, hasPermission } = useAuth()
   const [open, setOpen] = useState(false)
 
-  const visible = navItems.filter((item) => hasPermission(item.permission))
+  const visible = navItems.filter((item) =>
+    item.orDepartment
+      ? hasPermission(item.permission) || userProfile?.department === item.orDepartment
+      : hasPermission(item.permission)
+  )
 
   return (
     <>

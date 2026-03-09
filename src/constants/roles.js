@@ -22,6 +22,7 @@ export const ROLE_PERMISSIONS = {
     enterFinance: true,
     exportReports: true,
     editSundayPlanFull: true,
+    viewDepartmentInsights: true,
   },
   [ROLES.DIRECTOR]: {
     dashboard: true,
@@ -36,6 +37,7 @@ export const ROLE_PERMISSIONS = {
     enterFinance: false,
     exportReports: true,
     editSundayPlanFull: true,
+    viewDepartmentInsights: true,
   },
   [ROLES.ADMIN]: {
     dashboard: true,
@@ -50,6 +52,7 @@ export const ROLE_PERMISSIONS = {
     enterFinance: false,
     exportReports: true,
     editSundayPlanFull: true,
+    viewDepartmentInsights: true,
   },
   [ROLES.FINANCE_TEAM]: {
     dashboard: true,
@@ -64,6 +67,7 @@ export const ROLE_PERMISSIONS = {
     enterFinance: true,
     exportReports: true,
     editSundayPlanFull: false,
+    viewDepartmentInsights: false,
   },
   [ROLES.MINISTRY_LEADER]: {
     dashboard: true,
@@ -78,6 +82,7 @@ export const ROLE_PERMISSIONS = {
     enterFinance: false,
     exportReports: false,
     editSundayPlanFull: false,
+    viewDepartmentInsights: false,
   },
   [ROLES.OFFICE_SECRETARY]: {
     dashboard: true,
@@ -92,6 +97,7 @@ export const ROLE_PERMISSIONS = {
     enterFinance: false,
     exportReports: true,
     editSundayPlanFull: false,
+    viewDepartmentInsights: false,
   },
   [ROLES.VIEWER]: {
     dashboard: true,
@@ -106,6 +112,7 @@ export const ROLE_PERMISSIONS = {
     enterFinance: false,
     exportReports: false,
     editSundayPlanFull: false,
+    viewDepartmentInsights: false,
   },
 }
 
