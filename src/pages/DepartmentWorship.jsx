@@ -6,7 +6,6 @@ import {
   addWorshipTeamMember,
   getWorshipScheduleByDate,
   setWorshipScheduleByDate,
-  getWorshipSchedulesForDepartment,
   updateWorshipTeamMember,
   deleteWorshipTeamMember,
 } from '../services/firestore'
@@ -130,8 +129,6 @@ export default function DepartmentWorship() {
   const [loadingComingPlan, setLoadingComingPlan] = useState(false)
   const [savingComingPlan, setSavingComingPlan] = useState(false)
   const [editMember, setEditMember] = useState(null)
-  const [historyPlans, setHistoryPlans] = useState([])
-  const [loadingHistory, setLoadingHistory] = useState(false)
 
   useEffect(() => {
     getDepartmentEntries(DEPARTMENT, { limit: 100 })
@@ -205,22 +202,8 @@ export default function DepartmentWorship() {
     loadComingPlan(d)
   }, [])
 
-  async function loadHistory() {
-    setLoadingHistory(true)
-    try {
-      const list = await getWorshipSchedulesForDepartment(DEPARTMENT, { limit: 20 })
-      setHistoryPlans(list)
-    } catch (e) {
-      console.error(e)
-      setHistoryPlans([])
-    } finally {
-      setLoadingHistory(false)
-    }
-  }
-
   useEffect(() => {
     if (activeTab === 'assign' && selectedDate) loadScheduleForDate(selectedDate)
-    if (activeTab === 'history') loadHistory()
   }, [activeTab, selectedDate])
 
   function getAssignedMemberId(role) {
@@ -339,15 +322,6 @@ export default function DepartmentWorship() {
             >
               Budget & Spending
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('history')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-                activeTab === 'history' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              History
-            </button>
           </>
         )}
         {(canManageWorship || canViewInsights) && (
@@ -426,7 +400,7 @@ export default function DepartmentWorship() {
               )}
             </div>
 
-            <div className="lg:col-span-3 rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-6xl mx-auto" style={{ maxHeight: '33vh', minHeight: 340 }}>
+            <div className="lg:col-span-3 rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-4xl mx-auto" style={{ maxHeight: '33vh', minHeight: 320 }}>
               <div className="h-full flex flex-col bg-gradient-to-br from-amber-50 via-white to-blue-50">
                 <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-amber-500/20 to-blue-500/20 border-b border-amber-200/50">
                   <div>
@@ -792,106 +766,6 @@ export default function DepartmentWorship() {
         </div>
       )}
 
-      {activeTab === 'history' && (canManageWorship || canViewInsights) && (
-        <div className="space-y-4">
-          {loadingHistory ? (
-            <div className="py-8 text-center text-slate-500">Loading worship plans…</div>
-          ) : historyPlans.length === 0 ? (
-            <div className="py-8 text-center text-slate-500">No saved worship plans yet. Use Assign team and Summary to create plans; they will appear here week by week.</div>
-          ) : (
-            historyPlans.map((plan) => {
-              const songs = Array.isArray(plan.songs)
-                ? plan.songs.map((s) => ({
-                    title: s?.title ?? '',
-                    key: s?.key ?? '',
-                    memberName: s?.memberName ?? '',
-                  }))
-                : []
-              return (
-                <div
-                  key={plan.id}
-                  className="bg-white rounded-xl border border-slate-200 shadow-sm max-w-6xl mx-auto overflow-hidden"
-                >
-                  <div className="px-5 py-3 flex flex-wrap items-center justify-between gap-3 bg-slate-50 border-b border-slate-200">
-                    <div>
-                      <h3 className="font-semibold text-slate-800">
-                        Worship plan – {formatDMY(plan.date || '')}
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Director: <span className="font-medium text-slate-700">{plan.worshipDirectorName || '—'}</span>
-                      </p>
-                    </div>
-                    {canManageWorship && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedDate(plan.date)
-                          setActiveTab('assign')
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700"
-                      >
-                        Open in Assign
-                      </button>
-                    )}
-                  </div>
-                  <div className="p-5 space-y-4">
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-700 mb-2">Team by role</h4>
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-100">
-                          <tr>
-                            <th className="text-left px-4 py-2 font-semibold text-slate-700 w-56">Role</th>
-                            <th className="text-left px-4 py-2 font-semibold text-slate-700">Assigned to</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {ASSIGNMENT_ROLES.map((role) => {
-                            const a = (plan.assignments || []).find((x) => x.role === role)
-                            return (
-                              <tr key={role} className="hover:bg-slate-50/60">
-                                <td className="px-4 py-2 font-medium text-slate-800">{role}</td>
-                                <td className="px-4 py-2 text-slate-600">{a?.memberName || '—'}</td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-700 mb-2">Songs & lead vocalist</h4>
-                      {songs.length === 0 ? (
-                        <p className="text-xs text-slate-500">No songs recorded for this plan.</p>
-                      ) : (
-                        <table className="w-full text-sm">
-                          <thead className="bg-slate-100">
-                            <tr>
-                              <th className="text-left px-4 py-2 font-semibold text-slate-700 w-8">#</th>
-                              <th className="text-left px-4 py-2 font-semibold text-slate-700">Song</th>
-                              <th className="text-left px-4 py-2 font-semibold text-slate-700 w-24">Key</th>
-                              <th className="text-left px-4 py-2 font-semibold text-slate-700">Lead vocalist</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {songs.map((s, idx) => (
-                              <tr key={`${idx}-${s.title}`} className="hover:bg-slate-50/60">
-                                <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
-                                <td className="px-4 py-2 text-slate-800">{s.title || '—'}</td>
-                                <td className="px-4 py-2 text-slate-600">{s.key || '—'}</td>
-                                <td className="px-4 py-2 text-slate-600">{s.memberName || '—'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-      )}
-
       {editMember && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditMember(null)}>
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5" onClick={(e) => e.stopPropagation()}>
@@ -1028,75 +902,43 @@ export default function DepartmentWorship() {
           ) : teamMembers.length === 0 ? (
             <div className="p-8 text-center text-slate-500">Add team members in the Team tab first (e.g. &quot;Add demo team&quot; for demo names).</div>
           ) : (
-            <>
-              <table className="w-full">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-[220px]">Role</th>
-                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Assigned to</th>
+            <table className="w-full">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-[220px]">Role</th>
+                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Assigned to</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {ASSIGNMENT_ROLES.map((role) => (
+                  <tr key={role} className="hover:bg-slate-50/50">
+                    <td className="px-5 py-2 font-medium text-slate-800">{role}</td>
+                    <td className="px-5 py-2">
+                      <select
+                        value={getAssignedMemberId(role)}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          const member = teamMembers.find((m) => m.id === val)
+                          setAssignmentForRole(role, val || '', member?.name || '')
+                        }}
+                        className="w-full max-w-[220px] px-3 py-2 text-sm rounded border border-slate-300 bg-white"
+                      >
+                        <option value="">— Not assigned</option>
+                        {(() => {
+                          const posKey = positionKeyForRole(role)
+                          const eligible = posKey
+                            ? teamMembers.filter((m) => m.positions?.includes(posKey))
+                            : teamMembers
+                          return eligible.map((m) => (
+                            <option key={m.id} value={m.id}>{m.name}</option>
+                          ))
+                        })()}
+                      </select>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {ASSIGNMENT_ROLES.map((role) => (
-                    <tr key={role} className="hover:bg-slate-50/50">
-                      <td className="px-5 py-2 font-medium text-slate-800">{role}</td>
-                      <td className="px-5 py-2">
-                        <select
-                          value={getAssignedMemberId(role)}
-                          onChange={(e) => {
-                            const val = e.target.value
-                            const member = teamMembers.find((m) => m.id === val)
-                            setAssignmentForRole(role, val || '', member?.name || '')
-                          }}
-                          className="w-full max-w-[220px] px-3 py-2 text-sm rounded border border-slate-300 bg-white"
-                        >
-                          <option value="">— Not assigned</option>
-                          {(() => {
-                            const posKey = positionKeyForRole(role)
-                            const eligible = posKey
-                              ? teamMembers.filter((m) => m.positions?.includes(posKey))
-                              : teamMembers
-                            return eligible.map((m) => (
-                              <option key={m.id} value={m.id}>{m.name}</option>
-                            ))
-                          })()}
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="px-5 py-4 flex flex-wrap justify-end gap-3 border-t border-slate-200">
-                <p className="text-xs text-slate-500 mr-auto">
-                  Completed will save this list for planning and clear the table for the next assignment.
-                </p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      // Ensure latest assignments are saved for this date
-                      await setWorshipScheduleByDate(
-                        DEPARTMENT,
-                        selectedDate,
-                        scheduleForDate.assignments || [],
-                        userProfile?.email
-                      )
-                      if (selectedDate === comingSundayDate) {
-                        await loadComingPlan(comingSundayDate)
-                      }
-                      // Clear local table so it is fresh for the next assignment
-                      setScheduleForDate((s) => ({ ...s, assignments: [] }))
-                    } catch (e) {
-                      console.error(e)
-                      alert('Failed to complete assignment')
-                    }
-                  }}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
-                >
-                  Completed
-                </button>
-              </div>
-            </>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       )}

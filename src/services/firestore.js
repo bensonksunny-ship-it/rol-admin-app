@@ -187,23 +187,6 @@ export async function setWorshipScheduleByDate(department, date, assignments, up
   return ref.id
 }
 
-// Worship schedules history for a department (used for stacked Sunday plan view)
-export async function getWorshipSchedulesForDepartment(department, options = {}) {
-  if (!db) return []
-  const q = query(
-    collection(db, 'worship_schedule'),
-    where('department', '==', department)
-  )
-  const snap = await getDocs(q)
-  let list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-  // Sort by date string (stored as yyyy-MM-dd) descending
-  list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-  if (options.limit && options.limit > 0) {
-    list = list.slice(0, options.limit)
-  }
-  return list
-}
-
 // Attendance (Sunday Ministry)
 export async function getAttendance(filters = {}) {
   let q = collection(db, 'attendance')
