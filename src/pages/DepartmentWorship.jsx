@@ -17,7 +17,7 @@ import { formatDMY } from '../utils/date'
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
 
-// Fixed roles on the left of the assign table (master list for each week)
+// Fixed roles on the left of the assign table (master list per service)
 const ASSIGNMENT_ROLES = [
   'Lead Vocal-1',
   'Lead Vocal-2',
@@ -37,6 +37,19 @@ const ASSIGNMENT_ROLES = [
   'Acoustic guitar',
   'Drums',
   'Sound Engineer',
+]
+
+const MEMBER_POSITIONS = [
+  'Lead vocal',
+  'Parts',
+  'Choir',
+  'Lead guitar',
+  'Guitar',
+  'Bass',
+  'Keyboard',
+  'Drums',
+  'Sound engineer',
+  'Media',
 ]
 
 const DEMO_TEAM = [
@@ -75,7 +88,13 @@ export default function DepartmentWorship() {
   const [formerMembers, setFormerMembers] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(true)
   const [teamError, setTeamError] = useState(null)
-  const [newMember, setNewMember] = useState({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false })
+  const [newMember, setNewMember] = useState({
+    name: '',
+    memberSince: new Date().toISOString().slice(0, 10),
+    isFormer: false,
+    positions: [],
+    isWorshipDirector: false,
+  })
   const [form, setForm] = useState({
     type: 'team',
     period: PERIOD,
@@ -336,30 +355,10 @@ export default function DepartmentWorship() {
           {/* Worship director name at top */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
             <label className="block text-sm font-medium text-slate-700 mb-2">Worship director</label>
-            {canManageWorship ? (
-              <input
-                type="text"
-                value={comingPlan.worshipDirectorName || ''}
-                onChange={(e) => setComingPlan((p) => ({ ...p, worshipDirectorName: e.target.value }))}
-                onBlur={async () => {
-                  try {
-                    await setWorshipScheduleByDate(
-                      DEPARTMENT,
-                      comingSundayDate,
-                      comingPlan.assignments || [],
-                      userProfile?.email,
-                      { songs: comingPlan.songs || [], worshipDirectorName: comingPlan.worshipDirectorName || '' }
-                    )
-                  } catch (err) {
-                    console.error(err)
-                  }
-                }}
-                placeholder="Enter worship director name"
-                className="w-full max-w-md px-4 py-2 rounded-lg border border-slate-300"
-              />
-            ) : (
-              <p className="text-slate-800 font-medium">{comingPlan.worshipDirectorName || '—'}</p>
-            )}
+            {(() => {
+              const director = teamMembers.find((m) => m.isWorshipDirector)
+              return <p className="text-slate-800 font-medium">{director?.name || '— (set in Team tab)'}</p>
+            })()}
           </div>
 
           {/* Compact summary box + Plan coming Sunday (~1/3 height), colourful */}
@@ -381,7 +380,7 @@ export default function DepartmentWorship() {
               )}
             </div>
 
-            <div className="lg:col-span-3 rounded-2xl overflow-hidden shadow-lg border border-slate-200" style={{ maxHeight: '33vh', minHeight: 280 }}>
+            <div className="lg:col-span-3 rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-4xl mx-auto" style={{ maxHeight: '33vh', minHeight: 320 }}>
               <div className="h-full flex flex-col bg-gradient-to-br from-amber-50 via-white to-blue-50">
                 <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-amber-500/20 to-blue-500/20 border-b border-amber-200/50">
                   <div>
@@ -434,7 +433,7 @@ export default function DepartmentWorship() {
                                       setComingPlan((p) => ({ ...p, songs: next }))
                                     }}
                                     placeholder="Song"
-                                    className="w-full px-2 py-1 rounded border border-slate-300 text-xs"
+                                    className="w-full md:w-64 lg:w-80 px-3 py-1.5 rounded border border-slate-300 text-xs md:text-sm"
                                   />
                                 ) : isLeadVocal ? (
                                   <span className="text-slate-600">{songKey.title || '—'}</span>
@@ -452,7 +451,7 @@ export default function DepartmentWorship() {
                                       setComingPlan((p) => ({ ...p, songs: next }))
                                     }}
                                     placeholder="Key"
-                                    className="w-full px-2 py-1 rounded border border-slate-300 text-xs"
+                                    className="w-24 md:w-32 px-3 py-1.5 rounded border border-slate-300 text-xs md:text-sm"
                                   />
                                 ) : isLeadVocal ? (
                                   <span className="text-slate-600">{songKey.key || '—'}</span>
@@ -510,8 +509,24 @@ export default function DepartmentWorship() {
                   e.preventDefault()
                   if (!newMember.name.trim()) return
                   try {
-                    await addWorshipTeamMember(DEPARTMENT, { name: newMember.name.trim(), memberSince: newMember.memberSince, isFormer: newMember.isFormer }, userProfile?.email)
-                    setNewMember({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false })
+                    await addWorshipTeamMember(
+                      DEPARTMENT,
+                      {
+                        name: newMember.name.trim(),
+                        memberSince: newMember.memberSince,
+                        isFormer: newMember.isFormer,
+                        positions: newMember.positions,
+                        isWorshipDirector: newMember.isWorshipDirector,
+                      },
+                      userProfile?.email
+                    )
+                    setNewMember({
+                      name: '',
+                      memberSince: new Date().toISOString().slice(0, 10),
+                      isFormer: false,
+                      positions: [],
+                      isWorshipDirector: false,
+                    })
                     await loadTeam()
                   } catch (err) {
                     console.error(err)
@@ -522,10 +537,43 @@ export default function DepartmentWorship() {
               >
                 <input type="text" placeholder="Name" value={newMember.name} onChange={(e) => setNewMember((m) => ({ ...m, name: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300 w-40" />
                 <input type="date" value={newMember.memberSince} onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300" />
-                <label className="flex items-center gap-2 text-sm text-slate-600">
-                  <input type="checkbox" checked={newMember.isFormer} onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))} />
-                  Former
-                </label>
+                <div className="flex flex-wrap gap-3 items-center text-sm text-slate-600">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={newMember.isFormer}
+                      onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))}
+                    />
+                    Former
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={newMember.isWorshipDirector}
+                      onChange={(e) => setNewMember((m) => ({ ...m, isWorshipDirector: e.target.checked }))}
+                    />
+                    Set as worship director
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs text-slate-600">
+                  {MEMBER_POSITIONS.map((pos) => (
+                    <label key={pos} className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-50 border border-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={newMember.positions.includes(pos)}
+                        onChange={(e) =>
+                          setNewMember((m) => ({
+                            ...m,
+                            positions: e.target.checked
+                              ? [...m.positions, pos]
+                              : m.positions.filter((p) => p !== pos),
+                          }))
+                        }
+                      />
+                      <span>{pos}</span>
+                    </label>
+                  ))}
+                </div>
                 <button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 text-white font-medium hover:bg-slate-900">Add</button>
               </form>
               {teamMembers.length === 0 && (
@@ -549,7 +597,7 @@ export default function DepartmentWorship() {
                       <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-12">SL</th>
                       <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Name</th>
                       <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Member since</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Duration</th>
+                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Duration & positions</th>
                       {canManageWorship && <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Action</th>}
                     </tr>
                   </thead>
@@ -559,7 +607,14 @@ export default function DepartmentWorship() {
                         <td className="px-5 py-3 text-slate-600">{i + 1}</td>
                         <td className="px-5 py-3 font-medium text-slate-800">{m.name}</td>
                         <td className="px-5 py-3 text-slate-600">{formatDMY(m.memberSince)}</td>
-                        <td className="px-5 py-3 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
+                        <td className="px-5 py-3 text-slate-600">
+                          {differenceInDays(new Date(), new Date(m.memberSince))} days
+                          {m.positions?.length ? (
+                            <span className="block text-xs text-slate-500 mt-1">
+                              Positions: {m.positions.join(', ')}
+                            </span>
+                          ) : null}
+                        </td>
                         {canManageWorship && (
                           <td className="px-5 py-3">
                             <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>

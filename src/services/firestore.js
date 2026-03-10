@@ -140,6 +140,8 @@ export async function addWorshipTeamMember(department, data, addedBy) {
     name: data.name,
     memberSince: data.memberSince || new Date().toISOString().slice(0, 10),
     isFormer: data.isFormer ?? false,
+    positions: Array.isArray(data.positions) ? data.positions : [],
+    isWorshipDirector: !!data.isWorshipDirector,
     addedBy: addedBy || 'unknown',
     createdAt: Timestamp.now(),
   })
