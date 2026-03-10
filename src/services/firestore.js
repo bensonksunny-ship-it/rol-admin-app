@@ -160,10 +160,10 @@ export async function getWorshipScheduleByDate(department, date) {
   )
   const snap = await getDocs(q)
   const d = snap.docs.find((doc) => doc.data().date === date)
-  return d ? { id: d.id, ...d.data() } : { date, assignments: [] }
+  return d ? { id: d.id, ...d.data() } : { date, assignments: [], songs: [] }
 }
 
-export async function setWorshipScheduleByDate(department, date, assignments, updatedBy) {
+export async function setWorshipScheduleByDate(department, date, assignments, updatedBy, extra = {}) {
   if (!db) return null
   const q = query(
     collection(db, 'worship_schedule'),
@@ -171,7 +171,7 @@ export async function setWorshipScheduleByDate(department, date, assignments, up
   )
   const snap = await getDocs(q)
   const existing = snap.docs.find((doc) => doc.data().date === date)
-  const payload = { department, date, assignments, updatedBy, updatedAt: Timestamp.now() }
+  const payload = { department, date, assignments, updatedBy, updatedAt: Timestamp.now(), ...extra }
   if (existing) {
     await updateDoc(doc(db, 'worship_schedule', existing.id), payload)
     return existing.id

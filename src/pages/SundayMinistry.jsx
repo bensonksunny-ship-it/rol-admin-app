@@ -14,6 +14,7 @@ import {
 import { getAttendance, createAttendance, updateAttendance } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns'
+import { formatDMY } from '../utils/date'
 
 function computeTotals(record) {
   const eng = Number(record.englishService) || 0
@@ -227,7 +228,7 @@ export default function SundayMinistry() {
                   return (
                     <tr key={r.id} className="hover:bg-slate-50">
                       <td className="px-5 py-3 text-slate-800">
-                        {r.date ? format(new Date(r.date), 'dd MMM yyyy') : '—'}
+                        {formatDMY(r.date)}
                       </td>
                       <td className="px-5 py-3 text-slate-600">{r.englishService ?? '—'}</td>
                       <td className="px-5 py-3 text-slate-600">{r.tamilService ?? '—'}</td>

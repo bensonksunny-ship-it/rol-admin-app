@@ -16,6 +16,7 @@ import { getFinanceIncome, getFinanceExpense, createFinanceIncome, createFinance
 import { useAuth } from '../context/AuthContext'
 import { INCOME_TYPES, EXPENSE_CATEGORIES } from '../constants/roles'
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns'
+import { formatDMY } from '../utils/date'
 
 const PIE_COLORS = ['#1e40af', '#3b82f6', '#60a5fa', '#93c5fd', '#10b981', '#34d399', '#f59e0b', '#f97316', '#ef4444', '#ec4899', '#8b5cf6', '#a78bfa', '#6366f1']
 
@@ -300,7 +301,7 @@ export default function Finance() {
                 {income.map((i) => (
                   <tr key={i.id} className="hover:bg-slate-50">
                     <td className="px-5 py-3 text-slate-800">
-                      {i.date ? format(new Date(i.date), 'dd MMM yyyy') : '—'}
+                      {formatDMY(i.date)}
                     </td>
                     <td className="px-5 py-3 text-slate-600">{i.category || '—'}</td>
                     <td className="px-5 py-3 font-medium text-emerald-600">
@@ -338,7 +339,7 @@ export default function Finance() {
                 {expense.map((e) => (
                   <tr key={e.id} className="hover:bg-slate-50">
                     <td className="px-5 py-3 text-slate-800">
-                      {e.date ? format(new Date(e.date), 'dd MMM yyyy') : '—'}
+                      {formatDMY(e.date)}
                     </td>
                     <td className="px-5 py-3 text-slate-600">{e.category || '—'}</td>
                     <td className="px-5 py-3 font-medium text-red-600">

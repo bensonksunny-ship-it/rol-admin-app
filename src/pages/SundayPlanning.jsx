@@ -3,6 +3,7 @@ import { getSundayPlan, setSundayPlanSection, setSundayPlanFull } from '../servi
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
+import { formatDMY } from '../utils/date'
 
 const SECTION_LABELS = {
   [SUNDAY_PLAN_SECTIONS.SUNDAY_MINISTRY]: 'Sunday Ministry Team',
@@ -163,7 +164,7 @@ export default function SundayPlanning() {
       ) : (
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
-            Combined sheet for {format(new Date(selectedDate), 'EEEE, d MMMM yyyy')}. Export from Reports when needed.
+            Combined sheet for {formatDMY(selectedDate)}. Export from Reports when needed.
           </p>
           {SECTION_ORDER.map((key) => (
             <SectionForm

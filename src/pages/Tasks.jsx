@@ -3,6 +3,7 @@ import { getTasks, createTask, updateTask, deleteTask } from '../services/firest
 import { useAuth } from '../context/AuthContext'
 import { DEPARTMENTS, TASK_STATUS, TASK_PRIORITY } from '../constants/roles'
 import { format } from 'date-fns'
+import { formatDMY } from '../utils/date'
 
 export default function Tasks() {
   const { hasPermission } = useAuth()
@@ -201,7 +202,7 @@ export default function Tasks() {
                       </span>
                     </td>
                     <td className="px-5 py-3 text-slate-600">
-                      {t.deadline ? format(new Date(t.deadline), 'dd MMM yyyy') : '—'}
+                      {formatDMY(t.deadline)}
                     </td>
                     <td className="px-5 py-3">
                       <span

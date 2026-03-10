@@ -6,10 +6,12 @@ import {
   addWorshipTeamMember,
   getWorshipScheduleByDate,
   setWorshipScheduleByDate,
+  updateWorshipTeamMember,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { format, subMonths, differenceInDays } from 'date-fns'
+import { formatDMY } from '../utils/date'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -54,6 +56,15 @@ const DEMO_TEAM = [
   { name: 'Surya', memberSince: '2019-11-03' },
 ]
 
+function nextSundayISO() {
+  const today = new Date()
+  const day = today.getDay() // 0 = Sunday
+  const daysUntilSunday = (7 - day) % 7
+  const next = new Date(today)
+  next.setDate(today.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday))
+  return format(next, 'yyyy-MM-dd')
+}
+
 export default function DepartmentWorship() {
   const { userProfile, hasPermission, isFounder } = useAuth()
   const [entries, setEntries] = useState([])
@@ -80,6 +91,10 @@ export default function DepartmentWorship() {
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [scheduleForDate, setScheduleForDate] = useState({ date: '', assignments: [] })
   const [loadingSchedule, setLoadingSchedule] = useState(false)
+  const [comingSundayDate, setComingSundayDate] = useState(() => nextSundayISO())
+  const [comingPlan, setComingPlan] = useState({ date: '', assignments: [], songs: [] })
+  const [loadingComingPlan, setLoadingComingPlan] = useState(false)
+  const [savingComingPlan, setSavingComingPlan] = useState(false)
 
   useEffect(() => {
     getDepartmentEntries(DEPARTMENT, { limit: 100 })
@@ -123,6 +138,25 @@ export default function DepartmentWorship() {
     }
   }
 
+  async function loadComingPlan(date) {
+    setLoadingComingPlan(true)
+    try {
+      const data = await getWorshipScheduleByDate(DEPARTMENT, date)
+      setComingPlan({ ...data, songs: Array.isArray(data.songs) ? data.songs : [] })
+    } catch (e) {
+      console.error(e)
+      setComingPlan({ date, assignments: [], songs: [] })
+    } finally {
+      setLoadingComingPlan(false)
+    }
+  }
+
+  useEffect(() => {
+    const d = nextSundayISO()
+    setComingSundayDate(d)
+    loadComingPlan(d)
+  }, [])
+
   useEffect(() => {
     if (activeTab === 'assign' && selectedDate) loadScheduleForDate(selectedDate)
   }, [activeTab, selectedDate])
@@ -145,6 +179,9 @@ export default function DepartmentWorship() {
     try {
       await setWorshipScheduleByDate(DEPARTMENT, selectedDate, list, userProfile?.email)
       setScheduleForDate((s) => ({ ...s, assignments: list }))
+      if (selectedDate === comingSundayDate) {
+        setComingPlan((p) => ({ ...p, assignments: list }))
+      }
     } catch (e) {
       console.error(e)
       alert('Failed to save')
@@ -278,7 +315,7 @@ export default function DepartmentWorship() {
       </div>
 
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <h2 className="font-semibold text-slate-800 mb-4">Department Summary Box</h2>
             {teamError && (
@@ -291,7 +328,7 @@ export default function DepartmentWorship() {
             ) : (
               <>
                 <div className="space-y-2 text-sm text-slate-600">
-                  <p>Coordinator since: <span className="text-slate-800">01/04/2022</span></p>
+                  <p>Coordinator since: <span className="text-slate-800">{formatDMY('2022-04-01')}</span></p>
                   <p>Duration: <span className="text-slate-800">{differenceInDays(new Date(), new Date('2022-04-01'))} days</span></p>
                   <p>Members: <span className="text-slate-800 font-medium">{teamMembers.length}</span></p>
                 </div>
@@ -342,7 +379,143 @@ export default function DepartmentWorship() {
               </>
             )}
           </div>
-          <div className="lg:col-span-2 space-y-4">
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-slate-800">Plan coming Sunday</h2>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Date: <span className="font-medium text-slate-800">{formatDMY(comingSundayDate)}</span>
+                  </p>
+                </div>
+                {canManageWorship && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate(comingSundayDate)
+                      setActiveTab('assign')
+                    }}
+                    className="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm hover:bg-slate-900"
+                  >
+                    Open Assign for this date
+                  </button>
+                )}
+              </div>
+
+              {loadingComingPlan ? (
+                <div className="py-6 text-center text-slate-500">Loading...</div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">Assigned team</div>
+                    <div className="max-h-56 overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="sr-only">
+                          <tr><th>Role</th><th>Member</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {ASSIGNMENT_ROLES.map((role) => {
+                            const a = (comingPlan.assignments || []).find((x) => x.role === role)
+                            return (
+                              <tr key={role}>
+                                <td className="px-3 py-2 font-medium text-slate-800">{role}</td>
+                                <td className="px-3 py-2 text-slate-600">{a?.memberName || '—'}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">Songs & keys</div>
+                    <div className="p-3 space-y-2">
+                      {(comingPlan.songs || []).map((s, idx) => (
+                        <div key={`${idx}-${s?.title || ''}`} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={s?.title || ''}
+                            onChange={(e) => {
+                              const next = [...(comingPlan.songs || [])]
+                              next[idx] = { ...next[idx], title: e.target.value }
+                              setComingPlan((p) => ({ ...p, songs: next }))
+                            }}
+                            placeholder="Song"
+                            className="flex-1 px-3 py-2 rounded border border-slate-300 text-sm"
+                            disabled={!canManageWorship}
+                          />
+                          <input
+                            type="text"
+                            value={s?.key || ''}
+                            onChange={(e) => {
+                              const next = [...(comingPlan.songs || [])]
+                              next[idx] = { ...next[idx], key: e.target.value }
+                              setComingPlan((p) => ({ ...p, songs: next }))
+                            }}
+                            placeholder="Key"
+                            className="w-24 px-3 py-2 rounded border border-slate-300 text-sm"
+                            disabled={!canManageWorship}
+                          />
+                          {canManageWorship && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = [...(comingPlan.songs || [])]
+                                next.splice(idx, 1)
+                                setComingPlan((p) => ({ ...p, songs: next }))
+                              }}
+                              className="px-2 py-2 text-sm text-slate-500 hover:text-red-600"
+                              title="Remove"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+
+                      {canManageWorship && (
+                        <div className="flex items-center gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setComingPlan((p) => ({ ...p, songs: [...(p.songs || []), { title: '', key: '' }] }))}
+                            className="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm hover:bg-slate-200"
+                          >
+                            Add song
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingComingPlan}
+                            onClick={async () => {
+                              setSavingComingPlan(true)
+                              try {
+                                await setWorshipScheduleByDate(
+                                  DEPARTMENT,
+                                  comingSundayDate,
+                                  comingPlan.assignments || [],
+                                  userProfile?.email,
+                                  { songs: comingPlan.songs || [] }
+                                )
+                                await loadComingPlan(comingSundayDate)
+                              } catch (e) {
+                                console.error(e)
+                                alert('Failed to save')
+                              } finally {
+                                setSavingComingPlan(false)
+                              }
+                            }}
+                            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+                          >
+                            {savingComingPlan ? 'Saving...' : 'Save plan'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Team members</h2>
               {loadingTeam ? (
@@ -350,23 +523,43 @@ export default function DepartmentWorship() {
               ) : teamMembers.length === 0 ? (
                 <div className="p-8 text-center text-slate-500">No team members yet. Use “Add demo team” in Summary to load demo names.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
+                <div className="overflow-x-auto max-h-56 overflow-y-auto">
+                  <table className="w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
-                        <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-12">SL No</th>
-                        <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Name</th>
-                        <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Team member since</th>
-                        <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Duration</th>
+                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
+                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Name</th>
+                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Member since</th>
+                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Duration</th>
+                        {canManageWorship && <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Action</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {teamMembers.map((m, i) => (
                         <tr key={m.id} className="hover:bg-slate-50">
-                          <td className="px-5 py-3 text-slate-600">{i + 1}</td>
-                          <td className="px-5 py-3 font-medium text-slate-800">{m.name}</td>
-                          <td className="px-5 py-3 text-slate-600">{m.memberSince}</td>
-                          <td className="px-5 py-3 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
+                          <td className="px-3 py-2 text-slate-600">{i + 1}</td>
+                          <td className="px-3 py-2 font-medium text-slate-800">{m.name}</td>
+                          <td className="px-3 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
+                          <td className="px-3 py-2 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
+                          {canManageWorship && (
+                            <td className="px-3 py-2">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await updateWorshipTeamMember(m.id, { isFormer: true })
+                                    await loadTeam()
+                                  } catch (e) {
+                                    console.error(e)
+                                    alert('Failed to update member')
+                                  }
+                                }}
+                                className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200"
+                              >
+                                Make former
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -381,23 +574,23 @@ export default function DepartmentWorship() {
               ) : formerMembers.length === 0 ? (
                 <div className="p-8 text-center text-slate-500">No former members recorded.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
+                <div className="overflow-x-auto max-h-56 overflow-y-auto">
+                  <table className="w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
-                        <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-12">SL No</th>
-                        <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Name</th>
-                        <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Member since</th>
-                        <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Duration</th>
+                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
+                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Name</th>
+                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Member since</th>
+                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Duration</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {formerMembers.map((m, i) => (
                         <tr key={m.id} className="hover:bg-slate-50">
-                          <td className="px-5 py-3 text-slate-600">{i + 1}</td>
-                          <td className="px-5 py-3 font-medium text-slate-800">{m.name}</td>
-                          <td className="px-5 py-3 text-slate-600">{m.memberSince}</td>
-                          <td className="px-5 py-3 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
+                          <td className="px-3 py-2 text-slate-600">{i + 1}</td>
+                          <td className="px-3 py-2 font-medium text-slate-800">{m.name}</td>
+                          <td className="px-3 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
+                          <td className="px-3 py-2 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
                         </tr>
                       ))}
                     </tbody>

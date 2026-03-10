@@ -5,6 +5,7 @@ import autoTable from 'jspdf-autotable'
 import { getTasks, getAttendance, getFinanceIncome, getFinanceExpense } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { format as formatDate, startOfMonth, endOfMonth } from 'date-fns'
+import { formatDMY, formatDMYTime } from '../utils/date'
 
 function computeAttendanceTotal(r) {
   const eng = Number(r.englishService) || 0
@@ -55,7 +56,7 @@ export default function Reports() {
     doc.setFontSize(16)
     doc.text(`River Of Life Admin - ${title}`, 14, 20)
     doc.setFontSize(10)
-    doc.text(`Generated: ${formatDate(new Date(), 'dd MMM yyyy HH:mm')}`, 14, 28)
+    doc.text(`Generated: ${formatDMYTime(new Date())}`, 14, 28)
     autoTable(doc, {
       head: [columns],
       body: rows,
@@ -72,7 +73,7 @@ export default function Reports() {
       if (reportType === 'attendance') {
         const columns = ['Date', 'English', 'Tamil', 'Junior Church', 'Combined', 'Total']
         const rows = data.attendance.map((a) => [
-          a.date ? formatDate(new Date(a.date), 'dd/MM/yyyy') : '',
+          a.date ? formatDMY(a.date) : '',
           a.englishService ?? '',
           a.tamilService ?? '',
           a.juniorChurch ?? '',
@@ -84,14 +85,14 @@ export default function Reports() {
         const columns = ['Type', 'Date', 'Category', 'Amount', 'Description']
         const incomeRows = data.income.map((i) => [
           'Income',
-          i.date ? formatDate(new Date(i.date), 'dd/MM/yyyy') : '',
+          i.date ? formatDMY(i.date) : '',
           i.category ?? '',
           Number(i.amount) || 0,
           i.description ?? '',
         ])
         const expenseRows = data.expense.map((e) => [
           'Expense',
-          e.date ? formatDate(new Date(e.date), 'dd/MM/yyyy') : '',
+          e.date ? formatDMY(e.date) : '',
           e.category ?? '',
           Number(e.amount) || 0,
           e.description ?? '',
@@ -104,7 +105,7 @@ export default function Reports() {
           t.department ?? '',
           t.assignedPerson ?? '',
           t.priority ?? '',
-          t.deadline ? formatDate(new Date(t.deadline), 'dd/MM/yyyy') : '',
+          t.deadline ? formatDMY(t.deadline) : '',
           t.status ?? '',
         ])
         exportExcel('Tasks', columns, rows)
@@ -113,7 +114,7 @@ export default function Reports() {
       if (reportType === 'attendance') {
         const columns = ['Date', 'English', 'Tamil', 'Junior Church', 'Combined', 'Total']
         const rows = data.attendance.map((a) => [
-          a.date ? formatDate(new Date(a.date), 'dd/MM/yyyy') : '',
+          a.date ? formatDMY(a.date) : '',
           a.englishService ?? '',
           a.tamilService ?? '',
           a.juniorChurch ?? '',
@@ -125,13 +126,13 @@ export default function Reports() {
         const columns = ['Type', 'Date', 'Category', 'Amount']
         const incomeRows = data.income.map((i) => [
           'Income',
-          i.date ? formatDate(new Date(i.date), 'dd/MM/yyyy') : '',
+          i.date ? formatDMY(i.date) : '',
           i.category ?? '',
           Number(i.amount) || 0,
         ])
         const expenseRows = data.expense.map((e) => [
           'Expense',
-          e.date ? formatDate(new Date(e.date), 'dd/MM/yyyy') : '',
+          e.date ? formatDMY(e.date) : '',
           e.category ?? '',
           Number(e.amount) || 0,
         ])
