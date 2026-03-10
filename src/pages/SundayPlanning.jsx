@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
@@ -118,8 +119,10 @@ function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
 }
 
 export default function SundayPlanning() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const dateFromUrl = searchParams.get('date')
   const { hasPermission, canEditSundaySection } = useAuth()
-  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+  const [selectedDate, setSelectedDate] = useState(() => dateFromUrl || format(new Date(), 'yyyy-MM-dd'))
   const [plan, setPlan] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -128,11 +131,24 @@ export default function SundayPlanning() {
   const canEditFull = hasPermission('editSundayPlanFull')
 
   useEffect(() => {
+    if (dateFromUrl) setSelectedDate(dateFromUrl)
+  }, [dateFromUrl])
+
+  useEffect(() => {
     getSundayPlan(selectedDate).then((p) => {
       setPlan(p || {})
       setLoading(false)
     })
   }, [selectedDate])
+
+  const handleDateChange = (nextDate) => {
+    setSelectedDate(nextDate)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set('date', nextDate)
+      return next
+    })
+  }
 
   const handleSaveSection = async (sectionKey, sectionData) => {
     setSaving(true)
@@ -166,19 +182,19 @@ export default function SundayPlanning() {
         <input
           type="date"
           value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
+          onChange={(e) => handleDateChange(e.target.value)}
           className="px-3 py-2 rounded-lg border border-slate-300"
         />
         <button
           type="button"
-          onClick={() => setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
+          onClick={() => handleDateChange(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
           className="px-3 py-2 rounded-lg border border-slate-300 text-sm hover:bg-slate-50"
         >
           ← Previous Sunday
         </button>
         <button
           type="button"
-          onClick={() => setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
+          onClick={() => handleDateChange(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
           className="px-3 py-2 rounded-lg border border-slate-300 text-sm hover:bg-slate-50"
         >
           Next Sunday →

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   getDepartmentEntries,
   addDepartmentEntry,
@@ -113,7 +114,7 @@ function PlanComingSundayCard({
   formatDMY,
 }) {
   return (
-    <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-7xl w-full flex flex-col" style={{ height: '70vh', minHeight: 480 }}>
+    <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 w-3/4 max-w-4xl mx-auto flex flex-col" style={{ height: '70vh', minHeight: 480 }}>
       <div className="flex-1 min-h-0 flex flex-col bg-gradient-to-br from-amber-50 via-white to-blue-50">
         <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-amber-100 border-b border-amber-200">
           <div>
@@ -122,15 +123,23 @@ function PlanComingSundayCard({
               <span className="font-medium text-amber-800">{formatDMY(comingSundayDate)}</span>
             </p>
           </div>
-          {canManageWorship && (
-            <button
-              type="button"
-              onClick={() => { setSelectedDate(comingSundayDate); setActiveTab('assign') }}
-              className="px-4 py-2 rounded-xl bg-amber-500 text-white font-medium hover:bg-amber-600 shadow-md"
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to={`/sunday-planning?date=${comingSundayDate}`}
+              className="px-4 py-2 rounded-xl border border-amber-500 text-amber-700 font-medium hover:bg-amber-50 shadow-sm"
             >
-              Open Assign
-            </button>
-          )}
+              View in Sunday Planning
+            </Link>
+            {canManageWorship && (
+              <button
+                type="button"
+                onClick={() => { setSelectedDate(comingSundayDate); setActiveTab('assign') }}
+                className="px-4 py-2 rounded-xl bg-amber-500 text-white font-medium hover:bg-amber-600 shadow-md"
+              >
+                Open Assign
+              </button>
+            )}
+          </div>
         </div>
         {loadingComingPlan ? (
           <div className="flex-1 min-h-0 flex items-center justify-center text-slate-500">Loading...</div>
