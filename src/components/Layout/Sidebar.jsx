@@ -46,7 +46,7 @@ export default function Sidebar() {
     <aside className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 text-white flex flex-col fixed left-0 top-0 z-30 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="p-4 border-b border-slate-600/50">
         <h1 className="text-base font-bold text-white">River Of Life</h1>
-        <p className="text-[10px] text-slate-400 uppercase tracking-wider">Admin App</p>
+        <p className="text-xs text-slate-400 uppercase tracking-wider">Admin App</p>
       </div>
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
         {visible.map((item) => (
@@ -67,7 +67,7 @@ export default function Sidebar() {
         ))}
       </nav>
       <div className="p-2 border-t border-slate-600/50">
-        <div className="px-3 py-1.5 text-[10px] text-slate-400">
+        <div className="px-3 py-1.5 text-sm text-slate-400">
           {userProfile?.displayName || userProfile?.email || 'User'}
           <br />
           <span className="text-slate-500">{userProfile?.role}</span>

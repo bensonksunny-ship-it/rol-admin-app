@@ -119,7 +119,7 @@ function PlanComingSundayCard({
         <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 border-b-2 border-amber-600/50 shadow-sm">
           <div>
             <h2 className="font-bold text-white text-base drop-shadow-sm">Plan coming Sunday</h2>
-            <p className="text-xs text-amber-100 mt-0.5">{formatDMY(comingSundayDate)}</p>
+            <p className="text-sm text-amber-100 mt-0.5">{formatDMY(comingSundayDate)}</p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Link
@@ -144,8 +144,8 @@ function PlanComingSundayCard({
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-3 p-3">
             <div className="rounded-lg border border-amber-200/80 bg-white/80 overflow-hidden">
-              <h3 className="text-xs font-semibold text-amber-900 bg-amber-100/90 px-3 py-1.5 border-b border-amber-200">Team by role</h3>
-              <table className="w-full text-xs">
+              <h3 className="text-sm font-semibold text-amber-900 bg-amber-100/90 px-3 py-1.5 border-b border-amber-200">Team by role</h3>
+              <table className="w-full text-sm">
                 <thead className="bg-amber-100/70">
                   <tr>
                     <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Role</th>
@@ -166,9 +166,9 @@ function PlanComingSundayCard({
               </table>
             </div>
             <div className="rounded-lg border border-orange-200/80 bg-white/80 overflow-hidden">
-              <h3 className="text-xs font-semibold text-orange-900 bg-orange-100/90 px-3 py-1.5 border-b border-orange-200">Songs & lead vocalist</h3>
-              <p className="text-[10px] text-slate-500 px-3 pt-1">Same person can lead multiple songs.</p>
-              <table className="w-full text-xs">
+              <h3 className="text-sm font-semibold text-orange-900 bg-orange-100/90 px-3 py-1.5 border-b border-orange-200">Songs & lead vocalist</h3>
+              <p className="text-sm text-slate-500 px-3 pt-1">Same person can lead multiple songs.</p>
+              <table className="w-full text-sm">
                 <thead className="bg-orange-100/70">
                   <tr>
                     <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-6">#</th>
@@ -193,7 +193,7 @@ function PlanComingSundayCard({
                               setComingPlan((p) => ({ ...p, songs: next }))
                             }}
                             placeholder="Song title"
-                            className="w-full min-w-[12rem] max-w-[24rem] px-2 py-1 rounded border border-slate-300 text-xs"
+                            className="w-full min-w-[12rem] max-w-[24rem] px-2 py-1 rounded border border-slate-300"
                           />
                         ) : (
                           <span className="text-slate-800">{song.title || '\u2014'}</span>
@@ -210,7 +210,7 @@ function PlanComingSundayCard({
                               setComingPlan((p) => ({ ...p, songs: next }))
                             }}
                             placeholder="Key"
-                            className="w-16 px-2 py-1 rounded border border-slate-300 text-xs"
+                            className="w-16 px-2 py-1 rounded border border-slate-300"
                           />
                         ) : (
                           <span className="text-slate-600">{song.key || '\u2014'}</span>
@@ -227,7 +227,7 @@ function PlanComingSundayCard({
                               next[idx] = { ...next[idx], memberId: val || '', memberName: member?.name || '' }
                               setComingPlan((p) => ({ ...p, songs: next }))
                             }}
-                            className="min-w-[8rem] px-2 py-1 rounded border border-slate-300 text-xs bg-white"
+                            className="min-w-[8rem] px-2 py-1 rounded border border-slate-300 bg-white"
                           >
                             <option value="">- Not set</option>
                             {teamMembers
@@ -263,7 +263,7 @@ function PlanComingSundayCard({
                 <button
                   type="button"
                   onClick={() => setComingPlan((p) => ({ ...p, songs: [...(p.songs || []), { title: '', key: '', memberId: '', memberName: '' }] }))}
-                  className="mt-1.5 px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800 text-xs font-medium hover:bg-orange-200"
+                  className="mt-1.5 px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800 text-sm font-medium hover:bg-orange-200"
                 >
                   + Add song
                 </button>
@@ -649,22 +649,22 @@ export default function DepartmentWorship() {
         <div className="space-y-4">
           {/* Budget 2026 - compact, colourful */}
           <div className="bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 rounded-xl shadow-md p-4 text-white max-w-3xl">
-            <h2 className="text-xs font-semibold uppercase tracking-wider opacity-95">Budget 2026 (Worship)</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wider opacity-95">Budget 2026 (Worship)</h2>
             <div className="mt-2 flex flex-wrap items-end gap-6">
               <div>
-                <p className="text-[10px] uppercase tracking-wider opacity-90">Planned</p>
+                <p className="text-sm uppercase tracking-wider opacity-90">Planned</p>
                 <p className="text-2xl md:text-3xl font-bold leading-tight">RM {budget2026.planned.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider opacity-90">Spent</p>
+                <p className="text-sm uppercase tracking-wider opacity-90">Spent</p>
                 <p className="text-2xl md:text-3xl font-bold leading-tight">RM {budget2026.spent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider opacity-90">Balance</p>
+                <p className="text-sm uppercase tracking-wider opacity-90">Balance</p>
                 <p className="text-xl md:text-2xl font-semibold leading-tight">RM {(budget2026.planned - budget2026.spent).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
             </div>
-            <p className="mt-2 text-[10px] opacity-90">All Worship budget entries, period 2026.</p>
+            <p className="mt-2 text-sm opacity-90">All Worship budget entries, period 2026.</p>
           </div>
 
           {/* Plan coming Sunday */}
@@ -782,11 +782,11 @@ export default function DepartmentWorship() {
                 <table className="w-full">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-12">SL</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Name</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Member since</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Duration & positions</th>
-                      {canManageWorship && <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Action</th>}
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration & positions</th>
+                      {canManageWorship && <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Action</th>}
                     </tr>
                   </thead>
                     <tbody className="divide-y divide-slate-200">
@@ -800,8 +800,8 @@ export default function DepartmentWorship() {
                           (m.isWorshipDirector ? 'bg-amber-50/80' : '')
                         }
                       >
-                        <td className="px-5 py-3 text-slate-600">{i + 1}</td>
-                        <td className="px-5 py-3 font-medium text-slate-800">
+                        <td className="px-4 py-2 text-slate-600">{i + 1}</td>
+                        <td className="px-4 py-2 font-medium text-slate-800">
                           {m.name}
                           {m.isWorshipDirector && (
                             <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] uppercase tracking-wide">
@@ -809,8 +809,8 @@ export default function DepartmentWorship() {
                             </span>
                           )}
                         </td>
-                        <td className="px-5 py-3 text-slate-600">{formatDMY(m.memberSince)}</td>
-                        <td className="px-5 py-3 text-slate-600">
+                        <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
+                        <td className="px-4 py-2 text-slate-600">
                           {differenceInDays(new Date(), new Date(m.memberSince))} days
                           {m.positions?.length ? (
                             <span className="block text-xs text-slate-500 mt-1">
@@ -819,7 +819,7 @@ export default function DepartmentWorship() {
                           ) : null}
                         </td>
                         {canManageWorship && (
-                          <td className="px-5 py-3">
+                          <td className="px-4 py-2">
                             <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
                           </td>
                         )}
@@ -841,19 +841,19 @@ export default function DepartmentWorship() {
                 <table className="w-full">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-12">SL</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Name</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Member since</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Duration</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {formerMembers.map((m, i) => (
                       <tr key={m.id} className="hover:bg-slate-50">
-                        <td className="px-5 py-3 text-slate-600">{i + 1}</td>
-                        <td className="px-5 py-3 font-medium text-slate-800">{m.name}</td>
-                        <td className="px-5 py-3 text-slate-600">{formatDMY(m.memberSince)}</td>
-                        <td className="px-5 py-3 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
+                        <td className="px-4 py-2 text-slate-600">{i + 1}</td>
+                        <td className="px-4 py-2 font-medium text-slate-800">{m.name}</td>
+                        <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
+                        <td className="px-4 py-2 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
                       </tr>
                     ))}
                   </tbody>
@@ -876,23 +876,23 @@ export default function DepartmentWorship() {
               <table className="w-full">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Period</th>
-                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Type</th>
-                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Details</th>
-                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Entered by</th>
+                    <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
+                    <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Type</th>
+                    <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Details</th>
+                    <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {entries.map((e) => (
                     <tr key={e.id} className="hover:bg-slate-50">
-                      <td className="px-5 py-3 text-slate-800">{e.period}</td>
-                      <td className="px-5 py-3 text-slate-600 capitalize">{e.type}</td>
-                      <td className="px-5 py-3 text-slate-600">
+                      <td className="px-4 py-2 text-slate-800">{e.period}</td>
+                      <td className="px-4 py-2 text-slate-600 capitalize">{e.type}</td>
+                      <td className="px-4 py-2 text-slate-600">
                         {e.type === 'team' && (e.data?.notes || '—')}
                         {e.type === 'budget' && `Planned: ${e.data?.planned ?? 0} RM, Spent: ${e.data?.spent ?? 0} RM`}
                         {e.type === 'participation' && `${e.data?.count ?? 0} people`}
                       </td>
-                      <td className="px-5 py-3 text-slate-500 text-sm">{e.enteredBy}</td>
+                      <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1041,8 +1041,8 @@ export default function DepartmentWorship() {
             <table className="w-full">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-[220px]">Role</th>
-                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Assigned to</th>
+                  <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[220px]">Role</th>
+                  <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Assigned to</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -1430,19 +1430,19 @@ export default function DepartmentWorship() {
                     <table className="w-full">
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Period</th>
-                          <th className="text-right px-5 py-3 text-sm font-medium text-slate-600">Planned (RM)</th>
-                          <th className="text-right px-5 py-3 text-sm font-medium text-slate-600">Spent (RM)</th>
-                          <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Entered by</th>
+                          <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
+                          <th className="text-right px-4 py-2 text-sm font-medium text-slate-600">Planned (RM)</th>
+                          <th className="text-right px-4 py-2 text-sm font-medium text-slate-600">Spent (RM)</th>
+                          <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
                         {budgetEntries.map((e) => (
                           <tr key={e.id} className="hover:bg-slate-50">
-                            <td className="px-5 py-3 text-slate-800">{e.period}</td>
-                            <td className="px-5 py-3 text-right text-slate-600">{e.data?.planned ?? 0}</td>
-                            <td className="px-5 py-3 text-right text-slate-600">{e.data?.spent ?? 0}</td>
-                            <td className="px-5 py-3 text-slate-500 text-sm">{e.enteredBy}</td>
+                            <td className="px-4 py-2 text-slate-800">{e.period}</td>
+                            <td className="px-4 py-2 text-right text-slate-600">{e.data?.planned ?? 0}</td>
+                            <td className="px-4 py-2 text-right text-slate-600">{e.data?.spent ?? 0}</td>
+                            <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1558,23 +1558,23 @@ export default function DepartmentWorship() {
                 <table className="w-full">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Period</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Type</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Details</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Entered by</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Type</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Details</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {entries.slice(0, 20).map((e) => (
                       <tr key={e.id} className="hover:bg-slate-50">
-                        <td className="px-5 py-3 text-slate-800">{e.period}</td>
-                        <td className="px-5 py-3 text-slate-600 capitalize">{e.type}</td>
-                        <td className="px-5 py-3 text-slate-600">
+                        <td className="px-4 py-2 text-slate-800">{e.period}</td>
+                        <td className="px-4 py-2 text-slate-600 capitalize">{e.type}</td>
+                        <td className="px-4 py-2 text-slate-600">
                           {e.type === 'team' && (e.data?.notes || '—')}
                           {e.type === 'budget' && `Planned: ${e.data?.planned ?? 0} RM, Spent: ${e.data?.spent ?? 0} RM`}
                           {e.type === 'participation' && `${e.data?.count ?? 0} people`}
                         </td>
-                        <td className="px-5 py-3 text-slate-500 text-sm">{e.enteredBy}</td>
+                        <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1635,23 +1635,23 @@ export default function DepartmentWorship() {
                 <table className="w-full">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Period</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Type</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Details</th>
-                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Entered by</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Type</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Details</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {entries.map((e) => (
                       <tr key={e.id} className="hover:bg-slate-50">
-                        <td className="px-5 py-3 text-slate-800">{e.period}</td>
-                        <td className="px-5 py-3 text-slate-600 capitalize">{e.type}</td>
-                        <td className="px-5 py-3 text-slate-600">
+                        <td className="px-4 py-2 text-slate-800">{e.period}</td>
+                        <td className="px-4 py-2 text-slate-600 capitalize">{e.type}</td>
+                        <td className="px-4 py-2 text-slate-600">
                           {e.type === 'team' && (e.data?.notes || '—')}
                           {e.type === 'budget' && `Planned: ${e.data?.planned ?? 0} RM, Spent: ${e.data?.spent ?? 0} RM`}
                           {e.type === 'participation' && `${e.data?.count ?? 0} people`}
                         </td>
-                        <td className="px-5 py-3 text-slate-500 text-sm">{e.enteredBy}</td>
+                        <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
                       </tr>
                     ))}
                   </tbody>
