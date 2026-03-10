@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
-import { getSundayPlan, setSundayPlanSection, setSundayPlanFull } from '../services/firestore'
+import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY } from '../utils/date'
+
+const WORSHIP_ROLES = [
+  'Lead Vocal-1', 'Lead Vocal-2', 'Lead Vocal-3', 'Lead Vocal-4', 'Parts-1', 'Parts-2',
+  'Choir member-1', 'Choir member-2', 'Choir member-3', 'Choir member-4', 'Choir member-5', 'Choir member-6',
+  'Keyboard', 'Lead Guitar', 'Bass Guitar', 'Acoustic guitar', 'Drums', 'Sound Engineer',
+]
 
 const SECTION_LABELS = {
   [SUNDAY_PLAN_SECTIONS.SUNDAY_MINISTRY]: 'Sunday Ministry Team',
@@ -24,6 +30,54 @@ const SECTION_ORDER = [
   SUNDAY_PLAN_SECTIONS.D_LITE,
   SUNDAY_PLAN_SECTIONS.RIVER_KIDS,
 ]
+
+function WorshipPlanSummary({ selectedDate }) {
+  const [worshipPlan, setWorshipPlan] = useState(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    setLoading(true)
+    getWorshipScheduleByDate('Worship', selectedDate)
+      .then(setWorshipPlan)
+      .catch(() => setWorshipPlan({ date: selectedDate, assignments: [], songs: [] }))
+      .finally(() => setLoading(false))
+  }, [selectedDate])
+  if (loading) return <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm"><p className="text-slate-500">Loading Worship plan...</p></div>
+  const assignments = worshipPlan?.assignments || []
+  const songs = worshipPlan?.songs || []
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+      <h3 className="font-semibold text-slate-800 mb-3">Worship (from Worship department)</h3>
+      <p className="text-xs text-slate-500 mb-3">Team and songs for {formatDMY(selectedDate)}. Edit on the Worship department page.</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <h4 className="text-sm font-medium text-slate-700 mb-2">Team by role</h4>
+          <table className="w-full text-sm">
+            <thead><tr><th className="text-left py-1 text-slate-600">Role</th><th className="text-left py-1 text-slate-600">Assigned</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {WORSHIP_ROLES.map((role) => {
+                const a = assignments.find((x) => x.role === role)
+                return <tr key={role}><td className="py-1 text-slate-800">{role}</td><td className="py-1 text-slate-600">{a?.memberName || '—'}</td></tr>
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h4 className="text-sm font-medium text-slate-700 mb-2">Songs & lead vocalist</h4>
+          {songs.length === 0 ? <p className="text-slate-500 text-sm">No songs entered yet.</p> : (
+            <table className="w-full text-sm">
+              <thead><tr><th className="text-left py-1 text-slate-600 w-8">#</th><th className="text-left py-1 text-slate-600">Song</th><th className="text-left py-1 text-slate-600">Key</th><th className="text-left py-1 text-slate-600">Lead</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {songs.map((s, i) => (
+                  <tr key={i}><td className="py-1 text-slate-600">{i + 1}</td><td className="py-1 text-slate-800">{s?.title || '—'}</td><td className="py-1 text-slate-600">{s?.key || '—'}</td><td className="py-1 text-slate-600">{s?.memberName || '—'}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
   const [form, setForm] = useState(data || { notes: '' })
@@ -166,17 +220,21 @@ export default function SundayPlanning() {
           <p className="text-sm text-slate-600">
             Combined sheet for {formatDMY(selectedDate)}. Export from Reports when needed.
           </p>
-          {SECTION_ORDER.map((key) => (
-            <SectionForm
-              key={key}
-              sectionKey={key}
-              label={SECTION_LABELS[key]}
-              data={plan?.[key]}
-              canEdit={canEditFull || canEditSundaySection(key)}
-              onSave={handleSaveSection}
-              saving={saving}
-            />
-          ))}
+          {SECTION_ORDER.map((key) =>
+            key === SUNDAY_PLAN_SECTIONS.WORSHIP ? (
+              <WorshipPlanSummary key={key} selectedDate={selectedDate} />
+            ) : (
+              <SectionForm
+                key={key}
+                sectionKey={key}
+                label={SECTION_LABELS[key]}
+                data={plan?.[key]}
+                canEdit={canEditFull || canEditSundaySection(key)}
+                onSave={handleSaveSection}
+                saving={saving}
+              />
+            )
+          )}
         </div>
       )}
     </div>

@@ -171,6 +171,98 @@ export async function deleteWorshipBudgetItem(id) {
   await deleteDoc(doc(db, 'worship_budget_items', id))
 }
 
+// Sunday Ministry team members (director's team list)
+const SUNDAY_MINISTRY_DEPT = 'Sunday Ministry'
+export async function getSundayMinistryTeamMembers(options = {}) {
+  if (!db) return []
+  const q = query(
+    collection(db, 'sunday_ministry_team_members'),
+    where('department', '==', SUNDAY_MINISTRY_DEPT)
+  )
+  const snap = await getDocs(q)
+  let list = snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
+  })
+  list.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
+  if (options.former === true) list = list.filter((m) => m.isFormer)
+  if (options.former === false) list = list.filter((m) => !m.isFormer)
+  return list
+}
+
+export async function addSundayMinistryTeamMember(data, addedBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, 'sunday_ministry_team_members'), {
+    department: SUNDAY_MINISTRY_DEPT,
+    name: data.name,
+    memberSince: data.memberSince || new Date().toISOString().slice(0, 10),
+    isFormer: data.isFormer ?? false,
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateSundayMinistryTeamMember(id, data) {
+  if (!db) return
+  await updateDoc(doc(db, 'sunday_ministry_team_members', id), data)
+}
+
+export async function deleteSundayMinistryTeamMember(id) {
+  if (!db) return
+  await deleteDoc(doc(db, 'sunday_ministry_team_members', id))
+}
+
+// Sunday Ministry budget items (spreadsheet-style)
+export async function getSundayMinistryBudgetItems() {
+  if (!db) return []
+  const q = query(
+    collection(db, 'sunday_ministry_budget_items'),
+    where('department', '==', SUNDAY_MINISTRY_DEPT)
+  )
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
+  })
+  list.sort((a, b) => (a.category || '').localeCompare(b.category || ''))
+  return list
+}
+
+export async function addSundayMinistryBudgetItem(data, addedBy) {
+  if (!db) return null
+  const payload = {
+    department: SUNDAY_MINISTRY_DEPT,
+    category: data.category || '',
+    subCategory: data.subCategory || '',
+    description: data.description || '',
+    quantity: Number(data.quantity) || 0,
+    unitCost: Number(data.unitCost) || 0,
+    totalCost: Number(data.totalCost ?? data.quantity * data.unitCost) || 0,
+    type: data.type || '',
+    expectedDate: data.expectedDate || '',
+    notes: data.notes || '',
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  }
+  const ref = await addDoc(collection(db, 'sunday_ministry_budget_items'), payload)
+  return ref.id
+}
+
+export async function updateSundayMinistryBudgetItem(id, data) {
+  if (!db) return
+  const payload = { ...data }
+  if (payload.quantity != null) payload.quantity = Number(payload.quantity) || 0
+  if (payload.unitCost != null) payload.unitCost = Number(payload.unitCost) || 0
+  if (payload.totalCost != null) payload.totalCost = Number(payload.totalCost) || 0
+  await updateDoc(doc(db, 'sunday_ministry_budget_items', id), payload)
+}
+
+export async function deleteSundayMinistryBudgetItem(id) {
+  if (!db) return
+  await deleteDoc(doc(db, 'sunday_ministry_budget_items', id))
+}
+
 // Worship team members (director's full team list + former members)
 // No orderBy to avoid composite index; sort in memory
 export async function getWorshipTeamMembers(department, options = {}) {

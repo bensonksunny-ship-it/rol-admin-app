@@ -113,7 +113,7 @@ function PlanComingSundayCard({
   formatDMY,
 }) {
   return (
-    <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-6xl" style={{ maxHeight: '40vh', minHeight: 360 }}>
+    <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-7xl w-full" style={{ maxHeight: '70vh', minHeight: 520 }}>
       <div className="h-full flex flex-col bg-gradient-to-br from-amber-50 via-white to-blue-50">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-amber-100 border-b border-amber-200">
           <div>
@@ -186,7 +186,7 @@ function PlanComingSundayCard({
                               setComingPlan((p) => ({ ...p, songs: next }))
                             }}
                             placeholder="Song title"
-                            className="w-full min-w-[12rem] max-w-[20rem] px-3 py-1.5 rounded border border-slate-300 text-sm"
+                            className="w-full min-w-[14rem] max-w-[28rem] px-3 py-1.5 rounded border border-slate-300 text-sm"
                           />
                         ) : (
                           <span className="text-slate-800">{song.title || '\u2014'}</span>
