@@ -7,6 +7,7 @@ import {
   getWorshipScheduleByDate,
   setWorshipScheduleByDate,
   updateWorshipTeamMember,
+  deleteWorshipTeamMember,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
@@ -92,9 +93,10 @@ export default function DepartmentWorship() {
   const [scheduleForDate, setScheduleForDate] = useState({ date: '', assignments: [] })
   const [loadingSchedule, setLoadingSchedule] = useState(false)
   const [comingSundayDate, setComingSundayDate] = useState(() => nextSundayISO())
-  const [comingPlan, setComingPlan] = useState({ date: '', assignments: [], songs: [] })
+  const [comingPlan, setComingPlan] = useState({ date: '', assignments: [], songs: [], worshipDirectorName: '' })
   const [loadingComingPlan, setLoadingComingPlan] = useState(false)
   const [savingComingPlan, setSavingComingPlan] = useState(false)
+  const [editMember, setEditMember] = useState(null)
 
   useEffect(() => {
     getDepartmentEntries(DEPARTMENT, { limit: 100 })
@@ -142,10 +144,14 @@ export default function DepartmentWorship() {
     setLoadingComingPlan(true)
     try {
       const data = await getWorshipScheduleByDate(DEPARTMENT, date)
-      setComingPlan({ ...data, songs: Array.isArray(data.songs) ? data.songs : [] })
+      setComingPlan({
+        ...data,
+        songs: Array.isArray(data.songs) ? data.songs : [],
+        worshipDirectorName: data.worshipDirectorName || '',
+      })
     } catch (e) {
       console.error(e)
-      setComingPlan({ date, assignments: [], songs: [] })
+      setComingPlan({ date, assignments: [], songs: [], worshipDirectorName: '' })
     } finally {
       setLoadingComingPlan(false)
     }
@@ -279,6 +285,17 @@ export default function DepartmentWorship() {
             </button>
           </>
         )}
+        {(canManageWorship || canViewInsights) && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('team')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+              activeTab === 'team' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            Team
+          </button>
+        )}
         {canManageWorship && (
           <>
             <button
@@ -315,288 +332,357 @@ export default function DepartmentWorship() {
       </div>
 
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-            <h2 className="font-semibold text-slate-800 mb-4">Department Summary Box</h2>
-            {teamError && (
-              <p className="text-amber-700 text-sm mb-3 bg-amber-50 px-3 py-2 rounded">
-                {teamError} <button type="button" onClick={loadTeam} className="underline font-medium ml-1">Retry</button>
-              </p>
-            )}
-            {loadingTeam ? (
-              <p className="text-slate-500">Loading...</p>
+        <div className="space-y-4">
+          {/* Worship director name at top */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <label className="block text-sm font-medium text-slate-700 mb-2">Worship director</label>
+            {canManageWorship ? (
+              <input
+                type="text"
+                value={comingPlan.worshipDirectorName || ''}
+                onChange={(e) => setComingPlan((p) => ({ ...p, worshipDirectorName: e.target.value }))}
+                onBlur={async () => {
+                  try {
+                    await setWorshipScheduleByDate(
+                      DEPARTMENT,
+                      comingSundayDate,
+                      comingPlan.assignments || [],
+                      userProfile?.email,
+                      { songs: comingPlan.songs || [], worshipDirectorName: comingPlan.worshipDirectorName || '' }
+                    )
+                  } catch (err) {
+                    console.error(err)
+                  }
+                }}
+                placeholder="Enter worship director name"
+                className="w-full max-w-md px-4 py-2 rounded-lg border border-slate-300"
+              />
             ) : (
-              <>
-                <div className="space-y-2 text-sm text-slate-600">
-                  <p>Coordinator since: <span className="text-slate-800">{formatDMY('2022-04-01')}</span></p>
-                  <p>Duration: <span className="text-slate-800">{differenceInDays(new Date(), new Date('2022-04-01'))} days</span></p>
-                  <p>Members: <span className="text-slate-800 font-medium">{teamMembers.length}</span></p>
-                </div>
-                {canManageWorship && teamMembers.length === 0 && (
-                  <button type="button" onClick={seedDemoTeam} className="mt-4 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
-                    Add demo team (15 members)
-                  </button>
-                )}
-                {canManageWorship && (
-                  <div className="mt-4 pt-4 border-t border-slate-200">
-                    <h3 className="text-sm font-medium text-slate-700 mb-2">Add team member</h3>
-                    <form
-                      onSubmit={async (e) => {
-                        e.preventDefault()
-                        if (!newMember.name.trim()) return
-                        try {
-                          await addWorshipTeamMember(DEPARTMENT, { name: newMember.name.trim(), memberSince: newMember.memberSince, isFormer: newMember.isFormer }, userProfile?.email)
-                          setNewMember({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false })
-                          await loadTeam()
-                        } catch (err) {
-                          console.error(err)
-                          alert('Failed to add member')
-                        }
-                      }}
-                      className="flex flex-wrap gap-2 items-end"
-                    >
-                      <input
-                        type="text"
-                        placeholder="Name"
-                        value={newMember.name}
-                        onChange={(e) => setNewMember((m) => ({ ...m, name: e.target.value }))}
-                        className="px-3 py-1.5 rounded border border-slate-300 w-32"
-                      />
-                      <input
-                        type="date"
-                        value={newMember.memberSince}
-                        onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))}
-                        className="px-3 py-1.5 rounded border border-slate-300"
-                      />
-                      <label className="flex items-center gap-1 text-sm text-slate-600">
-                        <input type="checkbox" checked={newMember.isFormer} onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))} />
-                        Former
-                      </label>
-                      <button type="submit" className="px-3 py-1.5 rounded-lg bg-slate-700 text-white text-sm hover:bg-slate-800">Add</button>
-                    </form>
-                  </div>
-                )}
-              </>
+              <p className="text-slate-800 font-medium">{comingPlan.worshipDirectorName || '—'}</p>
             )}
           </div>
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold text-slate-800">Plan coming Sunday</h2>
-                  <p className="text-sm text-slate-600 mt-1">
-                    Date: <span className="font-medium text-slate-800">{formatDMY(comingSundayDate)}</span>
-                  </p>
+
+          {/* Compact summary box + Plan coming Sunday (~1/3 height), colourful */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <h2 className="font-semibold text-slate-800 mb-3">Department summary</h2>
+              {teamError && (
+                <p className="text-amber-700 text-sm mb-2 bg-amber-50 px-2 py-1 rounded">
+                  {teamError} <button type="button" onClick={loadTeam} className="underline ml-1">Retry</button>
+                </p>
+              )}
+              {!loadingTeam && (
+                <>
+                  <p className="text-sm text-slate-600">Coordinator since: <span className="text-slate-800">{formatDMY('2022-04-01')}</span></p>
+                  <p className="text-sm text-slate-600">Duration: <span className="text-slate-800">{differenceInDays(new Date(), new Date('2022-04-01'))} days</span></p>
+                  <p className="text-sm text-slate-600">Members: <span className="font-medium text-slate-800">{teamMembers.length}</span></p>
+                  <button type="button" onClick={() => setActiveTab('team')} className="mt-3 text-sm text-blue-600 hover:underline">View full team →</button>
+                </>
+              )}
+            </div>
+
+            <div className="lg:col-span-3 rounded-2xl overflow-hidden shadow-lg border border-slate-200" style={{ maxHeight: '33vh', minHeight: 280 }}>
+              <div className="h-full flex flex-col bg-gradient-to-br from-amber-50 via-white to-blue-50">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-amber-500/20 to-blue-500/20 border-b border-amber-200/50">
+                  <div>
+                    <h2 className="font-bold text-slate-800 text-lg">Plan coming Sunday</h2>
+                    <p className="text-sm text-slate-600 mt-0.5">
+                      <span className="font-medium text-amber-800">{formatDMY(comingSundayDate)}</span>
+                    </p>
+                  </div>
+                  {canManageWorship && (
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedDate(comingSundayDate); setActiveTab('assign') }}
+                      className="px-4 py-2 rounded-xl bg-amber-500 text-white font-medium hover:bg-amber-600 shadow-md"
+                    >
+                      Open Assign
+                    </button>
+                  )}
                 </div>
-                {canManageWorship && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedDate(comingSundayDate)
-                      setActiveTab('assign')
-                    }}
-                    className="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm hover:bg-slate-900"
-                  >
-                    Open Assign for this date
-                  </button>
+                {loadingComingPlan ? (
+                  <div className="flex-1 flex items-center justify-center text-slate-500">Loading...</div>
+                ) : (
+                  <div className="flex-1 overflow-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-amber-100/60 sticky top-0">
+                        <tr>
+                          <th className="text-left px-4 py-2 font-semibold text-slate-700">Role</th>
+                          <th className="text-left px-4 py-2 font-semibold text-slate-700">Assigned to</th>
+                          <th className="text-left px-4 py-2 font-semibold text-slate-700 w-32">Song</th>
+                          <th className="text-left px-4 py-2 font-semibold text-slate-700 w-20">Key</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-amber-100/80">
+                        {ASSIGNMENT_ROLES.map((role, idx) => {
+                          const a = (comingPlan.assignments || []).find((x) => x.role === role)
+                          const isLeadVocal = idx < 4
+                          const songKey = (comingPlan.songs || [])[idx] || {}
+                          return (
+                            <tr key={role} className="hover:bg-amber-50/50">
+                              <td className="px-4 py-2 font-medium text-slate-800">{role}</td>
+                              <td className="px-4 py-2 text-slate-600">{a?.memberName || '—'}</td>
+                              <td className="px-4 py-2">
+                                {isLeadVocal && canManageWorship ? (
+                                  <input
+                                    type="text"
+                                    value={songKey.title || ''}
+                                    onChange={(e) => {
+                                      const next = [...(comingPlan.songs || [])]
+                                      while (next.length <= idx) next.push({ title: '', key: '' })
+                                      next[idx] = { ...next[idx], title: e.target.value }
+                                      setComingPlan((p) => ({ ...p, songs: next }))
+                                    }}
+                                    placeholder="Song"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-xs"
+                                  />
+                                ) : isLeadVocal ? (
+                                  <span className="text-slate-600">{songKey.title || '—'}</span>
+                                ) : '—'}
+                              </td>
+                              <td className="px-4 py-2">
+                                {isLeadVocal && canManageWorship ? (
+                                  <input
+                                    type="text"
+                                    value={songKey.key || ''}
+                                    onChange={(e) => {
+                                      const next = [...(comingPlan.songs || [])]
+                                      while (next.length <= idx) next.push({ title: '', key: '' })
+                                      next[idx] = { ...next[idx], key: e.target.value }
+                                      setComingPlan((p) => ({ ...p, songs: next }))
+                                    }}
+                                    placeholder="Key"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-xs"
+                                  />
+                                ) : isLeadVocal ? (
+                                  <span className="text-slate-600">{songKey.key || '—'}</span>
+                                ) : '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {canManageWorship && !loadingComingPlan && (
+                  <div className="px-5 py-3 bg-amber-50/80 border-t border-amber-200/50 flex justify-end">
+                    <button
+                      type="button"
+                      disabled={savingComingPlan}
+                      onClick={async () => {
+                        setSavingComingPlan(true)
+                        try {
+                          await setWorshipScheduleByDate(
+                            DEPARTMENT,
+                            comingSundayDate,
+                            comingPlan.assignments || [],
+                            userProfile?.email,
+                            { songs: comingPlan.songs || [], worshipDirectorName: comingPlan.worshipDirectorName || '' }
+                          )
+                          await loadComingPlan(comingSundayDate)
+                        } catch (e) {
+                          console.error(e)
+                          alert('Failed to save')
+                        } finally {
+                          setSavingComingPlan(false)
+                        }
+                      }}
+                      className="px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      {savingComingPlan ? 'Saving...' : 'Save plan'}
+                    </button>
+                  </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
 
-              {loadingComingPlan ? (
-                <div className="py-6 text-center text-slate-500">Loading...</div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">Assigned team</div>
-                    <div className="max-h-56 overflow-y-auto">
-                      <table className="w-full text-sm">
-                        <thead className="sr-only">
-                          <tr><th>Role</th><th>Member</th></tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200">
-                          {ASSIGNMENT_ROLES.map((role) => {
-                            const a = (comingPlan.assignments || []).find((x) => x.role === role)
-                            return (
-                              <tr key={role}>
-                                <td className="px-3 py-2 font-medium text-slate-800">{role}</td>
-                                <td className="px-3 py-2 text-slate-600">{a?.memberName || '—'}</td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">Songs & keys</div>
-                    <div className="p-3 space-y-2">
-                      {(comingPlan.songs || []).map((s, idx) => (
-                        <div key={`${idx}-${s?.title || ''}`} className="flex gap-2">
-                          <input
-                            type="text"
-                            value={s?.title || ''}
-                            onChange={(e) => {
-                              const next = [...(comingPlan.songs || [])]
-                              next[idx] = { ...next[idx], title: e.target.value }
-                              setComingPlan((p) => ({ ...p, songs: next }))
-                            }}
-                            placeholder="Song"
-                            className="flex-1 px-3 py-2 rounded border border-slate-300 text-sm"
-                            disabled={!canManageWorship}
-                          />
-                          <input
-                            type="text"
-                            value={s?.key || ''}
-                            onChange={(e) => {
-                              const next = [...(comingPlan.songs || [])]
-                              next[idx] = { ...next[idx], key: e.target.value }
-                              setComingPlan((p) => ({ ...p, songs: next }))
-                            }}
-                            placeholder="Key"
-                            className="w-24 px-3 py-2 rounded border border-slate-300 text-sm"
-                            disabled={!canManageWorship}
-                          />
-                          {canManageWorship && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const next = [...(comingPlan.songs || [])]
-                                next.splice(idx, 1)
-                                setComingPlan((p) => ({ ...p, songs: next }))
-                              }}
-                              className="px-2 py-2 text-sm text-slate-500 hover:text-red-600"
-                              title="Remove"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      ))}
-
-                      {canManageWorship && (
-                        <div className="flex items-center gap-2 pt-2">
-                          <button
-                            type="button"
-                            onClick={() => setComingPlan((p) => ({ ...p, songs: [...(p.songs || []), { title: '', key: '' }] }))}
-                            className="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm hover:bg-slate-200"
-                          >
-                            Add song
-                          </button>
-                          <button
-                            type="button"
-                            disabled={savingComingPlan}
-                            onClick={async () => {
-                              setSavingComingPlan(true)
-                              try {
-                                await setWorshipScheduleByDate(
-                                  DEPARTMENT,
-                                  comingSundayDate,
-                                  comingPlan.assignments || [],
-                                  userProfile?.email,
-                                  { songs: comingPlan.songs || [] }
-                                )
-                                await loadComingPlan(comingSundayDate)
-                              } catch (e) {
-                                console.error(e)
-                                alert('Failed to save')
-                              } finally {
-                                setSavingComingPlan(false)
-                              }
-                            }}
-                            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
-                          >
-                            {savingComingPlan ? 'Saving...' : 'Save plan'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+      {activeTab === 'team' && (canManageWorship || canViewInsights) && (
+        <div className="space-y-6">
+          {canManageWorship && (
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <h3 className="font-semibold text-slate-800 mb-3">Add team member</h3>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  if (!newMember.name.trim()) return
+                  try {
+                    await addWorshipTeamMember(DEPARTMENT, { name: newMember.name.trim(), memberSince: newMember.memberSince, isFormer: newMember.isFormer }, userProfile?.email)
+                    setNewMember({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false })
+                    await loadTeam()
+                  } catch (err) {
+                    console.error(err)
+                    alert('Failed to add member')
+                  }
+                }}
+                className="flex flex-wrap gap-3 items-end"
+              >
+                <input type="text" placeholder="Name" value={newMember.name} onChange={(e) => setNewMember((m) => ({ ...m, name: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300 w-40" />
+                <input type="date" value={newMember.memberSince} onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300" />
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={newMember.isFormer} onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))} />
+                  Former
+                </label>
+                <button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 text-white font-medium hover:bg-slate-900">Add</button>
+              </form>
+              {teamMembers.length === 0 && (
+                <button type="button" onClick={seedDemoTeam} className="mt-3 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
+                  Add demo team (15 members)
+                </button>
               )}
             </div>
+          )}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Team members</h2>
+            {loadingTeam ? (
+              <div className="p-8 text-center text-slate-500">Loading...</div>
+            ) : teamMembers.length === 0 ? (
+              <div className="p-8 text-center text-slate-500">No team members yet. Add above or use “Add demo team”.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-12">SL</th>
+                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Name</th>
+                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Member since</th>
+                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Duration</th>
+                      {canManageWorship && <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Action</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {teamMembers.map((m, i) => (
+                      <tr key={m.id} className="hover:bg-slate-50">
+                        <td className="px-5 py-3 text-slate-600">{i + 1}</td>
+                        <td className="px-5 py-3 font-medium text-slate-800">{m.name}</td>
+                        <td className="px-5 py-3 text-slate-600">{formatDMY(m.memberSince)}</td>
+                        <td className="px-5 py-3 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
+                        {canManageWorship && (
+                          <td className="px-5 py-3">
+                            <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Former members</h2>
+            {loadingTeam ? (
+              <div className="p-8 text-center text-slate-500">Loading...</div>
+            ) : formerMembers.length === 0 ? (
+              <div className="p-8 text-center text-slate-500">No former members.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600 w-12">SL</th>
+                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Name</th>
+                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Member since</th>
+                      <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {formerMembers.map((m, i) => (
+                      <tr key={m.id} className="hover:bg-slate-50">
+                        <td className="px-5 py-3 text-slate-600">{i + 1}</td>
+                        <td className="px-5 py-3 font-medium text-slate-800">{m.name}</td>
+                        <td className="px-5 py-3 text-slate-600">{formatDMY(m.memberSince)}</td>
+                        <td className="px-5 py-3 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Team members</h2>
-              {loadingTeam ? (
-                <div className="p-8 text-center text-slate-500">Loading...</div>
-              ) : teamMembers.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">No team members yet. Use “Add demo team” in Summary to load demo names.</div>
-              ) : (
-                <div className="overflow-x-auto max-h-56 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
-                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Name</th>
-                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Member since</th>
-                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Duration</th>
-                        {canManageWorship && <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Action</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {teamMembers.map((m, i) => (
-                        <tr key={m.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2 text-slate-600">{i + 1}</td>
-                          <td className="px-3 py-2 font-medium text-slate-800">{m.name}</td>
-                          <td className="px-3 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
-                          <td className="px-3 py-2 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
-                          {canManageWorship && (
-                            <td className="px-3 py-2">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  try {
-                                    await updateWorshipTeamMember(m.id, { isFormer: true })
-                                    await loadTeam()
-                                  } catch (e) {
-                                    console.error(e)
-                                    alert('Failed to update member')
-                                  }
-                                }}
-                                className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200"
-                              >
-                                Make former
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+      {editMember && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditMember(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-slate-800 mb-4">Edit member</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                <input
+                  type="text"
+                  value={editMember.name}
+                  onChange={(e) => setEditMember((m) => ({ ...m, name: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Member since</label>
+                <input
+                  type="date"
+                  value={editMember.memberSince || ''}
+                  onChange={(e) => setEditMember((m) => ({ ...m, memberSince: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
             </div>
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Record of former members</h2>
-              {loadingTeam ? (
-                <div className="p-8 text-center text-slate-500">Loading...</div>
-              ) : formerMembers.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">No former members recorded.</div>
-              ) : (
-                <div className="overflow-x-auto max-h-56 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
-                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Name</th>
-                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Member since</th>
-                        <th className="text-left px-3 py-2 text-sm font-medium text-slate-600">Duration</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {formerMembers.map((m, i) => (
-                        <tr key={m.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2 text-slate-600">{i + 1}</td>
-                          <td className="px-3 py-2 font-medium text-slate-800">{m.name}</td>
-                          <td className="px-3 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
-                          <td className="px-3 py-2 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+            <div className="flex flex-wrap gap-3 mt-5">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await updateWorshipTeamMember(editMember.id, { name: editMember.name, memberSince: editMember.memberSince })
+                    await loadTeam()
+                    setEditMember(null)
+                  } catch (e) {
+                    console.error(e)
+                    alert('Failed to update')
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await updateWorshipTeamMember(editMember.id, { isFormer: true })
+                    await loadTeam()
+                    setEditMember(null)
+                  } catch (e) {
+                    console.error(e)
+                    alert('Failed to update')
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-slate-200 text-slate-700 font-medium hover:bg-slate-300"
+              >
+                Make former
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm('Delete this member permanently?')) return
+                  try {
+                    await deleteWorshipTeamMember(editMember.id)
+                    await loadTeam()
+                    setEditMember(null)
+                  } catch (e) {
+                    console.error(e)
+                    alert('Failed to delete')
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-red-100 text-red-700 font-medium hover:bg-red-200"
+              >
+                Delete
+              </button>
+              <button type="button" onClick={() => setEditMember(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100">
+                Cancel
+              </button>
             </div>
           </div>
         </div>
@@ -620,7 +706,7 @@ export default function DepartmentWorship() {
           {loadingSchedule ? (
             <div className="p-8 text-center text-slate-500">Loading...</div>
           ) : teamMembers.length === 0 ? (
-            <div className="p-8 text-center text-slate-500">Add team members in Summary first (e.g. &quot;Add demo team&quot; for demo names).</div>
+            <div className="p-8 text-center text-slate-500">Add team members in the Team tab first (e.g. &quot;Add demo team&quot; for demo names).</div>
           ) : (
             <table className="w-full">
               <thead className="bg-slate-50">

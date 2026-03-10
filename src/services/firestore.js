@@ -151,6 +151,11 @@ export async function updateWorshipTeamMember(id, data) {
   await updateDoc(doc(db, 'worship_team_members', id), data)
 }
 
+export async function deleteWorshipTeamMember(id) {
+  if (!db) return
+  await deleteDoc(doc(db, 'worship_team_members', id))
+}
+
 // Worship schedule by date: one doc per date, assignments = [{ role, memberId, memberName }]
 export async function getWorshipScheduleByDate(department, date) {
   if (!db) return { date, assignments: [] }
