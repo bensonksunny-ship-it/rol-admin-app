@@ -114,6 +114,63 @@ export async function addDepartmentEntry(data) {
   return ref.id
 }
 
+// Worship detailed budget items (spreadsheet-style budget for the department)
+export async function getWorshipBudgetItems(department) {
+  if (!db) return []
+  const q = query(
+    collection(db, 'worship_budget_items'),
+    where('department', '==', department)
+  )
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
+  })
+  // Sort similar to Excel view: by category then subCategory then description
+  list.sort((a, b) => {
+    const cat = (a.category || '').localeCompare(b.category || '')
+    if (cat !== 0) return cat
+    const sub = (a.subCategory || '').localeCompare(b.subCategory || '')
+    if (sub !== 0) return sub
+    return (a.description || '').localeCompare(b.description || '')
+  })
+  return list
+}
+
+export async function addWorshipBudgetItem(department, data, addedBy) {
+  if (!db) return null
+  const payload = {
+    department,
+    category: data.category || '',
+    subCategory: data.subCategory || '',
+    description: data.description || '',
+    quantity: Number(data.quantity) || 0,
+    unitCost: Number(data.unitCost) || 0,
+    totalCost: Number(data.totalCost ?? data.quantity * data.unitCost) || 0,
+    type: data.type || '',
+    expectedDate: data.expectedDate || '',
+    notes: data.notes || '',
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  }
+  const ref = await addDoc(collection(db, 'worship_budget_items'), payload)
+  return ref.id
+}
+
+export async function updateWorshipBudgetItem(id, data) {
+  if (!db) return
+  const payload = { ...data }
+  if (payload.quantity != null) payload.quantity = Number(payload.quantity) || 0
+  if (payload.unitCost != null) payload.unitCost = Number(payload.unitCost) || 0
+  if (payload.totalCost != null) payload.totalCost = Number(payload.totalCost) || 0
+  await updateDoc(doc(db, 'worship_budget_items', id), payload)
+}
+
+export async function deleteWorshipBudgetItem(id) {
+  if (!db) return
+  await deleteDoc(doc(db, 'worship_budget_items', id))
+}
+
 // Worship team members (director's full team list + former members)
 // No orderBy to avoid composite index; sort in memory
 export async function getWorshipTeamMembers(department, options = {}) {
