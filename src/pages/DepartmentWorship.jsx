@@ -281,6 +281,17 @@ export default function DepartmentWorship() {
     return { period, planned, spent }
   })
 
+  const budget2026 = entries
+    .filter((e) => e.type === 'budget' && typeof e.period === 'string' && e.period.startsWith('2026-'))
+    .reduce(
+      (acc, e) => {
+        acc.planned += e.data?.planned || 0
+        acc.spent += e.data?.spent || 0
+        return acc
+      },
+      { planned: 0, spent: 0 }
+    )
+
   const canViewInsights = isPastor
 
   if (!canManageWorship && !canViewInsights) {
@@ -302,28 +313,41 @@ export default function DepartmentWorship() {
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200">
-        {(canManageWorship || canViewInsights) && (
-          <>
-            <button
-              type="button"
-              onClick={() => setActiveTab('summary')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-                activeTab === 'summary' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Summary
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('budget')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-                activeTab === 'budget' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Budget & Spending
-            </button>
-          </>
+        {/* Summary */}
+        <button
+          type="button"
+          onClick={() => setActiveTab('summary')}
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+            activeTab === 'summary' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          Summary
+        </button>
+        {/* Assign team */}
+        {canManageWorship && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('assign')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+              activeTab === 'assign' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            Assign team
+          </button>
         )}
+        {/* Budget & Spending */}
+        {(canManageWorship || canViewInsights) && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('budget')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+              activeTab === 'budget' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            Budget & Spending
+          </button>
+        )}
+        {/* Team */}
         {(canManageWorship || canViewInsights) && (
           <button
             type="button"
@@ -335,28 +359,31 @@ export default function DepartmentWorship() {
             Team
           </button>
         )}
-        {canManageWorship && (
-          <>
-            <button
-              type="button"
-              onClick={() => setActiveTab('assign')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-                activeTab === 'assign' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Assign team
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('entry')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-                activeTab === 'entry' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Data entry
-            </button>
-          </>
+        {/* History */}
+        {(canManageWorship || canViewInsights) && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+              activeTab === 'history' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            History
+          </button>
         )}
+        {/* Data entry */}
+        {canManageWorship && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('entry')}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+              activeTab === 'entry' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            Data entry
+          </button>
+        )}
+        {/* Insights (pastor) */}
         {canViewInsights && (
           <button
             type="button"
@@ -371,36 +398,37 @@ export default function DepartmentWorship() {
       </div>
 
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
-        <div className="space-y-4">
-          {/* Worship director name at top */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-            <label className="block text-sm font-medium text-slate-700 mb-2">Worship director</label>
-            {(() => {
-              const director = teamMembers.find((m) => m.isWorshipDirector)
-              return <p className="text-slate-800 font-medium">{director?.name || '— (set in Team tab)'}</p>
-            })()}
+        <div className="space-y-6">
+          {/* Big 2026 budget box */}
+          <div className="bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-400 rounded-2xl shadow-lg p-6 text-white max-w-3xl">
+            <h2 className="text-sm font-semibold uppercase tracking-wide opacity-90">Budget 2026 (Worship)</h2>
+            <div className="mt-3 flex flex-wrap items-end gap-8">
+              <div>
+                <p className="text-xs uppercase tracking-wide opacity-80">Total planned</p>
+                <p className="text-3xl md:text-4xl font-bold mt-1">
+                  RM {budget2026.planned.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide opacity-80">Total spent</p>
+                <p className="text-3xl md:text-4xl font-bold mt-1">
+                  RM {budget2026.spent.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide opacity-80">Balance</p>
+                <p className="text-2xl md:text-3xl font-semibold mt-1">
+                  RM {(budget2026.planned - budget2026.spent).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs md:text-sm opacity-90">
+              Based on all Worship budget entries with period in 2026.
+            </p>
           </div>
 
-          {/* Compact summary box + Plan coming Sunday (~1/3 height), colourful */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-              <h2 className="font-semibold text-slate-800 mb-3">Department summary</h2>
-              {teamError && (
-                <p className="text-amber-700 text-sm mb-2 bg-amber-50 px-2 py-1 rounded">
-                  {teamError} <button type="button" onClick={loadTeam} className="underline ml-1">Retry</button>
-                </p>
-              )}
-              {!loadingTeam && (
-                <>
-                  <p className="text-sm text-slate-600">Coordinator since: <span className="text-slate-800">{formatDMY('2022-04-01')}</span></p>
-                  <p className="text-sm text-slate-600">Duration: <span className="text-slate-800">{differenceInDays(new Date(), new Date('2022-04-01'))} days</span></p>
-                  <p className="text-sm text-slate-600">Members: <span className="font-medium text-slate-800">{teamMembers.length}</span></p>
-                  <button type="button" onClick={() => setActiveTab('team')} className="mt-3 text-sm text-blue-600 hover:underline">View full team →</button>
-                </>
-              )}
-            </div>
-
-            <div className="lg:col-span-3 rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-4xl mx-auto" style={{ maxHeight: '33vh', minHeight: 320 }}>
+          {/* Plan coming Sunday – widened to show full content */}
+          <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-6xl" style={{ maxHeight: '40vh', minHeight: 360 }}>
               <div className="h-full flex flex-col bg-gradient-to-br from-amber-50 via-white to-blue-50">
                 <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-amber-500/20 to-blue-500/20 border-b border-amber-200/50">
                   <div>
@@ -763,6 +791,44 @@ export default function DepartmentWorship() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {activeTab === 'history' && (canManageWorship || canViewInsights) && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">History (director entries)</h2>
+          {loading ? (
+            <div className="p-8 text-center text-slate-500">Loading...</div>
+          ) : entries.length === 0 ? (
+            <div className="p-8 text-center text-slate-500">No entries yet from the director.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Period</th>
+                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Type</th>
+                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Details</th>
+                    <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Entered by</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {entries.map((e) => (
+                    <tr key={e.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-3 text-slate-800">{e.period}</td>
+                      <td className="px-5 py-3 text-slate-600 capitalize">{e.type}</td>
+                      <td className="px-5 py-3 text-slate-600">
+                        {e.type === 'team' && (e.data?.notes || '—')}
+                        {e.type === 'budget' && `Planned: ${e.data?.planned ?? 0} RM, Spent: ${e.data?.spent ?? 0} RM`}
+                        {e.type === 'participation' && `${e.data?.count ?? 0} people`}
+                      </td>
+                      <td className="px-5 py-3 text-slate-500 text-sm">{e.enteredBy}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
