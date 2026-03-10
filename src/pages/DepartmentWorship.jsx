@@ -163,9 +163,16 @@ export default function DepartmentWorship() {
     setLoadingComingPlan(true)
     try {
       const data = await getWorshipScheduleByDate(DEPARTMENT, date)
+      const rawSongs = Array.isArray(data.songs) ? data.songs : []
+      const songs = rawSongs.map((s) => ({
+        title: s?.title ?? '',
+        key: s?.key ?? '',
+        memberId: s?.memberId ?? '',
+        memberName: s?.memberName ?? '',
+      }))
       setComingPlan({
         ...data,
-        songs: Array.isArray(data.songs) ? data.songs : [],
+        songs,
         worshipDirectorName: data.worshipDirectorName || '',
       })
     } catch (e) {
@@ -402,66 +409,134 @@ export default function DepartmentWorship() {
                 {loadingComingPlan ? (
                   <div className="flex-1 flex items-center justify-center text-slate-500">Loading...</div>
                 ) : (
-                  <div className="flex-1 overflow-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-amber-100/60 sticky top-0">
-                        <tr>
-                          <th className="text-left px-4 py-2 font-semibold text-slate-700">Role</th>
-                          <th className="text-left px-4 py-2 font-semibold text-slate-700">Assigned to</th>
-                          <th className="text-left px-4 py-2 font-semibold text-slate-700 w-32">Song</th>
-                          <th className="text-left px-4 py-2 font-semibold text-slate-700 w-20">Key</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-amber-100/80">
-                        {ASSIGNMENT_ROLES.map((role, idx) => {
-                          const a = (comingPlan.assignments || []).find((x) => x.role === role)
-                          const isLeadVocal = idx < 4
-                          const songKey = (comingPlan.songs || [])[idx] || {}
-                          return (
-                            <tr key={role} className="hover:bg-amber-50/50">
-                              <td className="px-4 py-2 font-medium text-slate-800">{role}</td>
-                              <td className="px-4 py-2 text-slate-600">{a?.memberName || '—'}</td>
+                  <div className="flex-1 overflow-auto space-y-4 p-4">
+                    {/* Role assignments – who is on each role (edit via Open Assign) */}
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-700 mb-2">Team by role</h3>
+                      <table className="w-full text-sm">
+                        <thead className="bg-amber-100/60">
+                          <tr>
+                            <th className="text-left px-4 py-2 font-semibold text-slate-700">Role</th>
+                            <th className="text-left px-4 py-2 font-semibold text-slate-700">Assigned to</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-amber-100/80">
+                          {ASSIGNMENT_ROLES.map((role) => {
+                            const a = (comingPlan.assignments || []).find((x) => x.role === role)
+                            return (
+                              <tr key={role} className="hover:bg-amber-50/50">
+                                <td className="px-4 py-2 font-medium text-slate-800">{role}</td>
+                                <td className="px-4 py-2 text-slate-600">{a?.memberName || '—'}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Songs – flexible list: one lead vocalist can sing multiple songs; add 5th, 6th, etc. */}
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-700 mb-2">Songs & lead vocalist</h3>
+                      <p className="text-xs text-slate-500 mb-2">Assign who leads each song; the same person can lead more than one song.</p>
+                      <table className="w-full text-sm">
+                        <thead className="bg-amber-100/60">
+                          <tr>
+                            <th className="text-left px-4 py-2 font-semibold text-slate-700 w-8">#</th>
+                            <th className="text-left px-4 py-2 font-semibold text-slate-700">Song</th>
+                            <th className="text-left px-4 py-2 font-semibold text-slate-700 w-20">Key</th>
+                            <th className="text-left px-4 py-2 font-semibold text-slate-700">Lead vocalist</th>
+                            {canManageWorship && <th className="w-10"></th>}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-amber-100/80">
+                          {(comingPlan.songs || []).map((song, idx) => (
+                            <tr key={idx} className="hover:bg-amber-50/50">
+                              <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
                               <td className="px-4 py-2">
-                                {isLeadVocal && canManageWorship ? (
+                                {canManageWorship ? (
                                   <input
                                     type="text"
-                                    value={songKey.title || ''}
+                                    value={song.title || ''}
                                     onChange={(e) => {
                                       const next = [...(comingPlan.songs || [])]
-                                      while (next.length <= idx) next.push({ title: '', key: '' })
                                       next[idx] = { ...next[idx], title: e.target.value }
                                       setComingPlan((p) => ({ ...p, songs: next }))
                                     }}
-                                    placeholder="Song"
-                                    className="w-full md:w-64 lg:w-80 px-3 py-1.5 rounded border border-slate-300 text-xs md:text-sm"
+                                    placeholder="Song title"
+                                    className="w-full min-w-[12rem] max-w-[20rem] px-3 py-1.5 rounded border border-slate-300 text-sm"
                                   />
-                                ) : isLeadVocal ? (
-                                  <span className="text-slate-600">{songKey.title || '—'}</span>
-                                ) : '—'}
+                                ) : (
+                                  <span className="text-slate-800">{song.title || '—'}</span>
+                                )}
                               </td>
                               <td className="px-4 py-2">
-                                {isLeadVocal && canManageWorship ? (
+                                {canManageWorship ? (
                                   <input
                                     type="text"
-                                    value={songKey.key || ''}
+                                    value={song.key || ''}
                                     onChange={(e) => {
                                       const next = [...(comingPlan.songs || [])]
-                                      while (next.length <= idx) next.push({ title: '', key: '' })
                                       next[idx] = { ...next[idx], key: e.target.value }
                                       setComingPlan((p) => ({ ...p, songs: next }))
                                     }}
                                     placeholder="Key"
-                                    className="w-24 md:w-32 px-3 py-1.5 rounded border border-slate-300 text-xs md:text-sm"
+                                    className="w-20 px-2 py-1.5 rounded border border-slate-300 text-sm"
                                   />
-                                ) : isLeadVocal ? (
-                                  <span className="text-slate-600">{songKey.key || '—'}</span>
-                                ) : '—'}
+                                ) : (
+                                  <span className="text-slate-600">{song.key || '—'}</span>
+                                )}
                               </td>
+                              <td className="px-4 py-2">
+                                {canManageWorship ? (
+                                  <select
+                                    value={song.memberId || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value
+                                      const member = teamMembers.find((m) => m.id === val)
+                                      const next = [...(comingPlan.songs || [])]
+                                      next[idx] = { ...next[idx], memberId: val || '', memberName: member?.name || '' }
+                                      setComingPlan((p) => ({ ...p, songs: next }))
+                                    }}
+                                    className="min-w-[10rem] px-2 py-1.5 rounded border border-slate-300 text-sm bg-white"
+                                  >
+                                    <option value="">— Not set</option>
+                                    {teamMembers.map((m) => (
+                                      <option key={m.id} value={m.id}>{m.name}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span className="text-slate-600">{song.memberName || '—'}</span>
+                                )}
+                              </td>
+                              {canManageWorship && (
+                                <td className="px-2 py-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = (comingPlan.songs || []).filter((_, i) => i !== idx)
+                                      setComingPlan((p) => ({ ...p, songs: next }))
+                                    }}
+                                    className="text-slate-400 hover:text-red-600 text-lg leading-none"
+                                    title="Remove song"
+                                  >
+                                    ×
+                                  </button>
+                                </td>
+                              )}
                             </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
+                          ))}
+                        </tbody>
+                      </table>
+                      {canManageWorship && (
+                        <button
+                          type="button"
+                          onClick={() => setComingPlan((p) => ({ ...p, songs: [...(p.songs || []), { title: '', key: '', memberId: '', memberName: '' }] }))}
+                          className="mt-2 px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 text-sm font-medium hover:bg-amber-200"
+                        >
+                          + Add song (5th, 6th…)
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
                 {canManageWorship && !loadingComingPlan && (
