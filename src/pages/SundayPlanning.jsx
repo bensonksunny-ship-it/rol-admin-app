@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY } from '../utils/date'
+
+function nextSundayISO() {
+  const today = new Date()
+  const day = today.getDay()
+  const daysUntilSunday = (7 - day) % 7
+  const next = new Date(today)
+  next.setDate(today.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday))
+  return format(next, 'yyyy-MM-dd')
+}
 
 const WORSHIP_ROLES = [
   'Lead Vocal-1', 'Lead Vocal-2', 'Lead Vocal-3', 'Lead Vocal-4', 'Parts-1', 'Parts-2',
@@ -48,7 +57,12 @@ function WorshipPlanSummary({ selectedDate }) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
       <h3 className="font-semibold text-slate-800 mb-3">Worship (from Worship department)</h3>
-      <p className="text-xs text-slate-500 mb-3">Team and songs for {formatDMY(selectedDate)}. Edit on the Worship department page.</p>
+      <p className="text-xs text-slate-500 mb-3">
+        Team and songs for {formatDMY(selectedDate)}. This is the same data as the Worship department&apos;s &quot;Plan coming Sunday&quot; card.
+      </p>
+      <p className="text-sm mb-3">
+        <Link to={`/department/worship?date=${selectedDate}`} className="text-blue-600 hover:underline font-medium">Edit in Worship department →</Link>
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <h4 className="text-sm font-medium text-slate-700 mb-2">Team by role</h4>
@@ -122,7 +136,7 @@ export default function SundayPlanning() {
   const [searchParams, setSearchParams] = useSearchParams()
   const dateFromUrl = searchParams.get('date')
   const { hasPermission, canEditSundaySection } = useAuth()
-  const [selectedDate, setSelectedDate] = useState(() => dateFromUrl || format(new Date(), 'yyyy-MM-dd'))
+  const [selectedDate, setSelectedDate] = useState(() => dateFromUrl || nextSundayISO())
   const [plan, setPlan] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)

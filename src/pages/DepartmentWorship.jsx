@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
   addDepartmentEntry,
@@ -339,7 +339,9 @@ export default function DepartmentWorship() {
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [scheduleForDate, setScheduleForDate] = useState({ date: '', assignments: [] })
   const [loadingSchedule, setLoadingSchedule] = useState(false)
-  const [comingSundayDate, setComingSundayDate] = useState(() => nextSundayISO())
+  const [searchParams] = useSearchParams()
+  const dateFromUrl = searchParams.get('date')
+  const [comingSundayDate, setComingSundayDate] = useState(() => dateFromUrl || nextSundayISO())
   const [comingPlan, setComingPlan] = useState({ date: '', assignments: [], songs: [], worshipDirectorName: '' })
   const [loadingComingPlan, setLoadingComingPlan] = useState(false)
   const [savingComingPlan, setSavingComingPlan] = useState(false)
@@ -441,11 +443,12 @@ export default function DepartmentWorship() {
   }
 
   useEffect(() => {
-    const d = nextSundayISO()
+    const d = dateFromUrl || nextSundayISO()
     setComingSundayDate(d)
     loadComingPlan(d)
     loadBudgetItems()
-  }, [])
+    if (dateFromUrl) setActiveTab('summary')
+  }, [dateFromUrl])
 
   useEffect(() => {
     if (activeTab === 'assign' && selectedDate) loadScheduleForDate(selectedDate)
