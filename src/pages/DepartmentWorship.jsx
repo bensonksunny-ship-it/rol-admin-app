@@ -114,19 +114,17 @@ function PlanComingSundayCard({
   formatDMY,
 }) {
   return (
-    <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 w-3/4 max-w-4xl mx-auto flex flex-col" style={{ height: '70vh', minHeight: 480 }}>
-      <div className="flex-1 min-h-0 flex flex-col bg-gradient-to-br from-amber-50 via-white to-blue-50">
-        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-amber-100 border-b border-amber-200">
+    <div className="rounded-xl overflow-hidden shadow-lg border-2 border-amber-200 w-3/4 max-w-4xl mx-auto flex flex-col" style={{ height: '70vh', minHeight: 480 }}>
+      <div className="flex-1 min-h-0 flex flex-col bg-gradient-to-br from-amber-50 via-orange-50/30 to-amber-50">
+        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 border-b-2 border-amber-600/50 shadow-sm">
           <div>
-            <h2 className="font-bold text-slate-800 text-lg">Plan coming Sunday</h2>
-            <p className="text-sm text-slate-600 mt-1">
-              <span className="font-medium text-amber-800">{formatDMY(comingSundayDate)}</span>
-            </p>
+            <h2 className="font-bold text-white text-base drop-shadow-sm">Plan coming Sunday</h2>
+            <p className="text-xs text-amber-100 mt-0.5">{formatDMY(comingSundayDate)}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Link
               to={`/sunday-planning?date=${comingSundayDate}`}
-              className="px-4 py-2 rounded-xl border border-amber-500 text-amber-700 font-medium hover:bg-amber-50 shadow-sm"
+              className="px-3 py-1.5 rounded-lg border border-white/80 text-white text-sm font-medium hover:bg-white/20 transition-colors"
             >
               View in Sunday Planning
             </Link>
@@ -134,7 +132,7 @@ function PlanComingSundayCard({
               <button
                 type="button"
                 onClick={() => { setSelectedDate(comingSundayDate); setActiveTab('assign') }}
-                className="px-4 py-2 rounded-xl bg-amber-500 text-white font-medium hover:bg-amber-600 shadow-md"
+                className="px-3 py-1.5 rounded-lg bg-white text-amber-700 font-semibold text-sm hover:bg-amber-50 shadow transition-colors"
               >
                 Open Assign
               </button>
@@ -142,49 +140,49 @@ function PlanComingSundayCard({
           </div>
         </div>
         {loadingComingPlan ? (
-          <div className="flex-1 min-h-0 flex items-center justify-center text-slate-500">Loading...</div>
+          <div className="flex-1 min-h-0 flex items-center justify-center text-slate-500 text-sm">Loading...</div>
         ) : (
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-4 p-4">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-700 mb-2">Team by role</h3>
-              <table className="w-full text-sm">
-                <thead className="bg-amber-100">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-3 p-3">
+            <div className="rounded-lg border border-amber-200/80 bg-white/80 overflow-hidden">
+              <h3 className="text-xs font-semibold text-amber-900 bg-amber-100/90 px-3 py-1.5 border-b border-amber-200">Team by role</h3>
+              <table className="w-full text-xs">
+                <thead className="bg-amber-100/70">
                   <tr>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700">Role</th>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700">Assigned to</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Role</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Assigned to</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-amber-200">
+                <tbody className="divide-y divide-amber-100">
                   {ASSIGNMENT_ROLES.map((role) => {
                     const a = (comingPlan.assignments || []).find((x) => x.role === role)
                     return (
-                      <tr key={role} className="hover:bg-amber-50">
-                        <td className="px-4 py-2 font-medium text-slate-800">{role}</td>
-                        <td className="px-4 py-2 text-slate-600">{a?.memberName || '\u2014'}</td>
+                      <tr key={role} className="hover:bg-amber-50/80">
+                        <td className="px-3 py-1 font-medium text-slate-800">{role}</td>
+                        <td className="px-3 py-1 text-slate-600">{a?.memberName || '\u2014'}</td>
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
             </div>
-            <div>
-              <h3 className="text-sm font-semibold text-slate-700 mb-2">Songs and lead vocalist</h3>
-              <p className="text-xs text-slate-500 mb-2">Assign who leads each song; the same person can lead more than one song.</p>
-              <table className="w-full text-sm">
-                <thead className="bg-amber-100">
+            <div className="rounded-lg border border-orange-200/80 bg-white/80 overflow-hidden">
+              <h3 className="text-xs font-semibold text-orange-900 bg-orange-100/90 px-3 py-1.5 border-b border-orange-200">Songs & lead vocalist</h3>
+              <p className="text-[10px] text-slate-500 px-3 pt-1">Same person can lead multiple songs.</p>
+              <table className="w-full text-xs">
+                <thead className="bg-orange-100/70">
                   <tr>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700 w-8">#</th>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700">Song</th>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700 w-20">Key</th>
-                    <th className="text-left px-4 py-2 font-semibold text-slate-700">Lead vocalist</th>
-                    {canManageWorship && <th className="w-10" />}
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-6">#</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Song</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-14">Key</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Lead vocalist</th>
+                    {canManageWorship && <th className="w-8" />}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-amber-200">
+                <tbody className="divide-y divide-orange-100">
                   {(comingPlan.songs || []).map((song, idx) => (
-                    <tr key={idx} className="hover:bg-amber-50">
-                      <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
-                      <td className="px-4 py-2">
+                    <tr key={idx} className="hover:bg-orange-50/80">
+                      <td className="px-3 py-1 text-slate-600">{idx + 1}</td>
+                      <td className="px-3 py-1">
                         {canManageWorship ? (
                           <input
                             type="text"
@@ -195,13 +193,13 @@ function PlanComingSundayCard({
                               setComingPlan((p) => ({ ...p, songs: next }))
                             }}
                             placeholder="Song title"
-                            className="w-full min-w-[14rem] max-w-[28rem] px-3 py-1.5 rounded border border-slate-300 text-sm"
+                            className="w-full min-w-[12rem] max-w-[24rem] px-2 py-1 rounded border border-slate-300 text-xs"
                           />
                         ) : (
                           <span className="text-slate-800">{song.title || '\u2014'}</span>
                         )}
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-1">
                         {canManageWorship ? (
                           <input
                             type="text"
@@ -212,13 +210,13 @@ function PlanComingSundayCard({
                               setComingPlan((p) => ({ ...p, songs: next }))
                             }}
                             placeholder="Key"
-                            className="w-20 px-2 py-1.5 rounded border border-slate-300 text-sm"
+                            className="w-16 px-2 py-1 rounded border border-slate-300 text-xs"
                           />
                         ) : (
                           <span className="text-slate-600">{song.key || '\u2014'}</span>
                         )}
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-1">
                         {canManageWorship ? (
                           <select
                             value={song.memberId || ''}
@@ -229,7 +227,7 @@ function PlanComingSundayCard({
                               next[idx] = { ...next[idx], memberId: val || '', memberName: member?.name || '' }
                               setComingPlan((p) => ({ ...p, songs: next }))
                             }}
-                            className="min-w-[10rem] px-2 py-1.5 rounded border border-slate-300 text-sm bg-white"
+                            className="min-w-[8rem] px-2 py-1 rounded border border-slate-300 text-xs bg-white"
                           >
                             <option value="">- Not set</option>
                             {teamMembers
@@ -243,14 +241,14 @@ function PlanComingSundayCard({
                         )}
                       </td>
                       {canManageWorship && (
-                        <td className="px-2 py-2">
+                        <td className="px-2 py-1">
                           <button
                             type="button"
                             onClick={() => {
                               const next = (comingPlan.songs || []).filter((_, i) => i !== idx)
                               setComingPlan((p) => ({ ...p, songs: next }))
                             }}
-                            className="text-slate-400 hover:text-red-600 text-lg leading-none"
+                            className="text-slate-400 hover:text-red-600 text-sm leading-none"
                             title="Remove song"
                           >
                             &#215;
@@ -265,7 +263,7 @@ function PlanComingSundayCard({
                 <button
                   type="button"
                   onClick={() => setComingPlan((p) => ({ ...p, songs: [...(p.songs || []), { title: '', key: '', memberId: '', memberName: '' }] }))}
-                  className="mt-2 px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 text-sm font-medium hover:bg-amber-200"
+                  className="mt-1.5 px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800 text-xs font-medium hover:bg-orange-200"
                 >
                   + Add song
                 </button>
@@ -274,7 +272,7 @@ function PlanComingSundayCard({
           </div>
         )}
         {canManageWorship && !loadingComingPlan && (
-          <div className="flex-shrink-0 px-5 py-3 bg-amber-50 border-t border-amber-200 flex justify-end">
+          <div className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-amber-100 to-orange-100 border-t-2 border-amber-300/50 flex justify-end">
             <button
               type="button"
               disabled={savingComingPlan}
@@ -296,7 +294,7 @@ function PlanComingSundayCard({
                   setSavingComingPlan(false)
                 }
               }}
-              className="px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 disabled:opacity-60"
+              className="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60 shadow"
             >
               {savingComingPlan ? 'Saving...' : 'Save plan'}
             </button>
@@ -551,22 +549,24 @@ export default function DepartmentWorship() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Worship Department</h1>
-        <p className="text-slate-500 mt-1">
-          {canManageWorship && 'Plan worship team, assign by date, budget, and participation. Add demo team or members in Summary. Founder and Worship director can edit and add.'}
-          {canViewInsights && !canManageWorship && 'Insights from Worship director entries – participation, budget, and activity.'}
-        </p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold bg-gradient-to-r from-slate-800 to-blue-800 bg-clip-text text-transparent">Worship Department</h1>
+          <p className="text-slate-500 text-sm mt-0.5">
+            {canManageWorship && 'Plan team, assign by date, budget & participation.'}
+            {canViewInsights && !canManageWorship && 'Insights from Worship director entries.'}
+          </p>
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 border-b border-slate-200">
+      <div className="flex flex-wrap gap-1.5 border-b border-slate-200 pb-0.5">
         {/* Summary */}
         <button
           type="button"
           onClick={() => setActiveTab('summary')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-            activeTab === 'summary' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+          className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'summary' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm' : 'text-slate-600 hover:bg-amber-50 hover:text-amber-800'
           }`}
         >
           Summary
@@ -576,8 +576,8 @@ export default function DepartmentWorship() {
           <button
             type="button"
             onClick={() => setActiveTab('assign')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-              activeTab === 'assign' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === 'assign' ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-sm' : 'text-slate-600 hover:bg-blue-50 hover:text-blue-700'
             }`}
           >
             Assign team
@@ -588,8 +588,8 @@ export default function DepartmentWorship() {
           <button
             type="button"
             onClick={() => setActiveTab('budget')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-              activeTab === 'budget' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === 'budget' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm' : 'text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
             }`}
           >
             Budget & Spending
@@ -600,8 +600,8 @@ export default function DepartmentWorship() {
           <button
             type="button"
             onClick={() => setActiveTab('team')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-              activeTab === 'team' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === 'team' ? 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm' : 'text-slate-600 hover:bg-violet-50 hover:text-violet-700'
             }`}
           >
             Team
@@ -612,8 +612,8 @@ export default function DepartmentWorship() {
           <button
             type="button"
             onClick={() => setActiveTab('history')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-              activeTab === 'history' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === 'history' ? 'bg-gradient-to-r from-slate-500 to-slate-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             History
@@ -624,8 +624,8 @@ export default function DepartmentWorship() {
           <button
             type="button"
             onClick={() => setActiveTab('entry')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-              activeTab === 'entry' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === 'entry' ? 'bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-sm' : 'text-slate-600 hover:bg-cyan-50 hover:text-cyan-700'
             }`}
           >
             Data entry
@@ -636,8 +636,8 @@ export default function DepartmentWorship() {
           <button
             type="button"
             onClick={() => setActiveTab('insights')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-              activeTab === 'insights' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === 'insights' ? 'bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-sm' : 'text-slate-600 hover:bg-rose-50 hover:text-rose-700'
             }`}
           >
             Insights (pastor)
@@ -646,33 +646,25 @@ export default function DepartmentWorship() {
       </div>
 
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
-        <div className="space-y-6">
-          {/* Big 2026 budget box */}
-          <div className="bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-400 rounded-2xl shadow-lg p-6 text-white max-w-3xl">
-            <h2 className="text-sm font-semibold uppercase tracking-wide opacity-90">Budget 2026 (Worship)</h2>
-            <div className="mt-3 flex flex-wrap items-end gap-8">
+        <div className="space-y-4">
+          {/* Budget 2026 - compact, colourful */}
+          <div className="bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 rounded-xl shadow-md p-4 text-white max-w-3xl">
+            <h2 className="text-xs font-semibold uppercase tracking-wider opacity-95">Budget 2026 (Worship)</h2>
+            <div className="mt-2 flex flex-wrap items-end gap-6">
               <div>
-                <p className="text-xs uppercase tracking-wide opacity-80">Total planned</p>
-                <p className="text-3xl md:text-4xl font-bold mt-1">
-                  RM {budget2026.planned.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </p>
+                <p className="text-[10px] uppercase tracking-wider opacity-90">Planned</p>
+                <p className="text-2xl md:text-3xl font-bold leading-tight">RM {budget2026.planned.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide opacity-80">Total spent</p>
-                <p className="text-3xl md:text-4xl font-bold mt-1">
-                  RM {budget2026.spent.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </p>
+                <p className="text-[10px] uppercase tracking-wider opacity-90">Spent</p>
+                <p className="text-2xl md:text-3xl font-bold leading-tight">RM {budget2026.spent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide opacity-80">Balance</p>
-                <p className="text-2xl md:text-3xl font-semibold mt-1">
-                  RM {(budget2026.planned - budget2026.spent).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </p>
+                <p className="text-[10px] uppercase tracking-wider opacity-90">Balance</p>
+                <p className="text-xl md:text-2xl font-semibold leading-tight">RM {(budget2026.planned - budget2026.spent).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
             </div>
-            <p className="mt-3 text-xs md:text-sm opacity-90">
-              Based on all Worship budget entries with period in 2026.
-            </p>
+            <p className="mt-2 text-[10px] opacity-90">All Worship budget entries, period 2026.</p>
           </div>
 
           {/* Plan coming Sunday */}

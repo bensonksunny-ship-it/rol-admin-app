@@ -41,6 +41,15 @@ const SECTION_ORDER = [
   SUNDAY_PLAN_SECTIONS.RIVER_KIDS,
 ]
 
+const SECTION_ACCENT = {
+  [SUNDAY_PLAN_SECTIONS.SUNDAY_MINISTRY]: { border: 'border-l-violet-500', btn: 'bg-violet-500 hover:bg-violet-600' },
+  [SUNDAY_PLAN_SECTIONS.SUNDAY_LEADER]: { border: 'border-l-sky-500', btn: 'bg-sky-500 hover:bg-sky-600' },
+  [SUNDAY_PLAN_SECTIONS.MEDIA]: { border: 'border-l-emerald-500', btn: 'bg-emerald-500 hover:bg-emerald-600' },
+  [SUNDAY_PLAN_SECTIONS.ANNOUNCEMENTS]: { border: 'border-l-amber-500', btn: 'bg-amber-500 hover:bg-amber-600' },
+  [SUNDAY_PLAN_SECTIONS.D_LITE]: { border: 'border-l-rose-500', btn: 'bg-rose-500 hover:bg-rose-600' },
+  [SUNDAY_PLAN_SECTIONS.RIVER_KIDS]: { border: 'border-l-teal-500', btn: 'bg-teal-500 hover:bg-teal-600' },
+}
+
 function WorshipPlanSummary({ selectedDate }) {
   const [worshipPlan, setWorshipPlan] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -51,39 +60,37 @@ function WorshipPlanSummary({ selectedDate }) {
       .catch(() => setWorshipPlan({ date: selectedDate, assignments: [], songs: [] }))
       .finally(() => setLoading(false))
   }, [selectedDate])
-  if (loading) return <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm"><p className="text-slate-500">Loading Worship plan...</p></div>
+  if (loading) return <div className="bg-white rounded-lg border border-amber-200 p-4 shadow-sm"><p className="text-slate-500 text-sm">Loading Worship plan...</p></div>
   const assignments = worshipPlan?.assignments || []
   const songs = worshipPlan?.songs || []
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-      <h3 className="font-semibold text-slate-800 mb-3">Worship (from Worship department)</h3>
-      <p className="text-xs text-slate-500 mb-3">
-        Team and songs for {formatDMY(selectedDate)}. This is the same data as the Worship department&apos;s &quot;Plan coming Sunday&quot; card.
+    <div className="bg-white rounded-lg border border-amber-200 border-l-4 border-l-amber-500 p-4 shadow-sm">
+      <h3 className="font-semibold text-amber-900 text-sm mb-1">Worship (from Worship department)</h3>
+      <p className="text-[10px] text-slate-500 mb-2">Same as Plan coming Sunday. {formatDMY(selectedDate)}</p>
+      <p className="mb-2">
+        <Link to={`/department/worship?date=${selectedDate}`} className="text-amber-600 hover:text-amber-700 text-xs font-semibold">Edit in Worship department →</Link>
       </p>
-      <p className="text-sm mb-3">
-        <Link to={`/department/worship?date=${selectedDate}`} className="text-blue-600 hover:underline font-medium">Edit in Worship department →</Link>
-      </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <h4 className="text-sm font-medium text-slate-700 mb-2">Team by role</h4>
-          <table className="w-full text-sm">
-            <thead><tr><th className="text-left py-1 text-slate-600">Role</th><th className="text-left py-1 text-slate-600">Assigned</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded border border-amber-100 bg-amber-50/50 overflow-hidden">
+          <h4 className="text-xs font-semibold text-amber-900 bg-amber-100 px-2 py-1">Team by role</h4>
+          <table className="w-full text-xs">
+            <thead><tr><th className="text-left py-0.5 px-2 text-slate-600">Role</th><th className="text-left py-0.5 px-2 text-slate-600">Assigned</th></tr></thead>
+            <tbody className="divide-y divide-amber-100">
               {WORSHIP_ROLES.map((role) => {
                 const a = assignments.find((x) => x.role === role)
-                return <tr key={role}><td className="py-1 text-slate-800">{role}</td><td className="py-1 text-slate-600">{a?.memberName || '—'}</td></tr>
+                return <tr key={role}><td className="py-0.5 px-2 text-slate-800">{role}</td><td className="py-0.5 px-2 text-slate-600">{a?.memberName || '—'}</td></tr>
               })}
             </tbody>
           </table>
         </div>
-        <div>
-          <h4 className="text-sm font-medium text-slate-700 mb-2">Songs & lead vocalist</h4>
-          {songs.length === 0 ? <p className="text-slate-500 text-sm">No songs entered yet.</p> : (
-            <table className="w-full text-sm">
-              <thead><tr><th className="text-left py-1 text-slate-600 w-8">#</th><th className="text-left py-1 text-slate-600">Song</th><th className="text-left py-1 text-slate-600">Key</th><th className="text-left py-1 text-slate-600">Lead</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">
+        <div className="rounded border border-orange-100 bg-orange-50/50 overflow-hidden">
+          <h4 className="text-xs font-semibold text-orange-900 bg-orange-100 px-2 py-1">Songs & lead</h4>
+          {songs.length === 0 ? <p className="text-slate-500 text-xs p-2">No songs yet.</p> : (
+            <table className="w-full text-xs">
+              <thead><tr><th className="text-left py-0.5 px-2 w-6 text-slate-600">#</th><th className="text-left py-0.5 px-2 text-slate-600">Song</th><th className="text-left py-0.5 px-2 text-slate-600">Key</th><th className="text-left py-0.5 px-2 text-slate-600">Lead</th></tr></thead>
+              <tbody className="divide-y divide-orange-100">
                 {songs.map((s, i) => (
-                  <tr key={i}><td className="py-1 text-slate-600">{i + 1}</td><td className="py-1 text-slate-800">{s?.title || '—'}</td><td className="py-1 text-slate-600">{s?.key || '—'}</td><td className="py-1 text-slate-600">{s?.memberName || '—'}</td></tr>
+                  <tr key={i}><td className="py-0.5 px-2 text-slate-600">{i + 1}</td><td className="py-0.5 px-2 text-slate-800">{s?.title || '—'}</td><td className="py-0.5 px-2 text-slate-600">{s?.key || '—'}</td><td className="py-0.5 px-2 text-slate-600">{s?.memberName || '—'}</td></tr>
                 ))}
               </tbody>
             </table>
@@ -97,6 +104,7 @@ function WorshipPlanSummary({ selectedDate }) {
 function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
   const [form, setForm] = useState(data || { notes: '' })
   useEffect(() => setForm(data || { notes: '' }), [data])
+  const style = SECTION_ACCENT[sectionKey] || { border: 'border-l-indigo-400', btn: 'bg-indigo-500 hover:bg-indigo-600' }
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -104,27 +112,27 @@ function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-      <h3 className="font-semibold text-slate-800 mb-3">{label}</h3>
+    <div className={`bg-white rounded-lg border border-slate-200 border-l-4 ${style.border} p-4 shadow-sm`}>
+      <h3 className="font-semibold text-slate-800 text-sm mb-2">{label}</h3>
       {canEdit ? (
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-2">
           <textarea
             value={form.notes ?? ''}
             onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-            placeholder="Enter planning notes, names, and details for this section..."
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[120px]"
-            rows={4}
+            placeholder="Planning notes, names, details..."
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm min-h-[80px]"
+            rows={3}
           />
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            className={`px-3 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50 ${style.btn}`}
           >
             {saving ? 'Saving...' : 'Save section'}
           </button>
         </form>
       ) : (
-        <div className="text-slate-600 whitespace-pre-wrap">
+        <div className="text-slate-600 text-sm whitespace-pre-wrap">
           {form.notes || '— No data yet —'}
         </div>
       )}
@@ -183,44 +191,43 @@ export default function SundayPlanning() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Sunday Ministry Planning</h1>
-        <p className="text-slate-500 mt-1">
-          Plan and report by section. Each department can fill their part; data is combined for reports.
-        </p>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-700 to-blue-700 bg-clip-text text-transparent">Sunday Ministry Planning</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Plan by section; data combined for reports.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-xs font-medium text-slate-600">Date</label>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => handleDateChange(e.target.value)}
+            className="px-2 py-1.5 rounded-lg border border-slate-300 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => handleDateChange(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
+            className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs font-medium hover:bg-indigo-50 hover:border-indigo-300"
+          >
+            ← Prev
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDateChange(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
+            className="px-2 py-1.5 rounded-lg border border-slate-300 text-xs font-medium hover:bg-indigo-50 hover:border-indigo-300"
+          >
+            Next →
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4">
-        <label className="text-sm font-medium text-slate-700">Date:</label>
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => handleDateChange(e.target.value)}
-          className="px-3 py-2 rounded-lg border border-slate-300"
-        />
-        <button
-          type="button"
-          onClick={() => handleDateChange(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
-          className="px-3 py-2 rounded-lg border border-slate-300 text-sm hover:bg-slate-50"
-        >
-          ← Previous Sunday
-        </button>
-        <button
-          type="button"
-          onClick={() => handleDateChange(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
-          className="px-3 py-2 rounded-lg border border-slate-300 text-sm hover:bg-slate-50"
-        >
-          Next Sunday →
-        </button>
-      </div>
-
-      <div className="flex gap-2 border-b border-slate-200">
+      <div className="flex gap-1.5 border-b border-slate-200 pb-0.5">
         <button
           type="button"
           onClick={() => setActiveTab('combined')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-            activeTab === 'combined' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+          className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'combined' ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-sm' : 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
           }`}
         >
           Combined view
@@ -228,8 +235,8 @@ export default function SundayPlanning() {
         <button
           type="button"
           onClick={() => setActiveTab('mysection')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-            activeTab === 'mysection' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+          className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'mysection' ? 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm' : 'text-slate-600 hover:bg-violet-50 hover:text-violet-700'
           }`}
         >
           My section only
@@ -246,10 +253,8 @@ export default function SundayPlanning() {
           saving={saving}
         />
       ) : (
-        <div className="space-y-4">
-          <p className="text-sm text-slate-600">
-            Combined sheet for {formatDMY(selectedDate)}. Export from Reports when needed.
-          </p>
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500">Combined sheet for {formatDMY(selectedDate)}.</p>
           {SECTION_ORDER.map((key) =>
             key === SUNDAY_PLAN_SECTIONS.WORSHIP ? (
               <WorshipPlanSummary key={key} selectedDate={selectedDate} />
@@ -275,8 +280,8 @@ function MySectionView({ plan, canEditSundaySection, onSave, saving }) {
   const mySection = SECTION_ORDER.find((key) => canEditSundaySection(key))
   if (!mySection) {
     return (
-      <div className="bg-slate-50 rounded-xl border border-slate-200 p-6 text-slate-600">
-        <p>Your account is not assigned to a specific section. You can view the Combined view, or ask an admin to set your <strong>sundaySection</strong> in Firestore (users collection) to one of: sundayMinistry, worship, sundayLeader, media, announcements, dLite, riverKids.</p>
+      <div className="bg-slate-50 rounded-lg border border-slate-200 border-l-4 border-l-slate-400 p-4 text-slate-600 text-sm">
+        <p>Your account is not assigned to a specific section. Use Combined view, or ask an admin to set <strong>sundaySection</strong> in Firestore (users) to: sundayMinistry, worship, sundayLeader, media, announcements, dLite, riverKids.</p>
       </div>
     )
   }
