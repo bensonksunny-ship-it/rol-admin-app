@@ -113,9 +113,9 @@ function PlanComingSundayCard({
   formatDMY,
 }) {
   return (
-    <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-7xl w-full" style={{ maxHeight: '70vh', minHeight: 520 }}>
-      <div className="h-full flex flex-col bg-gradient-to-br from-amber-50 via-white to-blue-50">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-amber-100 border-b border-amber-200">
+    <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 max-w-7xl w-full flex flex-col" style={{ height: '70vh', minHeight: 480 }}>
+      <div className="flex-1 min-h-0 flex flex-col bg-gradient-to-br from-amber-50 via-white to-blue-50">
+        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-amber-100 border-b border-amber-200">
           <div>
             <h2 className="font-bold text-slate-800 text-lg">Plan coming Sunday</h2>
             <p className="text-sm text-slate-600 mt-1">
@@ -133,9 +133,9 @@ function PlanComingSundayCard({
           )}
         </div>
         {loadingComingPlan ? (
-          <div className="flex-1 flex items-center justify-center text-slate-500">Loading...</div>
+          <div className="flex-1 min-h-0 flex items-center justify-center text-slate-500">Loading...</div>
         ) : (
-          <div className="flex-1 overflow-auto space-y-4 p-4">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-4 p-4">
             <div>
               <h3 className="text-sm font-semibold text-slate-700 mb-2">Team by role</h3>
               <table className="w-full text-sm">
@@ -264,8 +264,8 @@ function PlanComingSundayCard({
             </div>
           </div>
         )}
-        {canManageWorship && !loadingComingPlan ? (
-          <div className="px-5 py-3 bg-amber-50 border-t border-amber-200 flex justify-end">
+        {canManageWorship && !loadingComingPlan && (
+          <div className="flex-shrink-0 px-5 py-3 bg-amber-50 border-t border-amber-200 flex justify-end">
             <button
               type="button"
               disabled={savingComingPlan}
@@ -292,7 +292,7 @@ function PlanComingSundayCard({
               {savingComingPlan ? 'Saving...' : 'Save plan'}
             </button>
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   )
