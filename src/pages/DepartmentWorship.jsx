@@ -52,6 +52,19 @@ const MEMBER_POSITIONS = [
   'Media',
 ]
 
+function positionKeyForRole(role) {
+  if (role.startsWith('Lead Vocal')) return 'Lead vocal'
+  if (role.startsWith('Parts')) return 'Parts'
+  if (role.startsWith('Choir member')) return 'Choir'
+  if (role === 'Lead Guitar') return 'Lead guitar'
+  if (role === 'Acoustic guitar') return 'Guitar'
+  if (role === 'Bass Guitar') return 'Bass'
+  if (role === 'Keyboard') return 'Keyboard'
+  if (role === 'Drums') return 'Drums'
+  if (role === 'Sound Engineer') return 'Sound engineer'
+  return null
+}
+
 const DEMO_TEAM = [
   { name: 'Leonard', memberSince: '2022-04-25' },
   { name: 'Archana', memberSince: '2019-12-03' },
@@ -500,7 +513,9 @@ export default function DepartmentWorship() {
                                     className="min-w-[10rem] px-2 py-1.5 rounded border border-slate-300 text-sm bg-white"
                                   >
                                     <option value="">— Not set</option>
-                                    {teamMembers.map((m) => (
+                                    {teamMembers
+                                      .filter((m) => m.positions?.includes('Lead vocal'))
+                                      .map((m) => (
                                       <option key={m.id} value={m.id}>{m.name}</option>
                                     ))}
                                   </select>
@@ -533,7 +548,7 @@ export default function DepartmentWorship() {
                           onClick={() => setComingPlan((p) => ({ ...p, songs: [...(p.songs || []), { title: '', key: '', memberId: '', memberName: '' }] }))}
                           className="mt-2 px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 text-sm font-medium hover:bg-amber-200"
                         >
-                          + Add song (5th, 6th…)
+                          + Add song
                         </button>
                       )}
                     </div>
@@ -676,11 +691,26 @@ export default function DepartmentWorship() {
                       {canManageWorship && <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Action</th>}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {teamMembers.map((m, i) => (
-                      <tr key={m.id} className="hover:bg-slate-50">
+                    <tbody className="divide-y divide-slate-200">
+                      {[...teamMembers]
+                        .sort((a, b) => (b.isWorshipDirector === true) - (a.isWorshipDirector === true))
+                        .map((m, i) => (
+                      <tr
+                        key={m.id}
+                        className={
+                          'hover:bg-slate-50 ' +
+                          (m.isWorshipDirector ? 'bg-amber-50/80' : '')
+                        }
+                      >
                         <td className="px-5 py-3 text-slate-600">{i + 1}</td>
-                        <td className="px-5 py-3 font-medium text-slate-800">{m.name}</td>
+                        <td className="px-5 py-3 font-medium text-slate-800">
+                          {m.name}
+                          {m.isWorshipDirector && (
+                            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] uppercase tracking-wide">
+                              Worship director
+                            </span>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-slate-600">{formatDMY(m.memberSince)}</td>
                         <td className="px-5 py-3 text-slate-600">
                           {differenceInDays(new Date(), new Date(m.memberSince))} days
@@ -759,13 +789,47 @@ export default function DepartmentWorship() {
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"
                 />
               </div>
+              <div className="flex flex-wrap gap-3 text-sm text-slate-600">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={!!editMember.isWorshipDirector}
+                    onChange={(e) => setEditMember((m) => ({ ...m, isWorshipDirector: e.target.checked }))}
+                  />
+                  Worship director
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs text-slate-600">
+                {MEMBER_POSITIONS.map((pos) => (
+                  <label key={pos} className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-50 border border-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={editMember.positions?.includes(pos)}
+                      onChange={(e) =>
+                        setEditMember((m) => ({
+                          ...m,
+                          positions: e.target.checked
+                            ? [...(m.positions || []), pos]
+                            : (m.positions || []).filter((p) => p !== pos),
+                        }))
+                      }
+                    />
+                    <span>{pos}</span>
+                  </label>
+                ))}
+              </div>
             </div>
             <div className="flex flex-wrap gap-3 mt-5">
               <button
                 type="button"
                 onClick={async () => {
                   try {
-                    await updateWorshipTeamMember(editMember.id, { name: editMember.name, memberSince: editMember.memberSince })
+                    await updateWorshipTeamMember(editMember.id, {
+                      name: editMember.name,
+                      memberSince: editMember.memberSince,
+                      isWorshipDirector: !!editMember.isWorshipDirector,
+                      positions: editMember.positions || [],
+                    })
                     await loadTeam()
                     setEditMember(null)
                   } catch (e) {
@@ -860,9 +924,15 @@ export default function DepartmentWorship() {
                         className="w-full max-w-[220px] px-3 py-2 text-sm rounded border border-slate-300 bg-white"
                       >
                         <option value="">— Not assigned</option>
-                        {teamMembers.map((m) => (
-                          <option key={m.id} value={m.id}>{m.name}</option>
-                        ))}
+                        {(() => {
+                          const posKey = positionKeyForRole(role)
+                          const eligible = posKey
+                            ? teamMembers.filter((m) => m.positions?.includes(posKey))
+                            : teamMembers
+                          return eligible.map((m) => (
+                            <option key={m.id} value={m.id}>{m.name}</option>
+                          ))
+                        })()}
                       </select>
                     </td>
                   </tr>
