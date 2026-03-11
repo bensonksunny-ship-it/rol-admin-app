@@ -10,9 +10,14 @@ import {
   addDepartmentTeamMember,
   updateDepartmentTeamMember,
   deleteDepartmentTeamMember,
+  getFinanceBudgetItemsByDepartment,
+  addFinanceBudgetItem,
+  updateFinanceBudgetItem,
+  deleteFinanceBudgetItem,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
-import { differenceInDays } from 'date-fns'
+import { differenceInDays, format } from 'date-fns'
+import { formatDMY } from '../utils/date'
 
 const TABS = ['summary', 'team', 'planning', 'financial']
 
@@ -38,6 +43,21 @@ export default function DepartmentHub() {
     isFormer: false,
     notes: '',
   })
+  const [budgetItems, setBudgetItems] = useState([])
+  const [loadingBudget, setLoadingBudget] = useState(false)
+  const [editingBudgetId, setEditingBudgetId] = useState(null)
+  const [budgetForm, setBudgetForm] = useState({
+    category: '',
+    subCategory: '',
+    description: '',
+    quantity: '',
+    unitCost: '',
+    priority: 'Medium',
+    type: 'Recurring',
+    justification: '',
+    expectedDate: format(new Date(), 'yyyy-MM-dd'),
+  })
+  const [budgetModalOpen, setBudgetModalOpen] = useState(false)
 
   useEffect(() => {
     if (!department) {
@@ -70,6 +90,15 @@ export default function DepartmentHub() {
       setLoadingTeam(false)
     })
   }, [department])
+
+  useEffect(() => {
+    if (department && activeTab === 'financial') {
+      setLoadingBudget(true)
+      getFinanceBudgetItemsByDepartment(department.name)
+        .then(setBudgetItems)
+        .finally(() => setLoadingBudget(false))
+    }
+  }, [department, activeTab])
 
   if (!department) {
     return (
@@ -150,7 +179,7 @@ export default function DepartmentHub() {
             {tab === 'summary' && 'Summary'}
             {tab === 'team' && 'Team'}
             {tab === 'planning' && 'Planning'}
-            {tab === 'financial' && 'Financial'}
+            {tab === 'financial' && 'Budget & Spending'}
           </button>
         ))}
       </div>
@@ -471,12 +500,214 @@ export default function DepartmentHub() {
           )}
 
           {activeTab === 'financial' && (
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <h2 className="font-semibold text-slate-800 mb-3">Financial</h2>
-              <p className="text-sm text-slate-500">
-                Financial summaries for this department will be connected to the Finance module
-                later. For now, use Finance → Reports for detailed figures.
-              </p>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <h2 className="font-semibold text-slate-800 p-5 pb-0">Budget & Spending</h2>
+              <p className="text-sm text-slate-500 px-5 pt-1">Budget items for this department (₹).</p>
+              {canEdit && (
+                <div className="px-5 py-3 border-b border-slate-200 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingBudgetId(null)
+                      setBudgetForm({
+                        category: '',
+                        subCategory: '',
+                        description: '',
+                        quantity: '',
+                        unitCost: '',
+                        priority: 'Medium',
+                        type: 'Recurring',
+                        justification: '',
+                        expectedDate: format(new Date(), 'yyyy-MM-dd'),
+                      })
+                      setBudgetModalOpen(true)
+                    }}
+                    className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+                  >
+                    + Add row
+                  </button>
+                </div>
+              )}
+              {loadingBudget ? (
+                <div className="px-5 py-8 text-center text-slate-500 text-sm">Loading budget…</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Category</th>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Sub-Category</th>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Description</th>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Quantity</th>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Unit Cost (₹)</th>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Total Cost (₹)</th>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Priority</th>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Type</th>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Justification</th>
+                        <th className="text-left px-4 py-2 font-medium text-slate-600">Expected Date</th>
+                        {canEdit && (
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Actions</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {budgetItems.map((row) => {
+                        const totalCost = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0)
+                        return (
+                          <tr key={row.id} className="hover:bg-slate-50">
+                            <td className="px-4 py-2 text-slate-800">{row.category || '—'}</td>
+                            <td className="px-4 py-2 text-slate-600">{row.subCategory || '—'}</td>
+                            <td className="px-4 py-2 text-slate-600">{row.description || '—'}</td>
+                            <td className="px-4 py-2 text-slate-600">{row.quantity ?? '—'}</td>
+                            <td className="px-4 py-2 text-slate-600">
+                              {row.unitCost != null && row.unitCost !== '' ? `₹ ${Number(row.unitCost).toLocaleString()}` : '—'}
+                            </td>
+                            <td className="px-4 py-2 font-medium text-slate-800">₹ {totalCost.toLocaleString()}</td>
+                            <td className="px-4 py-2 text-slate-600">{row.priority || '—'}</td>
+                            <td className="px-4 py-2 text-slate-600">{row.type || '—'}</td>
+                            <td className="px-4 py-2 text-slate-600 max-w-[180px] truncate" title={row.justification || ''}>{row.justification || '—'}</td>
+                            <td className="px-4 py-2 text-slate-600">{row.expectedDate ? formatDMY(row.expectedDate) : '—'}</td>
+                            {canEdit && (
+                              <td className="px-4 py-2 space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingBudgetId(row.id)
+                                    setBudgetForm({
+                                      category: row.category || '',
+                                      subCategory: row.subCategory || '',
+                                      description: row.description || '',
+                                      quantity: row.quantity ?? '',
+                                      unitCost: row.unitCost ?? '',
+                                      priority: row.priority || 'Medium',
+                                      type: row.type || 'Recurring',
+                                      justification: row.justification || '',
+                                      expectedDate: row.expectedDate ? (typeof row.expectedDate === 'string' ? row.expectedDate : format(new Date(row.expectedDate), 'yyyy-MM-dd')) : format(new Date(), 'yyyy-MM-dd'),
+                                    })
+                                    setBudgetModalOpen(true)
+                                  }}
+                                  className="text-blue-600 hover:underline"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!window.confirm('Delete this budget row?')) return
+                                    await deleteFinanceBudgetItem(row.id)
+                                    setBudgetItems((prev) => prev.filter((r) => r.id !== row.id))
+                                  }}
+                                  className="text-red-600 hover:underline"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        )
+                      })}
+                      {budgetItems.length === 0 && (
+                        <tr>
+                          <td colSpan={canEdit ? 11 : 10} className="px-4 py-8 text-center text-slate-500">
+                            No budget items. Add a row to get started.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {budgetModalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-5 border-b border-slate-200">
+                  <h3 className="text-lg font-semibold text-slate-800">{editingBudgetId ? 'Edit row' : 'Add row'}</h3>
+                </div>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    try {
+                      const quantity = Number(budgetForm.quantity) || 0
+                      const unitCost = Number(budgetForm.unitCost) || 0
+                      const payload = { ...budgetForm, quantity, unitCost, department: department.name }
+                      if (editingBudgetId) {
+                        await updateFinanceBudgetItem(editingBudgetId, payload)
+                        setBudgetItems((prev) =>
+                          prev.map((r) => (r.id === editingBudgetId ? { ...r, ...payload, totalCost: quantity * unitCost } : r))
+                        )
+                      } else {
+                        const id = await addFinanceBudgetItem(payload, userProfile?.email || 'unknown')
+                        setBudgetItems((prev) => [...prev, { id, ...payload, totalCost: quantity * unitCost }])
+                      }
+                      setBudgetModalOpen(false)
+                      setEditingBudgetId(null)
+                    } catch (err) {
+                      console.error(err)
+                      alert('Failed to save')
+                    }
+                  }}
+                  className="p-5 space-y-4"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Category *</label>
+                      <input type="text" value={budgetForm.category} onChange={(e) => setBudgetForm((f) => ({ ...f, category: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Sub-Category</label>
+                      <input type="text" value={budgetForm.subCategory} onChange={(e) => setBudgetForm((f) => ({ ...f, subCategory: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Description</label>
+                    <input type="text" value={budgetForm.description} onChange={(e) => setBudgetForm((f) => ({ ...f, description: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
+                      <input type="number" min="0" step="1" value={budgetForm.quantity} onChange={(e) => setBudgetForm((f) => ({ ...f, quantity: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Unit Cost (₹) *</label>
+                      <input type="number" min="0" step="0.01" value={budgetForm.unitCost} onChange={(e) => setBudgetForm((f) => ({ ...f, unitCost: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" required />
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600">Total Cost (₹): ₹ {((Number(budgetForm.quantity) || 0) * (Number(budgetForm.unitCost) || 0)).toLocaleString()}</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Priority</label>
+                      <select value={budgetForm.priority} onChange={(e) => setBudgetForm((f) => ({ ...f, priority: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm">
+                        <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Type</label>
+                      <select value={budgetForm.type} onChange={(e) => setBudgetForm((f) => ({ ...f, type: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm">
+                        <option value="Recurring">Recurring</option>
+                        <option value="Project">Project</option>
+                        <option value="Asset">Asset</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Justification</label>
+                    <input type="text" value={budgetForm.justification} onChange={(e) => setBudgetForm((f) => ({ ...f, justification: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Expected Date</label>
+                    <input type="date" value={budgetForm.expectedDate} onChange={(e) => setBudgetForm((f) => ({ ...f, expectedDate: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button type="submit" className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">{editingBudgetId ? 'Update' : 'Add row'}</button>
+                    <button type="button" onClick={() => { setBudgetModalOpen(false); setEditingBudgetId(null) }} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50">Cancel</button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
         </>

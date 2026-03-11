@@ -1,8 +1,17 @@
-import { useParams, Link, Navigate } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
-import { getDepartmentEntries, getPastorRemarks, setPastorRemarks } from '../services/firestore'
+import {
+  getDepartmentEntries,
+  getPastorRemarks,
+  setPastorRemarks,
+  getDepartmentTeamMembers,
+  getDepartmentPastorUpdates,
+  getTasks,
+  getUsersByDepartment,
+} from '../services/firestore'
+import { ROLES } from '../constants/roles'
 
 export default function DepartmentPastorView() {
   const { slug } = useParams()
@@ -13,6 +22,10 @@ export default function DepartmentPastorView() {
   const [remarks, setRemarks] = useState('')
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [teamCount, setTeamCount] = useState(0)
+  const [upcomingEventsCount, setUpcomingEventsCount] = useState(0)
+  const [updatesCount, setUpdatesCount] = useState(0)
+  const [departmentHeads, setDepartmentHeads] = useState([])
 
   const canAccess = (hasPermission('pastorHub') || isFounder) && !!department
 
@@ -24,18 +37,28 @@ export default function DepartmentPastorView() {
     const load = async () => {
       setLoading(true)
       try {
-        const [list, pastor] = await Promise.all([
+        const [list, pastor, team, updates, tasks, users] = await Promise.all([
           getDepartmentEntries(department.name, { limit: 5 }),
           getPastorRemarks(department.name),
+          getDepartmentTeamMembers(department.name),
+          getDepartmentPastorUpdates(slug),
+          getTasks({ department: department.name }),
+          getUsersByDepartment(department.name),
         ])
         setEntries(list || [])
         setRemarks(pastor?.notes ?? '')
+        setTeamCount(Array.isArray(team) ? team.length : 0)
+        setUpdatesCount(Array.isArray(updates) ? updates.length : 0)
+        const pending = Array.isArray(tasks) ? tasks.filter((t) => t.status !== 'Completed') : []
+        setUpcomingEventsCount(pending.length)
+        const heads = Array.isArray(users) ? users.filter((u) => u.role === ROLES.DIRECTOR || u.role === ROLES.COORDINATOR) : []
+        setDepartmentHeads(heads)
       } finally {
         setLoading(false)
       }
     }
     load()
-  }, [department])
+  }, [department, slug])
 
   if (!department) {
     return (
@@ -82,7 +105,7 @@ export default function DepartmentPastorView() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 max-w-md">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
         <Link
           to="/senior-pastor"
           className="block rounded-lg bg-slate-800 text-white px-3 py-3 text-center text-sm font-semibold shadow-sm hover:bg-slate-900 transition"
@@ -95,12 +118,56 @@ export default function DepartmentPastorView() {
         >
           {department.name} department dashboard
         </Link>
+        <Link
+          to={`/department/${slug}/pastor/updates`}
+          className="block rounded-lg bg-emerald-700 text-white px-3 py-3 text-center text-sm font-semibold shadow-sm hover:bg-emerald-800 transition"
+        >
+          Updates
+        </Link>
       </div>
       <div>
         <h1 className="text-2xl font-bold text-slate-800">{department.name} – Senior Pastor view</h1>
         <p className="text-slate-500 mt-1">
           Your private planning and notes for this department. Directors / coordinators cannot see this page.
         </p>
+        {departmentHeads.length > 0 && (
+          <p className="text-sm text-slate-600 mt-2">
+            Department head{departmentHeads.length > 1 ? 's' : ''}:{' '}
+            {departmentHeads.map((h) => (
+              <span key={h.id} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 mr-1">
+                {h.displayName || h.email || 'Unknown'} ({h.role})
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Quick overview</h2>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="text-left px-5 py-3 font-medium text-slate-600">Metric</th>
+                <th className="text-left px-5 py-3 font-medium text-slate-600">Count</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              <tr className="hover:bg-slate-50">
+                <td className="px-5 py-3 text-slate-800">Total Team Members</td>
+                <td className="px-5 py-3 font-medium text-slate-800">{teamCount}</td>
+              </tr>
+              <tr className="hover:bg-slate-50">
+                <td className="px-5 py-3 text-slate-800">Upcoming Events</td>
+                <td className="px-5 py-3 font-medium text-slate-800">{upcomingEventsCount}</td>
+              </tr>
+              <tr className="hover:bg-slate-50">
+                <td className="px-5 py-3 text-slate-800">Updates submitted by Department Head</td>
+                <td className="px-5 py-3 font-medium text-slate-800">{updatesCount}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">

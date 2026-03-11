@@ -15,6 +15,7 @@ import DepartmentWorship from './pages/DepartmentWorship'
 import DepartmentSundayMinistry from './pages/DepartmentSundayMinistry'
 import DepartmentHub from './pages/DepartmentHub'
 import DepartmentPastorView from './pages/DepartmentPastorView'
+import DepartmentPastorUpdates from './pages/DepartmentPastorUpdates'
 import SundayMinistryPastor from './pages/SundayMinistryPastor'
 import SeniorPastorHub from './pages/SeniorPastorHub'
 
@@ -44,6 +45,7 @@ function App() {
             <Route path="department/sunday-ministry" element={<DepartmentSundayMinistry />} />
             <Route path="department/:slug" element={<DepartmentHub />} />
             <Route path="department/:slug/pastor" element={<DepartmentPastorView />} />
+            <Route path="department/:slug/pastor/updates" element={<DepartmentPastorUpdates />} />
             <Route path="sunday-ministry-pastor" element={<SundayMinistryPastor />} />
             <Route path="senior-pastor" element={<SeniorPastorHub />} />
           </Route>

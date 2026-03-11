@@ -599,7 +599,7 @@ export async function getFinanceBudgetItems() {
 function financeBudgetPayload(data) {
   const quantity = Number(data.quantity) || 0
   const unitCost = Number(data.unitCost) || 0
-  return {
+  const payload = {
     category: data.category || '',
     subCategory: data.subCategory || '',
     description: data.description || '',
@@ -611,6 +611,36 @@ function financeBudgetPayload(data) {
     justification: data.justification || '',
     expectedDate: data.expectedDate || '',
   }
+  if (data.department != null && data.department !== '') payload.department = String(data.department)
+  return payload
+}
+
+export async function getFinanceBudgetItemsByDepartment(department) {
+  if (!db || !department) return []
+  const q = query(
+    collection(db, FINANCE_BUDGET_COLLECTION),
+    where('department', '==', department)
+  )
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      ...data,
+      quantity: Number(data.quantity) || 0,
+      unitCost: Number(data.unitCost) || 0,
+      totalCost: Number(data.totalCost) ?? (Number(data.quantity) || 0) * (Number(data.unitCost) || 0),
+      expectedDate: data.expectedDate || '',
+    }
+  })
+  list.sort((a, b) => {
+    const c = (a.category || '').localeCompare(b.category || '')
+    if (c !== 0) return c
+    const s = (a.subCategory || '').localeCompare(b.subCategory || '')
+    if (s !== 0) return s
+    return (a.description || '').localeCompare(b.description || '')
+  })
+  return list
 }
 
 export async function addFinanceBudgetItem(data, addedBy) {
@@ -631,6 +661,67 @@ export async function updateFinanceBudgetItem(id, data) {
 export async function deleteFinanceBudgetItem(id) {
   if (!db) return
   await deleteDoc(doc(db, FINANCE_BUDGET_COLLECTION, id))
+}
+
+// Pastor department updates (Pastor page → Updates subpage: date, notes, pastorRating 1–10, changesSuggested)
+const PASTOR_UPDATES_COLLECTION = 'pastor_department_updates'
+
+export async function getDepartmentPastorUpdates(departmentSlug) {
+  if (!db || !departmentSlug) return []
+  const q = query(
+    collection(db, PASTOR_UPDATES_COLLECTION),
+    where('department', '==', departmentSlug)
+  )
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, date: data.date || '', createdAt: toDate(data.createdAt) }
+  })
+  list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  return list.slice(0, 100)
+}
+
+export async function addDepartmentPastorUpdate(data, addedBy, addedByRole) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, PASTOR_UPDATES_COLLECTION), {
+    department: data.department || '',
+    date: data.date ? String(data.date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+    notes: data.notes || '',
+    pastorRating: Math.min(10, Math.max(1, Number(data.pastorRating) || 5)),
+    changesSuggested: data.changesSuggested || '',
+    addedBy: addedBy || 'unknown',
+    addedByRole: addedByRole || '',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateDepartmentPastorUpdate(id, data) {
+  if (!db) return
+  const payload = {
+    date: data.date != null ? String(data.date).slice(0, 10) : undefined,
+    notes: data.notes != null ? String(data.notes) : undefined,
+    pastorRating: data.pastorRating != null ? Math.min(10, Math.max(1, Number(data.pastorRating))) : undefined,
+    changesSuggested: data.changesSuggested != null ? String(data.changesSuggested) : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, PASTOR_UPDATES_COLLECTION, id), clean)
+}
+
+export async function deleteDepartmentPastorUpdate(id) {
+  if (!db) return
+  await deleteDoc(doc(db, PASTOR_UPDATES_COLLECTION, id))
+}
+
+// Users by department (to show Director/Coordinator on pastor page)
+export async function getUsersByDepartment(departmentName) {
+  if (!db || !departmentName) return []
+  const q = query(
+    collection(db, 'users'),
+    where('department', '==', departmentName)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
 // Pastor department remarks (Senior Pastor hub – one doc per department)
