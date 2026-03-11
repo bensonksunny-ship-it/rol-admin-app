@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function getUserData() {
+      let u = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return u != null && u.data != null ? u.data : {};
+    }
+    function getUserRole() {
+      return isSignedIn() ? getUserData().get('role', null) : null;
+    }
+    function userDepartment() {
+      return isSignedIn() ? getUserData().get('department', null) : null;
+    }
+    function isFullAccess() {
+      return isSignedIn() && (getUserRole() == 'Senior Pastor' || getUserRole() == 'Admin' || getUserRole() == 'Founder');
+    }
+    function canAccessDept(departmentId) {
+      return isSignedIn() && (isFullAccess() || userDepartment() == departmentId);
+    }
+
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /departments/{departmentId} {
+      allow read: if isSignedIn();
+      allow write: if isFullAccess();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
+      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+    }
+
+    match /department_team_members/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
+      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+    }
+
+    match /department_planning_notes/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
+      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+    }
+
+    match /department_entries/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
+      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+    }
+
+    match /finance_budget/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || !('department' in resource.data) || resource.data.department == userDepartment());
+      allow create: if isSignedIn() && (isFullAccess() || !('department' in request.resource.data) || request.resource.data.department == userDepartment());
+      allow update, delete: if isSignedIn() && (isFullAccess() || !('department' in resource.data) || resource.data.department == userDepartment());
+    }
+
+    match /pastor_department_remarks/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /pastor_department_updates/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /finance_income/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /finance_expense/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /attendance/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /sunday_plans/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /worship_budget_items/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /worship_team_members/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /worship_schedule/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /sunday_ministry_team_members/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /sunday_ministry_budget_items/{docId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

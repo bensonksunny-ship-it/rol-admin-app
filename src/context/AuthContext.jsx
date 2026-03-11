@@ -7,6 +7,7 @@ import {
 import { doc, getDoc } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
 import { ROLES, ROLE_PERMISSIONS } from '../constants/roles'
+import { getDepartmentBySlug } from '../constants/departments'
 
 const AuthContext = createContext(null)
 
@@ -42,6 +43,7 @@ export function AuthProvider({ children }) {
 
   const isFounder = userProfile?.role === ROLES.FOUNDER
   const isSeniorPastor = userProfile?.role === ROLES.SENIOR_PASTOR
+  const isAdmin = userProfile?.role === ROLES.ADMIN
 
   const isDepartmentHead = (departmentName) => {
     if (!departmentName || !userProfile?.department) return false
@@ -54,9 +56,22 @@ export function AuthProvider({ children }) {
 
   const canManageDepartment = (departmentName) => {
     if (!departmentName) return false
-    if (isFounder || isSeniorPastor) return true
+    if (isFounder || isSeniorPastor || isAdmin) return true
     return isDepartmentHead(departmentName)
   }
+
+  /** True if user may access the department page for this slug (role-based). */
+  const canAccessDepartment = (departmentSlug) => {
+    if (!departmentSlug || !userProfile) return false
+    if (isFounder || isSeniorPastor || isAdmin) return true
+    if (userProfile.role !== ROLES.DIRECTOR && userProfile.role !== ROLES.COORDINATOR) return true
+    if (!userProfile.department) return false
+    const dept = getDepartmentBySlug(departmentSlug)
+    return dept && dept.name === userProfile.department
+  }
+
+  /** True if sidebar should show all departments (Senior Pastor, Admin, Founder). */
+  const canSeeAllDepartments = isFounder || isSeniorPastor || isAdmin
 
   const canEditSundaySection = (sectionKey) => {
     if (hasPermission('editSundayPlanFull')) return true
@@ -73,8 +88,11 @@ export function AuthProvider({ children }) {
     canEditSundaySection,
     isFounder,
     isSeniorPastor,
+    isAdmin,
     isDepartmentHead,
     canManageDepartment,
+    canAccessDepartment,
+    canSeeAllDepartments,
   }
 
   return (

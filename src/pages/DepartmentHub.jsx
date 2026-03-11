@@ -117,7 +117,7 @@ export default function DepartmentHub() {
     return (
       <div className="p-6 text-slate-600">
         <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
-        <p className="mt-4">You don&apos;t have access to this department page.</p>
+        <p className="mt-4">You do not have permission to access this department.</p>
       </div>
     )
   }

@@ -20,10 +20,11 @@ const navItems = [
 ]
 
 export default function Sidebar() {
-  const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead } = useAuth()
+  const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead, canSeeAllDepartments } = useAuth()
   const [open, setOpen] = useState(false)
 
   const visible = navItems.filter((item) => {
+    if (item.to === '/departments') return canSeeAllDepartments && hasPermission(item.permission)
     if (item.showOnlyDepartment) return userProfile?.department === item.showOnlyDepartment || userProfile?.department === item.showOnlyDepartmentAlt || isFounder || (item.orAttendance && hasPermission('attendance'))
     if (item.orFounder && item.permission) return hasPermission(item.permission) || isFounder
     if (item.orDepartment) return hasPermission(item.permission) || userProfile?.department === item.orDepartment
