@@ -73,10 +73,28 @@ export default function DepartmentPastorView() {
     return <div className="p-8 text-center text-slate-500">Loading...</div>
   }
 
+  const dashboardPath =
+    department.customPage === 'worship'
+      ? '/department/worship'
+      : department.customPage === 'sundayMinistry'
+      ? '/department/sunday-ministry'
+      : `/department/${slug}`
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Link to="/senior-pastor" className="text-slate-500 hover:text-slate-700">← Senior Pastor Office</Link>
+      <div className="grid grid-cols-2 gap-3 max-w-md">
+        <Link
+          to="/senior-pastor"
+          className="block rounded-lg bg-slate-800 text-white px-3 py-3 text-center text-sm font-semibold shadow-sm hover:bg-slate-900 transition"
+        >
+          Senior Pastor Office
+        </Link>
+        <Link
+          to={dashboardPath}
+          className="block rounded-lg bg-indigo-700 text-white px-3 py-3 text-center text-sm font-semibold shadow-sm hover:bg-indigo-800 transition"
+        >
+          {department.name} department dashboard
+        </Link>
       </div>
       <div>
         <h1 className="text-2xl font-bold text-slate-800">{department.name} – Senior Pastor view</h1>
@@ -131,20 +149,7 @@ export default function DepartmentPastorView() {
         )}
       </div>
 
-      <div className="text-sm text-slate-500">
-        <Link
-          to={
-            department.customPage === 'worship'
-              ? '/department/worship'
-              : department.customPage === 'sundayMinistry'
-              ? '/department/sunday-ministry'
-              : `/department/${slug}`
-          }
-          className="text-blue-600 hover:underline"
-        >
-          Open department dashboard →
-        </Link>
-      </div>
+      <div className="text-sm text-slate-500" />
     </div>
   )
 }
