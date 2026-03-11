@@ -1,6 +1,5 @@
 import { useParams, Link, Navigate } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
-import { differenceInDays } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import {
@@ -13,6 +12,7 @@ import {
   deleteDepartmentTeamMember,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
+import { differenceInDays } from 'date-fns'
 
 const TABS = ['summary', 'team', 'planning', 'financial']
 
@@ -36,7 +36,6 @@ export default function DepartmentHub() {
     role: '',
     memberSince: new Date().toISOString().slice(0, 10),
     isFormer: false,
-    notes: '',
   })
 
   useEffect(() => {
@@ -248,7 +247,6 @@ export default function DepartmentHub() {
                         role: '',
                         memberSince: new Date().toISOString().slice(0, 10),
                         isFormer: false,
-                        notes: '',
                       })
                     }}
                     className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
@@ -269,9 +267,11 @@ export default function DepartmentHub() {
                   <table className="min-w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
+                        <th className="text-left px-4 py-2 text-slate-600 font-medium w-10">SL</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Name</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Role / Position</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Member since</th>
+                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Duration & positions</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Status</th>
                         {canEdit && (
                           <th className="text-left px-4 py-2 text-slate-600 font-medium">Actions</th>
@@ -283,24 +283,25 @@ export default function DepartmentHub() {
                         const durationDays = m.memberSince
                           ? differenceInDays(new Date(), new Date(m.memberSince))
                           : null
+                        const positionsText = m.role || ''
                         return (
                         <tr key={m.id} className="hover:bg-slate-50">
                           <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
                           <td className="px-4 py-2 text-slate-800">{m.name}</td>
+                          <td className="px-4 py-2 text-slate-600">{m.role || '—'}</td>
                           <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
                           <td className="px-4 py-2 text-slate-600">
-                            {durationDays != null ? `${durationDays} days` : '—'}
-                            {(m.role || m.notes) && (
-                              <div className="text-xs text-slate-500 mt-0.5">
-                                {[m.role, m.notes].filter(Boolean).join(' · ')}
+                            {durationDays != null && <div>{durationDays} days</div>}
+                            {positionsText && (
+                              <div className="text-slate-600 mt-0.5">
+                                {durationDays != null ? 'Positions: ' : ''}{positionsText}
                               </div>
                             )}
+                            {!durationDays && !positionsText && '—'}
                           </td>
-                          <td className="px-4 py-2 text-slate-600">
-                            {m.isFormer ? 'Former' : 'Current'}
-                          </td>
+                          <td className="px-4 py-2 text-slate-600">{m.isFormer ? 'Former' : 'Current'}</td>
                           {canEdit && (
-                            <td className="px-4 py-2 text-sm text-blue-600 space-x-2">
+                            <td className="px-4 py-2 text-sm space-x-2">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -310,10 +311,9 @@ export default function DepartmentHub() {
                                     role: m.role || '',
                                     memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
                                     isFormer: !!m.isFormer,
-                                    notes: m.notes || '',
                                   })
                                 }}
-                                className="hover:underline"
+                                className="text-blue-600 hover:underline"
                               >
                                 Edit
                               </button>
@@ -365,7 +365,6 @@ export default function DepartmentHub() {
                         role: '',
                         memberSince: new Date().toISOString().slice(0, 10),
                         isFormer: false,
-                        notes: '',
                       })
                     } catch (err) {
                       console.error(err)
@@ -435,19 +434,6 @@ export default function DepartmentHub() {
                         Former member
                       </label>
                     </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Notes (optional)
-                    </label>
-                    <textarea
-                      value={memberForm.notes}
-                      onChange={(e) =>
-                        setMemberForm((f) => ({ ...f, notes: e.target.value }))
-                      }
-                      rows={2}
-                      className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                    />
                   </div>
                   <button
                     type="submit"
