@@ -2,7 +2,15 @@ import { useParams, Link, Navigate } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
-import { getTasks, getDepartmentEntries, addDepartmentEntry } from '../services/firestore'
+import {
+  getTasks,
+  getDepartmentEntries,
+  addDepartmentEntry,
+  getDepartmentTeamMembers,
+  addDepartmentTeamMember,
+  updateDepartmentTeamMember,
+  deleteDepartmentTeamMember,
+} from '../services/firestore'
 import { ROLES } from '../constants/roles'
 
 const TABS = ['summary', 'team', 'planning', 'financial']
@@ -18,6 +26,17 @@ export default function DepartmentHub() {
   const [savingPlanning, setSavingPlanning] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
+  const [team, setTeam] = useState([])
+  const [loadingTeam, setLoadingTeam] = useState(false)
+  const [teamError, setTeamError] = useState('')
+  const [editingMember, setEditingMember] = useState(null)
+  const [memberForm, setMemberForm] = useState({
+    name: '',
+    role: '',
+    memberSince: new Date().toISOString().slice(0, 10),
+    isFormer: false,
+    notes: '',
+  })
 
   useEffect(() => {
     if (!department) {
@@ -26,17 +45,27 @@ export default function DepartmentHub() {
     }
     setLoading(true)
     const name = department.name
+    setLoadingTeam(true)
     Promise.all([
       getTasks({ department: name }),
       getDepartmentEntries(name, { limit: 20 }),
+      getDepartmentTeamMembers(name),
     ])
-      .then(([taskList, entryList]) => {
+      .then(([taskList, entryList, teamList]) => {
         setTasks(taskList)
         setEntries(entryList)
+        setTeam(teamList)
         const latest = entryList.find((e) => e.type === 'planning' || e.notes) || entryList[0]
         setPlanningNotes(latest?.notes ?? '')
       })
-      .finally(() => setLoading(false))
+      .catch(() => {
+        setTeam([])
+        setTeamError('Could not load team members. Check Firestore rules for department_team_members.')
+      })
+      .finally(() => {
+        setLoading(false)
+        setLoadingTeam(false)
+      })
   }, [department])
 
   if (!department) {
@@ -204,12 +233,215 @@ export default function DepartmentHub() {
           )}
 
           {activeTab === 'team' && (
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <h2 className="font-semibold text-slate-800 mb-3">Team</h2>
-              <p className="text-sm text-slate-500">
-                Team management for this department can be added here in a future step. For now,
-                use the existing team pages (e.g. Worship, Sunday Ministry) or notes in Planning.
-              </p>
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-semibold text-slate-800">Team</h2>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingMember(null)
+                      setMemberForm({
+                        name: '',
+                        role: '',
+                        memberSince: new Date().toISOString().slice(0, 10),
+                        isFormer: false,
+                        notes: '',
+                      })
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
+                  >
+                    + Add member
+                  </button>
+                )}
+              </div>
+              {teamError && (
+                <p className="text-sm text-red-600">{teamError}</p>
+              )}
+              {loadingTeam ? (
+                <div className="py-4 text-sm text-slate-500">Loading team...</div>
+              ) : team.length === 0 ? (
+                <div className="py-4 text-sm text-slate-500">No team members yet.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Name</th>
+                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Role / Position</th>
+                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Member since</th>
+                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Status</th>
+                        {canEdit && (
+                          <th className="text-left px-4 py-2 text-slate-600 font-medium">Actions</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {team.map((m) => (
+                        <tr key={m.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-2 text-slate-800">{m.name}</td>
+                          <td className="px-4 py-2 text-slate-600">{m.role || '—'}</td>
+                          <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
+                          <td className="px-4 py-2 text-slate-600">
+                            {m.isFormer ? 'Former' : 'Current'}
+                          </td>
+                          {canEdit && (
+                            <td className="px-4 py-2 text-sm text-blue-600 space-x-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingMember(m)
+                                  setMemberForm({
+                                    name: m.name || '',
+                                    role: m.role || '',
+                                    memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
+                                    isFormer: !!m.isFormer,
+                                    notes: m.notes || '',
+                                  })
+                                }}
+                                className="hover:underline"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!window.confirm('Remove this member from team?')) return
+                                  await deleteDepartmentTeamMember(m.id)
+                                  setTeam((prev) => prev.filter((x) => x.id !== m.id))
+                                }}
+                                className="text-red-600 hover:underline"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {canEdit && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    try {
+                      if (editingMember) {
+                        await updateDepartmentTeamMember(editingMember.id, memberForm)
+                        setTeam((prev) =>
+                          prev.map((m) => (m.id === editingMember.id ? { ...m, ...memberForm } : m))
+                        )
+                      } else {
+                        const id = await addDepartmentTeamMember(
+                          department.name,
+                          memberForm,
+                          userProfile?.email || 'unknown'
+                        )
+                        setTeam((prev) => [
+                          ...prev,
+                          { id, department: department.name, ...memberForm },
+                        ])
+                      }
+                      setEditingMember(null)
+                      setMemberForm({
+                        name: '',
+                        role: '',
+                        memberSince: new Date().toISOString().slice(0, 10),
+                        isFormer: false,
+                        notes: '',
+                      })
+                    } catch (err) {
+                      console.error(err)
+                      setTeamError('Failed to save team member.')
+                    }
+                  }}
+                  className="mt-4 space-y-3 border-t border-slate-200 pt-4"
+                >
+                  <h3 className="text-sm font-semibold text-slate-800">
+                    {editingMember ? 'Edit member' : 'Add new member'}
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Name
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={memberForm.name}
+                        onChange={(e) =>
+                          setMemberForm((f) => ({ ...f, name: e.target.value }))
+                        }
+                        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Role / Position
+                      </label>
+                      <input
+                        type="text"
+                        value={memberForm.role}
+                        onChange={(e) =>
+                          setMemberForm((f) => ({ ...f, role: e.target.value }))
+                        }
+                        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Member since
+                      </label>
+                      <input
+                        type="date"
+                        value={memberForm.memberSince}
+                        onChange={(e) =>
+                          setMemberForm((f) => ({ ...f, memberSince: e.target.value }))
+                        }
+                        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 mt-4 sm:mt-7">
+                      <input
+                        id="isFormer"
+                        type="checkbox"
+                        checked={memberForm.isFormer}
+                        onChange={(e) =>
+                          setMemberForm((f) => ({ ...f, isFormer: e.target.checked }))
+                        }
+                        className="h-4 w-4 text-indigo-600 border-slate-300 rounded"
+                      />
+                      <label
+                        htmlFor="isFormer"
+                        className="text-xs font-medium text-slate-700"
+                      >
+                        Former member
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Notes (optional)
+                    </label>
+                    <textarea
+                      value={memberForm.notes}
+                      onChange={(e) =>
+                        setMemberForm((f) => ({ ...f, notes: e.target.value }))
+                      }
+                      rows={2}
+                      className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+                  >
+                    {editingMember ? 'Update member' : 'Add member'}
+                  </button>
+                </form>
+              )}
             </div>
           )}
 

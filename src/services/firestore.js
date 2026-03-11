@@ -307,6 +307,47 @@ export async function deleteWorshipTeamMember(id) {
   await deleteDoc(doc(db, 'worship_team_members', id))
 }
 
+// Generic department team members (for all other departments)
+export async function getDepartmentTeamMembers(department) {
+  if (!db) return []
+  const q = query(
+    collection(db, 'department_team_members'),
+    where('department', '==', department)
+  )
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
+  })
+  list.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
+  return list
+}
+
+export async function addDepartmentTeamMember(department, data, addedBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, 'department_team_members'), {
+    department,
+    name: data.name,
+    role: data.role || '',
+    memberSince: data.memberSince || new Date().toISOString().slice(0, 10),
+    isFormer: data.isFormer ?? false,
+    notes: data.notes || '',
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateDepartmentTeamMember(id, data) {
+  if (!db) return
+  await updateDoc(doc(db, 'department_team_members', id), data)
+}
+
+export async function deleteDepartmentTeamMember(id) {
+  if (!db) return
+  await deleteDoc(doc(db, 'department_team_members', id))
+}
+
 // Worship schedule by date: one doc per date, assignments = [{ role, memberId, memberName }]
 export async function getWorshipScheduleByDate(department, date) {
   if (!db) return { date, assignments: [] }
