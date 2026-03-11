@@ -132,7 +132,16 @@ export default function DepartmentPastorView() {
       </div>
 
       <div className="text-sm text-slate-500">
-        <Link to={department.customPage === 'worship' ? '/department/worship' : department.customPage === 'sundayMinistry' ? '/department/sunday-ministry' : `/department/${slug}`} className="text-blue-600 hover:underline">
+        <Link
+          to={
+            department.customPage === 'worship'
+              ? '/department/worship'
+              : department.customPage === 'sundayMinistry'
+              ? '/department/sunday-ministry'
+              : `/department/${slug}`
+          }
+          className="text-blue-600 hover:underline"
+        >
           Open department dashboard →
         </Link>
       </div>
