@@ -308,6 +308,8 @@ export async function deleteWorshipTeamMember(id) {
 }
 
 // Generic department team members (for all other departments)
+// Query: department_team_members where department == current department (name).
+// Stored fields: department, name, rolePosition, memberSince, notes (optional), createdAt.
 export async function getDepartmentTeamMembers(department) {
   if (!db) return []
   const q = query(
@@ -317,7 +319,18 @@ export async function getDepartmentTeamMembers(department) {
   const snap = await getDocs(q)
   const list = snap.docs.map((d) => {
     const data = d.data()
-    return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
+    const rolePosition = data.rolePosition ?? data.role ?? ''
+    return {
+      id: d.id,
+      department: data.department,
+      name: data.name,
+      role: rolePosition,
+      rolePosition,
+      memberSince: data.memberSince || '',
+      notes: data.notes || '',
+      isFormer: data.isFormer ?? false,
+      createdAt: toDate(data.createdAt),
+    }
   })
   list.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
   return list
@@ -327,11 +340,11 @@ export async function addDepartmentTeamMember(department, data, addedBy) {
   if (!db) return null
   const ref = await addDoc(collection(db, 'department_team_members'), {
     department,
-    name: data.name,
-    role: data.role || '',
-    memberSince: data.memberSince || new Date().toISOString().slice(0, 10),
+    name: data.name || '',
+    rolePosition: data.rolePosition ?? data.role ?? '',
+    memberSince: data.memberSince ? String(data.memberSince).slice(0, 10) : new Date().toISOString().slice(0, 10),
+    notes: data.notes != null ? String(data.notes) : '',
     isFormer: data.isFormer ?? false,
-    notes: data.notes || '',
     addedBy: addedBy || 'unknown',
     createdAt: Timestamp.now(),
   })
@@ -340,7 +353,15 @@ export async function addDepartmentTeamMember(department, data, addedBy) {
 
 export async function updateDepartmentTeamMember(id, data) {
   if (!db) return
-  await updateDoc(doc(db, 'department_team_members', id), data)
+  const payload = {
+    name: data.name != null ? String(data.name) : undefined,
+    rolePosition: (data.rolePosition ?? data.role ?? '') !== undefined ? (data.rolePosition ?? data.role ?? '') : undefined,
+    memberSince: data.memberSince != null ? String(data.memberSince).slice(0, 10) : undefined,
+    notes: data.notes != null ? String(data.notes) : undefined,
+    isFormer: data.isFormer !== undefined ? !!data.isFormer : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, 'department_team_members', id), clean)
 }
 
 export async function deleteDepartmentTeamMember(id) {
@@ -546,6 +567,70 @@ export async function createFinanceExpense(data) {
     createdAt: Timestamp.now(),
   })
   return ref.id
+}
+
+// Finance Budget (Budget tab: category, subCategory, description, quantity, unitCost, priority, type, justification, expectedDate)
+const FINANCE_BUDGET_COLLECTION = 'finance_budget'
+
+export async function getFinanceBudgetItems() {
+  if (!db) return []
+  const snap = await getDocs(collection(db, FINANCE_BUDGET_COLLECTION))
+  const list = snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      ...data,
+      quantity: Number(data.quantity) || 0,
+      unitCost: Number(data.unitCost) || 0,
+      totalCost: Number(data.totalCost) ?? (Number(data.quantity) || 0) * (Number(data.unitCost) || 0),
+      expectedDate: data.expectedDate || '',
+    }
+  })
+  list.sort((a, b) => {
+    const c = (a.category || '').localeCompare(b.category || '')
+    if (c !== 0) return c
+    const s = (a.subCategory || '').localeCompare(b.subCategory || '')
+    if (s !== 0) return s
+    return (a.description || '').localeCompare(b.description || '')
+  })
+  return list
+}
+
+function financeBudgetPayload(data) {
+  const quantity = Number(data.quantity) || 0
+  const unitCost = Number(data.unitCost) || 0
+  return {
+    category: data.category || '',
+    subCategory: data.subCategory || '',
+    description: data.description || '',
+    quantity,
+    unitCost,
+    totalCost: quantity * unitCost,
+    priority: data.priority || 'Medium',
+    type: data.type || 'Recurring',
+    justification: data.justification || '',
+    expectedDate: data.expectedDate || '',
+  }
+}
+
+export async function addFinanceBudgetItem(data, addedBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, FINANCE_BUDGET_COLLECTION), {
+    ...financeBudgetPayload(data),
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateFinanceBudgetItem(id, data) {
+  if (!db) return
+  await updateDoc(doc(db, FINANCE_BUDGET_COLLECTION, id), financeBudgetPayload(data))
+}
+
+export async function deleteFinanceBudgetItem(id) {
+  if (!db) return
+  await deleteDoc(doc(db, FINANCE_BUDGET_COLLECTION, id))
 }
 
 // Pastor department remarks (Senior Pastor hub – one doc per department)

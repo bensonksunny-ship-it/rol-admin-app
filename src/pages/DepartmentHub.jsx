@@ -36,6 +36,7 @@ export default function DepartmentHub() {
     role: '',
     memberSince: new Date().toISOString().slice(0, 10),
     isFormer: false,
+    notes: '',
   })
 
   useEffect(() => {
@@ -46,27 +47,28 @@ export default function DepartmentHub() {
     setLoading(true)
     const name = department.name
     setLoadingTeam(true)
-    Promise.all([
+    Promise.allSettled([
       getTasks({ department: name }),
       getDepartmentEntries(name, { limit: 20 }),
       getDepartmentTeamMembers(name),
-    ])
-      .then(([taskList, entryList, teamList]) => {
-        setTasks(taskList)
+    ]).then(([tasksRes, entriesRes, teamRes]) => {
+      if (tasksRes.status === 'fulfilled') setTasks(tasksRes.value)
+      if (entriesRes.status === 'fulfilled') {
+        const entryList = entriesRes.value
         setEntries(entryList)
-        setTeam(teamList)
         const latest = entryList.find((e) => e.type === 'planning' || e.notes) || entryList[0]
         setPlanningNotes(latest?.notes ?? '')
+      }
+      if (teamRes.status === 'fulfilled') {
+        setTeam(teamRes.value)
         setTeamError('')
-      })
-      .catch(() => {
+      } else {
         setTeam([])
-        setTeamError('Could not load team members. Check Firestore rules for department_team_members.')
-      })
-      .finally(() => {
-        setLoading(false)
-        setLoadingTeam(false)
-      })
+        setTeamError('Could not load team members.')
+      }
+      setLoading(false)
+      setLoadingTeam(false)
+    })
   }, [department])
 
   if (!department) {
@@ -247,6 +249,7 @@ export default function DepartmentHub() {
                         role: '',
                         memberSince: new Date().toISOString().slice(0, 10),
                         isFormer: false,
+                        notes: '',
                       })
                     }}
                     className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
@@ -255,14 +258,21 @@ export default function DepartmentHub() {
                   </button>
                 )}
               </div>
-              {teamError && team.length === 0 && (
-                <p className="text-sm text-red-600">{teamError}</p>
-              )}
               {loadingTeam ? (
                 <div className="py-4 text-sm text-slate-500">Loading team...</div>
               ) : team.length === 0 ? (
-                <div className="py-4 text-sm text-slate-500">No team members yet.</div>
+                <div className="py-4 text-sm text-slate-500">
+                  {teamError ? (
+                    <p className="text-red-600">{teamError}</p>
+                  ) : (
+                    'No team members added yet.'
+                  )}
+                </div>
               ) : (
+                <>
+              {teamError && (
+                <p className="text-sm text-red-600 mb-2">{teamError}</p>
+              )}
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead className="bg-slate-50">
@@ -272,7 +282,6 @@ export default function DepartmentHub() {
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Role / Position</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Member since</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Duration & positions</th>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Status</th>
                         {canEdit && (
                           <th className="text-left px-4 py-2 text-slate-600 font-medium">Actions</th>
                         )}
@@ -299,7 +308,6 @@ export default function DepartmentHub() {
                             )}
                             {!durationDays && !positionsText && '—'}
                           </td>
-                          <td className="px-4 py-2 text-slate-600">{m.isFormer ? 'Former' : 'Current'}</td>
                           {canEdit && (
                             <td className="px-4 py-2 text-sm space-x-2">
                               <button
@@ -311,6 +319,7 @@ export default function DepartmentHub() {
                                     role: m.role || '',
                                     memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
                                     isFormer: !!m.isFormer,
+                                    notes: m.notes || '',
                                   })
                                 }}
                                 className="text-blue-600 hover:underline"
@@ -335,6 +344,7 @@ export default function DepartmentHub() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
 
               {canEdit && (
@@ -365,6 +375,7 @@ export default function DepartmentHub() {
                         role: '',
                         memberSince: new Date().toISOString().slice(0, 10),
                         isFormer: false,
+                        notes: '',
                       })
                     } catch (err) {
                       console.error(err)
@@ -434,6 +445,19 @@ export default function DepartmentHub() {
                         Former member
                       </label>
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Notes (optional)
+                    </label>
+                    <textarea
+                      value={memberForm.notes}
+                      onChange={(e) =>
+                        setMemberForm((f) => ({ ...f, notes: e.target.value }))
+                      }
+                      rows={2}
+                      className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
+                    />
                   </div>
                   <button
                     type="submit"
