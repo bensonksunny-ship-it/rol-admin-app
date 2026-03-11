@@ -40,6 +40,24 @@ export function AuthProvider({ children }) {
     return ROLE_PERMISSIONS[userProfile.role]?.[permission] ?? false
   }
 
+  const isFounder = userProfile?.role === ROLES.FOUNDER
+  const isSeniorPastor = userProfile?.role === ROLES.SENIOR_PASTOR
+
+  const isDepartmentHead = (departmentName) => {
+    if (!departmentName || !userProfile?.department) return false
+    const sameDept = userProfile.department === departmentName
+    const headRole =
+      userProfile.role === ROLES.DIRECTOR ||
+      userProfile.role === ROLES.COORDINATOR
+    return sameDept && headRole
+  }
+
+  const canManageDepartment = (departmentName) => {
+    if (!departmentName) return false
+    if (isFounder || isSeniorPastor) return true
+    return isDepartmentHead(departmentName)
+  }
+
   const canEditSundaySection = (sectionKey) => {
     if (hasPermission('editSundayPlanFull')) return true
     return userProfile?.sundaySection === sectionKey
@@ -53,7 +71,10 @@ export function AuthProvider({ children }) {
     signOut,
     hasPermission,
     canEditSundaySection,
-    isFounder: userProfile?.role === ROLES.FOUNDER,
+    isFounder,
+    isSeniorPastor,
+    isDepartmentHead,
+    canManageDepartment,
   }
 
   return (

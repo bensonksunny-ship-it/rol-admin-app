@@ -1,9 +1,12 @@
 import { useParams, Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { getTasks } from '../services/firestore'
+import { getDepartmentBySlug } from '../constants/departments'
 import { DEPARTMENTS } from '../constants/roles'
 
 function getDepartmentName(slug) {
+  const fromConfig = getDepartmentBySlug(slug)
+  if (fromConfig) return fromConfig.name
   const found = DEPARTMENTS.find(
     (d) => d.toLowerCase().replace(/\s+/g, '-').replace(/'/g, '') === slug
   )

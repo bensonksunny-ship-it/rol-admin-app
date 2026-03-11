@@ -506,3 +506,28 @@ export async function createFinanceExpense(data) {
   })
   return ref.id
 }
+
+// Pastor department remarks (Senior Pastor hub – one doc per department)
+const PASTOR_REMARKS_COLLECTION = 'pastor_department_remarks'
+
+export async function getPastorRemarks(department) {
+  if (!db || !department) return null
+  const ref = doc(db, PASTOR_REMARKS_COLLECTION, String(department))
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return null
+  const data = snap.data()
+  return { id: snap.id, ...data, updatedAt: toDate(data.updatedAt) }
+}
+
+export async function setPastorRemarks(department, payload, updatedBy) {
+  if (!db || !department) return null
+  const { notes = '' } = payload
+  const ref = doc(db, PASTOR_REMARKS_COLLECTION, String(department))
+  await setDoc(ref, {
+    department: String(department),
+    notes: String(notes),
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+  return ref.id
+}

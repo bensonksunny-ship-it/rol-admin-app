@@ -13,7 +13,9 @@ import Finance from './pages/Finance'
 import Reports from './pages/Reports'
 import DepartmentWorship from './pages/DepartmentWorship'
 import DepartmentSundayMinistry from './pages/DepartmentSundayMinistry'
+import DepartmentHub from './pages/DepartmentHub'
 import SundayMinistryPastor from './pages/SundayMinistryPastor'
+import SeniorPastorHub from './pages/SeniorPastorHub'
 
 function App() {
   return (
@@ -39,7 +41,9 @@ function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="department/worship" element={<DepartmentWorship />} />
             <Route path="department/sunday-ministry" element={<DepartmentSundayMinistry />} />
+            <Route path="department/:slug" element={<DepartmentHub />} />
             <Route path="sunday-ministry-pastor" element={<SundayMinistryPastor />} />
+            <Route path="senior-pastor" element={<SeniorPastorHub />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

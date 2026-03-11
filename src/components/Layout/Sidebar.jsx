@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { getDepartmentPath } from '../../constants/departments'
+import { ROLES } from '../../constants/roles'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard' },
@@ -8,23 +10,29 @@ const navItems = [
   { to: '/tasks', label: 'Tasks', icon: '✅', permission: 'tasks' },
   { to: '/sunday-ministry', label: 'Sunday Ministry', icon: '📅', permission: 'attendance' },
   { to: '/sunday-planning', label: 'Sunday Planning', icon: '📋', permission: 'attendance' },
-  { to: '/department/sunday-ministry', label: 'Sunday Ministry (Director)', icon: '📋', showOnlyDepartment: 'Sunday Ministry', orAttendance: true },
+  { to: '/department/sunday-ministry', label: 'Sunday Ministry (Director)', icon: '📋', showOnlyDepartment: 'Sunday Ministry', showOnlyDepartmentAlt: 'Sunday M', orAttendance: true },
   { to: '/sunday-ministry-pastor', label: 'Sunday Ministry (Pastor)', icon: '📝', permission: 'viewDepartmentInsights', orFounder: true, orAttendance: true },
   { to: '/department/worship', label: 'Worship', icon: '🎵', permission: 'viewDepartmentInsights', orDepartment: 'Worship' },
+  { to: '/senior-pastor', label: 'Senior Pastor', icon: '👤', permission: 'pastorHub', orFounder: true },
   { to: '/finance', label: 'Finance', icon: '💰', permission: 'finance' },
   { to: '/reports', label: 'Reports', icon: '📋', permission: 'reports' },
 ]
 
 export default function Sidebar() {
-  const { userProfile, signOut, hasPermission, isFounder } = useAuth()
+  const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead } = useAuth()
   const [open, setOpen] = useState(false)
 
   const visible = navItems.filter((item) => {
-    if (item.showOnlyDepartment) return userProfile?.department === item.showOnlyDepartment || isFounder || (item.orAttendance && hasPermission('attendance'))
-    if (item.orFounder) return hasPermission(item.permission) || isFounder || (item.orAttendance && hasPermission('attendance'))
+    if (item.showOnlyDepartment) return userProfile?.department === item.showOnlyDepartment || userProfile?.department === item.showOnlyDepartmentAlt || isFounder || (item.orAttendance && hasPermission('attendance'))
+    if (item.orFounder && item.permission) return hasPermission(item.permission) || isFounder
     if (item.orDepartment) return hasPermission(item.permission) || userProfile?.department === item.orDepartment
     return hasPermission(item.permission)
   })
+
+  const myDeptItem = userProfile?.department && isDepartmentHead(userProfile.department)
+    ? { to: getDepartmentPath(userProfile.department), label: `${userProfile.department} (${userProfile.role === ROLES.DIRECTOR ? 'Director' : 'Coordinator'})`, icon: '📁' }
+    : null
+  const visibleWithMyDept = myDeptItem ? [myDeptItem, ...visible] : visible
 
   return (
     <>
@@ -49,9 +57,9 @@ export default function Sidebar() {
         <p className="text-xs text-slate-400 uppercase tracking-wider">Admin App</p>
       </div>
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {visible.map((item) => (
+        {visibleWithMyDept.map((item) => (
           <NavLink
-            key={item.to}
+            key={item.to + (item.label || '')}
             to={item.to}
             className={({ isActive }) =>
               `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
