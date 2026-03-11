@@ -724,6 +724,69 @@ export async function getUsersByDepartment(departmentName) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
+// Department planning board notes (movable notepads on canvas)
+const PLANNING_NOTES_COLLECTION = 'department_planning_notes'
+
+export async function getDepartmentPlanningNotes(department) {
+  if (!db || !department) return []
+  const q = query(
+    collection(db, PLANNING_NOTES_COLLECTION),
+    where('department', '==', department)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    const pos = data.position || {}
+    const sz = data.size || {}
+    return {
+      id: d.id,
+      noteId: d.id,
+      department: data.department,
+      content: data.content || '',
+      position: { x: Number(pos.x) || 20, y: Number(pos.y) || 20 },
+      size: { width: Number(sz.width) || 200, height: Number(sz.height) || 180 },
+      rotation: Number(data.rotation) || 0,
+      color: data.color || 'yellow',
+      createdAt: toDate(data.createdAt),
+      updatedAt: toDate(data.updatedAt),
+    }
+  })
+}
+
+export async function addDepartmentPlanningNote(department, data) {
+  if (!db) return null
+  const now = Timestamp.now()
+  const ref = await addDoc(collection(db, PLANNING_NOTES_COLLECTION), {
+    department: String(department),
+    content: data.content || '',
+    position: { x: Number(data.position?.x) || 20, y: Number(data.position?.y) || 20 },
+    size: { width: Number(data.size?.width) || 200, height: Number(data.size?.height) || 180 },
+    rotation: Number(data.rotation) || 0,
+    color: data.color || 'yellow',
+    createdAt: now,
+    updatedAt: now,
+  })
+  return ref.id
+}
+
+export async function updateDepartmentPlanningNote(id, data) {
+  if (!db) return
+  const payload = {
+    updatedAt: Timestamp.now(),
+  }
+  if (data.content !== undefined) payload.content = String(data.content)
+  if (data.position !== undefined) payload.position = { x: Number(data.position.x) || 0, y: Number(data.position.y) || 0 }
+  if (data.size !== undefined) payload.size = { width: Number(data.size.width) || 200, height: Number(data.size.height) || 180 }
+  if (data.rotation !== undefined) payload.rotation = Number(data.rotation) || 0
+  if (data.color !== undefined) payload.color = String(data.color)
+  await updateDoc(doc(db, PLANNING_NOTES_COLLECTION, id), payload)
+}
+
+export async function deleteDepartmentPlanningNote(id) {
+  if (!db) return
+  await deleteDoc(doc(db, PLANNING_NOTES_COLLECTION, id))
+}
+
 // Pastor department remarks (Senior Pastor hub – one doc per department)
 const PASTOR_REMARKS_COLLECTION = 'pastor_department_remarks'
 

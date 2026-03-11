@@ -18,6 +18,7 @@ import {
 import { ROLES } from '../constants/roles'
 import { differenceInDays, format } from 'date-fns'
 import { formatDMY } from '../utils/date'
+import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 
 const TABS = ['summary', 'team', 'planning', 'financial']
 
@@ -237,30 +238,39 @@ export default function DepartmentHub() {
           )}
 
           {activeTab === 'planning' && (
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <h2 className="font-semibold text-slate-800 mb-3">Planning</h2>
-              {canEdit ? (
-                <form onSubmit={handleSavePlanning} className="space-y-2">
-                  <textarea
-                    value={planningNotes}
-                    onChange={(e) => setPlanningNotes(e.target.value)}
-                    placeholder="Planning notes for this department..."
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[140px]"
-                    rows={6}
-                  />
-                  <button
-                    type="submit"
-                    disabled={savingPlanning}
-                    className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {savingPlanning ? 'Saving...' : 'Save planning'}
-                  </button>
-                </form>
-              ) : (
-                <div className="text-slate-600 whitespace-pre-wrap">
-                  {planningNotes || '— No planning notes yet —'}
-                </div>
-              )}
+            <div className="space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <h2 className="font-semibold text-slate-800 mb-3">Planning</h2>
+                {canEdit ? (
+                  <form onSubmit={handleSavePlanning} className="space-y-2">
+                    <textarea
+                      value={planningNotes}
+                      onChange={(e) => setPlanningNotes(e.target.value)}
+                      placeholder="Planning notes for this department..."
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[140px]"
+                      rows={6}
+                    />
+                    <button
+                      type="submit"
+                      disabled={savingPlanning}
+                      className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {savingPlanning ? 'Saving...' : 'Save planning'}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="text-slate-600 whitespace-pre-wrap">
+                    {planningNotes || '— No planning notes yet —'}
+                  </div>
+                )}
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <h2 className="font-semibold text-slate-800 mb-3">Planning board</h2>
+                <p className="text-sm text-slate-500 mb-4">
+                  Add movable notepads to the canvas. Drag to move, drag corners to resize. Use the toolbar on each note for bold, text colour, and background.
+                </p>
+                <PlanningBoard department={department.name} canEdit={canEdit} />
+              </div>
             </div>
           )}
 
