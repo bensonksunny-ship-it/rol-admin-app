@@ -1,5 +1,6 @@
 import { useParams, Link, Navigate } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
+import { differenceInDays } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import {
@@ -57,6 +58,7 @@ export default function DepartmentHub() {
         setTeam(teamList)
         const latest = entryList.find((e) => e.type === 'planning' || e.notes) || entryList[0]
         setPlanningNotes(latest?.notes ?? '')
+        setTeamError('')
       })
       .catch(() => {
         setTeam([])
@@ -255,7 +257,7 @@ export default function DepartmentHub() {
                   </button>
                 )}
               </div>
-              {teamError && (
+              {teamError && team.length === 0 && (
                 <p className="text-sm text-red-600">{teamError}</p>
               )}
               {loadingTeam ? (
@@ -277,11 +279,23 @@ export default function DepartmentHub() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {team.map((m) => (
+                      {team.map((m, idx) => {
+                        const durationDays = m.memberSince
+                          ? differenceInDays(new Date(), new Date(m.memberSince))
+                          : null
+                        return (
                         <tr key={m.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
                           <td className="px-4 py-2 text-slate-800">{m.name}</td>
-                          <td className="px-4 py-2 text-slate-600">{m.role || '—'}</td>
                           <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
+                          <td className="px-4 py-2 text-slate-600">
+                            {durationDays != null ? `${durationDays} days` : '—'}
+                            {(m.role || m.notes) && (
+                              <div className="text-xs text-slate-500 mt-0.5">
+                                {[m.role, m.notes].filter(Boolean).join(' · ')}
+                              </div>
+                            )}
+                          </td>
                           <td className="px-4 py-2 text-slate-600">
                             {m.isFormer ? 'Former' : 'Current'}
                           </td>
@@ -317,7 +331,7 @@ export default function DepartmentHub() {
                             </td>
                           )}
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </div>
@@ -344,6 +358,7 @@ export default function DepartmentHub() {
                           { id, department: department.name, ...memberForm },
                         ])
                       }
+                      setTeamError('')
                       setEditingMember(null)
                       setMemberForm({
                         name: '',
