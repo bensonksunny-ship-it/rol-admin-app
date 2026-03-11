@@ -89,7 +89,7 @@ export default function DepartmentHub() {
         <Link to="/departments" className="text-slate-500 hover:text-slate-700">← Departments</Link>
       </div>
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">{department.name}</h1>
+        <h1 className="text-2xl font-bold text-slate-800">{department.name} dashboard</h1>
         {headLabel && <p className="text-sm text-slate-500 mt-0.5">Department head: {headLabel}</p>}
       </div>
 

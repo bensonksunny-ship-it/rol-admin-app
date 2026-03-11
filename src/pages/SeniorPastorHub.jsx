@@ -113,7 +113,7 @@ export default function SeniorPastorHub() {
               </p>
               {latest?.notes && <p className="text-sm text-slate-600 mt-2 line-clamp-2">{latest.notes}</p>}
               <div className="mt-3 flex flex-wrap gap-2">
-                <Link to={getDepartmentPath(d.name)} className="text-sm text-blue-600 hover:underline font-medium">Open department →</Link>
+                <Link to={getDepartmentPath(d.name)} className="text-sm text-blue-600 hover:underline font-medium">Open department dashboard →</Link>
               </div>
               {canEdit && (
                 <div className="mt-3 pt-3 border-t border-slate-100">

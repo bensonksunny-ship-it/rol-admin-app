@@ -23,7 +23,7 @@ import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from
 const COLORS = ['#1e40af', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe']
 
 export default function Dashboard() {
-  const { hasPermission } = useAuth()
+  const { hasPermission, isFounder, userProfile } = useAuth()
   const [tasks, setTasks] = useState([])
   const [attendance, setAttendance] = useState([])
   const [income, setIncome] = useState([])
@@ -157,6 +157,15 @@ export default function Dashboard() {
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <p className="text-sm text-slate-500">Pending Tasks</p>
             <p className="text-2xl font-bold text-amber-600 mt-1">{pendingTasks.length}</p>
+          </div>
+        )}
+        {(hasPermission('pastorHub') || isFounder) && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+            <p className="text-sm text-slate-500">Sunday planning status</p>
+            <p className="text-2xl font-bold text-indigo-600 mt-1">0%</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Visible only to Senior Pastor / Founder. Percentage formula will be defined later.
+            </p>
           </div>
         )}
       </div>

@@ -6,6 +6,8 @@ import { ROLES } from '../../constants/roles'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard' },
+  // Senior Pastor office – second in sidebar
+  { to: '/senior-pastor', label: 'Senior Pastor Office', icon: '👤', permission: 'pastorHub', orFounder: true },
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
   { to: '/tasks', label: 'Tasks', icon: '✅', permission: 'tasks' },
   { to: '/sunday-ministry', label: 'Sunday Ministry', icon: '📅', permission: 'attendance' },
@@ -13,7 +15,6 @@ const navItems = [
   { to: '/department/sunday-ministry', label: 'Sunday Ministry (Director)', icon: '📋', showOnlyDepartment: 'Sunday Ministry', showOnlyDepartmentAlt: 'Sunday M', orAttendance: true },
   { to: '/sunday-ministry-pastor', label: 'Sunday Ministry (Pastor)', icon: '📝', permission: 'viewDepartmentInsights', orFounder: true, orAttendance: true },
   { to: '/department/worship', label: 'Worship', icon: '🎵', permission: 'viewDepartmentInsights', orDepartment: 'Worship' },
-  { to: '/senior-pastor', label: 'Senior Pastor', icon: '👤', permission: 'pastorHub', orFounder: true },
   { to: '/finance', label: 'Finance', icon: '💰', permission: 'finance' },
   { to: '/reports', label: 'Reports', icon: '📋', permission: 'reports' },
 ]
