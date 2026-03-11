@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { DEPARTMENT_LIST, getDepartmentPath } from '../constants/departments'
+import { DEPARTMENT_LIST } from '../constants/departments'
 import { getDepartmentEntries, getPastorRemarks, setPastorRemarks } from '../services/firestore'
+
+const TILE_COLORS = [
+  'from-amber-500 to-orange-400',
+  'from-sky-500 to-blue-500',
+  'from-emerald-500 to-teal-500',
+  'from-violet-500 to-purple-500',
+  'from-rose-500 to-pink-500',
+  'from-cyan-500 to-indigo-500',
+]
 
 export default function SeniorPastorHub() {
   const { userProfile, hasPermission, isFounder } = useAuth()
@@ -101,24 +110,40 @@ export default function SeniorPastorHub() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {DEPARTMENT_LIST.map((d) => {
+        {DEPARTMENT_LIST.map((d, idx) => {
+          const color = TILE_COLORS[idx % TILE_COLORS.length]
           const latest = entriesByDept[d.name]?.[0]
           const remark = remarksByDept[d.name]
           const isEditing = editingRemarks === d.name
           return (
-            <div key={d.slug} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-              <h2 className="font-semibold text-slate-800">{d.name}</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {latest ? `Last entry: ${latest.createdAt ? new Date(latest.createdAt).toLocaleDateString() : ''}` : 'No entries yet'}
-              </p>
-              {latest?.notes && <p className="text-sm text-slate-600 mt-2 line-clamp-2">{latest.notes}</p>}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Link
-                  to={`/department/${d.slug}/pastor`}
-                  className="text-sm text-indigo-600 hover:underline font-medium"
-                >
-                  Pastor view →
-                </Link>
+            <Link
+              key={d.slug}
+              to={`/department/${d.slug}/pastor`}
+              className="block rounded-xl border border-slate-200 shadow-sm bg-white hover:shadow-md hover:-translate-y-0.5 transition transform overflow-hidden"
+            >
+              <div className={`px-4 py-2 bg-gradient-to-r ${color}`}>
+                <h2 className="font-semibold text-white text-sm">{d.name}</h2>
+                <p className="text-[11px] text-white/80">
+                  {latest
+                    ? `Last entry: ${
+                        latest.createdAt ? new Date(latest.createdAt).toLocaleDateString() : ''
+                      }`
+                    : 'No entries yet'}
+                </p>
+              </div>
+              <div className="p-4">
+                {latest?.notes && (
+                  <p className="text-sm text-slate-700 line-clamp-2">{latest.notes}</p>
+                )}
+                <p className="mt-2 text-xs text-slate-500">
+                  Your remarks:{' '}
+                  <span className="font-medium text-slate-700">
+                    {remark?.notes ? 'Saved' : 'None yet'}
+                  </span>
+                </p>
+                <p className="mt-1 text-[11px] text-indigo-600 font-medium">
+                  Click tile to open pastor view →
+                </p>
               </div>
               {canEdit && (
                 <div className="mt-3 pt-3 border-t border-slate-100">
@@ -144,7 +169,7 @@ export default function SeniorPastorHub() {
                   )}
                 </div>
               )}
-            </div>
+            </Link>
           )
         })}
       </div>
