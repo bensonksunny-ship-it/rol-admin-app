@@ -11,8 +11,6 @@ const navItems = [
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
   { to: '/tasks', label: 'Tasks', icon: '✅', permission: 'tasks' },
   { to: '/sunday-planning', label: 'Sunday Planning', icon: '📋', permission: 'attendance' },
-  { to: '/department/sunday-ministry', label: 'Sunday Ministry (Director)', icon: '📋', showOnlyDepartment: 'Sunday Ministry', showOnlyDepartmentAlt: 'Sunday M', orAttendance: true },
-  { to: '/sunday-ministry-pastor', label: 'Sunday Ministry (Pastor)', icon: '📝', permission: 'viewDepartmentInsights', orFounder: true, orAttendance: true },
   { to: '/finance', label: 'Finance', icon: '💰', permission: 'finance' },
   { to: '/reports', label: 'Reports', icon: '📋', permission: 'reports' },
 ]
