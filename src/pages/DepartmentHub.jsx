@@ -113,7 +113,9 @@ export default function DepartmentHub() {
         ? ['summary', 'cellGroups', 'team', 'planning', 'financial']
         : slug === 'caring'
           ? ['summary', 'members', 'team', 'planning', 'financial']
-          : BASE_TABS,
+          : slug === 'sunday-ministry'
+            ? ['summary', 'sundayReport', 'team', 'planning', 'financial']
+            : BASE_TABS,
     [slug]
   )
 
@@ -282,25 +284,35 @@ export default function DepartmentHub() {
 
       {/* Tabs */}
       <div className="flex gap-1.5 border-b border-slate-200 pb-0.5 mt-2">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === tab
-                ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
-            }`}
-          >
-            {tab === 'summary' && 'Summary'}
-            {tab === 'team' && 'Team'}
-            {tab === 'planning' && 'Planning'}
-            {tab === 'financial' && 'Budget & Spending'}
-            {tab === 'cellGroups' && 'Cell Groups'}
-            {tab === 'members' && 'Members'}
-          </button>
-        ))}
+        {tabs.map((tab) =>
+          tab === 'sundayReport' ? (
+            <Link
+              key={tab}
+              to="/department/sunday-ministry/sunday-report"
+              className="px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
+            >
+              Sunday Report
+            </Link>
+          ) : (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === tab
+                  ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
+              }`}
+            >
+              {tab === 'summary' && 'Summary'}
+              {tab === 'team' && 'Team'}
+              {tab === 'planning' && 'Planning'}
+              {tab === 'financial' && 'Budget & Spending'}
+              {tab === 'cellGroups' && 'Cell Groups'}
+              {tab === 'members' && 'Members'}
+            </button>
+          )
+        )}
       </div>
 
       {loading ? (
