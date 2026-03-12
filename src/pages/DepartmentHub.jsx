@@ -1,5 +1,5 @@
 import { useParams, Link, Navigate } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, Fragment } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import {
@@ -20,9 +20,15 @@ import {
   addCellGroupMember,
   updateCellGroupMember,
   deleteCellGroupMember,
+  getLatestCellAttendance,
+  addCellAttendance,
+  getCaringMembers,
+  addCaringMember,
+  updateCaringMember,
+  deleteCaringMember,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
-import { differenceInDays, format } from 'date-fns'
+import { differenceInDays, differenceInYears, differenceInMonths, format } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 
@@ -75,8 +81,45 @@ export default function DepartmentHub() {
   const [editingCellMemberId, setEditingCellMemberId] = useState(null)
   const [cellGroupModalOpen, setCellGroupModalOpen] = useState(false)
   const [newCellGroupForm, setNewCellGroupForm] = useState({ cellName: '', leader: '' })
+  const [latestCellAttendance, setLatestCellAttendance] = useState(null)
+  const [cellAttendanceModalOpen, setCellAttendanceModalOpen] = useState(false)
+  const [cellAttendanceForm, setCellAttendanceForm] = useState({ date: format(new Date(), 'yyyy-MM-dd'), totalAttendance: '' })
+  const [caringMembers, setCaringMembers] = useState([])
+  const [loadingCaringMembers, setLoadingCaringMembers] = useState(false)
+  const [expandedCaringId, setExpandedCaringId] = useState(null)
+  const [caringMemberForm, setCaringMemberForm] = useState({
+    membershipNumber: '', name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', firstSunday: '', cellName: '',
+  })
+  const [caringMemberModalOpen, setCaringMemberModalOpen] = useState(false)
+  const [editingCaringId, setEditingCaringId] = useState(null)
+  const [caringCellNames, setCaringCellNames] = useState([])
 
-  const tabs = useMemo(() => (slug === 'cell' ? [...BASE_TABS, 'cellGroups'] : BASE_TABS), [slug])
+  const tabs = useMemo(
+    () =>
+      slug === 'cell'
+        ? ['summary', 'cellGroups', 'team', 'planning', 'financial']
+        : slug === 'caring'
+          ? ['summary', 'members', 'team', 'planning', 'financial']
+          : BASE_TABS,
+    [slug]
+  )
+
+  function formatDuration(firstSundayStr) {
+    if (!firstSundayStr) return '—'
+    const start = new Date(firstSundayStr)
+    if (isNaN(start.getTime())) return '—'
+    const now = new Date()
+    const totalDays = differenceInDays(now, start)
+    if (totalDays < 0) return '—'
+    const years = Math.floor(totalDays / 365)
+    const months = Math.floor((totalDays % 365) / 30)
+    const days = totalDays - years * 365 - months * 30
+    const parts = []
+    if (years > 0) parts.push(`${years} year${years !== 1 ? 's' : ''}`)
+    if (months > 0) parts.push(`${months} month${months !== 1 ? 's' : ''}`)
+    if (days > 0) parts.push(`${days} day${days !== 1 ? 's' : ''}`)
+    return parts.length ? parts.join(' ') : 'Less than a day'
+  }
 
   useEffect(() => {
     if (!department) {
@@ -122,11 +165,26 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (department && slug === 'cell' && activeTab === 'cellGroups') {
       setLoadingCellGroups(true)
-      getCellGroups(department.name)
-        .then(setCellGroups)
+      Promise.all([getCellGroups(department.name), getLatestCellAttendance(department.name)])
+        .then(([groups, attendance]) => {
+          setCellGroups(groups)
+          setLatestCellAttendance(attendance)
+        })
         .finally(() => setLoadingCellGroups(false))
     }
   }, [department, slug, activeTab])
+
+  useEffect(() => {
+    if (slug === 'caring' && activeTab === 'members') {
+      setLoadingCaringMembers(true)
+      Promise.all([getCaringMembers(), getCellGroups('Cell')])
+        .then(([members, cells]) => {
+          setCaringMembers(members)
+          setCaringCellNames(cells.map((c) => c.cellName).filter(Boolean))
+        })
+        .finally(() => setLoadingCaringMembers(false))
+    }
+  }, [slug, activeTab])
 
   useEffect(() => {
     if (!expandedCellId) {
@@ -220,6 +278,7 @@ export default function DepartmentHub() {
             {tab === 'planning' && 'Planning'}
             {tab === 'financial' && 'Budget & Spending'}
             {tab === 'cellGroups' && 'Cell Groups'}
+            {tab === 'members' && 'Members'}
           </button>
         ))}
       </div>
@@ -274,6 +333,201 @@ export default function DepartmentHub() {
                 )}
               </div>
             </>
+          )}
+
+          {activeTab === 'members' && slug === 'caring' && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center">
+                <h2 className="font-semibold text-slate-800">Members</h2>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingCaringId(null)
+                      setCaringMemberForm({
+                        membershipNumber: '', name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', firstSunday: format(new Date(), 'yyyy-MM-dd'), cellName: '',
+                      })
+                      setCaringMemberModalOpen(true)
+                    }}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                  >
+                    Add Member
+                  </button>
+                )}
+              </div>
+              {loadingCaringMembers ? (
+                <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="text-left px-4 py-3 font-medium text-slate-600">Membership Number</th>
+                        <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
+                        <th className="text-left px-4 py-3 font-medium text-slate-600">Cell Name</th>
+                        <th className="text-left px-4 py-3 font-medium text-slate-600">Duration of Attending Church</th>
+                        {canEdit && <th className="text-left px-4 py-3 font-medium text-slate-600 w-20">Actions</th>}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {caringMembers.map((m) => (
+                        <Fragment key={m.id}>
+                          <tr
+                            onClick={() => setExpandedCaringId(expandedCaringId === m.id ? null : m.id)}
+                            className="hover:bg-slate-50 cursor-pointer"
+                          >
+                            <td className="px-4 py-3 text-slate-800">{m.membershipNumber || '—'}</td>
+                            <td className="px-4 py-3 text-slate-800">{m.name || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{m.cellName || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{formatDuration(m.firstSunday)}</td>
+                            {canEdit && (
+                              <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingCaringId(m.id)
+                                    setCaringMemberForm({
+                                      membershipNumber: m.membershipNumber || '',
+                                      name: m.name || '',
+                                      dob: m.dob ? String(m.dob).slice(0, 10) : '',
+                                      phone: m.phone || '',
+                                      email: m.email || '',
+                                      nativity: m.nativity || '',
+                                      currentPlace: m.currentPlace || '',
+                                      firstSunday: m.firstSunday ? String(m.firstSunday).slice(0, 10) : '',
+                                      cellName: m.cellName || '',
+                                    })
+                                    setCaringMemberModalOpen(true)
+                                  }}
+                                  className="text-blue-600 hover:underline mr-2"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    if (!window.confirm('Remove this member?')) return
+                                    await deleteCaringMember(m.id)
+                                    setCaringMembers((prev) => prev.filter((x) => x.id !== m.id))
+                                  }}
+                                  className="text-red-600 hover:underline"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                          {expandedCaringId === m.id && (
+                            <tr key={`${m.id}-exp`}>
+                              <td colSpan={canEdit ? 5 : 4} className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+                                  <div><span className="text-slate-500">DOB:</span> {m.dob ? formatDMY(m.dob) : '—'}</div>
+                                  <div><span className="text-slate-500">Phone:</span> {m.phone || '—'}</div>
+                                  <div><span className="text-slate-500">Email:</span> {m.email || '—'}</div>
+                                  <div><span className="text-slate-500">Nativity:</span> {m.nativity || '—'}</div>
+                                  <div><span className="text-slate-500">Current Place:</span> {m.currentPlace || '—'}</div>
+                                  <div><span className="text-slate-500">First Sunday:</span> {m.firstSunday ? formatDMY(m.firstSunday) : '—'}</div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      ))}
+                      {caringMembers.length === 0 && (
+                        <tr>
+                          <td colSpan={canEdit ? 5 : 4} className="px-4 py-8 text-center text-slate-500">No members yet.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {caringMemberModalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-5 border-b border-slate-200">
+                  <h3 className="text-lg font-semibold text-slate-800">{editingCaringId ? 'Edit member' : 'Add Member'}</h3>
+                </div>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    try {
+                      if (editingCaringId) {
+                        await updateCaringMember(editingCaringId, caringMemberForm)
+                        setCaringMembers((prev) => prev.map((x) => (x.id === editingCaringId ? { ...x, ...caringMemberForm } : x)))
+                      } else {
+                        const id = await addCaringMember(caringMemberForm)
+                        setCaringMembers((prev) => [...prev, { id, ...caringMemberForm }])
+                      }
+                      setCaringMemberModalOpen(false)
+                      setEditingCaringId(null)
+                    } catch (err) {
+                      console.error(err)
+                      alert('Failed to save')
+                    }
+                  }}
+                  className="p-5 space-y-4"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Membership Number</label>
+                      <input type="text" value={caringMemberForm.membershipNumber} onChange={(e) => setCaringMemberForm((f) => ({ ...f, membershipNumber: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                      <input type="text" value={caringMemberForm.name} onChange={(e) => setCaringMemberForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">DOB</label>
+                    <input type="date" value={caringMemberForm.dob} onChange={(e) => setCaringMemberForm((f) => ({ ...f, dob: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
+                      <input type="text" value={caringMemberForm.phone} onChange={(e) => setCaringMemberForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                      <input type="email" value={caringMemberForm.email} onChange={(e) => setCaringMemberForm((f) => ({ ...f, email: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Nativity</label>
+                      <input type="text" value={caringMemberForm.nativity} onChange={(e) => setCaringMemberForm((f) => ({ ...f, nativity: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Current Place</label>
+                      <input type="text" value={caringMemberForm.currentPlace} onChange={(e) => setCaringMemberForm((f) => ({ ...f, currentPlace: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">First Sunday</label>
+                      <input type="date" value={caringMemberForm.firstSunday} onChange={(e) => setCaringMemberForm((f) => ({ ...f, firstSunday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Cell Name</label>
+                      <select value={caringMemberForm.cellName} onChange={(e) => setCaringMemberForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
+                        <option value="">— Select —</option>
+                        {caringCellNames.map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>
+                    <button type="button" onClick={() => { setCaringMemberModalOpen(false); setEditingCaringId(null) }} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
           )}
 
           {activeTab === 'planning' && (
@@ -670,7 +924,39 @@ export default function DepartmentHub() {
           )}
 
           {activeTab === 'cellGroups' && slug === 'cell' && (
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* Dashboard metrics */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                  <p className="text-sm text-slate-500 uppercase tracking-wide">Total Cells</p>
+                  <p className="text-2xl font-bold text-slate-800 mt-1">{loadingCellGroups ? '—' : cellGroups.length}</p>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                  <p className="text-sm text-slate-500 uppercase tracking-wide">Total Cell Members</p>
+                  <p className="text-2xl font-bold text-slate-800 mt-1">
+                    {loadingCellGroups ? '—' : cellGroups.reduce((s, c) => s + (c.memberCount || 0), 0)}
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                  <p className="text-sm text-slate-500 uppercase tracking-wide">Latest Total Attendance</p>
+                  <p className="text-2xl font-bold text-slate-800 mt-1">
+                    {latestCellAttendance != null ? latestCellAttendance.totalAttendance : '—'}
+                  </p>
+                  {latestCellAttendance?.date && (
+                    <p className="text-xs text-slate-400 mt-0.5">{formatDMY(latestCellAttendance.date)}</p>
+                  )}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setCellAttendanceModalOpen(true)}
+                      className="mt-2 text-xs text-indigo-600 hover:underline"
+                    >
+                      Record attendance
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-4 mb-4">
                   <h2 className="font-semibold text-slate-800">Cell Groups</h2>
@@ -690,16 +976,24 @@ export default function DepartmentHub() {
                   <div className="py-8 text-center text-slate-500">No cell groups yet.</div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {cellGroups.map((cell) => (
-                      <div key={cell.id} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                    {cellGroups.map((cell, idx) => {
+                      const pastel = [
+                        { bg: 'bg-blue-50', border: 'border-blue-200' },
+                        { bg: 'bg-emerald-50', border: 'border-emerald-200' },
+                        { bg: 'bg-amber-50', border: 'border-amber-200' },
+                        { bg: 'bg-violet-50', border: 'border-violet-200' },
+                        { bg: 'bg-orange-50', border: 'border-orange-200' },
+                      ][idx % 5]
+                      return (
+                      <div key={cell.id} className={`${pastel.bg} ${pastel.border} border rounded-xl overflow-hidden shadow-md`}>
                         <button
                           type="button"
                           onClick={() => setExpandedCellId(expandedCellId === cell.id ? null : cell.id)}
-                          className="w-full text-left p-5 hover:bg-slate-50 transition"
+                          className="w-full text-left p-5 hover:opacity-95 transition"
                         >
-                          <p className="text-lg font-semibold text-slate-800">{cell.cellName || 'Unnamed'}</p>
-                          <p className="text-sm text-slate-500 mt-0.5">Leader: {cell.leader || '—'}</p>
-                          <p className="text-2xl font-bold text-indigo-600 mt-2">{cell.memberCount ?? 0} Members</p>
+                          <p className="text-xl font-semibold text-slate-800">{cell.cellName || 'Unnamed'}</p>
+                          <p className="text-sm text-slate-600 mt-0.5">Leader: {cell.leader || '—'}</p>
+                          <p className="text-2xl font-bold text-slate-800 mt-2">{cell.memberCount ?? 0} Members</p>
                         </button>
                         {expandedCellId === cell.id && (
                           <div className="border-t border-slate-200 p-4 bg-slate-50/50">
@@ -790,10 +1084,50 @@ export default function DepartmentHub() {
                           </div>
                         )}
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
+
+              {cellAttendanceModalOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl max-w-sm w-full">
+                    <div className="p-5 border-b border-slate-200">
+                      <h3 className="text-lg font-semibold text-slate-800">Record attendance</h3>
+                    </div>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault()
+                        try {
+                          await addCellAttendance(department.name, cellAttendanceForm.date, Number(cellAttendanceForm.totalAttendance) || 0)
+                          const latest = await getLatestCellAttendance(department.name)
+                          setLatestCellAttendance(latest)
+                          setCellAttendanceModalOpen(false)
+                          setCellAttendanceForm({ date: format(new Date(), 'yyyy-MM-dd'), totalAttendance: '' })
+                        } catch (err) {
+                          console.error(err)
+                          alert('Failed to save')
+                        }
+                      }}
+                      className="p-5 space-y-4"
+                    >
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
+                        <input type="date" value={cellAttendanceForm.date} onChange={(e) => setCellAttendanceForm((f) => ({ ...f, date: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Total attendance</label>
+                        <input type="number" min="0" value={cellAttendanceForm.totalAttendance} onChange={(e) => setCellAttendanceForm((f) => ({ ...f, totalAttendance: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>
+                        <button type="button" onClick={() => setCellAttendanceModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

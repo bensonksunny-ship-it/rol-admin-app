@@ -816,6 +816,7 @@ export async function addCellGroup(data) {
     leader: data.leader || '',
     memberCount: 0,
     department: data.department || 'Cell',
+    createdAt: Timestamp.now(),
   })
   return ref.id
 }
@@ -883,6 +884,95 @@ export async function deleteCellGroupMember(cellId, memberId) {
   await deleteDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId))
   const members = await getCellGroupMembers(cellId)
   await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId), { memberCount: members.length })
+}
+
+// Cell group attendance (latest total attendance across cell groups)
+const CELL_ATTENDANCE_COLLECTION = 'cell_attendance'
+
+export async function getLatestCellAttendance(department) {
+  if (!db || !department) return null
+  const q = query(
+    collection(db, CELL_ATTENDANCE_COLLECTION),
+    where('department', '==', department)
+  )
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => ({ id: d.id, ...d.data(), totalAttendance: Number(d.data().totalAttendance) || 0 }))
+  list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  return list[0] || null
+}
+
+export async function addCellAttendance(department, date, totalAttendance) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, CELL_ATTENDANCE_COLLECTION), {
+    department: String(department),
+    date: String(date).slice(0, 10),
+    totalAttendance: Number(totalAttendance) || 0,
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+// Caring department – church members (caring_members)
+const CARING_MEMBERS_COLLECTION = 'caring_members'
+
+export async function getCaringMembers() {
+  if (!db) return []
+  const snap = await getDocs(collection(db, CARING_MEMBERS_COLLECTION))
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      membershipNumber: data.membershipNumber || '',
+      name: data.name || '',
+      dob: data.dob || '',
+      phone: data.phone || '',
+      email: data.email || '',
+      nativity: data.nativity || '',
+      currentPlace: data.currentPlace || '',
+      firstSunday: data.firstSunday || '',
+      cellName: data.cellName || '',
+      createdAt: toDate(data.createdAt),
+    }
+  })
+}
+
+export async function addCaringMember(data) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, CARING_MEMBERS_COLLECTION), {
+    membershipNumber: data.membershipNumber || '',
+    name: data.name || '',
+    dob: data.dob ? String(data.dob).slice(0, 10) : '',
+    phone: data.phone || '',
+    email: data.email || '',
+    nativity: data.nativity || '',
+    currentPlace: data.currentPlace || '',
+    firstSunday: data.firstSunday ? String(data.firstSunday).slice(0, 10) : '',
+    cellName: data.cellName || '',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateCaringMember(id, data) {
+  if (!db) return
+  const payload = {
+    membershipNumber: data.membershipNumber !== undefined ? String(data.membershipNumber) : undefined,
+    name: data.name !== undefined ? String(data.name) : undefined,
+    dob: data.dob !== undefined ? String(data.dob).slice(0, 10) : undefined,
+    phone: data.phone !== undefined ? String(data.phone) : undefined,
+    email: data.email !== undefined ? String(data.email) : undefined,
+    nativity: data.nativity !== undefined ? String(data.nativity) : undefined,
+    currentPlace: data.currentPlace !== undefined ? String(data.currentPlace) : undefined,
+    firstSunday: data.firstSunday !== undefined ? String(data.firstSunday).slice(0, 10) : undefined,
+    cellName: data.cellName !== undefined ? String(data.cellName) : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, CARING_MEMBERS_COLLECTION, id), clean)
+}
+
+export async function deleteCaringMember(id) {
+  if (!db) return
+  await deleteDoc(doc(db, CARING_MEMBERS_COLLECTION, id))
 }
 
 // Pastor department remarks (Senior Pastor hub – one doc per department)
