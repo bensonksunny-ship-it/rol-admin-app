@@ -14,13 +14,19 @@ import {
   addFinanceBudgetItem,
   updateFinanceBudgetItem,
   deleteFinanceBudgetItem,
+  getCellGroups,
+  getCellGroupMembers,
+  addCellGroup,
+  addCellGroupMember,
+  updateCellGroupMember,
+  deleteCellGroupMember,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { differenceInDays, format } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 
-const TABS = ['summary', 'team', 'planning', 'financial']
+const BASE_TABS = ['summary', 'team', 'planning', 'financial']
 
 export default function DepartmentHub() {
   const { slug } = useParams()
@@ -59,6 +65,18 @@ export default function DepartmentHub() {
     expectedDate: format(new Date(), 'yyyy-MM-dd'),
   })
   const [budgetModalOpen, setBudgetModalOpen] = useState(false)
+  const [cellGroups, setCellGroups] = useState([])
+  const [loadingCellGroups, setLoadingCellGroups] = useState(false)
+  const [expandedCellId, setExpandedCellId] = useState(null)
+  const [cellMembers, setCellMembers] = useState([])
+  const [loadingCellMembers, setLoadingCellMembers] = useState(false)
+  const [cellMemberForm, setCellMemberForm] = useState({ name: '', birthday: '', anniversary: '', phone: '', locality: '' })
+  const [cellMemberModalOpen, setCellMemberModalOpen] = useState(false)
+  const [editingCellMemberId, setEditingCellMemberId] = useState(null)
+  const [cellGroupModalOpen, setCellGroupModalOpen] = useState(false)
+  const [newCellGroupForm, setNewCellGroupForm] = useState({ cellName: '', leader: '' })
+
+  const tabs = useMemo(() => (slug === 'cell' ? [...BASE_TABS, 'cellGroups'] : BASE_TABS), [slug])
 
   useEffect(() => {
     if (!department) {
@@ -100,6 +118,26 @@ export default function DepartmentHub() {
         .finally(() => setLoadingBudget(false))
     }
   }, [department, activeTab])
+
+  useEffect(() => {
+    if (department && slug === 'cell' && activeTab === 'cellGroups') {
+      setLoadingCellGroups(true)
+      getCellGroups(department.name)
+        .then(setCellGroups)
+        .finally(() => setLoadingCellGroups(false))
+    }
+  }, [department, slug, activeTab])
+
+  useEffect(() => {
+    if (!expandedCellId) {
+      setCellMembers([])
+      return
+    }
+    setLoadingCellMembers(true)
+    getCellGroupMembers(expandedCellId)
+      .then(setCellMembers)
+      .finally(() => setLoadingCellMembers(false))
+  }, [expandedCellId])
 
   if (!department) {
     return (
@@ -166,7 +204,7 @@ export default function DepartmentHub() {
 
       {/* Tabs */}
       <div className="flex gap-1.5 border-b border-slate-200 pb-0.5 mt-2">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab}
             type="button"
@@ -181,6 +219,7 @@ export default function DepartmentHub() {
             {tab === 'team' && 'Team'}
             {tab === 'planning' && 'Planning'}
             {tab === 'financial' && 'Budget & Spending'}
+            {tab === 'cellGroups' && 'Cell Groups'}
           </button>
         ))}
       </div>
@@ -627,6 +666,230 @@ export default function DepartmentHub() {
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'cellGroups' && slug === 'cell' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-4 mb-4">
+                  <h2 className="font-semibold text-slate-800">Cell Groups</h2>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => { setNewCellGroupForm({ cellName: '', leader: '' }); setCellGroupModalOpen(true) }}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    >
+                      + Add cell group
+                    </button>
+                  )}
+                </div>
+                {loadingCellGroups ? (
+                  <div className="py-8 text-center text-slate-500">Loading cell groups…</div>
+                ) : cellGroups.length === 0 ? (
+                  <div className="py-8 text-center text-slate-500">No cell groups yet.</div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {cellGroups.map((cell) => (
+                      <div key={cell.id} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCellId(expandedCellId === cell.id ? null : cell.id)}
+                          className="w-full text-left p-5 hover:bg-slate-50 transition"
+                        >
+                          <p className="text-lg font-semibold text-slate-800">{cell.cellName || 'Unnamed'}</p>
+                          <p className="text-sm text-slate-500 mt-0.5">Leader: {cell.leader || '—'}</p>
+                          <p className="text-2xl font-bold text-indigo-600 mt-2">{cell.memberCount ?? 0} Members</p>
+                        </button>
+                        {expandedCellId === cell.id && (
+                          <div className="border-t border-slate-200 p-4 bg-slate-50/50">
+                            {canEdit && (
+                              <div className="flex justify-end mb-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingCellMemberId(null)
+                                    setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '' })
+                                    setCellMemberModalOpen(true)
+                                  }}
+                                  className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                                >
+                                  Add Member
+                                </button>
+                              </div>
+                            )}
+                            {loadingCellMembers ? (
+                              <p className="text-sm text-slate-500">Loading members…</p>
+                            ) : (
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full text-sm">
+                                  <thead className="bg-slate-100">
+                                    <tr>
+                                      <th className="text-left px-3 py-2 font-medium text-slate-600 w-10">SL</th>
+                                      <th className="text-left px-3 py-2 font-medium text-slate-600">Name</th>
+                                      <th className="text-left px-3 py-2 font-medium text-slate-600">Birthday</th>
+                                      <th className="text-left px-3 py-2 font-medium text-slate-600">Anniversary</th>
+                                      <th className="text-left px-3 py-2 font-medium text-slate-600">Phone</th>
+                                      <th className="text-left px-3 py-2 font-medium text-slate-600">Locality</th>
+                                      {canEdit && <th className="text-left px-3 py-2 font-medium text-slate-600">Actions</th>}
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 bg-white">
+                                    {cellMembers.map((m, idx) => (
+                                      <tr key={m.id} className="hover:bg-slate-50">
+                                        <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
+                                        <td className="px-3 py-2 text-slate-800">{m.name || '—'}</td>
+                                        <td className="px-3 py-2 text-slate-600">{m.birthday ? formatDMY(m.birthday) : '—'}</td>
+                                        <td className="px-3 py-2 text-slate-600">{m.anniversary ? formatDMY(m.anniversary) : '—'}</td>
+                                        <td className="px-3 py-2 text-slate-600">{m.phone || '—'}</td>
+                                        <td className="px-3 py-2 text-slate-600">{m.locality || '—'}</td>
+                                        {canEdit && (
+                                          <td className="px-3 py-2 space-x-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setEditingCellMemberId(m.id)
+                                                setCellMemberForm({
+                                                  name: m.name || '',
+                                                  birthday: m.birthday ? String(m.birthday).slice(0, 10) : '',
+                                                  anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '',
+                                                  phone: m.phone || '',
+                                                  locality: m.locality || '',
+                                                })
+                                                setCellMemberModalOpen(true)
+                                              }}
+                                              className="text-blue-600 hover:underline"
+                                            >
+                                              Edit
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={async () => {
+                                                if (!window.confirm('Remove this member?')) return
+                                                await deleteCellGroupMember(cell.id, m.id)
+                                                setCellMembers((prev) => prev.filter((x) => x.id !== m.id))
+                                                setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: Math.max(0, (c.memberCount ?? 0) - 1) } : c)))
+                                              }}
+                                              className="text-red-600 hover:underline"
+                                            >
+                                              Delete
+                                            </button>
+                                          </td>
+                                        )}
+                                      </tr>
+                                    ))}
+                                    {cellMembers.length === 0 && (
+                                      <tr>
+                                        <td colSpan={canEdit ? 7 : 6} className="px-3 py-6 text-center text-slate-500">No members yet.</td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {cellGroupModalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+                <div className="p-5 border-b border-slate-200">
+                  <h3 className="text-lg font-semibold text-slate-800">Add cell group</h3>
+                </div>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    try {
+                      const id = await addCellGroup({ ...newCellGroupForm, department: department.name })
+                      setCellGroups((prev) => [...prev, { id, cellName: newCellGroupForm.cellName, leader: newCellGroupForm.leader, memberCount: 0, department: department.name }])
+                      setCellGroupModalOpen(false)
+                      setNewCellGroupForm({ cellName: '', leader: '' })
+                    } catch (err) {
+                      console.error(err)
+                      alert('Failed to save')
+                    }
+                  }}
+                  className="p-5 space-y-4"
+                >
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Cell Name *</label>
+                    <input type="text" value={newCellGroupForm.cellName} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Leader</label>
+                    <input type="text" value={newCellGroupForm.leader} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, leader: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>
+                    <button type="button" onClick={() => setCellGroupModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {cellMemberModalOpen && expandedCellId && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+                <div className="p-5 border-b border-slate-200">
+                  <h3 className="text-lg font-semibold text-slate-800">{editingCellMemberId ? 'Edit member' : 'Add Member'}</h3>
+                </div>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    try {
+                      if (editingCellMemberId) {
+                        await updateCellGroupMember(expandedCellId, editingCellMemberId, cellMemberForm)
+                        setCellMembers((prev) => prev.map((m) => (m.id === editingCellMemberId ? { ...m, ...cellMemberForm } : m)))
+                      } else {
+                        await addCellGroupMember(expandedCellId, cellMemberForm)
+                        const list = await getCellGroupMembers(expandedCellId)
+                        setCellMembers(list)
+                        setCellGroups((prev) => prev.map((c) => (c.id === expandedCellId ? { ...c, memberCount: list.length } : c)))
+                      }
+                      setCellMemberModalOpen(false)
+                      setEditingCellMemberId(null)
+                      setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '' })
+                    } catch (err) {
+                      console.error(err)
+                      alert('Failed to save')
+                    }
+                  }}
+                  className="p-5 space-y-4"
+                >
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                    <input type="text" value={cellMemberForm.name} onChange={(e) => setCellMemberForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Birthday</label>
+                    <input type="date" value={cellMemberForm.birthday} onChange={(e) => setCellMemberForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Anniversary (optional)</label>
+                    <input type="date" value={cellMemberForm.anniversary} onChange={(e) => setCellMemberForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
+                    <input type="text" value={cellMemberForm.phone} onChange={(e) => setCellMemberForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Locality</label>
+                    <input type="text" value={cellMemberForm.locality} onChange={(e) => setCellMemberForm((f) => ({ ...f, locality: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>
+                    <button type="button" onClick={() => { setCellMemberModalOpen(false); setEditingCellMemberId(null) }} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
 

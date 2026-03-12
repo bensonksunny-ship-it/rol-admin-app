@@ -787,6 +787,104 @@ export async function deleteDepartmentPlanningNote(id) {
   await deleteDoc(doc(db, PLANNING_NOTES_COLLECTION, id))
 }
 
+// Cell department – cell groups and members (cell_groups + cell_groups/{cellId}/members)
+const CELL_GROUPS_COLLECTION = 'cell_groups'
+
+export async function getCellGroups(department) {
+  if (!db || !department) return []
+  const q = query(
+    collection(db, CELL_GROUPS_COLLECTION),
+    where('department', '==', department)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      cellName: data.cellName || '',
+      leader: data.leader || '',
+      memberCount: Number(data.memberCount) || 0,
+      department: data.department || '',
+    }
+  })
+}
+
+export async function addCellGroup(data) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, CELL_GROUPS_COLLECTION), {
+    cellName: data.cellName || '',
+    leader: data.leader || '',
+    memberCount: 0,
+    department: data.department || 'Cell',
+  })
+  return ref.id
+}
+
+export async function updateCellGroup(id, data) {
+  if (!db) return
+  const payload = {}
+  if (data.cellName !== undefined) payload.cellName = String(data.cellName)
+  if (data.leader !== undefined) payload.leader = String(data.leader)
+  if (data.memberCount !== undefined) payload.memberCount = Number(data.memberCount) || 0
+  if (Object.keys(payload).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, id), payload)
+}
+
+function cellGroupMembersRef(cellId) {
+  return collection(db, CELL_GROUPS_COLLECTION, cellId, 'members')
+}
+
+export async function getCellGroupMembers(cellId) {
+  if (!db || !cellId) return []
+  const snap = await getDocs(cellGroupMembersRef(cellId))
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      name: data.name || '',
+      birthday: data.birthday || '',
+      anniversary: data.anniversary || '',
+      phone: data.phone || '',
+      locality: data.locality || '',
+      createdAt: toDate(data.createdAt),
+    }
+  })
+}
+
+export async function addCellGroupMember(cellId, data) {
+  if (!db || !cellId) return null
+  const ref = await addDoc(cellGroupMembersRef(cellId), {
+    name: data.name || '',
+    birthday: data.birthday ? String(data.birthday).slice(0, 10) : '',
+    anniversary: data.anniversary ? String(data.anniversary).slice(0, 10) : '',
+    phone: data.phone || '',
+    locality: data.locality || '',
+    createdAt: Timestamp.now(),
+  })
+  const members = await getCellGroupMembers(cellId)
+  await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId), { memberCount: members.length })
+  return ref.id
+}
+
+export async function updateCellGroupMember(cellId, memberId, data) {
+  if (!db || !cellId || !memberId) return
+  const payload = {
+    name: data.name !== undefined ? String(data.name) : undefined,
+    birthday: data.birthday !== undefined ? String(data.birthday).slice(0, 10) : undefined,
+    anniversary: data.anniversary !== undefined ? String(data.anniversary).slice(0, 10) : undefined,
+    phone: data.phone !== undefined ? String(data.phone) : undefined,
+    locality: data.locality !== undefined ? String(data.locality) : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId), clean)
+}
+
+export async function deleteCellGroupMember(cellId, memberId) {
+  if (!db || !cellId || !memberId) return
+  await deleteDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId))
+  const members = await getCellGroupMembers(cellId)
+  await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId), { memberCount: members.length })
+}
+
 // Pastor department remarks (Senior Pastor hub – one doc per department)
 const PASTOR_REMARKS_COLLECTION = 'pastor_department_remarks'
 

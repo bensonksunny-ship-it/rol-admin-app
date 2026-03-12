@@ -54,6 +54,16 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
     }
 
+    match /cell_groups/{cellId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
+      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+    }
+
+    match /cell_groups/{cellId}/members/{memberId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || get(/databases/$(database)/documents/cell_groups/$(cellId)).data.get('department', '') == userDepartment());
+    }
+
     match /finance_budget/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || !('department' in resource.data) || resource.data.department == userDepartment());
       allow create: if isSignedIn() && (isFullAccess() || !('department' in request.resource.data) || request.resource.data.department == userDepartment());
