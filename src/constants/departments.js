@@ -1,13 +1,13 @@
 /**
  * Canonical list of church departments (exact names as provided).
  * slug: URL segment for /department/:slug
- * customPage: use existing dedicated page instead of generic hub (worship | sundayMinistry)
+ * customPage: use existing dedicated page instead of generic hub (worship)
  */
 export const DEPARTMENT_LIST = [
   { name: 'Worship', slug: 'worship', customPage: 'worship' },
   { name: 'Cell', slug: 'cell', customPage: null },
   { name: 'Caring', slug: 'caring', customPage: null },
-  { name: 'Sunday M', slug: 'sunday-m', customPage: 'sundayMinistry' },
+  { name: 'Sunday Ministry', slug: 'sunday-ministry', customPage: null },
   { name: 'D Light', slug: 'd-light', customPage: null },
   { name: 'Junior C', slug: 'junior-c', customPage: null },
   { name: 'Outreach', slug: 'outreach', customPage: null },
@@ -40,6 +40,5 @@ export function getDepartmentPath(departmentName) {
   const d = getDepartmentByName(departmentName)
   if (!d) return `/departments`
   if (d.customPage === 'worship') return '/department/worship'
-  if (d.customPage === 'sundayMinistry') return '/department/sunday-ministry'
   return `/department/${d.slug}`
 }

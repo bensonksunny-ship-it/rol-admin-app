@@ -228,7 +228,6 @@ export default function DepartmentHub() {
   }
 
   if (department.customPage === 'worship') return <Navigate to="/department/worship" replace />
-  if (department.customPage === 'sundayMinistry') return <Navigate to="/department/sunday-ministry" replace />
 
   if (!canManageDepartment(department.name)) {
     return (
