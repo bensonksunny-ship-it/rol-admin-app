@@ -13,6 +13,7 @@ import Finance from './pages/Finance'
 import Reports from './pages/Reports'
 import DepartmentWorship from './pages/DepartmentWorship'
 import DepartmentSundayMinistry from './pages/DepartmentSundayMinistry'
+import SundayReport from './pages/SundayReport'
 import DepartmentHub from './pages/DepartmentHub'
 import DepartmentPastorView from './pages/DepartmentPastorView'
 import DepartmentPastorUpdates from './pages/DepartmentPastorUpdates'
@@ -42,6 +43,8 @@ function App() {
             <Route path="finance" element={<Finance />} />
             <Route path="reports" element={<Reports />} />
             <Route path="department/worship" element={<DepartmentWorship />} />
+            <Route path="department/sunday-ministry/sunday-report" element={<SundayReport />} />
+            <Route path="department/sunday-ministry/planning" element={<DepartmentSundayMinistry defaultTab="planning" />} />
             <Route path="department/sunday-ministry" element={<DepartmentSundayMinistry />} />
             <Route path="department/:slug" element={<DepartmentHub />} />
             <Route path="department/:slug/pastor" element={<DepartmentPastorView />} />

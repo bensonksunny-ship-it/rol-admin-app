@@ -1060,3 +1060,108 @@ export async function setPastorRemarks(department, payload, updatedBy) {
   }, { merge: true })
   return ref.id
 }
+
+// Sunday Ministry – Sunday Report (one doc per date, keyed by date yyyy-MM-dd)
+const SUNDAY_REPORTS_COLLECTION = 'sunday_reports'
+
+const DEFAULT_SUNDAY_REPORT = {
+  sundayMinistryTeam: [],
+  pastoralAttendees: [],
+  olive: [],
+  jordan: [],
+  bethany: [],
+  edenStream: [],
+  bethel: [],
+  newCell1: [],
+  children: [],
+  programList: [],
+  preservice: { lead1: '', lead2: '' },
+  summary: {
+    totalVolunteers: '',
+    cellAttendance: '',
+    newcomers: '',
+    secondWeekAttendees: '',
+    riverKids: '',
+    englishServiceAttendance: '',
+    tamilServiceAttendance: '',
+    totalAdults: '',
+    totalAttendance: '',
+  },
+}
+
+function normalizeReport(data) {
+  return {
+    date: data.date || '',
+    sundayMinistryTeam: Array.isArray(data.sundayMinistryTeam) ? data.sundayMinistryTeam : [],
+    pastoralAttendees: Array.isArray(data.pastoralAttendees) ? data.pastoralAttendees : [],
+    olive: Array.isArray(data.olive) ? data.olive : [],
+    jordan: Array.isArray(data.jordan) ? data.jordan : [],
+    bethany: Array.isArray(data.bethany) ? data.bethany : [],
+    edenStream: Array.isArray(data.edenStream) ? data.edenStream : [],
+    bethel: Array.isArray(data.bethel) ? data.bethel : [],
+    newCell1: Array.isArray(data.newCell1) ? data.newCell1 : [],
+    children: Array.isArray(data.children) ? data.children : [],
+    programList: Array.isArray(data.programList) ? data.programList : [],
+    preservice: data.preservice && typeof data.preservice === 'object' ? { lead1: data.preservice.lead1 || '', lead2: data.preservice.lead2 || '' } : { lead1: '', lead2: '' },
+    summary: data.summary && typeof data.summary === 'object'
+      ? {
+          totalVolunteers: data.summary.totalVolunteers ?? '',
+          cellAttendance: data.summary.cellAttendance ?? '',
+          newcomers: data.summary.newcomers ?? '',
+          secondWeekAttendees: data.summary.secondWeekAttendees ?? '',
+          riverKids: data.summary.riverKids ?? '',
+          englishServiceAttendance: data.summary.englishServiceAttendance ?? '',
+          tamilServiceAttendance: data.summary.tamilServiceAttendance ?? '',
+          totalAdults: data.summary.totalAdults ?? '',
+          totalAttendance: data.summary.totalAttendance ?? '',
+        }
+      : { ...DEFAULT_SUNDAY_REPORT.summary },
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
+  }
+}
+
+export async function getSundayReport(dateStr) {
+  if (!db || !dateStr) return null
+  const id = String(dateStr).slice(0, 10)
+  const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return { id, date: id, ...DEFAULT_SUNDAY_REPORT }
+  const data = snap.data()
+  return {
+    id: snap.id,
+    ...normalizeReport({
+      ...data,
+      createdAt: toDate(data.createdAt),
+      updatedAt: toDate(data.updatedAt),
+    }),
+  }
+}
+
+export async function setSundayReport(dateStr, payload, updatedBy) {
+  if (!db || !dateStr) return null
+  const id = String(dateStr).slice(0, 10)
+  const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+  const now = Timestamp.now()
+  const data = normalizeReport(payload)
+  const snap = await getDoc(ref)
+  await setDoc(ref, {
+    date: id,
+    ...(snap.exists() ? {} : { createdAt: now }),
+    sundayMinistryTeam: data.sundayMinistryTeam,
+    pastoralAttendees: data.pastoralAttendees,
+    olive: data.olive,
+    jordan: data.jordan,
+    bethany: data.bethany,
+    edenStream: data.edenStream,
+    bethel: data.bethel,
+    newCell1: data.newCell1,
+    children: data.children,
+    programList: data.programList,
+    preservice: data.preservice,
+    summary: data.summary,
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: now,
+  }, { merge: true })
+  return ref.id
+}

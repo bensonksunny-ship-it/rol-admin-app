@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import {
   getDepartmentEntries,
   addDepartmentEntry,
@@ -20,11 +21,12 @@ import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 
 const DEPARTMENT = 'Sunday Ministry'
 
-export default function DepartmentSundayMinistry() {
-  const { userProfile, hasPermission, isFounder } = useAuth()
+export default function DepartmentSundayMinistry({ defaultTab }) {
+  const { pathname } = useLocation()
+  const { userProfile, hasPermission, isFounder, canManageDepartment } = useAuth()
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('summary')
+  const [activeTab, setActiveTab] = useState(defaultTab || 'summary')
   const [teamMembers, setTeamMembers] = useState([])
   const [formerMembers, setFormerMembers] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(true)
@@ -42,8 +44,7 @@ export default function DepartmentSundayMinistry() {
   const [editMember, setEditMember] = useState(null)
   const [form, setForm] = useState({ period: format(new Date(), 'yyyy-MM'), plannedBudget: '', spent: '' })
 
-  const isDirector = userProfile?.department === DEPARTMENT
-  const canManage = isDirector || isFounder
+  const canManage = canManageDepartment ? canManageDepartment(DEPARTMENT) : (userProfile?.department === DEPARTMENT || isFounder)
 
   useEffect(() => {
     getDepartmentEntries(DEPARTMENT, { limit: 100 }).then(setEntries).catch(() => setEntries([])).finally(() => setLoading(false))
@@ -63,6 +64,10 @@ export default function DepartmentSundayMinistry() {
     setLoadingBudget(true)
     getSundayMinistryBudgetItems().then(setBudgetItems).catch(() => setBudgetItems([])).finally(() => setLoadingBudget(false))
   }, [])
+
+  useEffect(() => {
+    if (pathname.endsWith('/planning')) setActiveTab('planning')
+  }, [pathname])
 
   useEffect(() => {
     getSundayPlan(selectedDate).then((p) => {
@@ -107,7 +112,30 @@ export default function DepartmentSundayMinistry() {
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200">
-        {['summary', 'planning', 'budget', 'team', 'report'].map((tab) => (
+        <button
+          type="button"
+          onClick={() => setActiveTab('summary')}
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+            activeTab === 'summary' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          Summary
+        </button>
+        <Link
+          to="/department/sunday-ministry/planning"
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+            activeTab === 'planning' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          Sunday Ministry Planning / Report
+        </Link>
+        <Link
+          to="/department/sunday-ministry/sunday-report"
+          className="px-4 py-2 text-sm font-medium rounded-t-lg text-slate-600 hover:bg-slate-100"
+        >
+          Sunday Report
+        </Link>
+        {['budget', 'team', 'report'].map((tab) => (
           <button
             key={tab}
             type="button"
@@ -137,7 +165,8 @@ export default function DepartmentSundayMinistry() {
 
       {activeTab === 'planning' && (
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-          <h2 className="font-semibold text-slate-800 mb-3">Sunday Ministry planning (syncs with Sunday Planning page)</h2>
+          <h2 className="font-semibold text-slate-800 mb-3">Sunday Ministry Planning / Report</h2>
+          <p className="text-sm text-slate-500 mb-3">Syncs with Sunday Planning page. Use <strong>Sunday Report</strong> for the structured report.</p>
           <div className="flex flex-wrap items-center gap-4 mb-4">
             <label className="text-sm text-slate-700">Date:</label>
             <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-300" />
