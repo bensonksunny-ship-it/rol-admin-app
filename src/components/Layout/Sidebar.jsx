@@ -9,8 +9,6 @@ const navItems = [
   // Senior Pastor office – second in sidebar
   { to: '/senior-pastor', label: 'Senior Pastor Office', icon: '👤', permission: 'pastorHub', orFounder: true },
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
-  // Departments section – Worship shown directly under Departments
-  { to: '/department/worship', label: 'Worship', icon: '🎵', permission: 'viewDepartmentInsights', orDepartment: 'Worship' },
   { to: '/tasks', label: 'Tasks', icon: '✅', permission: 'tasks' },
   { to: '/sunday-ministry', label: 'Sunday Ministry', icon: '📅', permission: 'attendance' },
   { to: '/sunday-planning', label: 'Sunday Planning', icon: '📋', permission: 'attendance' },
