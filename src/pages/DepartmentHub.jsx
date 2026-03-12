@@ -26,6 +26,10 @@ import {
   addCaringMember,
   updateCaringMember,
   deleteCaringMember,
+  getDepartmentUpdates,
+  addDepartmentUpdate,
+  updateDepartmentUpdate,
+  deleteDepartmentUpdate,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { differenceInDays, differenceInYears, differenceInMonths, format } from 'date-fns'
@@ -93,6 +97,15 @@ export default function DepartmentHub() {
   const [caringMemberModalOpen, setCaringMemberModalOpen] = useState(false)
   const [editingCaringId, setEditingCaringId] = useState(null)
   const [caringCellNames, setCaringCellNames] = useState([])
+  const [departmentUpdates, setDepartmentUpdates] = useState([])
+  const [loadingDepartmentUpdates, setLoadingDepartmentUpdates] = useState(false)
+  const [updateModalOpen, setUpdateModalOpen] = useState(false)
+  const [editingUpdateId, setEditingUpdateId] = useState(null)
+  const [updateForm, setUpdateForm] = useState({
+    date: format(new Date(), 'yyyy-MM-dd'),
+    update: '',
+    actionPlan: '',
+  })
 
   const tabs = useMemo(
     () =>
@@ -160,6 +173,14 @@ export default function DepartmentHub() {
         .then(setBudgetItems)
         .finally(() => setLoadingBudget(false))
     }
+  }, [department, activeTab])
+
+  useEffect(() => {
+    if (!department || activeTab !== 'planning') return
+    setLoadingDepartmentUpdates(true)
+    getDepartmentUpdates(department.name)
+      .then(setDepartmentUpdates)
+      .finally(() => setLoadingDepartmentUpdates(false))
   }, [department, activeTab])
 
   useEffect(() => {
@@ -533,6 +554,109 @@ export default function DepartmentHub() {
           {activeTab === 'planning' && (
             <div className="space-y-6">
               <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h2 className="font-semibold text-slate-800">Updates</h2>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingUpdateId(null)
+                        setUpdateForm({
+                          date: format(new Date(), 'yyyy-MM-dd'),
+                          update: '',
+                          actionPlan: '',
+                        })
+                        setUpdateModalOpen(true)
+                      }}
+                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    >
+                      Add Update
+                    </button>
+                  )}
+                </div>
+                {loadingDepartmentUpdates ? (
+                  <div className="py-4 text-sm text-slate-500">Loading updates…</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="text-left px-4 py-2 text-slate-600 font-medium w-14">SL No</th>
+                          <th className="text-left px-4 py-2 text-slate-600 font-medium w-32">Date</th>
+                          <th className="text-left px-4 py-2 text-slate-600 font-medium">Update</th>
+                          <th className="text-left px-4 py-2 text-slate-600 font-medium">Action Plan</th>
+                          {canEdit && (
+                            <th className="text-left px-4 py-2 text-slate-600 font-medium w-24">Actions</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {departmentUpdates.map((u, idx) => (
+                          <tr key={u.id} className="hover:bg-slate-50 align-top">
+                            <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
+                            <td className="px-4 py-2 text-slate-600">
+                              {u.date ? formatDMY(u.date) : '—'}
+                            </td>
+                            <td className="px-4 py-2 text-slate-800 whitespace-pre-wrap">
+                              {u.update || '—'}
+                            </td>
+                            <td className="px-4 py-2 text-slate-800 whitespace-pre-wrap">
+                              {u.actionPlan || '—'}
+                            </td>
+                            {canEdit && (
+                              <td className="px-4 py-2 text-sm space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingUpdateId(u.id)
+                                    setUpdateForm({
+                                      date: u.date ? String(u.date).slice(0, 10) : format(new Date(), 'yyyy-MM-dd'),
+                                      update: u.update || '',
+                                      actionPlan: u.actionPlan || '',
+                                    })
+                                    setUpdateModalOpen(true)
+                                  }}
+                                  className="text-blue-600 hover:underline"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!window.confirm('Delete this update?')) return
+                                    try {
+                                      await deleteDepartmentUpdate(u.id)
+                                      setDepartmentUpdates((prev) => prev.filter((x) => x.id !== u.id))
+                                    } catch (err) {
+                                      console.error(err)
+                                      alert('Failed to delete')
+                                    }
+                                  }}
+                                  className="text-red-600 hover:underline"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                        {departmentUpdates.length === 0 && !loadingDepartmentUpdates && (
+                          <tr>
+                            <td
+                              colSpan={canEdit ? 5 : 4}
+                              className="px-4 py-6 text-center text-slate-500"
+                            >
+                              No updates yet.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                 <h2 className="font-semibold text-slate-800 mb-3">Planning</h2>
                 {canEdit ? (
                   <form onSubmit={handleSavePlanning} className="space-y-2">
@@ -556,13 +680,13 @@ export default function DepartmentHub() {
                     {planningNotes || '— No planning notes yet —'}
                   </div>
                 )}
-              </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                <h2 className="font-semibold text-slate-800 mb-3">Planning board</h2>
-                <p className="text-sm text-slate-500 mb-4">
-                  Add movable notepads to the canvas. Drag to move, drag corners to resize. Use the toolbar on each note for bold, text colour, and background.
-                </p>
-                <PlanningBoard department={department.name} canEdit={canEdit} />
+                <div className="mt-6 pt-4 border-t border-slate-200">
+                  <h3 className="font-semibold text-slate-800 mb-2">Planning board</h3>
+                  <p className="text-sm text-slate-500 mb-4">
+                    Add movable notepads to the canvas. Drag to move, drag corners to resize. Use the toolbar on each note for bold, text colour, and background.
+                  </p>
+                  <PlanningBoard department={department.name} canEdit={canEdit} />
+                </div>
               </div>
             </div>
           )}
@@ -1312,6 +1436,118 @@ export default function DepartmentHub() {
                   <div className="flex gap-2 pt-2">
                     <button type="submit" className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">{editingBudgetId ? 'Update' : 'Add row'}</button>
                     <button type="button" onClick={() => { setBudgetModalOpen(false); setEditingBudgetId(null) }} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {updateModalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-5 border-b border-slate-200">
+                  <h3 className="text-lg font-semibold text-slate-800">
+                    {editingUpdateId ? 'Edit update' : 'Add update'}
+                  </h3>
+                </div>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    try {
+                      if (editingUpdateId) {
+                        await updateDepartmentUpdate(editingUpdateId, updateForm)
+                        setDepartmentUpdates((prev) =>
+                          prev.map((u) => (u.id === editingUpdateId ? { ...u, ...updateForm } : u))
+                        )
+                      } else {
+                        const id = await addDepartmentUpdate(
+                          { ...updateForm, department: department.name },
+                          userProfile?.email || 'unknown'
+                        )
+                        const newItem = {
+                          id,
+                          department: department.name,
+                          ...updateForm,
+                          createdAt: new Date(),
+                        }
+                        setDepartmentUpdates((prev) => {
+                          const next = [newItem, ...prev]
+                          next.sort((a, b) => {
+                            const da = a.date || ''
+                            const db = b.date || ''
+                            if (da !== db) return db.localeCompare(da)
+                            const ca = a.createdAt?.getTime?.() || 0
+                            const cb = b.createdAt?.getTime?.() || 0
+                            return cb - ca
+                          })
+                          return next
+                        })
+                      }
+                      setUpdateModalOpen(false)
+                      setEditingUpdateId(null)
+                    } catch (err) {
+                      console.error(err)
+                      alert('Failed to save')
+                    }
+                  }}
+                  className="p-5 space-y-4"
+                >
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      value={updateForm.date}
+                      onChange={(e) =>
+                        setUpdateForm((f) => ({ ...f, date: e.target.value }))
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Update
+                    </label>
+                    <textarea
+                      value={updateForm.update}
+                      onChange={(e) =>
+                        setUpdateForm((f) => ({ ...f, update: e.target.value }))
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[80px]"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Action Plan
+                    </label>
+                    <textarea
+                      value={updateForm.actionPlan}
+                      onChange={(e) =>
+                        setUpdateForm((f) => ({ ...f, actionPlan: e.target.value }))
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[80px]"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="submit"
+                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUpdateModalOpen(false)
+                        setEditingUpdateId(null)
+                      }}
+                      className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </form>
               </div>

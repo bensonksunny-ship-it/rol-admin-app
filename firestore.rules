@@ -48,6 +48,12 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
     }
 
+    match /department_updates/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
+      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+    }
+
     match /department_entries/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
       allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());

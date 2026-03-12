@@ -713,6 +713,67 @@ export async function deleteDepartmentPastorUpdate(id) {
   await deleteDoc(doc(db, PASTOR_UPDATES_COLLECTION, id))
 }
 
+// Generic department updates (Department Planning tab → Updates section)
+const DEPARTMENT_UPDATES_COLLECTION = 'department_updates'
+
+export async function getDepartmentUpdates(department) {
+  if (!db || !department) return []
+  const q = query(
+    collection(db, DEPARTMENT_UPDATES_COLLECTION),
+    where('department', '==', department)
+  )
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      department: data.department || '',
+      date: data.date || '',
+      update: data.update || '',
+      actionPlan: data.actionPlan || '',
+      createdAt: toDate(data.createdAt),
+    }
+  })
+  list.sort((a, b) => {
+    const da = a.date || ''
+    const db = b.date || ''
+    if (da !== db) return db.localeCompare(da)
+    const ca = a.createdAt?.getTime?.() || 0
+    const cb = b.createdAt?.getTime?.() || 0
+    return cb - ca
+  })
+  return list
+}
+
+export async function addDepartmentUpdate(data, addedBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, DEPARTMENT_UPDATES_COLLECTION), {
+    department: String(data.department || ''),
+    date: data.date ? String(data.date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+    update: data.update || '',
+    actionPlan: data.actionPlan || '',
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateDepartmentUpdate(id, data) {
+  if (!db) return
+  const payload = {
+    date: data.date !== undefined ? String(data.date).slice(0, 10) : undefined,
+    update: data.update !== undefined ? String(data.update) : undefined,
+    actionPlan: data.actionPlan !== undefined ? String(data.actionPlan) : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, DEPARTMENT_UPDATES_COLLECTION, id), clean)
+}
+
+export async function deleteDepartmentUpdate(id) {
+  if (!db) return
+  await deleteDoc(doc(db, DEPARTMENT_UPDATES_COLLECTION, id))
+}
+
 // Users by department (to show Director/Coordinator on pastor page)
 export async function getUsersByDepartment(departmentName) {
   if (!db || !departmentName) return []
