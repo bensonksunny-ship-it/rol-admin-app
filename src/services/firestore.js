@@ -851,6 +851,22 @@ export async function deleteDepartmentPlanningNote(id) {
 // Cell department – cell groups and members (cell_groups + cell_groups/{cellId}/members)
 const CELL_GROUPS_COLLECTION = 'cell_groups'
 
+export async function getCellGroup(cellId) {
+  if (!db || !cellId) return null
+  const ref = doc(db, CELL_GROUPS_COLLECTION, cellId)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return null
+  const data = snap.data()
+  return {
+    id: snap.id,
+    cellName: data.cellName || '',
+    leader: data.leader || '',
+    meetingDay: data.meetingDay || '',
+    memberCount: Number(data.memberCount) || 0,
+    department: data.department || '',
+  }
+}
+
 export async function getCellGroups(department) {
   if (!db || !department) return []
   const q = query(
@@ -864,6 +880,7 @@ export async function getCellGroups(department) {
       id: d.id,
       cellName: data.cellName || '',
       leader: data.leader || '',
+      meetingDay: data.meetingDay || '',
       memberCount: Number(data.memberCount) || 0,
       department: data.department || '',
     }
@@ -875,6 +892,7 @@ export async function addCellGroup(data) {
   const ref = await addDoc(collection(db, CELL_GROUPS_COLLECTION), {
     cellName: data.cellName || '',
     leader: data.leader || '',
+    meetingDay: data.meetingDay || '',
     memberCount: 0,
     department: data.department || 'Cell',
     createdAt: Timestamp.now(),
@@ -887,6 +905,7 @@ export async function updateCellGroup(id, data) {
   const payload = {}
   if (data.cellName !== undefined) payload.cellName = String(data.cellName)
   if (data.leader !== undefined) payload.leader = String(data.leader)
+  if (data.meetingDay !== undefined) payload.meetingDay = String(data.meetingDay)
   if (data.memberCount !== undefined) payload.memberCount = Number(data.memberCount) || 0
   if (Object.keys(payload).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, id), payload)
 }
@@ -945,6 +964,143 @@ export async function deleteCellGroupMember(cellId, memberId) {
   await deleteDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId))
   const members = await getCellGroupMembers(cellId)
   await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId), { memberCount: members.length })
+}
+
+// Cell reports (one per cell per date; attendees in subcollection)
+const CELL_REPORTS_COLLECTION = 'cell_reports'
+
+function cellReportAttendeesRef(reportId) {
+  return collection(db, CELL_REPORTS_COLLECTION, reportId, 'attendees')
+}
+
+export async function getCellReportByCellAndDate(cellId, reportDate) {
+  if (!db || !cellId || !reportDate) return null
+  const dateStr = String(reportDate).slice(0, 10)
+  const q = query(
+    collection(db, CELL_REPORTS_COLLECTION),
+    where('cellId', '==', cellId),
+    where('reportDate', '==', dateStr)
+  )
+  const snap = await getDocs(q)
+  const doc = snap.docs[0]
+  if (!doc) return null
+  const data = doc.data()
+  return {
+    id: doc.id,
+    cellId: data.cellId || '',
+    cellName: data.cellName || '',
+    meetingDay: data.meetingDay || '',
+    membersAttended: Number(data.membersAttended) || 0,
+    visitors: Number(data.visitors) || 0,
+    children: Number(data.children) || 0,
+    reportDate: data.reportDate || '',
+    createdBy: data.createdBy || '',
+    createdAt: toDate(data.createdAt),
+  }
+}
+
+export async function getCellReportsByCell(cellId) {
+  if (!db || !cellId) return []
+  const q = query(
+    collection(db, CELL_REPORTS_COLLECTION),
+    where('cellId', '==', cellId),
+    orderBy('reportDate', 'desc'),
+    limit(100)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      cellId: data.cellId || '',
+      cellName: data.cellName || '',
+      meetingDay: data.meetingDay || '',
+      membersAttended: Number(data.membersAttended) || 0,
+      visitors: Number(data.visitors) || 0,
+      children: Number(data.children) || 0,
+      reportDate: data.reportDate || '',
+      createdBy: data.createdBy || '',
+      createdAt: toDate(data.createdAt),
+    }
+  })
+}
+
+export async function createCellReport(data, createdBy) {
+  if (!db) return null
+  const dateStr = String(data.reportDate || '').slice(0, 10)
+  const ref = await addDoc(collection(db, CELL_REPORTS_COLLECTION), {
+    cellId: data.cellId || '',
+    cellName: data.cellName || '',
+    meetingDay: data.meetingDay || '',
+    membersAttended: Number(data.membersAttended) || 0,
+    visitors: Number(data.visitors) || 0,
+    children: Number(data.children) || 0,
+    reportDate: dateStr,
+    createdBy: createdBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateCellReport(reportId, data) {
+  if (!db || !reportId) return
+  const payload = {
+    membersAttended: data.membersAttended !== undefined ? Number(data.membersAttended) : undefined,
+    visitors: data.visitors !== undefined ? Number(data.visitors) : undefined,
+    children: data.children !== undefined ? Number(data.children) : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), clean)
+}
+
+export async function getCellReportAttendees(reportId) {
+  if (!db || !reportId) return []
+  const snap = await getDocs(cellReportAttendeesRef(reportId))
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      name: data.name || '',
+      birthday: data.birthday || '',
+      anniversary: data.anniversary || '',
+      phone: data.phone || '',
+      locality: data.locality || '',
+    }
+  })
+}
+
+export async function addCellReportAttendee(reportId, data, createdBy) {
+  if (!db || !reportId) return null
+  const ref = await addDoc(cellReportAttendeesRef(reportId), {
+    name: String(data.name || '').trim(),
+    birthday: data.birthday ? String(data.birthday).slice(0, 10) : '',
+    anniversary: data.anniversary ? String(data.anniversary).slice(0, 10) : '',
+    phone: data.phone || '',
+    locality: data.locality || '',
+  })
+  const attendees = await getCellReportAttendees(reportId)
+  await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), { membersAttended: attendees.length })
+  return ref.id
+}
+
+export async function updateCellReportAttendee(reportId, attendeeId, data) {
+  if (!db || !reportId || !attendeeId) return
+  const payload = {
+    name: data.name !== undefined ? String(data.name).trim() : undefined,
+    birthday: data.birthday !== undefined ? String(data.birthday).slice(0, 10) : undefined,
+    anniversary: data.anniversary !== undefined ? String(data.anniversary).slice(0, 10) : undefined,
+    phone: data.phone !== undefined ? String(data.phone) : undefined,
+    locality: data.locality !== undefined ? String(data.locality) : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId, 'attendees', attendeeId), clean)
+}
+
+export async function deleteCellReportAttendee(reportId, attendeeId) {
+  if (!db || !reportId || !attendeeId) return
+  await deleteDoc(doc(db, CELL_REPORTS_COLLECTION, reportId, 'attendees', attendeeId))
+  const attendees = await getCellReportAttendees(reportId)
+  await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), { membersAttended: attendees.length })
 }
 
 // Cell group attendance (latest total attendance across cell groups)

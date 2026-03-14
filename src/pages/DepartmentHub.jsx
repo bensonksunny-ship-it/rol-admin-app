@@ -84,7 +84,7 @@ export default function DepartmentHub() {
   const [cellMemberModalOpen, setCellMemberModalOpen] = useState(false)
   const [editingCellMemberId, setEditingCellMemberId] = useState(null)
   const [cellGroupModalOpen, setCellGroupModalOpen] = useState(false)
-  const [newCellGroupForm, setNewCellGroupForm] = useState({ cellName: '', leader: '' })
+  const [newCellGroupForm, setNewCellGroupForm] = useState({ cellName: '', leader: '', meetingDay: '' })
   const [latestCellAttendance, setLatestCellAttendance] = useState(null)
   const [cellAttendanceModalOpen, setCellAttendanceModalOpen] = useState(false)
   const [cellAttendanceForm, setCellAttendanceForm] = useState({ date: format(new Date(), 'yyyy-MM-dd'), totalAttendance: '' })
@@ -110,7 +110,7 @@ export default function DepartmentHub() {
   const tabs = useMemo(
     () =>
       slug === 'cell'
-        ? ['summary', 'cellGroups', 'team', 'planning', 'financial']
+        ? ['summary', 'cellGroups', 'cellReport', 'team', 'planning', 'financial']
         : slug === 'caring'
           ? ['summary', 'members', 'team', 'planning', 'financial']
           : slug === 'sunday-ministry'
@@ -292,6 +292,14 @@ export default function DepartmentHub() {
               className="px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
             >
               Sunday Report
+            </Link>
+          ) : tab === 'cellReport' ? (
+            <Link
+              key={tab}
+              to="/department/cell/cell-report"
+              className="px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
+            >
+              Cell Report
             </Link>
           ) : (
             <button
@@ -1098,7 +1106,7 @@ export default function DepartmentHub() {
                   {canEdit && (
                     <button
                       type="button"
-                      onClick={() => { setNewCellGroupForm({ cellName: '', leader: '' }); setCellGroupModalOpen(true) }}
+                      onClick={() => { setNewCellGroupForm({ cellName: '', leader: '', meetingDay: '' }); setCellGroupModalOpen(true) }}
                       className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
                     >
                       + Add cell group
@@ -1277,9 +1285,9 @@ export default function DepartmentHub() {
                     e.preventDefault()
                     try {
                       const id = await addCellGroup({ ...newCellGroupForm, department: department.name })
-                      setCellGroups((prev) => [...prev, { id, cellName: newCellGroupForm.cellName, leader: newCellGroupForm.leader, memberCount: 0, department: department.name }])
+                      setCellGroups((prev) => [...prev, { id, cellName: newCellGroupForm.cellName, leader: newCellGroupForm.leader, meetingDay: newCellGroupForm.meetingDay, memberCount: 0, department: department.name }])
                       setCellGroupModalOpen(false)
-                      setNewCellGroupForm({ cellName: '', leader: '' })
+                      setNewCellGroupForm({ cellName: '', leader: '', meetingDay: '' })
                     } catch (err) {
                       console.error(err)
                       alert('Failed to save')
@@ -1294,6 +1302,10 @@ export default function DepartmentHub() {
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Leader</label>
                     <input type="text" value={newCellGroupForm.leader} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, leader: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Day of Cell</label>
+                    <input type="text" placeholder="e.g. Tuesday" value={newCellGroupForm.meetingDay} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, meetingDay: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                   </div>
                   <div className="flex gap-2 pt-2">
                     <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>

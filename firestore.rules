@@ -70,6 +70,21 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (isFullAccess() || get(/databases/$(database)/documents/cell_groups/$(cellId)).data.get('department', '') == userDepartment());
     }
 
+    function userCellId() {
+      return getUserData().get('cellId', null);
+    }
+    function isCellDirector() {
+      return isSignedIn() && userDepartment() == 'Cell' && getUserRole() == 'Director';
+    }
+    match /cell_reports/{reportId} {
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (userDepartment() == 'Cell' && resource.data.cellId == userCellId()));
+      allow create: if isSignedIn() && (isFullAccess() || isCellDirector() || (userDepartment() == 'Cell' && request.resource.data.cellId == userCellId()));
+      allow update, delete: if isSignedIn() && (isFullAccess() || isCellDirector() || (userDepartment() == 'Cell' && resource.data.cellId == userCellId()));
+    }
+    match /cell_reports/{reportId}/attendees/{attendeeId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || isCellDirector() || (userDepartment() == 'Cell' && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userCellId()));
+    }
+
     match /caring_members/{docId} {
       allow read, write: if isSignedIn() && (isFullAccess() || userDepartment() == 'Caring');
     }
