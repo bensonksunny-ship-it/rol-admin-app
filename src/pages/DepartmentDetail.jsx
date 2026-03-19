@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react'
 import { getTasks } from '../services/firestore'
 import { getDepartmentBySlug } from '../constants/departments'
 import { DEPARTMENTS } from '../constants/roles'
+import DepartmentTabBar from '../components/DepartmentTabBar'
+import { useAuth } from '../context/AuthContext'
+import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 
 function getDepartmentName(slug) {
   const fromConfig = getDepartmentBySlug(slug)
@@ -15,6 +18,7 @@ function getDepartmentName(slug) {
 
 export default function DepartmentDetail() {
   const { slug } = useParams()
+  const { userProfile } = useAuth()
   const name = getDepartmentName(slug)
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -23,21 +27,26 @@ export default function DepartmentDetail() {
     getTasks({ department: name }).then(setTasks).finally(() => setLoading(false))
   }, [name])
 
+  if (slug === 'd-light' && isRestrictedDLightDirector(userProfile)) {
+    return (
+      <div>
+        <DepartmentTabBar slug={slug} activeTab="summary" />
+        <div className="p-6 text-slate-600">
+          <Link to="/sunday-planning" className="text-blue-600 hover:underline">← Sunday Planning</Link>
+          <p className="mt-4 text-lg font-semibold text-slate-800">Access Denied</p>
+          <p className="mt-2 text-sm text-slate-600">D Light Directors may only use Sunday Planning.</p>
+        </div>
+      </div>
+    )
+  }
+
   const pending = tasks.filter((t) => t.status !== 'Completed')
   const completed = tasks.filter((t) => t.status === 'Completed')
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Link to="/departments" className="text-slate-500 hover:text-slate-700">
-          ← Departments
-        </Link>
-      </div>
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">{name}</h1>
-        <p className="text-slate-500 mt-1">Activity reports, announcements, and task assignments</p>
-      </div>
-
+    <div>
+      <DepartmentTabBar slug={slug} activeTab="summary" />
+      <div className="space-y-6 p-4">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500">Total Tasks</p>
@@ -113,6 +122,7 @@ export default function DepartmentDetail() {
             </table>
           </div>
         )}
+      </div>
       </div>
     </div>
   )

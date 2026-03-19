@@ -1,7 +1,4 @@
 import { useEffect, useState } from 'react'
-import * as XLSX from 'xlsx'
-import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import { getTasks, getAttendance, getFinanceIncome, getFinanceExpense } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { format as formatDate, startOfMonth, endOfMonth } from 'date-fns'
@@ -44,14 +41,20 @@ export default function Reports() {
     return { tasks, attendance: attFiltered, income, expense }
   }
 
-  function exportExcel(sheetName, columns, rows) {
+  async function exportExcel(sheetName, columns, rows) {
+    // Lazy-load xlsx to avoid module initialization crashes on pages that don't use exports.
+    const XLSX = await import('xlsx')
     const ws = XLSX.utils.aoa_to_sheet([columns, ...rows])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, sheetName)
     XLSX.writeFile(wb, `ROL_${reportType}_${year}${month !== '' ? `_${month + 1}` : ''}.xlsx`)
   }
 
-  function exportPDF(title, columns, rows) {
+  async function exportPDF(title, columns, rows) {
+    // Lazy-load PDF libs to avoid app-wide module initialization crashes.
+    const { jsPDF } = await import('jspdf')
+    const autoTableModule = await import('jspdf-autotable')
+    const autoTable = autoTableModule.default || autoTableModule
     const doc = new jsPDF()
     doc.setFontSize(16)
     doc.text(`River Of Life Admin - ${title}`, 14, 20)
@@ -80,7 +83,7 @@ export default function Reports() {
           a.combinedService ?? '',
           computeAttendanceTotal(a),
         ])
-        exportExcel('Attendance', columns, rows)
+        await exportExcel('Attendance', columns, rows)
       } else if (reportType === 'finance') {
         const columns = ['Type', 'Date', 'Category', 'Amount', 'Description']
         const incomeRows = data.income.map((i) => [
@@ -97,7 +100,7 @@ export default function Reports() {
           Number(e.amount) || 0,
           e.description ?? '',
         ])
-        exportExcel('Finance', columns, [...incomeRows, ...expenseRows])
+        await exportExcel('Finance', columns, [...incomeRows, ...expenseRows])
       } else if (reportType === 'tasks') {
         const columns = ['Task', 'Department', 'Assigned', 'Priority', 'Deadline', 'Status']
         const rows = data.tasks.map((t) => [
@@ -108,7 +111,7 @@ export default function Reports() {
           t.deadline ? formatDMY(t.deadline) : '',
           t.status ?? '',
         ])
-        exportExcel('Tasks', columns, rows)
+        await exportExcel('Tasks', columns, rows)
       }
     } else {
       if (reportType === 'attendance') {
@@ -121,7 +124,7 @@ export default function Reports() {
           a.combinedService ?? '',
           computeAttendanceTotal(a),
         ])
-        exportPDF('Attendance Report', columns, rows)
+        await exportPDF('Attendance Report', columns, rows)
       } else if (reportType === 'finance') {
         const columns = ['Type', 'Date', 'Category', 'Amount']
         const incomeRows = data.income.map((i) => [
@@ -136,7 +139,7 @@ export default function Reports() {
           e.category ?? '',
           Number(e.amount) || 0,
         ])
-        exportPDF('Finance Report', columns, [...incomeRows, ...expenseRows])
+        await exportPDF('Finance Report', columns, [...incomeRows, ...expenseRows])
       } else if (reportType === 'tasks') {
         const columns = ['Task', 'Department', 'Assigned', 'Status']
         const rows = data.tasks.map((t) => [
@@ -145,7 +148,7 @@ export default function Reports() {
           t.assignedPerson ?? '',
           t.status ?? '',
         ])
-        exportPDF('Tasks Report', columns, rows)
+        await exportPDF('Tasks Report', columns, rows)
       }
     }
   }

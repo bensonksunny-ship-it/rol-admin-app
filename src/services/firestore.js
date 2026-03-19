@@ -13,8 +13,16 @@ import {
   limit,
   Timestamp,
   writeBatch,
+  serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import { deriveRoleFromPositions } from '../constants/roles'
+
+function normalizeGlobalRole(v) {
+  const s = v == null ? '' : String(v).trim()
+  if (s === 'FOUNDER') return s
+  return ''
+}
 
 const toDate = (v) => (v?.toDate ? v.toDate() : v)
 
@@ -27,6 +35,101 @@ export async function getUser(uid) {
 
 export async function updateUser(uid, data) {
   await updateDoc(doc(db, 'users', uid), data)
+}
+
+// Department assignments (e.g., D Light Assign tab)
+export async function getDepartmentAssignments(departmentSlug) {
+  if (!db || !departmentSlug) return null
+  const ref = doc(db, 'department_assignments', String(departmentSlug))
+  const snap = await getDoc(ref)
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null
+}
+
+export async function setDepartmentAssignments(departmentSlug, payload) {
+  if (!db || !departmentSlug) return
+  const ref = doc(db, 'department_assignments', String(departmentSlug))
+  await setDoc(ref, payload, { merge: true })
+}
+
+// Users – admin management helpers
+export async function getAllUsers() {
+  if (!db) return []
+  const snap = await getDocs(collection(db, 'users'))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+function normalizePositions(positions) {
+  if (!Array.isArray(positions)) return []
+  return positions
+    .filter((p) => p && (p.department || p.position || p.role))
+    .slice(0, 4)
+    .map((p) => ({
+      department: String(p.department || ''),
+      // new schema
+      role: p.role != null ? String(p.role) : undefined,
+      // legacy schema
+      position: p.position != null ? String(p.position) : undefined,
+    }))
+}
+
+export async function createUserByAdmin(data) {
+  if (!db) return null
+  const positions = normalizePositions(data.positions)
+  const depts = positions.length
+    ? [...new Set(positions.map((p) => p.department).filter(Boolean))]
+    : (Array.isArray(data.departments) ? data.departments : data.department ? [data.department] : [])
+  const globalRole = normalizeGlobalRole(data.globalRole)
+  const role = data.role != null && data.role !== '' ? data.role : (positions.length ? deriveRoleFromPositions(positions) : 'Viewer')
+  const ref = await addDoc(collection(db, 'users'), {
+    name: data.name || '',
+    email: (data.email || '').toLowerCase(),
+    phone: data.phone || '',
+    membershipNumber: data.membershipNumber || '',
+    role,
+    globalRole: globalRole || null,
+    department: depts[0] || data.department || '',
+    departments: depts,
+    positions,
+    cellGroup: data.cellGroup || '',
+    cellId: data.cellId || '',
+    status: data.status || 'active',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateUserByAdmin(id, data) {
+  if (!db || !id) return
+  const positions = data.positions !== undefined ? normalizePositions(data.positions) : undefined
+  const depts = positions !== undefined
+    ? [...new Set(positions.map((p) => p.department).filter(Boolean))]
+    : undefined
+  const globalRole = data.globalRole !== undefined ? normalizeGlobalRole(data.globalRole) : undefined
+  const role = data.role !== undefined
+    ? String(data.role)
+    : (positions !== undefined && positions.length ? deriveRoleFromPositions(positions) : undefined)
+  const department = depts && depts[0] ? depts[0] : (data.department !== undefined ? data.department : undefined)
+  const payload = {
+    name: data.name !== undefined ? String(data.name) : undefined,
+    email: data.email !== undefined ? String(data.email).toLowerCase() : undefined,
+    phone: data.phone !== undefined ? String(data.phone) : undefined,
+    membershipNumber: data.membershipNumber !== undefined ? String(data.membershipNumber) : undefined,
+    role: role !== undefined ? role : (data.role !== undefined ? String(data.role) : undefined),
+    globalRole: globalRole !== undefined ? (globalRole || null) : undefined,
+    department,
+    departments: depts !== undefined ? depts : (data.departments !== undefined ? (Array.isArray(data.departments) ? data.departments : [data.departments].filter(Boolean)) : undefined),
+    positions: positions !== undefined ? positions : undefined,
+    cellGroup: data.cellGroup !== undefined ? String(data.cellGroup) : undefined,
+    cellId: data.cellId !== undefined ? String(data.cellId) : undefined,
+    status: data.status !== undefined ? String(data.status) : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, 'users', id), clean)
+}
+
+export async function setUserStatus(id, status) {
+  if (!db || !id) return
+  await updateDoc(doc(db, 'users', id), { status })
 }
 
 // Departments
@@ -309,7 +412,13 @@ export async function deleteWorshipTeamMember(id) {
 
 // Generic department team members (for all other departments)
 // Query: department_team_members where department == current department (name).
-// Stored fields: department, name, rolePosition, memberSince, notes (optional), createdAt.
+// Stored fields: department, name, rolePosition, subDepartment (legacy), subDepartments (array), phone, status, memberSince, notes (optional), createdAt.
+function normalizeSubDepartments(data) {
+  if (Array.isArray(data.subDepartments)) return data.subDepartments.filter(Boolean)
+  if (data.subDepartment) return [data.subDepartment]
+  return []
+}
+
 export async function getDepartmentTeamMembers(department) {
   if (!db) return []
   const q = query(
@@ -320,12 +429,17 @@ export async function getDepartmentTeamMembers(department) {
   const list = snap.docs.map((d) => {
     const data = d.data()
     const rolePosition = data.rolePosition ?? data.role ?? ''
+    const subDepts = normalizeSubDepartments(data)
     return {
       id: d.id,
       department: data.department,
       name: data.name,
       role: rolePosition,
       rolePosition,
+      subDepartment: subDepts[0] || '',
+      subDepartments: subDepts,
+      phone: data.phone || '',
+      status: data.status || 'active',
       memberSince: data.memberSince || '',
       notes: data.notes || '',
       isFormer: data.isFormer ?? false,
@@ -338,10 +452,15 @@ export async function getDepartmentTeamMembers(department) {
 
 export async function addDepartmentTeamMember(department, data, addedBy) {
   if (!db) return null
+  const subDepts = Array.isArray(data.subDepartments) ? data.subDepartments.filter(Boolean) : (data.subDepartment ? [data.subDepartment] : [])
   const ref = await addDoc(collection(db, 'department_team_members'), {
     department,
     name: data.name || '',
     rolePosition: data.rolePosition ?? data.role ?? '',
+    subDepartment: subDepts[0] || '',
+    subDepartments: subDepts,
+    phone: data.phone || '',
+    status: data.status || 'active',
     memberSince: data.memberSince ? String(data.memberSince).slice(0, 10) : new Date().toISOString().slice(0, 10),
     notes: data.notes != null ? String(data.notes) : '',
     isFormer: data.isFormer ?? false,
@@ -353,9 +472,16 @@ export async function addDepartmentTeamMember(department, data, addedBy) {
 
 export async function updateDepartmentTeamMember(id, data) {
   if (!db) return
+  const subDepts = data.subDepartments !== undefined
+    ? (Array.isArray(data.subDepartments) ? data.subDepartments.filter(Boolean) : [])
+    : undefined
   const payload = {
     name: data.name != null ? String(data.name) : undefined,
     rolePosition: (data.rolePosition ?? data.role ?? '') !== undefined ? (data.rolePosition ?? data.role ?? '') : undefined,
+    subDepartment: subDepts !== undefined ? (subDepts[0] || '') : (data.subDepartment != null ? String(data.subDepartment) : undefined),
+    subDepartments: subDepts,
+    phone: data.phone != null ? String(data.phone) : undefined,
+    status: data.status != null ? String(data.status) : undefined,
     memberSince: data.memberSince != null ? String(data.memberSince).slice(0, 10) : undefined,
     notes: data.notes != null ? String(data.notes) : undefined,
     isFormer: data.isFormer !== undefined ? !!data.isFormer : undefined,
@@ -367,6 +493,190 @@ export async function updateDepartmentTeamMember(id, data) {
 export async function deleteDepartmentTeamMember(id) {
   if (!db) return
   await deleteDoc(doc(db, 'department_team_members', id))
+}
+
+// Department sub-departments (all departments except Cell & Worship use this)
+const DEPARTMENT_SUBDEPARTMENTS_COLLECTION = 'department_sub_departments'
+
+export async function getDepartmentSubDepartments(department) {
+  if (!db || !department) return []
+  const q = query(
+    collection(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION),
+    where('department', '==', department)
+  )
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => ({
+    id: d.id,
+    department,
+    name: d.data().name || '',
+    servingArea: d.data().servingArea || '',
+    createdAt: toDate(d.data().createdAt),
+  }))
+  list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  return list
+}
+
+export async function addDepartmentSubDepartment(department, name, addedBy, servingArea = '') {
+  if (!db || !department || !name) return null
+  const ref = await addDoc(collection(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION), {
+    department,
+    name,
+    servingArea: String(servingArea || '').trim(),
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateDepartmentSubDepartment(id, data) {
+  if (!db || !id) return
+  const payload = {
+    name: data.name != null ? String(data.name) : undefined,
+    servingArea: data.servingArea != null ? String(data.servingArea) : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION, id), clean)
+}
+
+export async function deleteDepartmentSubDepartment(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION, id))
+}
+
+// Children roster per department (e.g. River Kids)
+const DEPARTMENT_CHILDREN_COLLECTION = 'department_children'
+
+export async function getDepartmentChildren(department) {
+  if (!db || !department) return []
+  const q = query(collection(db, DEPARTMENT_CHILDREN_COLLECTION), where('department', '==', department))
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => ({
+    id: d.id,
+    department,
+    name: d.data().name || '',
+    active: d.data().active !== false,
+    createdAt: toDate(d.data().createdAt),
+  }))
+  list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  return list
+}
+
+export async function addDepartmentChild(department, name, addedBy) {
+  if (!db || !department || !String(name || '').trim()) return null
+  const ref = await addDoc(collection(db, DEPARTMENT_CHILDREN_COLLECTION), {
+    department,
+    name: String(name).trim(),
+    active: true,
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateDepartmentChild(id, data) {
+  if (!db || !id) return
+  const payload = {}
+  if (data.name !== undefined) payload.name = String(data.name || '').trim()
+  if (data.active !== undefined) payload.active = data.active !== false
+  if (Object.keys(payload).length) await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), payload)
+}
+
+// Daily attendance: present[childId] = true/false
+const DEPARTMENT_CHILD_ATTENDANCE_COLLECTION = 'department_child_attendance'
+
+export async function getDepartmentChildAttendance(department, dateStr) {
+  if (!db || !department || !dateStr) return { id: null, department, date: dateStr, present: {} }
+  const q = query(
+    collection(db, DEPARTMENT_CHILD_ATTENDANCE_COLLECTION),
+    where('department', '==', department),
+    where('date', '==', String(dateStr).slice(0, 10)),
+    limit(1)
+  )
+  const snap = await getDocs(q)
+  if (snap.empty) return { id: null, department, date: dateStr, present: {} }
+  const d = snap.docs[0]
+  const data = d.data()
+  return {
+    id: d.id,
+    department: data.department,
+    date: data.date,
+    present: typeof data.present === 'object' && data.present !== null ? data.present : {},
+    updatedAt: toDate(data.updatedAt),
+  }
+}
+
+export async function setDepartmentChildAttendance(department, dateStr, present, updatedBy) {
+  if (!db || !department || !dateStr) return
+  const date = String(dateStr).slice(0, 10)
+  const existing = await getDepartmentChildAttendance(department, date)
+  const payload = {
+    department,
+    date,
+    present: present && typeof present === 'object' ? present : {},
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }
+  if (existing.id) {
+    await updateDoc(doc(db, DEPARTMENT_CHILD_ATTENDANCE_COLLECTION, existing.id), payload)
+    return existing.id
+  }
+  await addDoc(collection(db, DEPARTMENT_CHILD_ATTENDANCE_COLLECTION), {
+    ...payload,
+    createdAt: Timestamp.now(),
+  })
+}
+
+// Department events (e.g. Event M) — program / budget / team as text fields
+const DEPARTMENT_EVENTS_COLLECTION = 'department_events'
+
+export async function getDepartmentEvents(department) {
+  if (!db || !department) return []
+  const q = query(collection(db, DEPARTMENT_EVENTS_COLLECTION), where('department', '==', department))
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => {
+    const x = d.data()
+    return {
+      id: d.id,
+      department,
+      name: x.name || '',
+      program: x.program || '',
+      budget: x.budget || '',
+      team: x.team || '',
+      createdAt: toDate(x.createdAt),
+    }
+  })
+  list.sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0))
+  return list
+}
+
+export async function addDepartmentEvent(department, name, createdBy) {
+  if (!db || !department || !String(name || '').trim()) return null
+  const ref = await addDoc(collection(db, DEPARTMENT_EVENTS_COLLECTION), {
+    department,
+    name: String(name).trim(),
+    program: '',
+    budget: '',
+    team: '',
+    createdBy: createdBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateDepartmentEvent(id, data) {
+  if (!db || !id) return
+  const payload = {}
+  if (data.name !== undefined) payload.name = String(data.name || '').trim()
+  if (data.program !== undefined) payload.program = String(data.program || '')
+  if (data.budget !== undefined) payload.budget = String(data.budget || '')
+  if (data.team !== undefined) payload.team = String(data.team || '')
+  payload.updatedAt = Timestamp.now()
+  await updateDoc(doc(db, DEPARTMENT_EVENTS_COLLECTION, id), payload)
+}
+
+export async function deleteDepartmentEvent(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, DEPARTMENT_EVENTS_COLLECTION, id))
 }
 
 // Worship schedule by date: one doc per date, assignments = [{ role, memberId, memberName }]
@@ -775,14 +1085,16 @@ export async function deleteDepartmentUpdate(id) {
 }
 
 // Users by department (to show Director/Coordinator on pastor page)
+// Includes users whose primary department or departments array contains this department
 export async function getUsersByDepartment(departmentName) {
   if (!db || !departmentName) return []
-  const q = query(
-    collection(db, 'users'),
-    where('department', '==', departmentName)
-  )
-  const snap = await getDocs(q)
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  const [snapPrimary, snapArray] = await Promise.all([
+    getDocs(query(collection(db, 'users'), where('department', '==', departmentName))),
+    getDocs(query(collection(db, 'users'), where('departments', 'array-contains', departmentName))),
+  ])
+  const byId = new Map()
+  ;[...snapPrimary.docs, ...snapArray.docs].forEach((d) => byId.set(d.id, { id: d.id, ...d.data() }))
+  return Array.from(byId.values())
 }
 
 // Department planning board notes (movable notepads on canvas)
@@ -859,42 +1171,56 @@ export async function getCellGroup(cellId) {
   const data = snap.data()
   return {
     id: snap.id,
+    cellId: data.cellId != null && data.cellId !== '' ? String(data.cellId) : snap.id,
     cellName: data.cellName || '',
     leader: data.leader || '',
     meetingDay: data.meetingDay || '',
+    launchDate: data.launchDate || '',
     memberCount: Number(data.memberCount) || 0,
     department: data.department || '',
+    status: data.status === 'inactive' ? 'inactive' : 'active',
   }
 }
 
 export async function getCellGroups(department) {
   if (!db || !department) return []
-  const q = query(
-    collection(db, CELL_GROUPS_COLLECTION),
-    where('department', '==', department)
-  )
-  const snap = await getDocs(q)
-  return snap.docs.map((d) => {
+  const col = collection(db, CELL_GROUPS_COLLECTION)
+  const variants = department === 'Cell' ? ['Cell', 'cell', 'CELL'] : [department]
+  const merged = new Map()
+  for (const dep of variants) {
+    const q = query(col, where('department', '==', dep))
+    const snap = await getDocs(q)
+    for (const d of snap.docs) merged.set(d.id, d)
+  }
+  return Array.from(merged.values()).map((d) => {
     const data = d.data()
     return {
       id: d.id,
+      cellId: data.cellId != null && data.cellId !== '' ? String(data.cellId) : d.id,
       cellName: data.cellName || '',
       leader: data.leader || '',
       meetingDay: data.meetingDay || '',
+      launchDate: data.launchDate || '',
       memberCount: Number(data.memberCount) || 0,
       department: data.department || '',
+      status: data.status === 'inactive' ? 'inactive' : 'active',
     }
   })
 }
 
 export async function addCellGroup(data) {
   if (!db) return null
-  const ref = await addDoc(collection(db, CELL_GROUPS_COLLECTION), {
+  const ref = doc(collection(db, CELL_GROUPS_COLLECTION))
+  const cellIdField = data.cellId != null && String(data.cellId).trim() !== '' ? String(data.cellId).trim() : ref.id
+  await setDoc(ref, {
     cellName: data.cellName || '',
     leader: data.leader || '',
     meetingDay: data.meetingDay || '',
+    launchDate: data.launchDate ? String(data.launchDate).slice(0, 10) : '',
     memberCount: 0,
     department: data.department || 'Cell',
+    status: data.status === 'inactive' ? 'inactive' : 'active',
+    cellId: cellIdField,
     createdAt: Timestamp.now(),
   })
   return ref.id
@@ -906,7 +1232,10 @@ export async function updateCellGroup(id, data) {
   if (data.cellName !== undefined) payload.cellName = String(data.cellName)
   if (data.leader !== undefined) payload.leader = String(data.leader)
   if (data.meetingDay !== undefined) payload.meetingDay = String(data.meetingDay)
+  if (data.launchDate !== undefined) payload.launchDate = data.launchDate ? String(data.launchDate).slice(0, 10) : ''
   if (data.memberCount !== undefined) payload.memberCount = Number(data.memberCount) || 0
+  if (data.status !== undefined) payload.status = data.status === 'inactive' ? 'inactive' : 'active'
+  if (data.cellId !== undefined) payload.cellId = String(data.cellId || '').trim() || id
   if (Object.keys(payload).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, id), payload)
 }
 
@@ -925,7 +1254,11 @@ export async function getCellGroupMembers(cellId) {
       birthday: data.birthday || '',
       anniversary: data.anniversary || '',
       phone: data.phone || '',
+      email: data.email || '',
+      role: data.role || '',
       locality: data.locality || '',
+      since: data.since || '',
+      status: data.status === 'inactive' ? 'inactive' : 'active',
       createdAt: toDate(data.createdAt),
     }
   })
@@ -939,6 +1272,8 @@ export async function addCellGroupMember(cellId, data) {
     anniversary: data.anniversary ? String(data.anniversary).slice(0, 10) : '',
     phone: data.phone || '',
     locality: data.locality || '',
+    since: data.since ? String(data.since).slice(0, 10) : '',
+    status: data.status === 'inactive' ? 'inactive' : 'active',
     createdAt: Timestamp.now(),
   })
   const members = await getCellGroupMembers(cellId)
@@ -953,7 +1288,11 @@ export async function updateCellGroupMember(cellId, memberId, data) {
     birthday: data.birthday !== undefined ? String(data.birthday).slice(0, 10) : undefined,
     anniversary: data.anniversary !== undefined ? String(data.anniversary).slice(0, 10) : undefined,
     phone: data.phone !== undefined ? String(data.phone) : undefined,
+    email: data.email !== undefined ? String(data.email) : undefined,
+    role: data.role !== undefined ? String(data.role) : undefined,
     locality: data.locality !== undefined ? String(data.locality) : undefined,
+    since: data.since !== undefined ? String(data.since).slice(0, 10) : undefined,
+    status: data.status !== undefined ? (data.status === 'inactive' ? 'inactive' : 'active') : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId), clean)
@@ -964,6 +1303,194 @@ export async function deleteCellGroupMember(cellId, memberId) {
   await deleteDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId))
   const members = await getCellGroupMembers(cellId)
   await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId), { memberCount: members.length })
+}
+
+// Default program list per cell (cell_groups/{cellId}/program_items)
+function cellProgramItemsRef(cellId) {
+  return collection(db, CELL_GROUPS_COLLECTION, cellId, 'program_items')
+}
+
+export async function getCellProgramItems(cellId) {
+  if (!db || !cellId) return []
+  const q = query(cellProgramItemsRef(cellId), orderBy('order', 'asc'))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, programName: data.programName || '', order: Number(data.order) || 0 }
+  })
+}
+
+export async function addCellProgramItem(cellId, data) {
+  if (!db || !cellId) return null
+  const ref = await addDoc(cellProgramItemsRef(cellId), {
+    programName: String(data.programName || '').trim(),
+    order: Number(data.order) ?? 0,
+  })
+  return ref.id
+}
+
+export async function updateCellProgramItem(cellId, itemId, data) {
+  if (!db || !cellId || !itemId) return
+  const payload = {}
+  if (data.programName !== undefined) payload.programName = String(data.programName).trim()
+  if (data.order !== undefined) payload.order = Number(data.order) ?? 0
+  if (Object.keys(payload).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'program_items', itemId), payload)
+}
+
+export async function deleteCellProgramItem(cellId, itemId) {
+  if (!db || !cellId || !itemId) return
+  await deleteDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'program_items', itemId))
+}
+
+// Program start logging (cell_program_log)
+const CELL_PROGRAM_LOG_COLLECTION = 'cell_program_log'
+
+export async function addProgramLog(data) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, CELL_PROGRAM_LOG_COLLECTION), {
+    cellName: data.cellName || '',
+    programName: data.programName || '',
+    startTime: data.startTime ? Timestamp.fromDate(data.startTime instanceof Date ? data.startTime : new Date(data.startTime)) : Timestamp.now(),
+    reportDate: String(data.reportDate || '').slice(0, 10),
+  })
+  return ref.id
+}
+
+export async function getProgramLogsByCellAndDate(cellName, reportDate) {
+  if (!db || !cellName || !reportDate) return []
+  const dateStr = String(reportDate).slice(0, 10)
+  const q = query(
+    collection(db, CELL_PROGRAM_LOG_COLLECTION),
+    where('cellName', '==', cellName),
+    where('reportDate', '==', dateStr),
+    orderBy('startTime', 'asc')
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      cellName: data.cellName || '',
+      programName: data.programName || '',
+      startTime: toDate(data.startTime),
+      reportDate: data.reportDate || '',
+    }
+  })
+}
+
+export async function getLatestProgramLogs(limitCount = 50) {
+  if (!db) return []
+  const q = query(
+    collection(db, CELL_PROGRAM_LOG_COLLECTION),
+    orderBy('startTime', 'desc'),
+    limit(limitCount)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      cellName: data.cellName || '',
+      programName: data.programName || '',
+      startTime: toDate(data.startTime),
+      reportDate: data.reportDate || '',
+    }
+  })
+}
+
+// Cell member pending changes (approval workflow for Cell Leader actions)
+const CELL_MEMBER_PENDING_CHANGES_COLLECTION = 'cell_member_pending_changes'
+
+export async function addCellMemberPendingChange(data) {
+  if (!db) return null
+  const payload = {
+    changeType: data.changeType || '',
+    cellId: data.cellId || '',
+    cellName: data.cellName || '',
+    memberId: data.memberId || '',
+    memberData: data.memberData || null,
+    requestedBy: data.requestedBy || '',
+    requestedAt: Timestamp.now(),
+    status: 'pending',
+  }
+  if (data.changeSummary != null) payload.changeSummary = data.changeSummary
+  const ref = await addDoc(collection(db, CELL_MEMBER_PENDING_CHANGES_COLLECTION), payload)
+  return ref.id
+}
+
+export async function getCellMemberPendingChanges() {
+  if (!db) return []
+  const q = query(
+    collection(db, CELL_MEMBER_PENDING_CHANGES_COLLECTION),
+    where('status', '==', 'pending'),
+    orderBy('requestedAt', 'desc')
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      changeType: data.changeType || '',
+      changeSummary: data.changeSummary || '',
+      cellId: data.cellId || '',
+      cellName: data.cellName || '',
+      memberId: data.memberId || '',
+      memberData: data.memberData || null,
+      requestedBy: data.requestedBy || '',
+      requestedAt: toDate(data.requestedAt),
+      status: data.status || 'pending',
+    }
+  })
+}
+
+export async function deleteCellMemberPendingChange(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, CELL_MEMBER_PENDING_CHANGES_COLLECTION, id))
+}
+
+// Back to the Bible (Cell Department planning – weekly teaching)
+const CELL_BACK_TO_BIBLE_COLLECTION = 'cell_back_to_bible'
+
+export async function addBackToBible(data) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, CELL_BACK_TO_BIBLE_COLLECTION), {
+    fromDate: String(data.fromDate || '').slice(0, 10),
+    toDate: String(data.toDate || '').slice(0, 10),
+    title: data.title || '',
+    content: data.content || '',
+    createdBy: data.createdBy || '',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function getBackToBibleList() {
+  if (!db) return []
+  const q = query(
+    collection(db, CELL_BACK_TO_BIBLE_COLLECTION),
+    orderBy('fromDate', 'desc'),
+    limit(50)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      fromDate: data.fromDate || '',
+      toDate: data.toDate || '',
+      title: data.title || '',
+      content: data.content || '',
+      createdBy: data.createdBy || '',
+      createdAt: toDate(data.createdAt),
+    }
+  })
+}
+
+export async function getActiveBackToBibleForDate(dateStr) {
+  if (!db || !dateStr) return null
+  const d = String(dateStr).slice(0, 10)
+  const list = await getBackToBibleList()
+  return list.find((item) => item.fromDate <= d && item.toDate >= d) || null
 }
 
 // Cell reports (one per cell per date; attendees in subcollection)
@@ -993,6 +1520,8 @@ export async function getCellReportByCellAndDate(cellId, reportDate) {
     membersAttended: Number(data.membersAttended) || 0,
     visitors: Number(data.visitors) || 0,
     children: Number(data.children) || 0,
+    visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
+    childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
     reportDate: data.reportDate || '',
     createdBy: data.createdBy || '',
     createdAt: toDate(data.createdAt),
@@ -1018,6 +1547,35 @@ export async function getCellReportsByCell(cellId) {
       membersAttended: Number(data.membersAttended) || 0,
       visitors: Number(data.visitors) || 0,
       children: Number(data.children) || 0,
+      visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
+      childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
+      reportDate: data.reportDate || '',
+      createdBy: data.createdBy || '',
+      createdAt: toDate(data.createdAt),
+    }
+  })
+}
+
+export async function getLatestCellReports(limitCount = 30) {
+  if (!db) return []
+  const q = query(
+    collection(db, CELL_REPORTS_COLLECTION),
+    orderBy('reportDate', 'desc'),
+    limit(limitCount)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      cellId: data.cellId || '',
+      cellName: data.cellName || '',
+      meetingDay: data.meetingDay || '',
+      membersAttended: Number(data.membersAttended) || 0,
+      visitors: Number(data.visitors) || 0,
+      children: Number(data.children) || 0,
+      visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
+      childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
       reportDate: data.reportDate || '',
       createdBy: data.createdBy || '',
       createdAt: toDate(data.createdAt),
@@ -1035,6 +1593,8 @@ export async function createCellReport(data, createdBy) {
     membersAttended: Number(data.membersAttended) || 0,
     visitors: Number(data.visitors) || 0,
     children: Number(data.children) || 0,
+    visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
+    childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
     reportDate: dateStr,
     createdBy: createdBy || 'unknown',
     createdAt: Timestamp.now(),
@@ -1048,6 +1608,8 @@ export async function updateCellReport(reportId, data) {
     membersAttended: data.membersAttended !== undefined ? Number(data.membersAttended) : undefined,
     visitors: data.visitors !== undefined ? Number(data.visitors) : undefined,
     children: data.children !== undefined ? Number(data.children) : undefined,
+    visitorsList: data.visitorsList !== undefined ? (Array.isArray(data.visitorsList) ? data.visitorsList : []) : undefined,
+    childrenList: data.childrenList !== undefined ? (Array.isArray(data.childrenList) ? data.childrenList : []) : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), clean)
@@ -1060,6 +1622,7 @@ export async function getCellReportAttendees(reportId) {
     const data = d.data()
     return {
       id: d.id,
+      memberId: data.memberId || null,
       name: data.name || '',
       birthday: data.birthday || '',
       anniversary: data.anniversary || '',
@@ -1072,6 +1635,7 @@ export async function getCellReportAttendees(reportId) {
 export async function addCellReportAttendee(reportId, data, createdBy) {
   if (!db || !reportId) return null
   const ref = await addDoc(cellReportAttendeesRef(reportId), {
+    memberId: data.memberId || null,
     name: String(data.name || '').trim(),
     birthday: data.birthday ? String(data.birthday).slice(0, 10) : '',
     anniversary: data.anniversary ? String(data.anniversary).slice(0, 10) : '',
@@ -1192,6 +1756,190 @@ export async function deleteCaringMember(id) {
   await deleteDoc(doc(db, CARING_MEMBERS_COLLECTION, id))
 }
 
+// Delight department – visitors (delight_visitors)
+const DELIGHT_VISITORS_COLLECTION = 'delight_visitors'
+
+export async function getDelightVisitors() {
+  if (!db) return []
+  const q = query(
+    collection(db, DELIGHT_VISITORS_COLLECTION),
+    orderBy('createdAt', 'desc')
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      name: data.name || '',
+      dob: data.dob || '',
+      phone: data.phone || '',
+      email: data.email || '',
+      nativity: data.nativity || '',
+      currentPlace: data.currentPlace || '',
+      serviceAttended: data.serviceAttended || '',
+      attendedDate: data.attendedDate || '',
+      howKnown: data.howKnown || '',
+      source: data.source || '',
+      createdAt: toDate(data.createdAt),
+      createdBy: data.createdBy || '',
+    }
+  })
+}
+
+export async function addDelightVisitor(data) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, DELIGHT_VISITORS_COLLECTION), {
+    name: data.name || '',
+    dob: data.dob ? String(data.dob).slice(0, 10) : '',
+    phone: data.phone || '',
+    email: data.email || '',
+    nativity: data.nativity || '',
+    currentPlace: data.currentPlace || '',
+    serviceAttended: data.serviceAttended || '',
+    attendedDate: data.attendedDate ? String(data.attendedDate).slice(0, 10) : '',
+    howKnown: data.howKnown || '',
+    source: data.source || '',
+    createdAt: Timestamp.now(),
+    createdBy: data.createdBy || 'unknown',
+  })
+  return ref.id
+}
+
+export async function updateDelightVisitor(id, data) {
+  if (!db || !id) return
+  const payload = {
+    name: data.name !== undefined ? String(data.name) : undefined,
+    dob: data.dob !== undefined ? String(data.dob).slice(0, 10) : undefined,
+    phone: data.phone !== undefined ? String(data.phone) : undefined,
+    email: data.email !== undefined ? String(data.email) : undefined,
+    nativity: data.nativity !== undefined ? String(data.nativity) : undefined,
+    currentPlace: data.currentPlace !== undefined ? String(data.currentPlace) : undefined,
+    serviceAttended: data.serviceAttended !== undefined ? String(data.serviceAttended) : undefined,
+    attendedDate: data.attendedDate !== undefined ? String(data.attendedDate).slice(0, 10) : undefined,
+    howKnown: data.howKnown !== undefined ? String(data.howKnown) : undefined,
+    source: data.source !== undefined ? String(data.source) : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, DELIGHT_VISITORS_COLLECTION, id), clean)
+}
+
+export async function deleteDelightVisitor(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, DELIGHT_VISITORS_COLLECTION, id))
+}
+
+// D Light – sub departments (dlight_sub_departments)
+const DLIGHT_SUB_DEPARTMENTS_COLLECTION = 'dlight_sub_departments'
+
+export async function getDlightSubDepartments() {
+  if (!db) return []
+  const q = query(collection(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION), orderBy('createdAt', 'desc'))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      name: data.name || '',
+      servingArea: data.servingArea || '',
+      createdAt: toDate(data.createdAt),
+    }
+  })
+}
+
+export async function addDlightSubDepartment({ name, servingArea }, createdBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION), {
+    name: String(name || '').trim(),
+    servingArea: String(servingArea || '').trim(),
+    createdAt: serverTimestamp(),
+    createdBy: createdBy || 'unknown',
+  })
+  return ref.id
+}
+
+export async function deleteDlightSubDepartment(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION, id))
+}
+
+// Sunday Ministry – default program (sunday_program / default doc)
+const SUNDAY_PROGRAM_COLLECTION = 'sunday_program'
+const SUNDAY_PROGRAM_DEFAULT_DOC_ID = 'default'
+
+export async function getSundayProgramDefault() {
+  if (!db) return { items: [] }
+  const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PROGRAM_DEFAULT_DOC_ID)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return { items: [] }
+  const data = snap.data()
+  const items = Array.isArray(data.items)
+    ? data.items.map((x, i) => ({
+        programName: x.programName || x.name || '',
+        order: typeof x.order === 'number' ? x.order : i,
+      }))
+    : []
+  items.sort((a, b) => a.order - b.order)
+  return {
+    items,
+    updatedAt: toDate(data.updatedAt),
+    updatedBy: data.updatedBy || '',
+  }
+}
+
+export async function setSundayProgramDefault(items, updatedBy) {
+  if (!db) return
+  const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PROGRAM_DEFAULT_DOC_ID)
+  const clean = (Array.isArray(items) ? items : [])
+    .map((x, i) => ({
+      programName: String(x.programName || x.name || '').trim(),
+      order: typeof x.order === 'number' ? x.order : i,
+    }))
+    .filter((x) => x.programName)
+  await setDoc(
+    ref,
+    {
+      items: clean,
+      updatedBy: updatedBy || 'unknown',
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  )
+}
+
+// Sunday program timing (sunday_program_log)
+const SUNDAY_PROGRAM_LOG_COLLECTION = 'sunday_program_log'
+
+export async function addSundayProgramLog(data) {
+  if (!db) return null
+  const start = data.startTime instanceof Date ? data.startTime : new Date(data.startTime || Date.now())
+  const ref = await addDoc(collection(db, SUNDAY_PROGRAM_LOG_COLLECTION), {
+    programName: data.programName || '',
+    startTime: Timestamp.fromDate(start),
+    reportDate: String(data.reportDate || '').slice(0, 10),
+  })
+  return ref.id
+}
+
+export async function getSundayProgramLogsByDate(reportDate) {
+  if (!db || !reportDate) return []
+  const dateStr = String(reportDate).slice(0, 10)
+  const q = query(
+    collection(db, SUNDAY_PROGRAM_LOG_COLLECTION),
+    where('reportDate', '==', dateStr),
+    orderBy('startTime', 'asc')
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      programName: data.programName || '',
+      startTime: toDate(data.startTime),
+      reportDate: data.reportDate || '',
+    }
+  })
+}
+
 // Pastor department remarks (Senior Pastor hub – one doc per department)
 const PASTOR_REMARKS_COLLECTION = 'pastor_department_remarks'
 
@@ -1223,6 +1971,8 @@ const SUNDAY_REPORTS_COLLECTION = 'sunday_reports'
 const DEFAULT_SUNDAY_REPORT = {
   sundayMinistryTeam: [],
   pastoralAttendees: [],
+  /** Per–cell-group attendance: { [cellGroupDocId]: string[] (member names) } */
+  sundayCellAttendance: {},
   olive: [],
   jordan: [],
   bethany: [],
@@ -1249,10 +1999,18 @@ const DEFAULT_SUNDAY_REPORT = {
 }
 
 function normalizeReport(data) {
+  const sca = data.sundayCellAttendance
+  const sundayCellAttendance =
+    sca && typeof sca === 'object' && !Array.isArray(sca)
+      ? Object.fromEntries(
+          Object.entries(sca).map(([k, v]) => [k, Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []])
+        )
+      : {}
   return {
     date: data.date || '',
     sundayMinistryTeam: Array.isArray(data.sundayMinistryTeam) ? data.sundayMinistryTeam : [],
     pastoralAttendees: Array.isArray(data.pastoralAttendees) ? data.pastoralAttendees : [],
+    sundayCellAttendance,
     olive: Array.isArray(data.olive) ? data.olive : [],
     jordan: Array.isArray(data.jordan) ? data.jordan : [],
     bethany: Array.isArray(data.bethany) ? data.bethany : [],
@@ -1312,6 +2070,7 @@ export async function setSundayReport(dateStr, payload, updatedBy) {
     ...(snap.exists() ? {} : { createdAt: now }),
     sundayMinistryTeam: data.sundayMinistryTeam,
     pastoralAttendees: data.pastoralAttendees,
+    sundayCellAttendance: data.sundayCellAttendance || {},
     olive: data.olive,
     jordan: data.jordan,
     bethany: data.bethany,

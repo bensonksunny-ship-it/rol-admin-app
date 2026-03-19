@@ -3,34 +3,63 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { ROLES } from '../../constants/roles'
+import { isRestrictedDLightDirector } from '../../utils/dlightAccess'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard' },
   // Senior Pastor office – second in sidebar
   { to: '/senior-pastor', label: 'Senior Pastor Office', icon: '👤', permission: 'pastorHub', orFounder: true },
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
-  { to: '/tasks', label: 'Tasks', icon: '✅', permission: 'tasks' },
   { to: '/sunday-planning', label: 'Sunday Planning', icon: '📋', permission: 'attendance' },
-  { to: '/finance', label: 'Finance', icon: '💰', permission: 'finance' },
-  { to: '/reports', label: 'Reports', icon: '📋', permission: 'reports' },
+  { to: '/admin/users', label: 'User Management', icon: '👥', permission: 'manageUsers', adminOnly: true },
 ]
 
 export default function Sidebar() {
   const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead, canSeeAllDepartments } = useAuth()
   const [open, setOpen] = useState(false)
 
-  const visible = navItems.filter((item) => {
-    if (item.to === '/departments') return canSeeAllDepartments && hasPermission(item.permission)
-    if (item.showOnlyDepartment) return userProfile?.department === item.showOnlyDepartment || userProfile?.department === item.showOnlyDepartmentAlt || isFounder || (item.orAttendance && hasPermission('attendance'))
+  const departments = userProfile?.departments || (userProfile?.department ? [userProfile.department] : [])
+  const isCellDirectorOrLeader =
+    departments.includes('Cell') &&
+    (userProfile?.role === ROLES.DIRECTOR || userProfile?.role === ROLES.COORDINATOR)
+  const onlyCell = departments.length === 1 && departments[0] === 'Cell'
+
+  let visible = navItems.filter((item) => {
+    if (item.to === '/departments') return hasPermission(item.permission)
+    if (item.adminOnly) return (userProfile?.role === ROLES.ADMIN || isFounder) && hasPermission(item.permission)
+    if (item.showOnlyDepartment) return departments.includes(item.showOnlyDepartment) || (item.showOnlyDepartmentAlt && departments.includes(item.showOnlyDepartmentAlt)) || isFounder || (item.orAttendance && hasPermission('attendance'))
     if (item.orFounder && item.permission) return hasPermission(item.permission) || isFounder
-    if (item.orDepartment) return hasPermission(item.permission) || userProfile?.department === item.orDepartment
+    if (item.orDepartment) return hasPermission(item.permission) || departments.includes(item.orDepartment)
     return hasPermission(item.permission)
   })
 
-  const myDeptItem = userProfile?.department && isDepartmentHead(userProfile.department)
-    ? { to: getDepartmentPath(userProfile.department), label: `${userProfile.department} (${userProfile.role === ROLES.DIRECTOR ? 'Director' : 'Coordinator'})`, icon: '📁' }
-    : null
-  const visibleWithMyDept = myDeptItem ? [myDeptItem, ...visible] : visible
+  // For Cell Director/Leader with ONLY Cell: restrict menu to Cell (Director) and Sunday Planning
+  // If they also have another department (e.g. D Light Director + Cell Leader), show full menu + both dept links
+  if (isCellDirectorOrLeader && onlyCell) {
+    visible = navItems.filter(
+      (item) => item.to === '/sunday-planning'
+    )
+  }
+
+  const myDeptItems = departments
+    .filter((d) => isDepartmentHead(d))
+    .map((d) => {
+      if (d === 'D Light' && isRestrictedDLightDirector(userProfile)) {
+        return { to: '/sunday-planning', label: 'Sunday Planning (D Light)', icon: '📋' }
+      }
+      return {
+        to: getDepartmentPath(d),
+        label: `${d} (${userProfile?.role === ROLES.DIRECTOR ? 'Director' : 'Coordinator'})`,
+        icon: '📁',
+      }
+    })
+  const mergedNav = myDeptItems.length ? [...myDeptItems, ...visible] : visible
+  const seenTo = new Set()
+  const visibleWithMyDept = mergedNav.filter((item) => {
+    if (seenTo.has(item.to)) return false
+    seenTo.add(item.to)
+    return true
+  })
 
   return (
     <>
@@ -76,7 +105,9 @@ export default function Sidebar() {
         <div className="px-3 py-1.5 text-sm text-slate-400">
           {userProfile?.displayName || userProfile?.email || 'User'}
           <br />
-          <span className="text-slate-500">{userProfile?.role}</span>
+          <span className="text-slate-500">
+            {userProfile?.globalRole === 'FOUNDER' ? 'Senior Pastor' : (userProfile?.role || '')}
+          </span>
         </div>
         <button
           onClick={signOut}

@@ -7,6 +7,39 @@
         { "fieldPath": "cellId", "order": "ASCENDING" },
         { "fieldPath": "reportDate", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "cell_member_pending_changes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "requestedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cell_program_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cellName", "order": "ASCENDING" },
+        { "fieldPath": "reportDate", "order": "ASCENDING" },
+        { "fieldPath": "startTime", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sunday_program_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "reportDate", "order": "ASCENDING" },
+        { "fieldPath": "startTime", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "department_child_attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "department", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

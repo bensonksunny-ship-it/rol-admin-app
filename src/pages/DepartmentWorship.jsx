@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { format, subMonths, differenceInDays } from 'date-fns'
 import { formatDMY } from '../utils/date'
+import DepartmentTabBar from '../components/DepartmentTabBar'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -306,7 +307,15 @@ function PlanComingSundayCard({
 }
 
 export default function DepartmentWorship() {
-  const { userProfile, hasPermission, isFounder } = useAuth()
+  const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
+  if (!hasAccess(userProfile, DEPARTMENT)) {
+    return (
+      <div className="p-6 text-slate-600">
+        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <p className="mt-4">You do not have access to {DEPARTMENT} department.</p>
+      </div>
+    )
+  }
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
@@ -549,102 +558,9 @@ export default function DepartmentWorship() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-bold bg-gradient-to-r from-slate-800 to-blue-800 bg-clip-text text-transparent">Worship Department</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            {canManageWorship && 'Plan team, assign by date, budget & participation.'}
-            {canViewInsights && !canManageWorship && 'Insights from Worship director entries.'}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1.5 border-b border-slate-200 pb-0.5">
-        {/* Summary */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('summary')}
-          className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-            activeTab === 'summary' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm' : 'text-slate-600 hover:bg-amber-50 hover:text-amber-800'
-          }`}
-        >
-          Summary
-        </button>
-        {/* Assign team */}
-        {canManageWorship && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('assign')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === 'assign' ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-sm' : 'text-slate-600 hover:bg-blue-50 hover:text-blue-700'
-            }`}
-          >
-            Assign team
-          </button>
-        )}
-        {/* Budget & Spending */}
-        {(canManageWorship || canViewInsights) && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('budget')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === 'budget' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm' : 'text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
-            }`}
-          >
-            Budget & Spending
-          </button>
-        )}
-        {/* Team */}
-        {(canManageWorship || canViewInsights) && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('team')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === 'team' ? 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm' : 'text-slate-600 hover:bg-violet-50 hover:text-violet-700'
-            }`}
-          >
-            Team
-          </button>
-        )}
-        {/* History */}
-        {(canManageWorship || canViewInsights) && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('history')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === 'history' ? 'bg-gradient-to-r from-slate-500 to-slate-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            History
-          </button>
-        )}
-        {/* Data entry */}
-        {canManageWorship && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('entry')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === 'entry' ? 'bg-gradient-to-r from-cyan-500 to-sky-500 text-white shadow-sm' : 'text-slate-600 hover:bg-cyan-50 hover:text-cyan-700'
-            }`}
-          >
-            Data entry
-          </button>
-        )}
-        {/* Insights (pastor) */}
-        {canViewInsights && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('insights')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === 'insights' ? 'bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-sm' : 'text-slate-600 hover:bg-rose-50 hover:text-rose-700'
-            }`}
-          >
-            Insights (pastor)
-          </button>
-        )}
-      </div>
-
+    <div>
+      <DepartmentTabBar slug="worship" activeTab={activeTab} setActiveTab={setActiveTab} />
+      <div className="space-y-4 p-4">
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
           {/* Budget 2026 - compact, colourful */}
@@ -1661,6 +1577,7 @@ export default function DepartmentWorship() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

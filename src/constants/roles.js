@@ -10,6 +10,31 @@ export const ROLES = {
   VIEWER: 'Viewer',
 }
 
+/** Position-in-department options for Add User (up to 4 per person). */
+export const POSITION_OPTIONS = [
+  { value: 'Director', label: 'Director' },
+  { value: 'Coordinator', label: 'Coordinator' },
+  { value: 'Cell Leader', label: 'Cell Leader' },
+  { value: 'Associate', label: 'Associate' },
+]
+
+/** Derive app role from positions array (highest wins). Used for permissions. */
+export function deriveRoleFromPositions(positions) {
+  if (!Array.isArray(positions) || positions.length === 0) return ROLES.VIEWER
+  const hasDirector = positions.some((p) => p.position === 'Director')
+  const hasCoordinator = positions.some((p) => p.position === 'Coordinator' || p.position === 'Cell Leader')
+  if (hasDirector) return ROLES.DIRECTOR
+  if (hasCoordinator) return ROLES.COORDINATOR
+  return ROLES.VIEWER
+}
+
+/** Derive departments array from positions. */
+export function deriveDepartmentsFromPositions(positions) {
+  if (!Array.isArray(positions) || positions.length === 0) return []
+  const set = new Set(positions.map((p) => p.department).filter(Boolean))
+  return Array.from(set)
+}
+
 export const ROLE_PERMISSIONS = {
   [ROLES.FOUNDER]: {
     dashboard: true,
@@ -80,7 +105,7 @@ export const ROLE_PERMISSIONS = {
     attendance: true,
     finance: false,
     reports: true,
-    manageUsers: false,
+    manageUsers: true,
     manageDepartments: true,
     enterAttendance: true,
     enterFinance: false,
@@ -155,6 +180,8 @@ export const DEPARTMENTS = [
   'Cell Ministry',
   'Caring Department',
   'Sunday Ministry',
+  'River Kids',
+  'Building Care',
   'Junior Church',
   'Outreach',
   'Media',

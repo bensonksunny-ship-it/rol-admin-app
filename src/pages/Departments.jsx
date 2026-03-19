@@ -1,17 +1,26 @@
-import { Link, Navigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { DEPARTMENT_LIST } from '../constants/departments'
+import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 
 export default function Departments() {
   const { userProfile, canSeeAllDepartments } = useAuth()
 
+  const allowedNames = (() => {
+    if (canSeeAllDepartments) return null
+    const fromPositions = Array.isArray(userProfile?.positions)
+      ? userProfile.positions.map((p) => p?.department).filter(Boolean)
+      : []
+    const fromDepartments = Array.isArray(userProfile?.departments)
+      ? userProfile.departments.filter(Boolean)
+      : []
+    const fromPrimary = userProfile?.department ? [userProfile.department] : []
+    return Array.from(new Set([...fromPositions, ...fromDepartments, ...fromPrimary]))
+  })()
+
   const list = canSeeAllDepartments
     ? DEPARTMENT_LIST
-    : DEPARTMENT_LIST.filter((d) => d.name === userProfile?.department)
-
-  if (!canSeeAllDepartments && list.length === 1) {
-    return <Navigate to={getDepartmentPath(list[0].name)} replace />
-  }
+    : DEPARTMENT_LIST.filter((d) => allowedNames.includes(d.name))
 
   return (
     <div className="space-y-6">

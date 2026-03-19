@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 import { getStorage } from 'firebase/storage'
+import { getFunctions, httpsCallable } from 'firebase/functions'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -18,14 +19,17 @@ let app = null
 let auth = null
 let db = null
 let storage = null
+let functions = null
 
 if (hasConfig) {
   app = initializeApp(firebaseConfig)
   auth = getAuth(app)
   db = getFirestore(app)
   storage = getStorage(app)
+  // Explicit region to match deployed callable functions
+  functions = getFunctions(app, 'us-central1')
 }
 
-export { auth, db, storage }
+export { auth, db, storage, functions, httpsCallable }
 export const isFirebaseConfigured = () => !!hasConfig
 export default app

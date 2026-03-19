@@ -11,18 +11,51 @@ service cloud.firestore {
     function getUserRole() {
       return isSignedIn() ? getUserData().get('role', null) : null;
     }
+    function getGlobalRole() {
+      return isSignedIn() ? getUserData().get('globalRole', null) : null;
+    }
+    function tokenGlobalRole() {
+      return isSignedIn() ? request.auth.token.globalRole : null;
+    }
     function userDepartment() {
       return isSignedIn() ? getUserData().get('department', null) : null;
     }
+    function userDepartments() {
+      return isSignedIn() ? getUserData().get('departments', []) : [];
+    }
     function isFullAccess() {
-      return isSignedIn() && (getUserRole() == 'Senior Pastor' || getUserRole() == 'Admin' || getUserRole() == 'Founder');
+      // Super admin override (prioritize Auth custom claim), with legacy fallback.
+      return isSignedIn() && (
+        tokenGlobalRole() == 'FOUNDER' ||
+        getGlobalRole() == 'FOUNDER' ||
+        getUserRole() == 'Founder' ||
+        getUserRole() == 'founder'
+      );
     }
     function canAccessDept(departmentId) {
-      return isSignedIn() && (isFullAccess() || userDepartment() == departmentId);
+      return isSignedIn() && (
+        isFullAccess() ||
+        userDepartment() == departmentId ||
+        (departmentId in userDepartments())
+      );
     }
 
     match /users/{userId} {
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      allow read, write: if isSignedIn() && (isFullAccess() || request.auth.uid == userId);
+    }
+
+    // Audit logs: everyone may write; only Founder may read
+    match /audit_logs/{logId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn() && isFullAccess();
+      allow update, delete: if false;
+    }
+
+    // Department assignments (e.g. D Light Assign tab)
+    match /department_assignments/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
     match /departments/{departmentId} {
@@ -31,58 +64,121 @@ service cloud.firestore {
     }
 
     match /tasks/{taskId} {
-      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
-      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
-      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
     match /department_team_members/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
-      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
-      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+    }
+
+    match /department_sub_departments/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+    }
+
+    match /department_children/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+    }
+
+    match /department_child_attendance/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+    }
+
+    match /department_events/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
     match /department_planning_notes/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
-      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
-      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
     match /department_updates/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
-      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
-      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
     match /department_entries/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
-      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
-      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+    }
+
+    match /delight_visitors/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
+    }
+
+    match /dlight_sub_departments/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
+    }
+
+    match /sunday_program/{docId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
+    }
+
+    match /sunday_program_log/{docId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
     }
 
     match /cell_groups/{cellId} {
-      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
-      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
-      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      // Some legacy docs may not have a consistent `department` field.
+      // If a user has access to the Cell department, allow access to cell groups.
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
     }
 
     match /cell_groups/{cellId}/members/{memberId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || get(/databases/$(database)/documents/cell_groups/$(cellId)).data.get('department', '') == userDepartment());
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+    }
+    match /cell_groups/{cellId}/program_items/{itemId} {
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellId() == cellId));
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && userLinkedCellId() == cellId));
+    }
+    match /cell_program_log/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /cell_back_to_bible/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /cell_member_pending_changes/{docId} {
+      allow read, write: if request.auth != null;
     }
 
-    function userCellId() {
-      return getUserData().get('cellId', null);
+    // Prefer cellGroupId when set; otherwise cellId (leader’s linked cell for report edits).
+    function userLinkedCellId() {
+      let d = getUserData();
+      let g = d.get('cellGroupId', null);
+      return g != null && g != '' ? g : d.get('cellId', null);
     }
     function isCellDirector() {
       return isSignedIn() && userDepartment() == 'Cell' && getUserRole() == 'Director';
     }
     match /cell_reports/{reportId} {
-      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (userDepartment() == 'Cell' && resource.data.cellId == userCellId()));
-      allow create: if isSignedIn() && (isFullAccess() || isCellDirector() || (userDepartment() == 'Cell' && request.resource.data.cellId == userCellId()));
-      allow update, delete: if isSignedIn() && (isFullAccess() || isCellDirector() || (userDepartment() == 'Cell' && resource.data.cellId == userCellId()));
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
+      allow create: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && request.resource.data.cellId == userLinkedCellId()));
+      allow update, delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
     }
     match /cell_reports/{reportId}/attendees/{attendeeId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || isCellDirector() || (userDepartment() == 'Cell' && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userCellId()));
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userLinkedCellId()));
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userLinkedCellId()));
     }
 
     match /caring_members/{docId} {
@@ -90,9 +186,9 @@ service cloud.firestore {
     }
 
     match /cell_attendance/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
-      allow create: if isSignedIn() && (isFullAccess() || request.resource.data.department == userDepartment());
-      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.department == userDepartment());
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
     match /finance_budget/{docId} {
