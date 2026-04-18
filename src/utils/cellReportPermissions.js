@@ -47,7 +47,15 @@ export function isCellLeaderInPositions(user) {
 export function userLinksToCellGroup(user, cellGroup) {
   if (!user || !cellGroup) return false
   const u = String(user.cellGroupId || user.cellId || '').trim()
-  if (!u) return false
+  if (!u) {
+    // Backward compatible support: some profiles only store `cellGroup` (name like "Olive"),
+    // while editing permissions require matching the cell group row.
+    const cellGroupName = String(user.cellGroup || '').trim()
+    if (!cellGroupName) return false
+    return String(cellGroup.cellName || '')
+      .trim()
+      .toLowerCase() === cellGroupName.toLowerCase()
+  }
   const docId = String(cellGroup.id || '').trim()
   const logical = String(cellGroup.cellId || '').trim()
   return u === docId || (logical !== '' && u === logical)

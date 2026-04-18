@@ -17,15 +17,30 @@ export function displayGlobalRole(user) {
 // Legacy schema: { department, position: 'Director' | 'Coordinator' | 'Cell Leader' | 'Associate' }
 export function getDepartmentRole(user, departmentName) {
   const positions = Array.isArray(user?.positions) ? user.positions : []
-  const p = positions.find((x) => x && x.department === departmentName)
+  const targetDept = String(departmentName || '').trim().toLowerCase()
+  const p = positions.find((x) => x && String(x.department || '').trim().toLowerCase() === targetDept)
   if (!p) return null
-  if (p.role) return String(p.role)
-  if (p.position) {
-    const pos = String(p.position)
-    if (pos === 'Director') return 'DIRECTOR'
-    // treat any non-director position as MEMBER for access checks
-    return 'MEMBER'
+
+  const roleField = p.role != null ? String(p.role).trim() : ''
+  const positionField = p.position != null ? String(p.position).trim() : ''
+
+  // New schema: role is stored as uppercase tokens like DIRECTOR/COORDINATOR.
+  if (roleField) {
+    const upper = roleField.toUpperCase()
+    if (upper === 'DIRECTOR') return 'DIRECTOR'
+    if (upper === 'COORDINATOR') return 'COORDINATOR'
+    if (upper === 'LEADER') return 'COORDINATOR' // e.g. "LEADER"
   }
+
+  // Legacy schema: position is stored as labels like "Director", "Coordinator", "Cell Leader".
+  if (positionField) {
+    const pos = positionField.toLowerCase()
+    if (pos === 'director') return 'DIRECTOR'
+    if (pos === 'coordinator' || pos === 'cell leader') return 'COORDINATOR'
+    // Associate (or anything else) is not a department head.
+    return null
+  }
+
   return null
 }
 

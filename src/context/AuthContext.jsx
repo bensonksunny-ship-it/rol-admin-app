@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { auth, db, functions, httpsCallable } from '../lib/firebase'
-import { ROLES, ROLE_PERMISSIONS } from '../constants/roles'
+import { ROLES, ROLE_PERMISSIONS, deriveRoleFromPositions } from '../constants/roles'
 import { getDepartmentBySlug } from '../constants/departments'
 import { GLOBAL_ROLES, hasAccess, getDepartmentRole, isFounder as isFounderGlobal } from '../utils/access'
 
@@ -50,6 +50,12 @@ export function AuthProvider({ children }) {
             departments: Array.from(new Set([...(departments || []), ...(derivedFromPositions || [])])),
             // If claim says Founder but Firestore isn't updated yet, treat as Founder in UI immediately.
             globalRole: tokenGlobalRole === 'FOUNDER' ? 'FOUNDER' : (data.globalRole || null),
+          }
+
+          // Ensure `role` exists for permission checks (some legacy users may lack it).
+          // Derive permissions from positions[] when missing/empty.
+          if (!merged.role) {
+            merged.role = deriveRoleFromPositions(Array.isArray(merged.positions) ? merged.positions : [])
           }
           setUserProfile(merged)
 

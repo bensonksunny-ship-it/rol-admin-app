@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { ROLES } from '../../constants/roles'
-import { isRestrictedDLightDirector } from '../../utils/dlightAccess'
+import { getDepartmentRole } from '../../utils/access'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard' },
@@ -17,6 +17,129 @@ const navItems = [
 export default function Sidebar() {
   const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead, canSeeAllDepartments } = useAuth()
   const [open, setOpen] = useState(false)
+
+  // Scoped sidebar mode: for all non-Founder/Admin users, map the sidebar directly
+  // from their `positions[]` (Director/Coordinator only; associate-only is hidden).
+  if (userProfile && !isFounder && userProfile?.role !== ROLES.ADMIN) {
+    const positions = Array.isArray(userProfile?.positions) ? userProfile.positions : []
+
+    const headRoleFromPosition = (p) => {
+      if (!p) return null
+      const pos = String(p.position || '').trim()
+      const role = String(p.role || '').trim()
+      const sLower = (pos || role).toLowerCase()
+      const rUpper = role.toUpperCase()
+
+      if (sLower === 'director' || rUpper === 'DIRECTOR') return 'DIRECTOR'
+      if (sLower === 'coordinator' || sLower === 'cell leader' || rUpper === 'COORDINATOR' || rUpper === 'LEADER') return 'COORDINATOR'
+      return null
+    }
+
+    const headDeptMap = new Map() // deptName -> { deptName, headRole, rank }
+    let hasCellHead = false
+    positions.forEach((p) => {
+      if (!p) return
+      const dept = String(p.department || '').trim()
+      if (!dept) return
+
+      const deptNorm = dept.toLowerCase()
+      const headRole = headRoleFromPosition(p)
+      if (!headRole) return
+
+      if (deptNorm === 'cell') {
+        hasCellHead = true
+        return
+      }
+
+      const nextRank = headRole === 'DIRECTOR' ? 2 : 1
+      const existing = headDeptMap.get(dept)
+      if (!existing || nextRank > existing.rank) {
+        headDeptMap.set(dept, { deptName: dept, headRole, rank: nextRank })
+      }
+    })
+
+    const cellName = String(userProfile?.cellGroup || '').trim() || 'Cell'
+
+    const scopedItems = []
+
+    // Sunday Planning is visible to everyone.
+    scopedItems.push({ to: '/sunday-planning', label: 'Sunday Planning', icon: '📋' })
+
+    // Department hubs for Director/Coordinator positions.
+    for (const v of headDeptMap.values()) {
+      scopedItems.push({
+        to: getDepartmentPath(v.deptName),
+        label: `${v.deptName} (${v.headRole === 'DIRECTOR' ? 'Director' : 'Coordinator'})`,
+        icon: '📁',
+      })
+    }
+
+    // Cell report page for Cell Leader/Director (head positions).
+    if (hasCellHead) {
+      scopedItems.push({
+        to: '/department/cell/cell-report',
+        label: `Cell (${cellName})`,
+        icon: '🍃',
+      })
+    }
+
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="lg:hidden fixed top-4 left-4 z-40 p-2 rounded-lg bg-slate-800 text-white shadow"
+          aria-label="Toggle menu"
+        >
+          {open ? '✕' : '☰'}
+        </button>
+        {open && (
+          <div
+            className="lg:hidden fixed inset-0 bg-black/50 z-30"
+            onClick={() => setOpen(false)}
+            aria-hidden
+          />
+        )}
+        <aside className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 text-white flex flex-col fixed left-0 top-0 z-30 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className="p-4 border-b border-slate-600/50">
+            <h1 className="text-base font-bold text-white">River Of Life</h1>
+            <p className="text-xs text-slate-400 uppercase tracking-wider">Admin App</p>
+          </div>
+          <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+            {scopedItems.map((item) => (
+              <NavLink
+                key={(item.to || '/') + (item.label || '')}
+                to={item.to || '/'}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
+                    isActive
+                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow'
+                      : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
+                  }`
+                }
+              >
+                <span className="text-base">{item.icon}</span>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="p-2 border-t border-slate-600/50">
+            <div className="px-3 py-1.5 text-sm text-slate-400">
+              {userProfile?.displayName || userProfile?.email || 'User'}
+              <br />
+              <span className="text-slate-500">{userProfile?.role || ''}</span>
+            </div>
+            <button
+              onClick={signOut}
+              className="w-full mt-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
+            >
+              Sign out
+            </button>
+          </div>
+        </aside>
+      </>
+    )
+  }
 
   const departments = userProfile?.departments || (userProfile?.department ? [userProfile.department] : [])
   const isCellDirectorOrLeader =
@@ -44,12 +167,9 @@ export default function Sidebar() {
   const myDeptItems = departments
     .filter((d) => isDepartmentHead(d))
     .map((d) => {
-      if (d === 'D Light' && isRestrictedDLightDirector(userProfile)) {
-        return { to: '/sunday-planning', label: 'Sunday Planning (D Light)', icon: '📋' }
-      }
       return {
         to: getDepartmentPath(d),
-        label: `${d} (${userProfile?.role === ROLES.DIRECTOR ? 'Director' : 'Coordinator'})`,
+        label: `${d} (${getDepartmentRole(userProfile, d) === 'DIRECTOR' ? 'Director' : 'Coordinator'})`,
         icon: '📁',
       }
     })
@@ -86,8 +206,8 @@ export default function Sidebar() {
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
         {visibleWithMyDept.map((item) => (
           <NavLink
-            key={item.to + (item.label || '')}
-            to={item.to}
+            key={(item.to || '/') + (item.label || '')}
+            to={item.to || '/'}
             className={({ isActive }) =>
               `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
                 isActive

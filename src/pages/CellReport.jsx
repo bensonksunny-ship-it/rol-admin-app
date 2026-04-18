@@ -168,6 +168,14 @@ export default function CellReport() {
       const hit = cellGroups.find((g) => g.id === cid || String(g.cellId || '') === String(cid))
       if (hit) return hit.id
     }
+
+    // Fallback: if profile has only `cellGroup` (name like "Olive"), map it to the matching cell group document.
+    const cellGroupName = String(userProfile?.cellGroup || '').trim()
+    if (cellGroupName && cellGroups.length) {
+      const match = cellGroups.find((g) => String(g.cellName || '').trim().toLowerCase() === cellGroupName.toLowerCase())
+      if (match) return match.id
+    }
+
     const name = (userProfile?.displayName || userProfile?.name || userProfile?.email || '').trim()
     if (!name || !cellGroups.length) return null
     const match = cellGroups.find(
@@ -177,6 +185,7 @@ export default function CellReport() {
   }, [
     userProfile?.cellGroupId,
     userProfile?.cellId,
+    userProfile?.cellGroup,
     userProfile?.displayName,
     userProfile?.name,
     userProfile?.email,

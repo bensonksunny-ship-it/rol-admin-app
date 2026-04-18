@@ -21,8 +21,18 @@ export const POSITION_OPTIONS = [
 /** Derive app role from positions array (highest wins). Used for permissions. */
 export function deriveRoleFromPositions(positions) {
   if (!Array.isArray(positions) || positions.length === 0) return ROLES.VIEWER
-  const hasDirector = positions.some((p) => p.position === 'Director')
-  const hasCoordinator = positions.some((p) => p.position === 'Coordinator' || p.position === 'Cell Leader')
+  const hasDirector = positions.some((p) => {
+    if (!p) return false
+    const pos = String(p.position || '').trim().toLowerCase()
+    const role = String(p.role || '').trim().toUpperCase()
+    return pos === 'director' || role === 'DIRECTOR'
+  })
+  const hasCoordinator = positions.some((p) => {
+    if (!p) return false
+    const pos = String(p.position || '').trim().toLowerCase()
+    const role = String(p.role || '').trim().toUpperCase()
+    return pos === 'coordinator' || pos === 'cell leader' || role === 'COORDINATOR' || role === 'LEADER'
+  })
   if (hasDirector) return ROLES.DIRECTOR
   if (hasCoordinator) return ROLES.COORDINATOR
   return ROLES.VIEWER

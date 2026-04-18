@@ -6,7 +6,7 @@ import { getAllUsers, createUserByAdmin, updateUserByAdmin, setUserStatus } from
 import { auth, functions, httpsCallable } from '../lib/firebase'
 import { logAction } from '../utils/auditLog'
 
-const MAX_POSITIONS = 4
+const MAX_POSITIONS = 10
 const emptyPosition = () => ({ department: '', position: '' })
 
 export default function AdminUserManagement() {
@@ -29,6 +29,10 @@ export default function AdminUserManagement() {
     status: 'active',
   })
   const [error, setError] = useState('')
+
+  const isCellLeaderSelected = (form.positions || []).some(
+    (p) => String(p?.department || '').trim().toLowerCase() === 'cell' && String(p?.position || '').trim().toLowerCase() === 'cell leader'
+  )
 
   const isFounderGlobal = userProfile?.globalRole === 'FOUNDER'
   const isFounderLegacy = userProfile?.role === ROLES.FOUNDER
@@ -130,6 +134,17 @@ export default function AdminUserManagement() {
       const positions = (form.positions || [])
         .filter((p) => p.department || p.position)
         .slice(0, MAX_POSITIONS)
+
+      // If the user is a Cell Leader, cellGroup is mandatory (so we can link their report permissions).
+      if (positions.some((p) => String(p?.department || '').trim().toLowerCase() === 'cell' && String(p?.position || '').trim().toLowerCase() === 'cell leader')) {
+        const cellGroupVal = String(form.cellGroup || '').trim()
+        if (!cellGroupVal) {
+          setError('Cell Group is required when assigning a Cell Leader position.')
+          setSaving(false)
+          return
+        }
+      }
+
       const departments = deriveDepartmentsFromPositions(positions)
       const role = form.roleOverride || deriveRoleFromPositions(positions)
 
@@ -506,32 +521,40 @@ export default function AdminUserManagement() {
                     </p>
                   </div>
                 )}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Cell Group (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={form.cellGroup}
-                    onChange={(e) => setForm((f) => ({ ...f, cellGroup: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Cell ID (optional, recommended for Cell Leaders)
-                  </label>
-                  <input
-                    type="text"
-                    value={form.cellId}
-                    onChange={(e) => setForm((f) => ({ ...f, cellId: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                    placeholder="Paste the Cell Group document ID"
-                  />
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    This locks the leader to exactly one cell even if names change.
-                  </p>
-                </div>
+                {isCellLeaderSelected && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Cell Group (required)
+                      </label>
+                      <input
+                        type="text"
+                        value={form.cellGroup}
+                        onChange={(e) => setForm((f) => ({ ...f, cellGroup: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        required
+                      />
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Used to link your profile to the Olive cell report.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Cell ID (optional, recommended)
+                      </label>
+                      <input
+                        type="text"
+                        value={form.cellId}
+                        onChange={(e) => setForm((f) => ({ ...f, cellId: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        placeholder="Paste the Cell Group document ID"
+                      />
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        This locks the leader to exactly one cell even if names change.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2">

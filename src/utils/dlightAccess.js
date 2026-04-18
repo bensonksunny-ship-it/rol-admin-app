@@ -6,10 +6,8 @@ import { ROLES } from '../constants/roles'
  * Founder / Admin always have full access.
  */
 export function isRestrictedDLightDirector(userProfile) {
-  if (!userProfile) return false
-  if (userProfile.globalRole === 'FOUNDER' || userProfile.role === ROLES.FOUNDER) return false
-  if (userProfile.role === ROLES.ADMIN) return false
-  if (getDepartmentRole(userProfile, 'D Light') === 'DIRECTOR') return true
-  if (userProfile.department === 'D Light' && userProfile.role === ROLES.DIRECTOR) return true
+  // Requirement: D Light Director pages are fully accessible.
+  // Keep this function for backward compatibility with existing checks,
+  // but remove the redirect/block behavior.
   return false
 }

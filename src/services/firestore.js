@@ -62,14 +62,17 @@ function normalizePositions(positions) {
   if (!Array.isArray(positions)) return []
   return positions
     .filter((p) => p && (p.department || p.position || p.role))
-    .slice(0, 4)
-    .map((p) => ({
-      department: String(p.department || ''),
+    .slice(0, 10)
+    .map((p) => {
+      const out = {
+        department: String(p.department || ''),
+      }
       // new schema
-      role: p.role != null ? String(p.role) : undefined,
+      if (p.role != null && p.role !== '') out.role = String(p.role)
       // legacy schema
-      position: p.position != null ? String(p.position) : undefined,
-    }))
+      if (p.position != null && p.position !== '') out.position = String(p.position)
+      return out
+    })
 }
 
 export async function createUserByAdmin(data) {

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { DEPARTMENT_LIST } from '../constants/departments'
+import { DEPARTMENT_LIST, getDepartmentPath } from '../constants/departments'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 
 export default function Departments() {
@@ -30,6 +30,7 @@ export default function Departments() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {list.map((d, idx) => {
+          if (!d?.slug) return null
           const pastel = [
             { bg: 'bg-blue-50', border: 'border-blue-200', hover: 'hover:bg-blue-100' },
             { bg: 'bg-emerald-50', border: 'border-emerald-200', hover: 'hover:bg-emerald-100' },
@@ -38,10 +39,15 @@ export default function Departments() {
             { bg: 'bg-sky-50', border: 'border-sky-200', hover: 'hover:bg-sky-100' },
             { bg: 'bg-teal-50', border: 'border-teal-200', hover: 'hover:bg-teal-100' },
           ][idx % 6]
+          // Explicit target — avoid any stray `href` reference (React Router uses `to` only).
+          const linkTo =
+            d.slug === 'd-light' && isRestrictedDLightDirector(userProfile)
+              ? '/sunday-planning'
+              : getDepartmentPath(d.name)
           return (
             <Link
               key={d.slug}
-              to={`/department/${d.slug}`}
+              to={linkTo}
               className={`block ${pastel.bg} ${pastel.border} ${pastel.hover} rounded-2xl border p-6 shadow-sm hover:shadow-md transition-all`}
             >
               <h2 className="text-lg font-semibold text-slate-900">{d.name}</h2>
