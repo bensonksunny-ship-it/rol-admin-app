@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { format, addWeeks, subWeeks } from 'date-fns'
+import { format, addWeeks, subWeeks, parseISO, endOfDay } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import {
   getSundayReport,
@@ -32,6 +32,9 @@ const SUMMARY_KEYS = [
   'totalAdults',
   'totalAttendance',
 ]
+/** Local-only UX: order for Done → scroll to next attendance section */
+const ATTENDANCE_SECTION_ORDER = ['cells', 'pastoral', 'newComers', 'others', 'secondWeekAttendeesNames']
+
 const SUMMARY_LABELS = {
   totalVolunteers: 'Total Volunteers',
   cellAttendance: 'Cell Attendance',
@@ -82,9 +85,9 @@ function migrateLegacyCellAttendance(report, cellGroups) {
   return sca
 }
 
-function NameListSection({ title, names, canEdit, onAdd, onEdit, onRemove }) {
+function NameListSection({ title, names, canEdit, onAdd, onEdit, onRemove, className = '' }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div className={`rounded-xl border p-4 shadow-sm ${className || 'bg-white border-slate-200'}`}>
       <h3 className="font-semibold text-slate-800 mb-3">{title}</h3>
       <ul className="space-y-2">
         {(names || []).map((name, idx) => (
@@ -118,6 +121,41 @@ function NameListSection({ title, names, canEdit, onAdd, onEdit, onRemove }) {
   )
 }
 
+/** Local-only: wrap attendance blocks with Done/Undo, scroll target, completed/active styling */
+function AttendanceSectionShell({
+  sectionRef,
+  completed,
+  isActive,
+  canManage,
+  onDone,
+  onUndo,
+  children,
+}) {
+  const isCompleted = !!completed
+  const shellClass = isCompleted
+    ? 'bg-emerald-50/90 border-emerald-300'
+    : isActive
+      ? 'bg-indigo-50/50 border-indigo-400 ring-2 ring-indigo-200/90'
+      : 'bg-white border-slate-200'
+
+  return (
+    <div ref={sectionRef} className={`rounded-xl border p-4 shadow-sm transition-colors scroll-mt-4 ${shellClass}`}>
+      {children}
+      {canManage && (
+        <div className="mt-4 flex justify-end border-t border-slate-200/70 pt-3">
+          <button
+            type="button"
+            onClick={() => (isCompleted ? onUndo() : onDone())}
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 text-slate-800"
+          >
+            {isCompleted ? 'Undo' : 'Done'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function SundayReport() {
   const { userProfile, canManageDepartment } = useAuth()
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
@@ -130,8 +168,75 @@ export default function SundayReport() {
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [programItems, setProgramItems] = useState([])
   const [programLogs, setProgramLogs] = useState([])
+  /** Local-only: which attendance sections are marked done (no Firestore) */
+  const [completedSections, setCompletedSections] = useState({})
+
+  const cellsSectionRef = useRef(null)
+  const pastoralSectionRef = useRef(null)
+  const newComersSectionRef = useRef(null)
+  const othersSectionRef = useRef(null)
+  const secondWeekSectionRef = useRef(null)
+
+  const sectionRefById = useMemo(
+    () => ({
+      cells: cellsSectionRef,
+      pastoral: pastoralSectionRef,
+      newComers: newComersSectionRef,
+      others: othersSectionRef,
+      secondWeekAttendeesNames: secondWeekSectionRef,
+    }),
+    []
+  )
 
   const canEdit = canManageDepartment('Sunday Ministry')
+
+  /** After end of the selected report date (local), edits are locked (no Firestore change). */
+  const reportDateLocked = useMemo(() => {
+    if (!selectedDate) return false
+    const d = parseISO(selectedDate)
+    if (Number.isNaN(d.getTime())) return false
+    return Date.now() > endOfDay(d).getTime()
+  }, [selectedDate])
+
+  const canEditEffective = canEdit && !reportDateLocked
+
+  /** First incomplete attendance section = “active” highlight (editors only) */
+  const activeSectionId = useMemo(() => {
+    if (!canEditEffective) return null
+    return ATTENDANCE_SECTION_ORDER.find((id) => !completedSections[id]) ?? null
+  }, [canEditEffective, completedSections])
+
+  const attendanceProgressTotal = ATTENDANCE_SECTION_ORDER.length
+  const attendanceProgressDone = useMemo(
+    () => ATTENDANCE_SECTION_ORDER.filter((id) => completedSections[id]).length,
+    [completedSections]
+  )
+  const attendanceProgressPct = attendanceProgressTotal
+    ? Math.round((attendanceProgressDone / attendanceProgressTotal) * 100)
+    : 0
+
+  useEffect(() => {
+    setCompletedSections({})
+  }, [selectedDate])
+
+  const handleAttendanceDone = useCallback(
+    (sectionId) => {
+      setCompletedSections((prev) => ({ ...prev, [sectionId]: true }))
+      const idx = ATTENDANCE_SECTION_ORDER.indexOf(sectionId)
+      const nextId = ATTENDANCE_SECTION_ORDER[idx + 1]
+      const nextEl = nextId ? sectionRefById[nextId]?.current : null
+      if (nextEl) {
+        requestAnimationFrame(() => {
+          nextEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      }
+    },
+    [sectionRefById]
+  )
+
+  const handleAttendanceUndo = useCallback((sectionId) => {
+    setCompletedSections((prev) => ({ ...prev, [sectionId]: false }))
+  }, [])
 
   const loadCellGroups = useCallback(() => {
     getCellGroups('Cell')
@@ -210,7 +315,7 @@ export default function SundayReport() {
 
   const toggleMemberAttendance = (cellId, memberName) => {
     const name = String(memberName || '').trim()
-    if (!name || !canEdit) return
+    if (!name || !canEditEffective || completedSections.cells) return
     const sca = { ...(report?.sundayCellAttendance || {}) }
     const list = [...(sca[cellId] || [])]
     const i = list.indexOf(name)
@@ -237,7 +342,7 @@ export default function SundayReport() {
   const currentProgramItem = sortedProgram[nextProgramIndex] || null
 
   const handleProgramStart = async () => {
-    if (!canEdit || !currentProgramItem) return
+    if (!canEditEffective || !currentProgramItem) return
     try {
       await addSundayProgramLog({
         programName: currentProgramItem.programName,
@@ -265,6 +370,9 @@ export default function SundayReport() {
 
   const selectedForCell = (cellId) => new Set(report?.sundayCellAttendance?.[cellId] || [])
 
+  const cellsEdit = canEditEffective && !completedSections.cells
+  const pastoralEdit = canEditEffective && !completedSections.pastoral
+
   return (
     <div>
       <DepartmentTabBar slug="sunday-ministry" activeTab="sundayReport" />
@@ -291,7 +399,7 @@ export default function SundayReport() {
           >
             Next →
           </button>
-          {canEdit && (
+          {canEdit && !reportDateLocked && (
             <button
               type="button"
               onClick={handleSave}
@@ -303,12 +411,44 @@ export default function SundayReport() {
           )}
         </div>
 
+        {reportDateLocked && canEdit && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <strong>Locked:</strong> This report date has passed (after 11:59 PM on that day). Editing is disabled; you
+            can still view and export. Choose another date if you need to enter a different Sunday.
+          </div>
+        )}
+
+        {canEditEffective && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-medium text-slate-800">
+                Attendance checklist progress: {attendanceProgressDone} / {attendanceProgressTotal} completed
+              </span>
+              <span className="text-xs text-slate-500 tabular-nums">{attendanceProgressPct}%</span>
+            </div>
+            <div className="mt-2 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-indigo-600 transition-[width] duration-300"
+                style={{ width: `${attendanceProgressPct}%` }}
+              />
+            </div>
+            <p className="text-xs text-slate-500 mt-1.5">Local progress only — use Save report to persist.</p>
+          </div>
+        )}
+
         {loading ? (
           <div className="py-12 text-center text-slate-500">Loading report…</div>
         ) : (
           <>
             {/* Attendance — cell tiles */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <AttendanceSectionShell
+              sectionRef={cellsSectionRef}
+              completed={completedSections.cells}
+              isActive={activeSectionId === 'cells'}
+              canManage={canEditEffective}
+              onDone={() => handleAttendanceDone('cells')}
+              onUndo={() => handleAttendanceUndo('cells')}
+            >
               <h2 className="text-lg font-semibold text-slate-800 mb-1">Attendance</h2>
               <p className="text-sm text-slate-500 mb-4">
                 Cell groups come from the Cell department. Tap a cell to expand, then tap members to mark attendance.
@@ -342,13 +482,13 @@ export default function SundayReport() {
                                   <button
                                     key={m.id}
                                     type="button"
-                                    disabled={!canEdit || !nm}
+                                    disabled={!cellsEdit || !nm}
                                     onClick={() => toggleMemberAttendance(g.id, nm)}
                                     className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition ${
                                       sel
                                         ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
                                         : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
-                                    } ${!canEdit ? 'opacity-70 cursor-default' : ''}`}
+                                    } ${!cellsEdit ? 'opacity-70 cursor-default' : ''}`}
                                   >
                                     {nm || '—'}
                                   </button>
@@ -363,29 +503,58 @@ export default function SundayReport() {
                 })}
               </div>
               {cellGroups.length === 0 && <p className="text-sm text-slate-500">No cell groups found. Add cells under Cell department.</p>}
-            </div>
+            </AttendanceSectionShell>
 
-            <NameListSection
-              title={PASTORAL_KEY.title}
-              names={report?.[PASTORAL_KEY.key] || []}
-              canEdit={canEdit}
-              onAdd={() => addCellName(PASTORAL_KEY.key)}
-              onEdit={(idx, value) => updateCellList(PASTORAL_KEY.key, idx, value)}
-              onRemove={(idx) => removeCellName(PASTORAL_KEY.key, idx)}
-            />
+            <AttendanceSectionShell
+              sectionRef={pastoralSectionRef}
+              completed={completedSections.pastoral}
+              isActive={activeSectionId === 'pastoral'}
+              canManage={canEditEffective}
+              onDone={() => handleAttendanceDone('pastoral')}
+              onUndo={() => handleAttendanceUndo('pastoral')}
+            >
+              <NameListSection
+                title={PASTORAL_KEY.title}
+                names={report?.[PASTORAL_KEY.key] || []}
+                canEdit={pastoralEdit}
+                onAdd={() => addCellName(PASTORAL_KEY.key)}
+                onEdit={(idx, value) => updateCellList(PASTORAL_KEY.key, idx, value)}
+                onRemove={(idx) => removeCellName(PASTORAL_KEY.key, idx)}
+                className="border-0 shadow-none bg-transparent p-0"
+              />
+            </AttendanceSectionShell>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {MANUAL_ONLY_KEYS.map(({ key, title }) => (
-                <NameListSection
-                  key={key}
-                  title={title}
-                  names={report?.[key] || []}
-                  canEdit={canEdit}
-                  onAdd={() => addCellName(key)}
-                  onEdit={(idx, value) => updateCellList(key, idx, value)}
-                  onRemove={(idx) => removeCellName(key, idx)}
-                />
-              ))}
+              {MANUAL_ONLY_KEYS.map(({ key, title }) => {
+                const refMap = {
+                  newComers: newComersSectionRef,
+                  others: othersSectionRef,
+                  secondWeekAttendeesNames: secondWeekSectionRef,
+                }
+                const sectionRef = refMap[key]
+                const manualEdit = canEditEffective && !completedSections[key]
+                return (
+                  <AttendanceSectionShell
+                    key={key}
+                    sectionRef={sectionRef}
+                    completed={completedSections[key]}
+                    isActive={activeSectionId === key}
+                    canManage={canEditEffective}
+                    onDone={() => handleAttendanceDone(key)}
+                    onUndo={() => handleAttendanceUndo(key)}
+                  >
+                    <NameListSection
+                      title={title}
+                      names={report?.[key] || []}
+                      canEdit={manualEdit}
+                      onAdd={() => addCellName(key)}
+                      onEdit={(idx, value) => updateCellList(key, idx, value)}
+                      onRemove={(idx) => removeCellName(key, idx)}
+                      className="border-0 shadow-none bg-transparent p-0"
+                    />
+                  </AttendanceSectionShell>
+                )
+              })}
             </div>
 
             {/* Program from sunday_program + timer */}
@@ -415,7 +584,7 @@ export default function SundayReport() {
                       )
                     })}
                   </ul>
-                  {canEdit && currentProgramItem && (
+                  {canEditEffective && currentProgramItem && (
                     <div className="flex flex-col items-center pt-2">
                       <p className="text-sm text-slate-500 mb-2">Tap START when this segment begins (same flow as Cell timer).</p>
                       <button
@@ -428,7 +597,7 @@ export default function SundayReport() {
                       </button>
                     </div>
                   )}
-                  {canEdit && sortedProgram.length > 0 && !currentProgramItem && (
+                  {canEditEffective && sortedProgram.length > 0 && !currentProgramItem && (
                     <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-center">
                       All program start times recorded for this date.
                     </p>
@@ -442,7 +611,7 @@ export default function SundayReport() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">Lead 1</label>
-                  {canEdit ? (
+                  {canEditEffective ? (
                     <input
                       type="text"
                       value={report?.preservice?.lead1 || ''}
@@ -455,7 +624,7 @@ export default function SundayReport() {
                 </div>
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">Lead 2</label>
-                  {canEdit ? (
+                  {canEditEffective ? (
                     <input
                       type="text"
                       value={report?.preservice?.lead2 || ''}
@@ -475,7 +644,7 @@ export default function SundayReport() {
                 {SUMMARY_KEYS.map((key) => (
                   <div key={key}>
                     <label className="block text-sm text-slate-600 mb-1">{SUMMARY_LABELS[key]}</label>
-                    {canEdit ? (
+                    {canEditEffective ? (
                       <input
                         type="text"
                         value={report?.summary?.[key] ?? ''}
@@ -490,7 +659,7 @@ export default function SundayReport() {
               </div>
             </div>
 
-            {canEdit && (
+            {canEdit && !reportDateLocked && (
               <div className="flex justify-end">
                 <button
                   type="button"

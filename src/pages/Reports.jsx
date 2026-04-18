@@ -156,12 +156,12 @@ export default function Reports() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Reports</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Reports</h1>
         <p className="text-slate-500 mt-1">Generate and export attendance, finance, and task reports</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm max-w-2xl">
-        <h2 className="font-semibold text-slate-800 mb-4">Export Report</h2>
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm max-w-2xl">
+        <h2 className="font-semibold text-slate-900 mb-4">Export Report</h2>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Report type</label>

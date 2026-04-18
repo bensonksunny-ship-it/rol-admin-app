@@ -149,7 +149,7 @@ export default function Finance() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Church Finance</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Church Finance</h1>
           <p className="text-slate-500 mt-1">Income, expenses, and balance</p>
         </div>
         {canEnter && (
@@ -211,17 +211,17 @@ export default function Finance() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500">Total Income</p>
           <p className="text-2xl font-bold text-emerald-600">RM {totalIncome.toLocaleString()}</p>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500">Total Expense</p>
           <p className="text-2xl font-bold text-red-600">RM {totalExpense.toLocaleString()}</p>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500">Balance</p>
-          <p className={`text-2xl font-bold ${balance >= 0 ? 'text-slate-800' : 'text-red-600'}`}>
+          <p className={`text-2xl font-bold ${balance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
             RM {balance.toLocaleString()}
           </p>
         </div>
@@ -264,8 +264,8 @@ export default function Finance() {
 
       {tab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-            <h2 className="font-semibold text-slate-800 mb-4">Income vs Expense</h2>
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <h2 className="font-semibold text-slate-900 mb-4">Income vs Expense</h2>
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={incomeVsExpenseChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -278,8 +278,8 @@ export default function Finance() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-            <h2 className="font-semibold text-slate-800 mb-4">Income by Type</h2>
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <h2 className="font-semibold text-slate-900 mb-4">Income by Type</h2>
             {incomeByType.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
                 <PieChart>
@@ -303,8 +303,8 @@ export default function Finance() {
               <p className="text-slate-500 py-8 text-center">No income data</p>
             )}
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm lg:col-span-2">
-            <h2 className="font-semibold text-slate-800 mb-4">Expense by Category</h2>
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm lg:col-span-2">
+            <h2 className="font-semibold text-slate-900 mb-4">Expense by Category</h2>
             {expenseByCat.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
                 <PieChart>
@@ -332,7 +332,7 @@ export default function Finance() {
       )}
 
       {tab === 'income' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-slate-50">
@@ -370,7 +370,7 @@ export default function Finance() {
       )}
 
       {tab === 'expense' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-slate-50">
@@ -408,7 +408,7 @@ export default function Finance() {
       )}
 
       {tab === 'budget' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {canEnter && (
             <div className="px-5 py-3 border-b border-slate-200 flex justify-end">
               <button
@@ -534,9 +534,9 @@ export default function Finance() {
 
       {modal === 'budgetForm' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="p-5 border-b border-slate-200">
-              <h2 className="text-lg font-semibold text-slate-800">
+            <h2 className="text-lg font-semibold text-slate-900">
                 {editingBudgetId ? 'Edit row' : 'Add row'}
               </h2>
             </div>
@@ -697,7 +697,7 @@ export default function Finance() {
 
       {modal === 'form' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
             <div className="p-5 border-b border-slate-200">
               <h2 className="text-lg font-semibold">
                 Add {form.type === 'income' ? 'Income' : 'Expense'}

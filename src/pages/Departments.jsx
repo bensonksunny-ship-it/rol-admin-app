@@ -2,9 +2,15 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { DEPARTMENT_LIST, getDepartmentPath } from '../constants/departments'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
+import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Sparkles } from 'lucide-react'
 
 export default function Departments() {
   const { userProfile, canSeeAllDepartments } = useAuth()
+
+  const displayDeptName = (deptName) => {
+    if (deptName === 'Event M') return 'Event Management'
+    return deptName
+  }
 
   const allowedNames = (() => {
     if (canSeeAllDepartments) return null
@@ -22,23 +28,30 @@ export default function Departments() {
     ? DEPARTMENT_LIST
     : DEPARTMENT_LIST.filter((d) => allowedNames.includes(d.name))
 
+  const getIcon = (deptName) => {
+    const n = String(deptName || '').trim().toLowerCase()
+    if (n === 'worship') return Music
+    if (n === 'cell') return Users
+    if (n === 'caring') return Heart
+    if (n === 'sunday ministry') return CalendarDays
+    if (n === 'd light') return Sun
+    if (n === 'river kids') return UsersRound
+    if (n === 'outreach') return Megaphone
+    if (n === 'media') return Video
+    if (n === 'accounts') return Wallet
+    if (n === 'building care') return Building2
+    return Sparkles
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Departments</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Departments</h1>
         <p className="text-slate-500 mt-1">Manage department activity, reports, and tasks</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {list.map((d, idx) => {
           if (!d?.slug) return null
-          const pastel = [
-            { bg: 'bg-blue-50', border: 'border-blue-200', hover: 'hover:bg-blue-100' },
-            { bg: 'bg-emerald-50', border: 'border-emerald-200', hover: 'hover:bg-emerald-100' },
-            { bg: 'bg-amber-50', border: 'border-amber-200', hover: 'hover:bg-amber-100' },
-            { bg: 'bg-violet-50', border: 'border-violet-200', hover: 'hover:bg-violet-100' },
-            { bg: 'bg-sky-50', border: 'border-sky-200', hover: 'hover:bg-sky-100' },
-            { bg: 'bg-teal-50', border: 'border-teal-200', hover: 'hover:bg-teal-100' },
-          ][idx % 6]
           // Explicit target — avoid any stray `href` reference (React Router uses `to` only).
           const linkTo =
             d.slug === 'd-light' && isRestrictedDLightDirector(userProfile)
@@ -48,9 +61,17 @@ export default function Departments() {
             <Link
               key={d.slug}
               to={linkTo}
-              className={`block ${pastel.bg} ${pastel.border} ${pastel.hover} rounded-2xl border p-6 shadow-sm hover:shadow-md transition-all`}
+              className="group block bg-white rounded-3xl border border-slate-200 p-6 shadow-md hover:shadow-sm transition-all transform-gpu hover:scale-[1.02] hover:border-indigo-500"
             >
-              <h2 className="text-lg font-semibold text-slate-900">{d.name}</h2>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">{displayDeptName(d.name)}</h2>
+                </div>
+                {(() => {
+                  const Icon = getIcon(d.name)
+                  return <Icon className="text-indigo-600" size={22} aria-hidden />
+                })()}
+              </div>
             </Link>
           )
         })}

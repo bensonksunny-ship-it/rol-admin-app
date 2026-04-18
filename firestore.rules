@@ -99,6 +99,13 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
+    // Event spending table for Event Management → Spending (read/write to authorized department users)
+    match /event_spending/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+    }
+
     match /department_planning_notes/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
@@ -146,7 +153,14 @@ service cloud.firestore {
     }
 
     match /cell_groups/{cellId}/members/{memberId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      // Write is restricted: Founder/Admin full access; Cell Director can write any cell;
+      // Cell Leader can only write members within their own linked cell.
+      allow create, update, delete: if isSignedIn() && (
+        isFullAccess() ||
+        isCellDirector() ||
+        (canAccessDept('Cell') && userLinkedCellId() == cellId)
+      );
     }
     match /cell_groups/{cellId}/program_items/{itemId} {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellId() == cellId));
@@ -179,6 +193,11 @@ service cloud.firestore {
     match /cell_reports/{reportId}/attendees/{attendeeId} {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userLinkedCellId()));
       allow create, update, delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userLinkedCellId()));
+    }
+
+    // Weekly cell report history (read-only for clients)
+    match /cell_report_history/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
     }
 
     match /caring_members/{docId} {
@@ -244,6 +263,47 @@ service cloud.firestore {
     match /sunday_reports/{docId} {
       allow read: if isSignedIn();
       allow create, update, delete: if isSignedIn() && (isFullAccess() || userDepartment() == 'Sunday Ministry');
+    }
+
+    // Mid-week Ministry: prayer points per cell per date
+    match /cell_midweek_prayer/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow delete: if isSignedIn() && isFullAccess();
+    }
+
+    // Mid-week Ministry: segment order settings per cell group
+    match /cell_midweek_settings/{cellId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow create, update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellId() == cellId));
+      allow delete: if isSignedIn() && isFullAccess();
+    }
+
+    // Mid-week session summaries: timings, shepherd notes, attendee IDs per session
+    match /cell_midweek_sessions/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow delete: if isSignedIn() && isFullAccess();
+    }
+
+    // Sunday service attendance (cell-level bubble grid)
+    match /sunday_service_attendance/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || canAccessDept('Cell'));
+      allow delete: if isSignedIn() && isFullAccess();
+    }
+
+    // Sunday Plan checklists — defaults (Directors set once)
+    match /sunday_checklist_defaults/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
+    }
+
+    // Sunday Plan checklists — weekly instances
+    match /sunday_checklist_weekly/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
+      allow delete: if isSignedIn() && isFullAccess();
     }
   }
 }

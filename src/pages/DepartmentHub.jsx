@@ -1,4 +1,4 @@
-import { useParams, Link, Navigate, useSearchParams } from 'react-router-dom'
+import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
@@ -15,6 +15,9 @@ import {
   addFinanceBudgetItem,
   updateFinanceBudgetItem,
   deleteFinanceBudgetItem,
+  getEventSpendingItemsByDepartment,
+  addEventSpendingItem,
+  deleteEventSpendingItem,
   getCellGroups,
   getCellGroupMembers,
   addCellGroup,
@@ -67,6 +70,7 @@ import { differenceInDays, differenceInYears, differenceInMonths, format, startO
 import { formatDMY, formatDMYTime, parseDateToYYYYMMDD } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import DepartmentTabBar from '../components/DepartmentTabBar'
+import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -103,7 +107,8 @@ async function mergeTasksEntriesTeam(canonicalName) {
 export default function DepartmentHub() {
   const { slug } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess } = useAuth()
+  const location = useLocation()
+  const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder } = useAuth()
   const department = getDepartmentBySlug(slug)
 
   // Cell access helper must be defined BEFORE any effects that reference it (avoid TDZ crashes)
@@ -119,6 +124,9 @@ export default function DepartmentHub() {
   const [entries, setEntries] = useState([])
   const [planningNotes, setPlanningNotes] = useState('')
   const [savingPlanning, setSavingPlanning] = useState(false)
+  const [savingPlanningDraft, setSavingPlanningDraft] = useState(false)
+  const [planningDraftLoadedOnce, setPlanningDraftLoadedOnce] = useState(false)
+  const [planningDraftStatus, setPlanningDraftStatus] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
   const [team, setTeam] = useState([])
@@ -251,11 +259,48 @@ export default function DepartmentHub() {
   const [eventsLoading, setEventsLoading] = useState(false)
   const [selectedEventId, setSelectedEventId] = useState(null)
   const [eventSubTab, setEventSubTab] = useState('program')
-  const [eventForm, setEventForm] = useState({ name: '', program: '', budget: '', team: '' })
+  const [eventForm, setEventForm] = useState({
+    name: '',
+    budget: '',
+    team: '',
+    programs: [],
+    liveCellAttendance: {},
+    programScheduleStartTime: '',
+  })
   const [newEventModalOpen, setNewEventModalOpen] = useState(false)
   const [newEventName, setNewEventName] = useState('')
 
+  // Live Control (Event Management)
+  const [liveControlTab, setLiveControlTab] = useState('timer')
+  const [eventProgramModalOpen, setEventProgramModalOpen] = useState(false)
+  const [eventProgramEditingId, setEventProgramEditingId] = useState(null)
+  const [eventProgramForm, setEventProgramForm] = useState({
+    programNo: '',
+    programName: '',
+    programBy: '',
+    duration: '',
+  })
+
+  const [liveCellGroups, setLiveCellGroups] = useState([])
+  const [liveCellGroupsLoading, setLiveCellGroupsLoading] = useState(false)
+  const [liveExpandedCellId, setLiveExpandedCellId] = useState(null)
+  const [liveMembersForCell, setLiveMembersForCell] = useState([])
+  const [liveMembersLoading, setLiveMembersLoading] = useState(false)
+  const [liveAddNameInput, setLiveAddNameInput] = useState('')
+
+  // Event Management → Spending
+  const [eventSpendingItems, setEventSpendingItems] = useState([])
+  const [loadingEventSpending, setLoadingEventSpending] = useState(false)
+  const [spendingEventId, setSpendingEventId] = useState('')
+  const [spendingAmount, setSpendingAmount] = useState('')
+  const [spendingItemsPurchased, setSpendingItemsPurchased] = useState('')
+  const [spendingDescription, setSpendingDescription] = useState('')
+
   const tabs = useMemo(() => getDepartmentHubTabs(slug), [slug])
+
+  const isAccountsEntryRoute =
+    slug === 'accounts' && String(location?.pathname || '').includes('/department/accounts/entry')
+  const activeTabForBar = isAccountsEntryRoute ? 'entry' : activeTab
 
   const tabFromUrl = searchParams.get('tab')
   useEffect(() => {
@@ -279,6 +324,66 @@ export default function DepartmentHub() {
     if (months > 0) parts.push(`${months} month${months !== 1 ? 's' : ''}`)
     if (days > 0) parts.push(`${days} day${days !== 1 ? 's' : ''}`)
     return parts.length ? parts.join(' ') : 'Less than a day'
+  }
+
+  function formatHHmm(dateLike) {
+    const d = dateLike instanceof Date ? dateLike : new Date(dateLike)
+    if (Number.isNaN(d.getTime())) return ''
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm}`
+  }
+
+  function addMinutesToHHmm(hhmm, minutes) {
+    if (!hhmm) return ''
+    const m = Number(minutes) || 0
+    const parts = String(hhmm).split(':')
+    if (parts.length < 2) return ''
+    const hh = Number(parts[0])
+    const mm = Number(parts[1])
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return ''
+    const total = hh * 60 + mm + m
+    const day = 24 * 60
+    const normalized = ((total % day) + day) % day
+    const outH = Math.floor(normalized / 60)
+    const outM = normalized % 60
+    return `${String(outH).padStart(2, '0')}:${String(outM).padStart(2, '0')}`
+  }
+
+  /** Normalize time from `<input type="time">`, Firestore, or "HH:mm:ss" → "HH:mm". */
+  function normalizeTimeToHHmm(input) {
+    if (input == null || input === '') return ''
+    if (typeof input === 'object' && input?.seconds != null) {
+      const d = new Date(input.seconds * 1000)
+      if (Number.isNaN(d.getTime())) return ''
+      return format(d, 'HH:mm')
+    }
+    const s = String(input).trim()
+    if (!s) return ''
+    const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?/)
+    if (!m) return ''
+    const hh = Math.min(23, Math.max(0, Number(m[1])))
+    const mm = Math.min(59, Math.max(0, Number(m[2])))
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return ''
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+  }
+
+  /** Planned segment start from one event-level “Schedule starts at” + prior durations. */
+  function plannedSegmentStartHHmm(sortedPrograms, anchorHHmm, index) {
+    const a = normalizeTimeToHHmm(anchorHHmm)
+    if (!a || !sortedPrograms?.length) return ''
+    let t = a
+    for (let i = 0; i < index; i++) {
+      t = addMinutesToHHmm(t, Number(sortedPrograms[i]?.duration) || 0)
+    }
+    return t
+  }
+
+  function plannedSegmentEndHHmm(sortedPrograms, anchorHHmm, index) {
+    const start = plannedSegmentStartHHmm(sortedPrograms, anchorHHmm, index)
+    const dur = Number(sortedPrograms[index]?.duration) || 0
+    if (!start || !dur) return ''
+    return addMinutesToHHmm(start, dur)
   }
 
   useEffect(() => {
@@ -358,7 +463,7 @@ export default function DepartmentHub() {
   }, [slug, activeTab, department, rkDate])
 
   useEffect(() => {
-    if (slug !== 'event-m' || activeTab !== 'events' || !department) return
+    if (slug !== 'event-m' || (activeTab !== 'events' && activeTab !== 'liveControl' && activeTab !== 'financial') || !department) return
     setEventsLoading(true)
     getDepartmentEvents(department.name)
       .then(setDeptEvents)
@@ -371,14 +476,85 @@ export default function DepartmentHub() {
     if (ev) {
       setEventForm({
         name: ev.name || '',
-        program: ev.program || '',
         budget: ev.budget || '',
         team: ev.team || '',
+        programs: Array.isArray(ev.programs) ? ev.programs : [],
+        liveCellAttendance: ev.liveCellAttendance && typeof ev.liveCellAttendance === 'object' ? ev.liveCellAttendance : {},
+        programScheduleStartTime: ev.programScheduleStartTime || '',
       })
     } else {
-      setEventForm({ name: '', program: '', budget: '', team: '' })
+      setEventForm({
+        name: '',
+        budget: '',
+        team: '',
+        programs: [],
+        liveCellAttendance: {},
+        programScheduleStartTime: '',
+      })
     }
   }, [selectedEventId, deptEvents])
+
+  useEffect(() => {
+    if (slug !== 'event-m') return
+    if (!selectedEventId) return
+    setSpendingEventId((prev) => prev || selectedEventId)
+  }, [slug, selectedEventId])
+
+  useEffect(() => {
+    if (slug !== 'event-m' || activeTab !== 'financial') return
+    if (!deptEvents.length) return
+    setSpendingEventId((prev) => prev || deptEvents[0].id)
+  }, [slug, activeTab, deptEvents])
+
+  // Live Control – load cell groups for attendance
+  useEffect(() => {
+    if (slug !== 'event-m' || activeTab !== 'liveControl' || liveControlTab !== 'attendance' || !department) return
+    let alive = true
+    setLiveCellGroupsLoading(true)
+    getCellGroups('Cell')
+      .then((groups) => {
+        if (!alive) return
+        setLiveCellGroups((groups || []).filter((g) => g.status !== 'inactive'))
+      })
+      .catch(() => {
+        if (!alive) return
+        setLiveCellGroups([])
+      })
+      .finally(() => {
+        if (!alive) return
+        setLiveCellGroupsLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [slug, activeTab, liveControlTab, department])
+
+  // Live Control – load members for the expanded cell tile
+  useEffect(() => {
+    if (slug !== 'event-m' || activeTab !== 'liveControl' || liveControlTab !== 'attendance') return
+    if (!liveExpandedCellId) {
+      setLiveMembersForCell([])
+      return
+    }
+    let alive = true
+    setLiveMembersLoading(true)
+    getCellGroupMembers(liveExpandedCellId)
+      .then((list) => {
+        if (!alive) return
+        setLiveMembersForCell((list || []).filter((m) => m.status !== 'inactive'))
+      })
+      .catch(() => {
+        if (!alive) return
+        setLiveMembersForCell([])
+      })
+      .finally(() => {
+        if (!alive) return
+        setLiveMembersLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [slug, activeTab, liveControlTab, liveExpandedCellId])
 
   useEffect(() => {
     if (department && activeTab === 'financial') {
@@ -388,6 +564,15 @@ export default function DepartmentHub() {
         .finally(() => setLoadingBudget(false))
     }
   }, [department, activeTab])
+
+  useEffect(() => {
+    if (slug !== 'event-m' || activeTab !== 'financial' || !department) return
+    setLoadingEventSpending(true)
+    getEventSpendingItemsByDepartment(department.name)
+      .then(setEventSpendingItems)
+      .catch(() => setEventSpendingItems([]))
+      .finally(() => setLoadingEventSpending(false))
+  }, [slug, activeTab, department])
 
   useEffect(() => {
     if (!department || activeTab !== 'planning') return
@@ -515,7 +700,9 @@ export default function DepartmentHub() {
     return (
       <div className="p-6 text-slate-600">
         <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
-        <p className="mt-4">You do not have access to {department.name} department.</p>
+        <p className="mt-4">
+          You do not have access to {department.name === 'Event M' ? 'Event Management' : department.name} department.
+        </p>
       </div>
     )
   }
@@ -548,6 +735,51 @@ export default function DepartmentHub() {
     ? (userProfile?.role === ROLES.DIRECTOR ? 'Director' : 'Coordinator')
     : null
 
+  // Local-only drafts (device/browser). Does not change Firestore structure or save logic.
+  const planningDraftPeriod = useMemo(() => new Date().toISOString().slice(0, 7), [])
+  const planningDraftStorageKey = useMemo(() => {
+    if (!department?.name) return null
+    const who = userProfile?.email || userProfile?.displayName || user?.uid || 'unknown'
+    return `rol:planningDraft:${department.name}:${who}:${planningDraftPeriod}`
+  }, [department?.name, userProfile?.email, userProfile?.displayName, user?.uid, planningDraftPeriod])
+
+  useEffect(() => {
+    // Reset when switching departments.
+    setPlanningDraftLoadedOnce(false)
+    setPlanningDraftStatus('')
+  }, [slug])
+
+  useEffect(() => {
+    if (activeTab !== 'planning') return
+    if (!canEdit) return
+    if (!planningDraftStorageKey) return
+    if (planningDraftLoadedOnce) return
+
+    try {
+      const saved = localStorage.getItem(planningDraftStorageKey)
+      if (saved != null) setPlanningNotes(saved)
+    } catch {
+      // Ignore localStorage errors (private mode, blocked storage, etc).
+    } finally {
+      setPlanningDraftLoadedOnce(true)
+    }
+  }, [activeTab, canEdit, planningDraftLoadedOnce, planningDraftStorageKey])
+
+  const handleSavePlanningDraft = () => {
+    if (!canEdit) return
+    if (!planningDraftStorageKey) return
+    setSavingPlanningDraft(true)
+    try {
+      localStorage.setItem(planningDraftStorageKey, planningNotes || '')
+      setPlanningDraftStatus('Draft saved locally')
+      setTimeout(() => setPlanningDraftStatus(''), 2500)
+    } catch {
+      alert('Failed to save draft locally')
+    } finally {
+      setSavingPlanningDraft(false)
+    }
+  }
+
   const handleSavePlanning = async (e) => {
     e.preventDefault()
     if (!canEdit) return
@@ -560,6 +792,10 @@ export default function DepartmentHub() {
         notes: planningNotes,
         enteredBy: userProfile?.displayName || userProfile?.email || 'unknown',
       })
+      // Draft is only a local helper; once submitted, clear it.
+      try {
+        if (planningDraftStorageKey) localStorage.removeItem(planningDraftStorageKey)
+      } catch {}
       setEntries((prev) => [{ notes: planningNotes, type: 'planning', createdAt: new Date() }, ...prev])
     } finally {
       setSavingPlanning(false)
@@ -594,7 +830,7 @@ export default function DepartmentHub() {
     <div>
       <DepartmentTabBar
         slug={slug}
-        activeTab={activeTab}
+        activeTab={activeTabForBar}
         setActiveTab={(t) => {
           setActiveTab(t)
           setSearchParams({ tab: t }, { replace: true })
@@ -602,12 +838,46 @@ export default function DepartmentHub() {
       />
 
       <div className="space-y-6 p-4">
-      {loading ? (
+      {isAccountsEntryRoute ? (
+        <Outlet />
+      ) : loading ? (
         <div className="py-8 text-center text-slate-500">Loading...</div>
       ) : (
         <>
           {activeTab === 'summary' && (
             <>
+              <div className="bg-white/70 backdrop-blur rounded-xl border border-slate-200/70 p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-slate-800">Work Cockpit</h3>
+                    <p className="text-sm text-slate-600 mt-1">
+                      {slug === 'cell'
+                        ? `${cellPendingChanges.length} pending member approval${cellPendingChanges.length === 1 ? '' : 's'}`
+                        : `${pending.length} pending item${pending.length === 1 ? '' : 's'}`}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('planning')
+                        setSearchParams({ tab: 'planning' }, { replace: true })
+                      }}
+                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    >
+                      Open planning
+                    </button>
+                    {slug === 'accounts' && canAccessAccountsEntry(userProfile, hasPermission, isFounder) && (
+                      <Link
+                        to={`${ACCOUNTS_ENTRY_BASE_PATH}/tally`}
+                        className="px-4 py-2 rounded-lg bg-white text-slate-800 text-sm font-medium border border-slate-300 hover:bg-slate-50"
+                      >
+                        Accounts Entry
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </div>
               {slug === 'cell' ? (
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                   <h2 className="font-semibold text-slate-800 mb-3">Pending For Review</h2>
@@ -1433,6 +1703,20 @@ export default function DepartmentHub() {
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[140px]"
                       rows={6}
                     />
+                    {planningDraftStatus ? (
+                      <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
+                        {planningDraftStatus}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <button
+                        type="button"
+                        onClick={handleSavePlanningDraft}
+                        disabled={savingPlanningDraft || savingPlanning}
+                        className="px-4 py-2 rounded-lg bg-white text-slate-800 text-sm font-medium border border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {savingPlanningDraft ? 'Saving draft…' : 'Save Draft'}
+                      </button>
                     <button
                       type="submit"
                       disabled={savingPlanning}
@@ -1440,6 +1724,7 @@ export default function DepartmentHub() {
                     >
                       {savingPlanning ? 'Saving...' : 'Save planning'}
                     </button>
+                    </div>
                   </form>
                 ) : (
                   <div className="text-slate-600 whitespace-pre-wrap">
@@ -2078,14 +2363,26 @@ export default function DepartmentHub() {
                       <label className="block text-xs font-medium text-slate-700 mb-1">
                         Role / Position
                       </label>
-                      <input
-                        type="text"
-                        value={memberForm.role}
-                        onChange={(e) =>
-                          setMemberForm((f) => ({ ...f, role: e.target.value }))
-                        }
-                        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                      />
+                      {slug === 'event-m' ? (
+                        <select
+                          value={memberForm.role}
+                          onChange={(e) => setMemberForm((f) => ({ ...f, role: e.target.value }))}
+                          className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm bg-white"
+                        >
+                          <option value="">— Select role —</option>
+                          <option value="Pastor">Pastor</option>
+                          <option value="Coordinator">Coordinator</option>
+                          <option value="Volunteer">Volunteer</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={memberForm.role}
+                          onChange={(e) => setMemberForm((f) => ({ ...f, role: e.target.value }))}
+                          className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
+                        />
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1">
@@ -2286,7 +2583,7 @@ export default function DepartmentHub() {
           {slug === 'event-m' && activeTab === 'events' && department && (
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="font-semibold text-slate-800">New Event</h2>
+                <h2 className="font-semibold text-slate-800">Event Management</h2>
                 {canEdit && (
                   <button
                     type="button"
@@ -2316,7 +2613,16 @@ export default function DepartmentHub() {
                             userProfile?.email || userProfile?.displayName || 'unknown'
                           )
                           setDeptEvents((prev) => [
-                            { id, name: n, program: '', budget: '', team: '', createdAt: new Date() },
+                            {
+                              id,
+                              name: n,
+                              budget: '',
+                              team: '',
+                              programs: [],
+                              liveCellAttendance: {},
+                              programScheduleStartTime: '',
+                              createdAt: new Date(),
+                            },
                             ...prev,
                           ])
                           setSelectedEventId(id)
@@ -2412,15 +2718,248 @@ export default function DepartmentHub() {
                           )}
                         </div>
                         {eventSubTab === 'program' && (
-                          <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">Program</label>
-                            <textarea
-                              value={eventForm.program}
-                              disabled={!canEdit}
-                              onChange={(e) => setEventForm((f) => ({ ...f, program: e.target.value }))}
-                              rows={10}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm disabled:bg-slate-50"
-                            />
+                          <div className="space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <h3 className="text-sm font-semibold text-slate-800">Program</h3>
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEventProgramForm({ programNo: '', programName: '', programBy: '', duration: '' })
+                                    setEventProgramEditingId(null)
+                                    setEventProgramModalOpen(true)
+                                  }}
+                                  className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                                >
+                                  Add Program
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-wrap items-end gap-3">
+                              <div>
+                                <label className="block text-xs font-medium text-slate-700 mb-1">
+                                  Schedule starts at (set once for this event)
+                                </label>
+                                <input
+                                  type="time"
+                                  disabled={!canEdit}
+                                  value={normalizeTimeToHHmm(eventForm.programScheduleStartTime)}
+                                  onChange={async (e) => {
+                                    const v = e.target.value
+                                    setEventForm((f) => ({ ...f, programScheduleStartTime: v }))
+                                    if (!selectedEventId || !canEdit) return
+                                    try {
+                                      await updateDepartmentEvent(selectedEventId, { programScheduleStartTime: v })
+                                      setDeptEvents((prev) =>
+                                        prev.map((ev) =>
+                                          ev.id === selectedEventId ? { ...ev, programScheduleStartTime: v } : ev
+                                        )
+                                      )
+                                    } catch {
+                                      alert('Failed to save schedule start time')
+                                    }
+                                  }}
+                                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm disabled:bg-slate-100"
+                                />
+                              </div>
+                              <p className="text-xs text-slate-600 flex-1 min-w-[220px]">
+                                Planned start/end for each program row are calculated from this single time + each item’s duration in Program No order.
+                                Add Program only asks for duration — not a separate start time per row.
+                              </p>
+                            </div>
+
+                            {eventForm.programs.length === 0 ? (
+                              <p className="text-sm text-slate-500">No programs yet. Add your first program to enable Live Control timer.</p>
+                            ) : (
+                              <div className="overflow-x-auto">
+                                        <table className="min-w-full text-sm border border-slate-200 rounded-lg">
+                                  <thead className="bg-slate-50">
+                                    <tr>
+                                      <th className="text-left px-4 py-2 font-medium text-slate-600">Program No</th>
+                                      <th className="text-left px-4 py-2 font-medium text-slate-600">Program</th>
+                                      <th className="text-left px-4 py-2 font-medium text-slate-600">Program By</th>
+                                      <th className="text-left px-4 py-2 font-medium text-slate-600">Duration</th>
+                                      <th className="text-left px-4 py-2 font-medium text-slate-600">Planned start (auto)</th>
+                                      <th className="text-left px-4 py-2 font-medium text-slate-600">Planned end (auto)</th>
+                                      <th className="text-left px-4 py-2 font-medium text-slate-600">Realtime</th>
+                                      <th className="text-left px-4 py-2 font-medium text-slate-600 w-24">Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {(() => {
+                                      const sorted = [...eventForm.programs].sort(
+                                        (a, b) => Number(a.programNo ?? 0) - Number(b.programNo ?? 0)
+                                      )
+                                      const anchor = eventForm.programScheduleStartTime
+                                      return sorted.map((p, index) => (
+                                        <tr key={p.id || `${p.programNo}-${p.programName}`} className="hover:bg-slate-50">
+                                          <td className="px-4 py-2 text-slate-800">{p.programNo ?? '—'}</td>
+                                          <td className="px-4 py-2 text-slate-800 font-medium">{p.programName || '—'}</td>
+                                          <td className="px-4 py-2 text-slate-600">{p.programBy || '—'}</td>
+                                          <td className="px-4 py-2 text-slate-600">{p.duration ?? '—'}</td>
+                                          <td className="px-4 py-2 text-slate-600">
+                                            {plannedSegmentStartHHmm(sorted, anchor, index) || '—'}
+                                          </td>
+                                          <td className="px-4 py-2 text-slate-600">
+                                            {plannedSegmentEndHHmm(sorted, anchor, index) || '—'}
+                                          </td>
+                                          <td className="px-4 py-2 text-slate-700">
+                                            <div className="flex flex-col">
+                                              <span className="text-xs text-slate-500">Duration</span>
+                                              <span className="font-medium">{p.realtime?.durationMinutes ?? '—'}</span>
+                                              <span className="mt-1 text-xs text-slate-500">Time</span>
+                                              <span className="font-medium">{p.realtime?.time || '—'}</span>
+                                            </div>
+                                          </td>
+                                          <td className="px-4 py-2">
+                                            <button
+                                              type="button"
+                                              disabled={!canEdit}
+                                              onClick={() => {
+                                                setEventProgramEditingId(p.id || null)
+                                                setEventProgramForm({
+                                                  programNo: p.programNo ?? '',
+                                                  programName: p.programName ?? '',
+                                                  programBy: p.programBy ?? '',
+                                                  duration: p.duration ?? '',
+                                                })
+                                                setEventProgramModalOpen(true)
+                                              }}
+                                              className="text-blue-600 hover:underline text-sm disabled:opacity-60"
+                                            >
+                                              Edit
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      ))
+                                    })()}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+
+                            {eventProgramModalOpen && canEdit && (
+                              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
+                                  <h3 className="font-semibold text-slate-800 mb-3">
+                                    {eventProgramEditingId ? 'Edit Program' : 'Add Program'}
+                                  </h3>
+                                  <form
+                                    onSubmit={async (e) => {
+                                      e.preventDefault()
+                                      const programNo = Number(eventProgramForm.programNo)
+                                      const programName = String(eventProgramForm.programName || '').trim()
+                                      const programBy = String(eventProgramForm.programBy || '').trim()
+                                      const duration = Number(eventProgramForm.duration)
+                                      if (!programNo || !programName || !programBy || !duration) return
+                                      try {
+                                        const programsNext = (eventForm.programs || []).slice().sort((a, b) => Number(a.programNo ?? 0) - Number(b.programNo ?? 0))
+
+                                        if (eventProgramEditingId) {
+                                          for (let i = 0; i < programsNext.length; i++) {
+                                            const p = programsNext[i]
+                                            if ((p.id || null) !== eventProgramEditingId) continue
+                                            const { time: _legacyTime, ...rest } = p
+                                            programsNext[i] = {
+                                              ...rest,
+                                              programNo,
+                                              programName,
+                                              programBy,
+                                              duration,
+                                              realtime: p.realtime ?? { durationMinutes: null, time: null, startAtMs: null },
+                                            }
+                                          }
+                                        } else {
+                                          const nextId =
+                                            typeof crypto !== 'undefined' && crypto.randomUUID
+                                              ? crypto.randomUUID()
+                                              : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+                                          programsNext.push({
+                                            id: nextId,
+                                            programNo,
+                                            programName,
+                                            programBy,
+                                            duration,
+                                            realtime: { durationMinutes: null, time: null, startAtMs: null },
+                                          })
+                                        }
+
+                                        const sorted = programsNext.sort((a, b) => Number(a.programNo ?? 0) - Number(b.programNo ?? 0))
+                                        await updateDepartmentEvent(selectedEventId, { programs: sorted })
+                                        setEventForm((f) => ({ ...f, programs: sorted }))
+                                        setDeptEvents((prev) =>
+                                          prev.map((ev) => (ev.id === selectedEventId ? { ...ev, programs: sorted } : ev))
+                                        )
+                                        setEventProgramEditingId(null)
+                                        setEventProgramModalOpen(false)
+                                      } catch {
+                                        alert(eventProgramEditingId ? 'Failed to update program' : 'Failed to add program')
+                                      }
+                                    }}
+                                    className="space-y-3"
+                                  >
+                                    <div>
+                                      <label className="block text-xs text-slate-600 mb-1">Program No *</label>
+                                      <input
+                                        type="number"
+                                        value={eventProgramForm.programNo}
+                                        onChange={(e) => setEventProgramForm((f) => ({ ...f, programNo: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                        required
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-slate-600 mb-1">Program Name *</label>
+                                      <input
+                                        type="text"
+                                        value={eventProgramForm.programName}
+                                        onChange={(e) => setEventProgramForm((f) => ({ ...f, programName: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                        required
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-slate-600 mb-1">Program By *</label>
+                                      <input
+                                        type="text"
+                                        value={eventProgramForm.programBy}
+                                        onChange={(e) => setEventProgramForm((f) => ({ ...f, programBy: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                        required
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-slate-600 mb-1">Duration (mins) *</label>
+                                      <input
+                                        type="number"
+                                        value={eventProgramForm.duration}
+                                        onChange={(e) => setEventProgramForm((f) => ({ ...f, duration: e.target.value }))}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                        required
+                                        min="1"
+                                      />
+                                    </div>
+                                    <p className="text-xs text-slate-500">
+                                      Set the event <strong>Schedule starts at</strong> once above the table. Planned start/end columns update automatically from that time + each program’s duration in order.
+                                    </p>
+
+                                    <div className="flex gap-2 pt-2">
+                                      <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">
+                                        Add
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEventProgramModalOpen(false)}
+                                        className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </form>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                         {eventSubTab === 'budget' && (
@@ -2454,9 +2993,11 @@ export default function DepartmentHub() {
                               try {
                                 await updateDepartmentEvent(selectedEventId, {
                                   name: eventForm.name,
-                                  program: eventForm.program,
                                   budget: eventForm.budget,
                                   team: eventForm.team,
+                                  programs: eventForm.programs,
+                                  liveCellAttendance: eventForm.liveCellAttendance,
+                                  programScheduleStartTime: eventForm.programScheduleStartTime,
                                 })
                                 setDeptEvents((prev) =>
                                   prev.map((e) => (e.id === selectedEventId ? { ...e, ...eventForm } : e))
@@ -2478,10 +3019,571 @@ export default function DepartmentHub() {
             </div>
           )}
 
+          {slug === 'event-m' && activeTab === 'liveControl' && department && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <h2 className="font-semibold text-slate-800">Live Control</h2>
+                  <p className="text-sm text-slate-500">Realtime timer + attendance for the selected event.</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="text-sm text-slate-700 font-medium">
+                    Select Event
+                    <select
+                      value={selectedEventId || ''}
+                      onChange={(e) => setSelectedEventId(e.target.value || null)}
+                      className="ml-2 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                      disabled={eventsLoading || deptEvents.length === 0}
+                    >
+                      <option value="" disabled>
+                        Choose…
+                      </option>
+                      {deptEvents.map((ev) => (
+                        <option key={ev.id} value={ev.id}>
+                          {ev.name || 'Untitled'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3 mb-4">
+                  {['timer', 'attendance'].map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setLiveControlTab(k)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize ${
+                        liveControlTab === k ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+
+                {!selectedEventId ? (
+                  <p className="text-sm text-slate-500">Select an event to control.</p>
+                ) : (
+                  <>
+                    {liveControlTab === 'timer' && (
+                      <div className="space-y-4">
+                        <h3 className="font-semibold text-slate-800">Timer</h3>
+                        {eventForm.programs.length === 0 ? (
+                          <p className="text-sm text-slate-500">No programs found for this event. Add programs in New Event → Program.</p>
+                        ) : (
+                          <div className="space-y-6">
+                            {(() => {
+                              const programsSorted = [...(eventForm.programs || [])].sort(
+                                (a, b) => Number(a.programNo ?? 0) - Number(b.programNo ?? 0)
+                              )
+                              const anchor = eventForm.programScheduleStartTime
+                              const nextIdx = programsSorted.findIndex((p) => p.realtime?.startAtMs == null)
+                              const nextProgram = nextIdx >= 0 ? programsSorted[nextIdx] : null
+
+                              const recordStartAtIndex = async (idx) => {
+                                if (!canEdit || idx < 0) return
+                                const nowMs = Date.now()
+                                const timeStr = formatHHmm(new Date(nowMs))
+                                const prevStartMs =
+                                  idx > 0 ? programsSorted[idx - 1]?.realtime?.startAtMs ?? null : null
+                                const prevDurationMinutes =
+                                  prevStartMs == null ? null : Math.max(0, Math.round((nowMs - prevStartMs) / 60000))
+
+                                const programsNext = programsSorted.map((x, i) => {
+                                  if (i === idx) {
+                                    return {
+                                      ...x,
+                                      realtime: {
+                                        ...(x.realtime || {}),
+                                        startAtMs: nowMs,
+                                        time: timeStr,
+                                        durationMinutes: x.realtime?.durationMinutes ?? null,
+                                      },
+                                    }
+                                  }
+                                  if (i === idx - 1 && prevDurationMinutes != null) {
+                                    const alreadyHasDuration = x.realtime?.durationMinutes != null
+                                    if (alreadyHasDuration) return x
+                                    return {
+                                      ...x,
+                                      realtime: {
+                                        ...(x.realtime || {}),
+                                        durationMinutes: prevDurationMinutes,
+                                      },
+                                    }
+                                  }
+                                  return x
+                                })
+                                try {
+                                  await updateDepartmentEvent(selectedEventId, { programs: programsNext })
+                                  setEventForm((f) => ({ ...f, programs: programsNext }))
+                                  setDeptEvents((prev) =>
+                                    prev.map((ev) => (ev.id === selectedEventId ? { ...ev, programs: programsNext } : ev))
+                                  )
+                                } catch {
+                                  alert('Failed to record start time')
+                                }
+                              }
+
+                              return (
+                                <>
+                                  <p className="text-sm text-slate-500">
+                                    Tap the large START button when each program begins. The button always shows the{' '}
+                                    <strong>next</strong> program to time — same as Cell Sunday flow.
+                                  </p>
+
+                                  <div className="flex flex-col items-center">
+                                    {nextProgram ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          disabled={!canEdit}
+                                          onClick={() => recordStartAtIndex(nextIdx)}
+                                          className={`rounded-xl shadow-lg border-2 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition ${
+                                            canEdit
+                                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700'
+                                              : 'bg-slate-200 text-slate-600 border-slate-300 cursor-not-allowed'
+                                          }`}
+                                          style={{ width: '3in', minWidth: '3in', height: '3.8in', minHeight: '3.8in' }}
+                                        >
+                                          <span className="text-3xl md:text-4xl font-bold tracking-wide">START</span>
+                                          <span className="text-sm md:text-base text-white/95 mt-3 font-medium text-center px-2">
+                                            {nextProgram.programName || 'Program'}
+                                          </span>
+                                        </button>
+                                        <p className="text-xs text-slate-500 mt-2 text-center">
+                                          Next to record: <strong>{nextProgram.programName}</strong>
+                                        </p>
+                                      </>
+                                    ) : (
+                                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-6 py-5 text-center max-w-md">
+                                        <p className="font-semibold text-emerald-800">All programs recorded</p>
+                                        <p className="text-sm text-emerald-700 mt-1">Realtime times are saved on this event.</p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="overflow-x-auto">
+                                    <table className="min-w-full text-sm border border-slate-200 rounded-lg">
+                                      <thead className="bg-slate-50">
+                                        <tr>
+                                          <th className="text-left px-4 py-2 font-medium text-slate-600">Program No</th>
+                                          <th className="text-left px-4 py-2 font-medium text-slate-600">Program</th>
+                                          <th className="text-left px-4 py-2 font-medium text-slate-600">Program By</th>
+                                          <th className="text-left px-4 py-2 font-medium text-slate-600">Planned start</th>
+                                          <th className="text-left px-4 py-2 font-medium text-slate-600">Planned end</th>
+                                          <th className="text-left px-4 py-2 font-medium text-slate-600">Realtime</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100">
+                                        {programsSorted.map((p, index) => {
+                                          const time = p.realtime?.time || '—'
+                                          const dur = p.realtime?.durationMinutes ?? '—'
+                                          return (
+                                            <tr key={p.id || `${p.programNo}-${p.programName}`}>
+                                              <td className="px-4 py-2 text-slate-800">{p.programNo ?? '—'}</td>
+                                              <td className="px-4 py-2 text-slate-800 font-medium">{p.programName || '—'}</td>
+                                              <td className="px-4 py-2 text-slate-600">{p.programBy || '—'}</td>
+                                              <td className="px-4 py-2 text-slate-600">
+                                                {plannedSegmentStartHHmm(programsSorted, anchor, index) || '—'}
+                                              </td>
+                                              <td className="px-4 py-2 text-slate-600">
+                                                {plannedSegmentEndHHmm(programsSorted, anchor, index) || '—'}
+                                              </td>
+                                              <td className="px-4 py-2 text-slate-700">
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-slate-500">RTD</span>
+                                                  <span className="font-medium">{dur}</span>
+                                                  <span className="mt-1 text-xs text-slate-500">Start</span>
+                                                  <span className="font-medium">{time}</span>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          )
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </>
+                              )
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {liveControlTab === 'attendance' && (
+                      <div className="space-y-4">
+                        <h3 className="font-semibold text-slate-800">Attendance</h3>
+
+                        {!canEdit && (
+                          <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            You do not have permission to control attendance for this event.
+                          </p>
+                        )}
+
+                        {liveCellGroupsLoading ? (
+                          <p className="text-sm text-slate-500">Loading cell groups…</p>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                            {liveCellGroups.map((g) => {
+                              const expanded = liveExpandedCellId === g.id
+                              const presentCount = (eventForm.liveCellAttendance?.[g.id] || []).length
+                              return (
+                                <div key={g.id} className="rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+                                  <button
+                                    type="button"
+                                    onClick={() => setLiveExpandedCellId(expanded ? null : g.id)}
+                                    className={`w-full text-left p-4 transition ${
+                                      expanded ? 'bg-indigo-100 border-b border-indigo-200' : 'hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    <p className="font-semibold text-slate-800 text-sm leading-tight">{g.cellName || 'Unnamed'}</p>
+                                    <p className="text-xs text-slate-500 mt-1">{presentCount} selected</p>
+                                  </button>
+
+                                  {expanded && (
+                                    <div className="p-3 bg-white max-h-64 overflow-y-auto">
+                                      {liveMembersLoading ? (
+                                        <p className="text-xs text-slate-500">Loading members…</p>
+                                      ) : liveMembersForCell.length === 0 ? (
+                                        <p className="text-xs text-slate-500">No active members.</p>
+                                      ) : (
+                                        <>
+                                          <div className="flex gap-2 mb-3 items-end">
+                                            <div className="flex-1">
+                                              <label className="block text-[11px] text-slate-500 mb-1">Add Name</label>
+                                              <input
+                                                type="text"
+                                                value={liveAddNameInput}
+                                                onChange={(e) => setLiveAddNameInput(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                                                placeholder="Type name and click Add"
+                                              />
+                                            </div>
+                                            <button
+                                              type="button"
+                                              disabled={!canEdit || !String(liveAddNameInput || '').trim()}
+                                              onClick={() => {
+                                                const nm = String(liveAddNameInput || '').trim()
+                                                if (!canEdit || !nm) return
+                                                const current = new Set(eventForm.liveCellAttendance?.[g.id] || [])
+                                                current.add(nm)
+                                                const nextMap = { ...(eventForm.liveCellAttendance || {}) }
+                                                nextMap[g.id] = Array.from(current)
+                                                setEventForm((f) => ({ ...f, liveCellAttendance: nextMap }))
+                                                setDeptEvents((prev) =>
+                                                  prev.map((ev) =>
+                                                    ev.id === selectedEventId ? { ...ev, liveCellAttendance: nextMap } : ev
+                                                  )
+                                                )
+                                                updateDepartmentEvent(selectedEventId, { liveCellAttendance: nextMap }).catch(() => {
+                                                  alert('Failed to save attendance')
+                                                })
+                                                setLiveAddNameInput('')
+                                              }}
+                                              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
+                                            >
+                                              Add
+                                            </button>
+                                          </div>
+
+                                          {(() => {
+                                            const presentList = Array.isArray(eventForm.liveCellAttendance?.[g.id])
+                                              ? eventForm.liveCellAttendance[g.id]
+                                              : []
+                                            const presentSet = new Set(presentList)
+                                            const memberNames = liveMembersForCell
+                                              .map((m) => String(m.name || '').trim())
+                                              .filter(Boolean)
+                                            const memberNameSet = new Set(memberNames)
+                                            const extras = presentList.filter((n) => n && !memberNameSet.has(n))
+
+                                            const pastors = []
+                                            const tamil = []
+                                            const children = []
+                                            const newComers = []
+                                            const others = []
+
+                                            for (const m of liveMembersForCell) {
+                                              const nm = String(m.name || '').trim()
+                                              if (!nm) continue
+                                              const roleStr = String(m.role || '').toLowerCase()
+                                              if (roleStr.includes('pastor')) pastors.push(m)
+                                              else if (roleStr.includes('tamil')) tamil.push(m)
+                                              else if (roleStr.includes('child')) children.push(m)
+                                              else if (roleStr.includes('new')) newComers.push(m)
+                                              else others.push(m)
+                                            }
+
+                                            const Category = ({ title, list, showExtras = false }) => (
+                                              <div className="mb-4">
+                                                <div className="text-xs font-semibold text-slate-600 mb-2">{title}</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                  {list.map((m) => {
+                                                    const nm = String(m.name || '').trim()
+                                                    const sel = presentSet.has(nm)
+                                                    return (
+                                                      <button
+                                                        key={m.id}
+                                                        type="button"
+                                                        disabled={!canEdit || !nm}
+                                                        onClick={() => {
+                                                          if (!canEdit || !nm) return
+                                                          const current = new Set(eventForm.liveCellAttendance?.[g.id] || [])
+                                                          if (current.has(nm)) current.delete(nm)
+                                                          else current.add(nm)
+                                                          const nextMap = { ...(eventForm.liveCellAttendance || {}) }
+                                                          nextMap[g.id] = Array.from(current)
+                                                          setEventForm((f) => ({ ...f, liveCellAttendance: nextMap }))
+                                                          setDeptEvents((prev) =>
+                                                            prev.map((ev) =>
+                                                              ev.id === selectedEventId
+                                                                ? { ...ev, liveCellAttendance: nextMap }
+                                                                : ev
+                                                            )
+                                                          )
+                                                          updateDepartmentEvent(selectedEventId, { liveCellAttendance: nextMap }).catch(() => {
+                                                            alert('Failed to save attendance')
+                                                          })
+                                                        }}
+                                                        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition ${
+                                                          sel
+                                                            ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                                            : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
+                                                        } ${!canEdit ? 'opacity-70 cursor-default' : ''}`}
+                                                      >
+                                                        {nm || '—'}
+                                                      </button>
+                                                    )
+                                                  })}
+                                                  {showExtras &&
+                                                    extras.map((nm, idx) => (
+                                                      <button
+                                                        key={`${nm}-${idx}`}
+                                                        type="button"
+                                                        disabled={!canEdit}
+                                                        onClick={() => {
+                                                          const current = new Set(eventForm.liveCellAttendance?.[g.id] || [])
+                                                          current.delete(nm)
+                                                          const nextMap = { ...(eventForm.liveCellAttendance || {}) }
+                                                          nextMap[g.id] = Array.from(current)
+                                                          setEventForm((f) => ({ ...f, liveCellAttendance: nextMap }))
+                                                          setDeptEvents((prev) =>
+                                                            prev.map((ev) =>
+                                                              ev.id === selectedEventId ? { ...ev, liveCellAttendance: nextMap } : ev
+                                                            )
+                                                          )
+                                                          updateDepartmentEvent(selectedEventId, { liveCellAttendance: nextMap }).catch(() => {
+                                                            alert('Failed to save attendance')
+                                                          })
+                                                        }}
+                                                        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition ${
+                                                          'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                                        } ${!canEdit ? 'opacity-70 cursor-default' : ''}`}
+                                                      >
+                                                        {nm}
+                                                      </button>
+                                                    ))}
+                                                </div>
+                                              </div>
+                                            )
+
+                                            return (
+                                              <div>
+                                                <Category title="Pastors" list={pastors} />
+                                                <Category title="Tamil" list={tamil} />
+                                                <Category title="Others" list={others} showExtras />
+                                                <Category title="New Comers" list={newComers} />
+                                                <Category title="Children" list={children} />
+                                                {pastors.length + tamil.length + others.length + newComers.length + children.length === 0 && (
+                                                  <p className="text-xs text-slate-500">No members.</p>
+                                                )}
+                                              </div>
+                                            )
+                                          })()}
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                            {liveCellGroups.length === 0 && <p className="text-sm text-slate-500">No cell groups found.</p>}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'financial' && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <h2 className="font-semibold text-slate-800 p-5 pb-0">Budget & Spending</h2>
               <p className="text-sm text-slate-500 px-5 pt-1">Budget items for this department (₹).</p>
+              {slug === 'event-m' && (
+                <div className="px-5 pt-4">
+                  <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                      <h3 className="font-semibold text-slate-800">Spending</h3>
+                      {canEdit && <span className="text-xs text-slate-500">Record spending per event.</span>}
+                    </div>
+
+                    {canEdit && (
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault()
+                          if (!spendingEventId) return
+                          const eventName = deptEvents.find((x) => x.id === spendingEventId)?.name || ''
+                          const amountNum = Number(spendingAmount) || 0
+                          const desc = String(spendingDescription || '').trim()
+                          const items = String(spendingItemsPurchased || '').trim()
+                          try {
+                            await addEventSpendingItem(
+                              {
+                                department: department?.name,
+                                eventId: spendingEventId,
+                                eventName,
+                                amount: amountNum,
+                                description: desc,
+                                itemsPurchased: items,
+                              },
+                              userProfile?.email || userProfile?.displayName || 'unknown'
+                            )
+                            const list = await getEventSpendingItemsByDepartment(department?.name)
+                            setEventSpendingItems(list)
+                            setSpendingAmount('')
+                            setSpendingItemsPurchased('')
+                            setSpendingDescription('')
+                          } catch {
+                            alert('Failed to save spending')
+                          }
+                        }}
+                        className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+                      >
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs text-slate-600 mb-1">Event</label>
+                          <select
+                            value={spendingEventId}
+                            onChange={(e) => setSpendingEventId(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                          >
+                            {deptEvents.length === 0 ? (
+                              <option value="">No events — create one in New Event first</option>
+                            ) : (
+                              deptEvents.map((ev) => (
+                                <option key={ev.id} value={ev.id}>
+                                  {ev.name || 'Untitled'}
+                                </option>
+                              ))
+                            )}
+                          </select>
+                          <p className="text-[11px] text-slate-500 mt-1">The event name saved on each row is taken from this list (e.g. Anniversary).</p>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs text-slate-600 mb-1">Items purchased</label>
+                          <input
+                            type="text"
+                            value={spendingItemsPurchased}
+                            onChange={(e) => setSpendingItemsPurchased(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                            placeholder="What was bought (e.g. decorations, sound, gifts…)"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-600 mb-1">Amount (₹)</label>
+                          <input
+                            type="number"
+                            value={spendingAmount}
+                            onChange={(e) => setSpendingAmount(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                            placeholder="Amount"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-600 mb-1">Notes (optional)</label>
+                          <input
+                            type="text"
+                            value={spendingDescription}
+                            onChange={(e) => setSpendingDescription(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                            placeholder="Receipt / vendor / extra notes"
+                          />
+                        </div>
+                        <div className="sm:col-span-2 flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={deptEvents.length === 0}
+                            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
+                          >
+                            + Add spending
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    <div className="mt-4">
+                      {loadingEventSpending ? (
+                        <p className="text-sm text-slate-500">Loading spending…</p>
+                      ) : eventSpendingItems.length === 0 ? (
+                        <p className="text-sm text-slate-500">No spending recorded yet.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm border border-slate-200 rounded-lg">
+                            <thead className="bg-slate-50">
+                              <tr>
+                                <th className="text-left px-4 py-2 font-medium text-slate-600">Event</th>
+                                <th className="text-left px-4 py-2 font-medium text-slate-600">Items purchased</th>
+                                <th className="text-left px-4 py-2 font-medium text-slate-600">Amount (₹)</th>
+                                <th className="text-left px-4 py-2 font-medium text-slate-600">Notes</th>
+                                {canEdit && (
+                                  <th className="text-left px-4 py-2 font-medium text-slate-600 w-24">Actions</th>
+                                )}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {eventSpendingItems.map((row) => (
+                                <tr key={row.id} className="hover:bg-slate-50">
+                                  <td className="px-4 py-2 text-slate-800 font-medium">{row.eventName || '—'}</td>
+                                  <td className="px-4 py-2 text-slate-600 max-w-[220px]">{row.itemsPurchased || '—'}</td>
+                                  <td className="px-4 py-2 text-slate-600">{Number(row.amount || 0).toLocaleString()}</td>
+                                  <td className="px-4 py-2 text-slate-600 max-w-[220px]">{row.description || '—'}</td>
+                                  {canEdit && (
+                                    <td className="px-4 py-2">
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          if (!window.confirm('Delete this spending record?')) return
+                                          try {
+                                            await deleteEventSpendingItem(row.id)
+                                            setEventSpendingItems((prev) => prev.filter((x) => x.id !== row.id))
+                                          } catch {
+                                            alert('Failed to delete')
+                                          }
+                                        }}
+                                        className="text-red-600 hover:underline text-sm"
+                                      >
+                                        Delete
+                                      </button>
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               {canEdit && (
                 <div className="px-5 py-3 border-b border-slate-200 flex justify-end">
                   <button

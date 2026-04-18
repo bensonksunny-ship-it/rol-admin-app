@@ -4,7 +4,7 @@
 export function getDepartmentHubTabs(slug) {
   switch (slug) {
     case 'cell':
-      return ['summary', 'cellGroups', 'cellReport', 'team', 'planning', 'financial']
+      return ['summary', 'cellGroups', 'cellReport', 'cellHistory', 'shepherd', 'midweek', 'team', 'planning', 'financial']
     case 'caring':
       return ['summary', 'members', 'subDepartment', 'team', 'planning', 'financial']
     case 'sunday-ministry':
@@ -12,9 +12,11 @@ export function getDepartmentHubTabs(slug) {
     case 'd-light':
       return ['summary', 'visitorEntry', 'assign', 'subDepartment', 'team', 'planning', 'financial']
     case 'event-m':
-      return ['summary', 'subDepartment', 'events', 'team', 'planning', 'financial']
+      return ['summary', 'events', 'liveControl', 'subDepartment', 'team', 'planning', 'financial']
     case 'river-kids':
       return ['summary', 'subDepartment', 'attendance', 'team', 'planning', 'financial']
+    case 'accounts':
+      return ['summary', 'entry', 'subDepartment', 'team', 'planning', 'financial']
     default:
       return ['summary', 'subDepartment', 'team', 'planning', 'financial']
   }

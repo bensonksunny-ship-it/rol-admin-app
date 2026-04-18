@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate } from '../services/firestore'
+import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
@@ -71,14 +71,24 @@ function WorshipPlanSummary({ selectedDate }) {
         <Link to={`/department/worship?date=${selectedDate}`} className="text-amber-600 hover:text-amber-700 text-sm font-semibold">Edit in Worship department →</Link>
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="rounded border border-amber-100 bg-amber-50/50 overflow-hidden">
-          <h4 className="text-sm font-semibold text-amber-900 bg-amber-100 px-2 py-1">Team by role</h4>
+        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+          <h4 className="text-sm font-semibold text-slate-950 bg-slate-50 px-4 py-3">Team by role</h4>
           <table className="w-full text-sm">
-            <thead><tr><th className="text-left py-1 px-2 text-slate-600">Role</th><th className="text-left py-1 px-2 text-slate-600">Assigned</th></tr></thead>
-            <tbody className="divide-y divide-amber-100">
-              {WORSHIP_ROLES.map((role) => {
+            <thead>
+              <tr>
+                <th className="text-left py-3 px-4 text-slate-600 font-medium">Role</th>
+                <th className="text-left py-3 px-4 text-slate-600 font-medium">Assigned</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {WORSHIP_ROLES.map((role, i) => {
                 const a = assignments.find((x) => x.role === role)
-                return <tr key={role}><td className="py-1 px-2 text-slate-800">{role}</td><td className="py-1 px-2 text-slate-600">{a?.memberName || '—'}</td></tr>
+                return (
+                  <tr key={role} className={i % 2 === 1 ? 'bg-slate-50' : ''}>
+                    <td className="py-4 px-4 text-slate-800">{role}</td>
+                    <td className="py-4 px-4 text-slate-600">{a?.memberName || '—'}</td>
+                  </tr>
+                )
               })}
             </tbody>
           </table>
@@ -112,10 +122,10 @@ function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
   }
 
   return (
-    <div className={`bg-white rounded-lg border border-slate-200 border-l-4 ${style.border} p-4 shadow-sm`}>
-      <h3 className="font-semibold text-slate-800 mb-2">{label}</h3>
+    <div className={`bg-white rounded-3xl border border-slate-200 border-l-4 ${style.border} p-5 shadow-sm`}>
+      <h3 className="font-semibold text-slate-950 mb-2">{label}</h3>
       {canEdit ? (
-        <form onSubmit={handleSubmit} className="space-y-2">
+        <form onSubmit={handleSubmit} className="space-y-3">
           <textarea
             value={form.notes ?? ''}
             onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
@@ -123,13 +133,15 @@ function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
             className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[80px]"
             rows={3}
           />
-          <button
-            type="submit"
-            disabled={saving}
-            className={`px-3 py-1.5 rounded-lg text-white text-sm font-medium disabled:opacity-50 ${style.btn}`}
-          >
-            {saving ? 'Saving...' : 'Save section'}
-          </button>
+          <div className="flex justify-end pt-1">
+            <button
+              type="submit"
+              disabled={saving}
+              className={`px-5 py-2 rounded-xl text-white text-sm font-semibold disabled:opacity-50 ${style.btn}`}
+            >
+              {saving ? 'Saving...' : 'Save section'}
+            </button>
+          </div>
         </form>
       ) : (
         <div className="text-slate-600 whitespace-pre-wrap">
@@ -143,14 +155,16 @@ function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
 export default function SundayPlanning() {
   const [searchParams, setSearchParams] = useSearchParams()
   const dateFromUrl = searchParams.get('date')
-  const { hasPermission, canEditSundaySection } = useAuth()
+  const { hasPermission, canEditSundaySection, userProfile } = useAuth()
   const [selectedDate, setSelectedDate] = useState(() => dateFromUrl || nextSundayISO())
   const [plan, setPlan] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [publishing, setPublishing] = useState(false)
   const [activeTab, setActiveTab] = useState('combined')
   const canView = hasPermission('attendance')
   const canEditFull = hasPermission('editSundayPlanFull')
+  const isPublished = plan?.status === 'published'
 
   useEffect(() => {
     if (dateFromUrl) setSelectedDate(dateFromUrl)
@@ -182,6 +196,27 @@ export default function SundayPlanning() {
     }
   }
 
+  const handlePublish = async () => {
+    if (!window.confirm('Publish this Sunday Plan? It will become visible as a Digital Bulletin to all users.')) return
+    setPublishing(true)
+    try {
+      await publishSundayPlan(selectedDate, userProfile?.displayName || userProfile?.email || 'unknown')
+      setPlan((prev) => ({ ...prev, status: 'published' }))
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  const handleUnpublish = async () => {
+    setPublishing(true)
+    try {
+      await unpublishSundayPlan(selectedDate, userProfile?.displayName || userProfile?.email || 'unknown')
+      setPlan((prev) => ({ ...prev, status: 'draft' }))
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   if (!canView) {
     return (
       <div className="p-8 text-slate-600">
@@ -191,11 +226,22 @@ export default function SundayPlanning() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 font-sans">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-700 to-blue-700 bg-clip-text text-transparent">Sunday Ministry Planning</h1>
-          <p className="text-slate-500 text-sm mt-0.5">Plan by section; data combined for reports.</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-bold text-slate-950">Sunday Plan</h1>
+            {isPublished ? (
+              <span className="px-2.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                ✓ Published — Digital Bulletin
+              </span>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+                Draft
+              </span>
+            )}
+          </div>
+          <p className="text-slate-500 text-sm mt-0.5">Plan by section; publish to share as Digital Bulletin.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-sm font-medium text-slate-600">Date</label>
@@ -219,32 +265,61 @@ export default function SundayPlanning() {
           >
             Next →
           </button>
+          {canEditFull && (
+            isPublished ? (
+              <button
+                type="button"
+                onClick={handleUnpublish}
+                disabled={publishing}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {publishing ? '…' : 'Unpublish'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handlePublish}
+                disabled={publishing || loading}
+                className="px-4 py-1.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50"
+              >
+                {publishing ? 'Publishing…' : '✓ Confirm & Publish'}
+              </button>
+            )
+          )}
         </div>
       </div>
 
-      <div className="flex gap-1.5 border-b border-slate-200 pb-0.5">
-        <button
-          type="button"
-          onClick={() => setActiveTab('combined')}
-          className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-            activeTab === 'combined' ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-sm' : 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
-          }`}
-        >
-          Combined view
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('mysection')}
-          className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
-            activeTab === 'mysection' ? 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm' : 'text-slate-600 hover:bg-violet-50 hover:text-violet-700'
-          }`}
-        >
-          My section only
-        </button>
+      <div className="relative bg-slate-100 rounded-full p-1 max-w-md w-full">
+        <div
+          className="absolute top-1 bottom-1 rounded-full bg-white shadow-sm border border-slate-200 transition-all duration-200"
+          style={{
+            left: activeTab === 'combined' ? '0%' : '50%',
+            width: '50%',
+          }}
+        />
+        <div className="relative grid grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('combined')}
+            className={`py-2 text-sm font-semibold rounded-full transition-colors ${activeTab === 'combined' ? 'text-slate-950' : 'text-slate-600'}`}
+          >
+            Combined view
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('mysection')}
+            className={`py-2 text-sm font-semibold rounded-full transition-colors ${activeTab === 'mysection' ? 'text-slate-950' : 'text-slate-600'}`}
+          >
+            My section only
+          </button>
+        </div>
       </div>
 
       {loading ? (
         <div className="py-12 text-center text-slate-500">Loading...</div>
+      ) : isPublished ? (
+        /* ── Digital Bulletin (read-only for all users) ───────────────── */
+        <DigitalBulletin plan={plan} selectedDate={selectedDate} />
       ) : activeTab === 'mysection' ? (
         <MySectionView
           plan={plan}
@@ -294,5 +369,49 @@ function MySectionView({ plan, canEditSundaySection, onSave, saving }) {
       onSave={onSave}
       saving={saving}
     />
+  )
+}
+
+// ── Digital Bulletin — polished read-only view shown once published ────────
+function DigitalBulletin({ plan, selectedDate }) {
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-3xl p-6 text-white shadow-lg">
+        <p className="text-indigo-200 text-xs uppercase tracking-widest mb-1">River Of Life Church</p>
+        <h2 className="text-2xl font-bold">Sunday Service</h2>
+        <p className="text-indigo-200 text-sm mt-1">{formatDMY(selectedDate)}</p>
+        <span className="inline-block mt-3 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-semibold">
+          ✓ Official Sunday Plan
+        </span>
+      </div>
+
+      {/* Worship — pulls from the Worship dept schedule */}
+      <WorshipPlanSummary selectedDate={selectedDate} />
+
+      {/* All other sections */}
+      {SECTION_ORDER.filter((k) => k !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) => {
+        const data = plan?.[key]
+        const notes = data?.notes || ''
+        const style = SECTION_ACCENT[key] || { border: 'border-l-indigo-400' }
+        return (
+          <div key={key} className={`bg-white rounded-3xl border border-slate-200 border-l-4 ${style.border} p-5 shadow-sm`}>
+            <h3 className="font-semibold text-slate-900 mb-2">{SECTION_LABELS[key]}</h3>
+            {notes ? (
+              <p className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">{notes}</p>
+            ) : (
+              <p className="text-slate-400 italic text-sm">Nothing entered for this section.</p>
+            )}
+          </div>
+        )
+      })}
+
+      {plan?.publishedBy && (
+        <p className="text-center text-xs text-slate-400">
+          Published by {plan.publishedBy}
+          {plan.publishedAt?.toDate ? ` on ${formatDMY(format(plan.publishedAt.toDate(), 'yyyy-MM-dd'))}` : ''}
+        </p>
+      )}
+    </div>
   )
 }

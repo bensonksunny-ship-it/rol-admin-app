@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
+import { ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
 
 /**
  * Returns the tab list for a department slug (same logic as DepartmentHub).
@@ -22,6 +23,12 @@ function getTabLabel(tab) {
       return 'Cell Groups'
     case 'cellReport':
       return 'Cell Report'
+    case 'cellHistory':
+      return 'History'
+    case 'shepherd':
+      return 'Shepherd'
+    case 'midweek':
+      return 'Mid-week'
     case 'members':
       return 'Members'
     case 'sundayReport':
@@ -37,7 +44,7 @@ function getTabLabel(tab) {
     case 'history':
       return 'History'
     case 'entry':
-      return 'Entry'
+      return 'Accounts Entry'
     case 'insights':
       return 'Insights'
     case 'visitorEntry':
@@ -46,6 +53,8 @@ function getTabLabel(tab) {
       return 'Attendance'
     case 'events':
       return 'New Event'
+    case 'liveControl':
+      return 'Live Control'
     default:
       return tab
   }
@@ -63,18 +72,35 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab }) {
   const tabHref = (tab) => `${hubPath}?tab=${encodeURIComponent(tab)}`
 
   return (
-    <div className="sticky top-0 z-40 min-h-[48px] flex flex-wrap items-center gap-2 px-4 py-2 bg-slate-800 text-white border-b border-slate-600 shadow">
+    <div className="sticky top-0 z-40 min-h-[48px] flex flex-wrap items-center gap-2 px-4 py-2 bg-white text-slate-900 border-b border-slate-200 shadow-sm">
       {tabs.map((tab) => {
         const label = getTabLabel(tab)
-        const baseClass = 'px-3 py-1.5 text-sm font-medium rounded transition whitespace-nowrap'
-        const activeClass = activeTab === tab ? 'bg-indigo-500' : 'hover:bg-slate-600'
+        const baseClass = 'px-3 py-1.5 text-sm font-medium rounded transition whitespace-nowrap border border-transparent'
+        const activeClass =
+          activeTab === tab
+            ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+            : 'hover:bg-slate-100 hover:text-indigo-700 border-transparent'
+
+        // Accounts → Entry is a real sub-page (route), not a ?tab= in-page panel.
+        if (tab === 'entry' && slug === 'accounts') {
+          const to = `${ACCOUNTS_ENTRY_BASE_PATH}/tally`
+          return (
+            <Link
+              key={tab}
+              to={to}
+              className={`${baseClass} ${activeTab === 'entry' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
+            >
+              {label}
+            </Link>
+          )
+        }
 
         if (tab === 'sundayReport') {
           return (
             <Link
               key={tab}
               to="/department/sunday-ministry/sunday-report"
-              className={`${baseClass} ${activeTab === 'sundayReport' ? 'bg-indigo-500' : 'hover:bg-slate-600'}`}
+              className={`${baseClass} ${activeTab === 'sundayReport' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
             >
               {label}
             </Link>
@@ -85,7 +111,7 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab }) {
             <Link
               key={tab}
               to="/department/sunday-ministry/sunday-program"
-              className={`${baseClass} ${activeTab === 'sundayProgram' ? 'bg-indigo-500' : 'hover:bg-slate-600'}`}
+              className={`${baseClass} ${activeTab === 'sundayProgram' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
             >
               {label}
             </Link>
@@ -96,7 +122,40 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab }) {
             <Link
               key={tab}
               to="/department/cell/cell-report"
-              className={`${baseClass} ${activeTab === 'cellReport' ? 'bg-indigo-500' : 'hover:bg-slate-600'}`}
+              className={`${baseClass} ${activeTab === 'cellReport' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
+            >
+              {label}
+            </Link>
+          )
+        }
+        if (tab === 'cellHistory') {
+          return (
+            <Link
+              key={tab}
+              to="/department/cell/cell-history"
+              className={`${baseClass} ${activeTab === 'cellHistory' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
+            >
+              {label}
+            </Link>
+          )
+        }
+        if (tab === 'shepherd') {
+          return (
+            <Link
+              key={tab}
+              to="/department/cell/shepherd"
+              className={`${baseClass} ${activeTab === 'shepherd' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
+            >
+              {label}
+            </Link>
+          )
+        }
+        if (tab === 'midweek') {
+          return (
+            <Link
+              key={tab}
+              to="/department/cell/midweek"
+              className={`${baseClass} ${activeTab === 'midweek' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
             >
               {label}
             </Link>
@@ -122,7 +181,7 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab }) {
       })}
       <Link
         to="/departments"
-        className="px-3 py-1.5 text-sm font-medium rounded hover:bg-slate-600 transition whitespace-nowrap ml-auto"
+        className="px-3 py-1.5 text-sm font-medium rounded hover:bg-slate-100 transition whitespace-nowrap ml-auto border border-slate-200 hover:border-slate-300"
       >
         Back to Department
       </Link>

@@ -642,7 +642,10 @@ export async function getDepartmentEvents(department) {
       id: d.id,
       department,
       name: x.name || '',
+      programs: Array.isArray(x.programs) ? x.programs : [],
+      liveCellAttendance: x.liveCellAttendance && typeof x.liveCellAttendance === 'object' ? x.liveCellAttendance : {},
       program: x.program || '',
+      programScheduleStartTime: x.programScheduleStartTime || '',
       budget: x.budget || '',
       team: x.team || '',
       createdAt: toDate(x.createdAt),
@@ -658,6 +661,9 @@ export async function addDepartmentEvent(department, name, createdBy) {
     department,
     name: String(name).trim(),
     program: '',
+    programs: [],
+    liveCellAttendance: {},
+    programScheduleStartTime: '',
     budget: '',
     team: '',
     createdBy: createdBy || 'unknown',
@@ -671,8 +677,11 @@ export async function updateDepartmentEvent(id, data) {
   const payload = {}
   if (data.name !== undefined) payload.name = String(data.name || '').trim()
   if (data.program !== undefined) payload.program = String(data.program || '')
+  if (data.programs !== undefined) payload.programs = Array.isArray(data.programs) ? data.programs : []
+  if (data.liveCellAttendance !== undefined) payload.liveCellAttendance = data.liveCellAttendance && typeof data.liveCellAttendance === 'object' ? data.liveCellAttendance : {}
   if (data.budget !== undefined) payload.budget = String(data.budget || '')
   if (data.team !== undefined) payload.team = String(data.team || '')
+  if (data.programScheduleStartTime !== undefined) payload.programScheduleStartTime = String(data.programScheduleStartTime || '')
   payload.updatedAt = Timestamp.now()
   await updateDoc(doc(db, DEPARTMENT_EVENTS_COLLECTION, id), payload)
 }
@@ -976,6 +985,63 @@ export async function deleteFinanceBudgetItem(id) {
   await deleteDoc(doc(db, FINANCE_BUDGET_COLLECTION, id))
 }
 
+// Event spending (Event Management → Spending section)
+const EVENT_SPENDING_COLLECTION = 'event_spending'
+
+export async function getEventSpendingItemsByDepartment(department) {
+  if (!db || !department) return []
+  const q = query(collection(db, EVENT_SPENDING_COLLECTION), where('department', '==', department))
+  const snap = await getDocs(q)
+  const list = snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      department: data.department || '',
+      eventId: data.eventId || '',
+      eventName: data.eventName || '',
+      amount: Number(data.amount) || 0,
+      description: data.description || '',
+      itemsPurchased: data.itemsPurchased != null ? String(data.itemsPurchased) : '',
+      createdAt: toDate(data.createdAt),
+    }
+  })
+  list.sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0))
+  return list
+}
+
+export async function addEventSpendingItem(data, addedBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, EVENT_SPENDING_COLLECTION), {
+    department: String(data.department || ''),
+    eventId: String(data.eventId || ''),
+    eventName: String(data.eventName || ''),
+    amount: Number(data.amount) || 0,
+    description: String(data.description || ''),
+    itemsPurchased: String(data.itemsPurchased || ''),
+    addedBy: addedBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateEventSpendingItem(id, data) {
+  if (!db || !id) return
+  const payload = {
+    eventId: data.eventId !== undefined ? String(data.eventId || '') : undefined,
+    eventName: data.eventName !== undefined ? String(data.eventName || '') : undefined,
+    amount: data.amount !== undefined ? Number(data.amount) || 0 : undefined,
+    description: data.description !== undefined ? String(data.description || '') : undefined,
+    itemsPurchased: data.itemsPurchased !== undefined ? String(data.itemsPurchased || '') : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, EVENT_SPENDING_COLLECTION, id), clean)
+}
+
+export async function deleteEventSpendingItem(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, EVENT_SPENDING_COLLECTION, id))
+}
+
 // Pastor department updates (Pastor page → Updates subpage: date, notes, pastorRating 1–10, changesSuggested)
 const PASTOR_UPDATES_COLLECTION = 'pastor_department_updates'
 
@@ -1270,12 +1336,17 @@ export async function getCellGroupMembers(cellId) {
 export async function addCellGroupMember(cellId, data) {
   if (!db || !cellId) return null
   const ref = await addDoc(cellGroupMembersRef(cellId), {
-    name: data.name || '',
-    birthday: data.birthday ? String(data.birthday).slice(0, 10) : '',
+    name:        data.name        || '',
+    phone:       data.phone       || '',
+    email:       data.email       || '',
+    birthday:    data.birthday    ? String(data.birthday).slice(0, 10)    : '',
     anniversary: data.anniversary ? String(data.anniversary).slice(0, 10) : '',
-    phone: data.phone || '',
-    locality: data.locality || '',
-    since: data.since ? String(data.since).slice(0, 10) : '',
+    since:       data.since       ? String(data.since).slice(0, 10)       : '',
+    locality:    data.locality    || '',
+    address:     data.address     || '',
+    occupation:  data.occupation  || '',
+    role:        data.role        || '',
+    notes:       data.notes       || '',
     status: data.status === 'inactive' ? 'inactive' : 'active',
     createdAt: Timestamp.now(),
   })
@@ -1287,15 +1358,18 @@ export async function addCellGroupMember(cellId, data) {
 export async function updateCellGroupMember(cellId, memberId, data) {
   if (!db || !cellId || !memberId) return
   const payload = {
-    name: data.name !== undefined ? String(data.name) : undefined,
-    birthday: data.birthday !== undefined ? String(data.birthday).slice(0, 10) : undefined,
-    anniversary: data.anniversary !== undefined ? String(data.anniversary).slice(0, 10) : undefined,
-    phone: data.phone !== undefined ? String(data.phone) : undefined,
-    email: data.email !== undefined ? String(data.email) : undefined,
-    role: data.role !== undefined ? String(data.role) : undefined,
-    locality: data.locality !== undefined ? String(data.locality) : undefined,
-    since: data.since !== undefined ? String(data.since).slice(0, 10) : undefined,
-    status: data.status !== undefined ? (data.status === 'inactive' ? 'inactive' : 'active') : undefined,
+    name:        data.name        !== undefined ? String(data.name)                                    : undefined,
+    phone:       data.phone       !== undefined ? String(data.phone)                                   : undefined,
+    email:       data.email       !== undefined ? String(data.email)                                   : undefined,
+    birthday:    data.birthday    !== undefined ? String(data.birthday).slice(0, 10)                   : undefined,
+    anniversary: data.anniversary !== undefined ? String(data.anniversary).slice(0, 10)                : undefined,
+    since:       data.since       !== undefined ? String(data.since).slice(0, 10)                      : undefined,
+    locality:    data.locality    !== undefined ? String(data.locality)                                : undefined,
+    address:     data.address     !== undefined ? String(data.address)                                 : undefined,
+    occupation:  data.occupation  !== undefined ? String(data.occupation)                              : undefined,
+    role:        data.role        !== undefined ? String(data.role)                                    : undefined,
+    notes:       data.notes       !== undefined ? String(data.notes)                                   : undefined,
+    status:      data.status      !== undefined ? (data.status === 'inactive' ? 'inactive' : 'active') : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId), clean)
@@ -1498,6 +1572,8 @@ export async function getActiveBackToBibleForDate(dateStr) {
 
 // Cell reports (one per cell per date; attendees in subcollection)
 const CELL_REPORTS_COLLECTION = 'cell_reports'
+// Weekly archive documents (grouped by weekStartISO)
+const CELL_REPORT_HISTORY_COLLECTION = 'cell_report_history'
 
 function cellReportAttendeesRef(reportId) {
   return collection(db, CELL_REPORTS_COLLECTION, reportId, 'attendees')
@@ -1526,6 +1602,8 @@ export async function getCellReportByCellAndDate(cellId, reportDate) {
     visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
     childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
     reportDate: data.reportDate || '',
+    attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
+    meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
     createdBy: data.createdBy || '',
     createdAt: toDate(data.createdAt),
   }
@@ -1553,6 +1631,8 @@ export async function getCellReportsByCell(cellId) {
       visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
       childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
       reportDate: data.reportDate || '',
+      attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
+      meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
       createdBy: data.createdBy || '',
       createdAt: toDate(data.createdAt),
     }
@@ -1580,10 +1660,29 @@ export async function getLatestCellReports(limitCount = 30) {
       visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
       childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
       reportDate: data.reportDate || '',
+      attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
+      meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
       createdBy: data.createdBy || '',
       createdAt: toDate(data.createdAt),
     }
   })
+}
+
+/**
+ * Read-only weekly archive history.
+ * Each doc is grouped by weekStartISO and contains program summary + totals.
+ */
+export async function getCellReportHistory({ cellId = null, limitCount = 200 } = {}) {
+  if (!db) return []
+
+  const constraints = []
+  if (cellId) constraints.push(where('cellId', '==', String(cellId)))
+  constraints.push(orderBy('weekStartISO', 'desc'))
+  constraints.push(limit(limitCount))
+
+  const q = query(collection(db, CELL_REPORT_HISTORY_COLLECTION), ...constraints)
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
 export async function createCellReport(data, createdBy) {
@@ -1613,6 +1712,8 @@ export async function updateCellReport(reportId, data) {
     children: data.children !== undefined ? Number(data.children) : undefined,
     visitorsList: data.visitorsList !== undefined ? (Array.isArray(data.visitorsList) ? data.visitorsList : []) : undefined,
     childrenList: data.childrenList !== undefined ? (Array.isArray(data.childrenList) ? data.childrenList : []) : undefined,
+    attendanceFinalizedAt: data.attendanceFinalized === true ? serverTimestamp() : undefined,
+    meetingFinalizedAt: data.meetingFinalized === true ? serverTimestamp() : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), clean)
@@ -2091,4 +2192,315 @@ export async function setSundayReport(dateStr, payload, updatedBy) {
     updatedAt: now,
   }, { merge: true })
   return ref.id
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHEPHERD VIEW — Back to Bible (extend with 5 pastoral fields)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Update the 5 Shepherd content fields on an existing cell_back_to_bible doc.
+ * Only Cell Directors should call this.
+ */
+export async function setCellBackToBibleShepherdFields(docId, fields) {
+  if (!db || !docId) return
+  const ref = doc(db, 'cell_back_to_bible', docId)
+  await updateDoc(ref, {
+    worship_song:   fields.worship_song   ?? '',
+    ice_breaker:    fields.ice_breaker    ?? '',
+    bible_content:  fields.bible_content  ?? '',
+    bible_quiz:     fields.bible_quiz     ?? '',
+    prayer_points:  fields.prayer_points  ?? '',
+    updatedAt: Timestamp.now(),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHEPHERD VIEW — Transfer a member between cell groups
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Move a member doc from one cell group to another.
+ * The caller (Cell Leader) must own fromCellId; enforced also in Firestore rules.
+ */
+export async function transferCellMember(fromCellId, memberId, toCellId) {
+  if (!db || !fromCellId || !memberId || !toCellId) return
+  const fromRef = doc(db, CELL_GROUPS_COLLECTION, fromCellId, 'members', memberId)
+  const snap = await getDoc(fromRef)
+  if (!snap.exists()) throw new Error('Member not found')
+  const memberData = snap.data()
+
+  const toRef = doc(db, CELL_GROUPS_COLLECTION, toCellId, 'members', memberId)
+  const batch = writeBatch(db)
+  batch.set(toRef, { ...memberData, transferredAt: Timestamp.now(), previousCellId: fromCellId })
+  batch.delete(fromRef)
+  await batch.commit()
+
+  // Update member counts on both cells
+  const [fromSnap, toSnap] = await Promise.all([
+    getDocs(collection(db, CELL_GROUPS_COLLECTION, fromCellId, 'members')),
+    getDocs(collection(db, CELL_GROUPS_COLLECTION, toCellId, 'members')),
+  ])
+  await Promise.all([
+    updateDoc(doc(db, CELL_GROUPS_COLLECTION, fromCellId), { memberCount: fromSnap.size }),
+    updateDoc(doc(db, CELL_GROUPS_COLLECTION, toCellId),   { memberCount: toSnap.size }),
+  ])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHEPHERD VIEW — Recent cell reports for attendance heatmap
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Get the last `count` cell reports for a given cellId, each with their attendee names.
+ * Returns: [{ reportId, reportDate, attendeeNames: Set<string> }, ...]  (newest first)
+ */
+export async function getRecentCellReportsForHeatmap(cellId, count = 2) {
+  if (!db || !cellId) return []
+  const q = query(
+    collection(db, CELL_REPORTS_COLLECTION),
+    where('cellId', '==', cellId),
+    orderBy('reportDate', 'desc'),
+    limit(count)
+  )
+  const snap = await getDocs(q)
+  if (snap.empty) return []
+
+  const results = await Promise.all(
+    snap.docs.map(async (d) => {
+      const attendeeSnap = await getDocs(
+        collection(db, CELL_REPORTS_COLLECTION, d.id, 'attendees')
+      )
+      const attendeeNames = new Set(
+        attendeeSnap.docs.map((a) => String(a.data().name || '').trim().toLowerCase())
+      )
+      return { reportId: d.id, reportDate: d.data().reportDate || '', attendeeNames }
+    })
+  )
+  return results
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUNDAY PLAN — Publish / Unpublish workflow
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function publishSundayPlan(dateStr, publishedBy) {
+  if (!db || !dateStr) return
+  const id = String(dateStr).slice(0, 10)
+  await setDoc(doc(db, 'sunday_plans', id), {
+    status: 'published',
+    publishedBy: publishedBy || 'unknown',
+    publishedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+export async function unpublishSundayPlan(dateStr, updatedBy) {
+  if (!db || !dateStr) return
+  const id = String(dateStr).slice(0, 10)
+  await setDoc(doc(db, 'sunday_plans', id), {
+    status: 'draft',
+    unpublishedBy: updatedBy || 'unknown',
+    unpublishedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUNDAY SERVICE ATTENDANCE — per-cell bubble grid (new collection)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SUNDAY_SVC_ATTENDANCE = 'sunday_service_attendance'
+
+/** Get the most recent Sunday service attendance for a specific cell (JS-sorted, no composite index needed). */
+export async function getLatestSundayAttendanceForCell(cellId) {
+  if (!db || !cellId) return { presentIds: [], date: null }
+  const q = query(collection(db, SUNDAY_SVC_ATTENDANCE), where('cellId', '==', cellId))
+  const snap = await getDocs(q)
+  if (snap.empty) return { presentIds: [], date: null }
+  const sorted = snap.docs
+    .map((d) => d.data())
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+  return { presentIds: sorted[0].presentIds || [], date: sorted[0].date || null }
+}
+
+export async function getSundayServiceAttendance(dateStr, cellId) {
+  if (!db || !dateStr || !cellId) return { presentIds: [] }
+  const id = `${String(dateStr).slice(0, 10)}_${cellId}`
+  const snap = await getDoc(doc(db, SUNDAY_SVC_ATTENDANCE, id))
+  if (!snap.exists()) return { presentIds: [] }
+  return { presentIds: snap.data().presentIds || [] }
+}
+
+export async function setSundayServiceAttendance(dateStr, cellId, presentIds, updatedBy) {
+  if (!db || !dateStr || !cellId) return
+  const id = `${String(dateStr).slice(0, 10)}_${cellId}`
+  await setDoc(doc(db, SUNDAY_SVC_ATTENDANCE, id), {
+    date: String(dateStr).slice(0, 10),
+    cellId,
+    presentIds: Array.isArray(presentIds) ? presentIds : [],
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUNDAY CHECKLISTS — defaults + weekly instances
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SUNDAY_CHECKLIST_DEFAULTS = 'sunday_checklist_defaults'
+const SUNDAY_CHECKLIST_WEEKLY   = 'sunday_checklist_weekly'
+
+export async function getSundayChecklistDefaults() {
+  if (!db) return {}
+  const snap = await getDocs(collection(db, SUNDAY_CHECKLIST_DEFAULTS))
+  const result = {}
+  snap.docs.forEach((d) => { result[d.id] = d.data().items || [] })
+  return result
+}
+
+export async function setSundayChecklistDefault(dept, items, updatedBy) {
+  if (!db || !dept) return
+  await setDoc(doc(db, SUNDAY_CHECKLIST_DEFAULTS, dept), {
+    items: Array.isArray(items) ? items : [],
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  })
+}
+
+/** Get weekly checklist completions for a given Sunday date. */
+export async function getSundayWeeklyChecklists(dateStr) {
+  if (!db || !dateStr) return {}
+  const d = String(dateStr).slice(0, 10)
+  const q = query(collection(db, SUNDAY_CHECKLIST_WEEKLY), where('date', '==', d))
+  const snap = await getDocs(q)
+  const result = {}
+  snap.docs.forEach((doc) => { result[doc.data().dept] = doc.data() })
+  return result
+}
+
+/** Toggle a single checklist item for a dept on a given Sunday date. */
+export async function setSundayWeeklyChecklistItem(dateStr, dept, items, updatedBy) {
+  if (!db || !dateStr || !dept) return
+  const d = String(dateStr).slice(0, 10)
+  const id = `${d}_${dept}`
+  await setDoc(doc(db, SUNDAY_CHECKLIST_WEEKLY, id), {
+    date: d,
+    dept,
+    items: Array.isArray(items) ? items : [],
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+// ─── Mid-week Ministry ────────────────────────────────────────────────────────
+
+/** Get saved prayer points for a cell meeting on a given date. */
+export async function getMidweekPrayerPoints(cellId, dateStr) {
+  if (!db || !cellId || !dateStr) return []
+  const d = String(dateStr).slice(0, 10)
+  const id = `${cellId}_${d}`
+  const snap = await getDoc(doc(db, 'cell_midweek_prayer', id))
+  return snap.exists() ? (snap.data().points || []) : []
+}
+
+/** Overwrite all prayer points for a cell meeting on a given date. */
+export async function saveMidweekPrayerPoints(cellId, dateStr, points, updatedBy) {
+  if (!db || !cellId || !dateStr) return
+  const d = String(dateStr).slice(0, 10)
+  const id = `${cellId}_${d}`
+  await setDoc(doc(db, 'cell_midweek_prayer', id), {
+    cellId,
+    date: d,
+    points: Array.isArray(points) ? points : [],
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+/** Get saved midweek settings (segment order) for a cell group. */
+export async function getMidweekSettings(cellId) {
+  if (!db || !cellId) return null
+  const snap = await getDoc(doc(db, 'cell_midweek_settings', cellId))
+  return snap.exists() ? snap.data() : null
+}
+
+/** Save midweek settings (segment order + program schedule) for a cell group. */
+export async function setMidweekSettings(cellId, segmentOrder, updatedBy, extra = {}) {
+  if (!db || !cellId) return
+  await setDoc(doc(db, 'cell_midweek_settings', cellId), {
+    segmentOrder: Array.isArray(segmentOrder) ? segmentOrder : ['Worship', 'Ice Breaker', 'Back to Bible', 'Prayer'],
+    programStartTime: extra.programStartTime || '',
+    segmentDetails: Array.isArray(extra.segmentDetails) ? extra.segmentDetails : [],
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+/** Initialise weekly checklist docs from defaults if they don't exist yet. */
+export async function initWeeklyChecklistsFromDefaults(dateStr, defaults, updatedBy) {
+  if (!db || !dateStr || !defaults) return
+  const d = String(dateStr).slice(0, 10)
+  const batch = writeBatch(db)
+  for (const [dept, defaultItems] of Object.entries(defaults)) {
+    const id = `${d}_${dept}`
+    const ref = doc(db, SUNDAY_CHECKLIST_WEEKLY, id)
+    const snap = await getDoc(ref)
+    if (!snap.exists()) {
+      batch.set(ref, {
+        date: d,
+        dept,
+        items: defaultItems.map((label) => ({ label, done: false })),
+        updatedBy: updatedBy || 'system',
+        updatedAt: Timestamp.now(),
+      })
+    }
+  }
+  await batch.commit()
+}
+
+// ── Midweek Session Data (timings, shepherd notes, summary) ──────────────────
+const MIDWEEK_SESSIONS = 'cell_midweek_sessions'
+
+/**
+ * Get a saved midweek session doc for a given cell + date.
+ * Returns { segmentTimings: [{name, durationMinutes}], shepherdNotes, updatedAt } or null.
+ */
+export async function getMidweekSessionData(cellId, dateStr) {
+  if (!db || !cellId || !dateStr) return null
+  const d = String(dateStr).slice(0, 10)
+  const id = `${cellId}_${d}`
+  const snap = await getDoc(doc(db, MIDWEEK_SESSIONS, id))
+  return snap.exists() ? snap.data() : null
+}
+
+/**
+ * Save shepherd notes for a midweek session.
+ */
+export async function saveMidweekShepherdNotes(cellId, dateStr, notes, updatedBy) {
+  if (!db || !cellId || !dateStr) return
+  const d = String(dateStr).slice(0, 10)
+  const id = `${cellId}_${d}`
+  await setDoc(doc(db, MIDWEEK_SESSIONS, id), {
+    cellId,
+    date: d,
+    shepherdNotes: notes || '',
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+/**
+ * Save the full session summary (segment timings + attendee IDs) when meeting ends.
+ */
+export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTimings, presentIds, updatedBy }) {
+  if (!db || !cellId || !dateStr) return
+  const d = String(dateStr).slice(0, 10)
+  const id = `${cellId}_${d}`
+  await setDoc(doc(db, MIDWEEK_SESSIONS, id), {
+    cellId,
+    date: d,
+    segmentTimings: Array.isArray(segmentTimings) ? segmentTimings : [],
+    presentIds: Array.isArray(presentIds) ? presentIds : [],
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
 }

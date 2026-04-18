@@ -13,23 +13,37 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 }
 
-const hasConfig = firebaseConfig.apiKey && firebaseConfig.projectId
+const hasEnvVars = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId)
 
 let app = null
 let auth = null
 let db = null
 let storage = null
 let functions = null
+/** Set when .env looks valid but initializeApp / services fail (would otherwise white-screen the app). */
+let firebaseInitError = null
 
-if (hasConfig) {
-  app = initializeApp(firebaseConfig)
-  auth = getAuth(app)
-  db = getFirestore(app)
-  storage = getStorage(app)
-  // Explicit region to match deployed callable functions
-  functions = getFunctions(app, 'us-central1')
+if (hasEnvVars) {
+  try {
+    app = initializeApp(firebaseConfig)
+    auth = getAuth(app)
+    db = getFirestore(app)
+    storage = getStorage(app)
+    // Explicit region to match deployed callable functions
+    functions = getFunctions(app, 'us-central1')
+  } catch (err) {
+    console.error('Firebase initialization failed:', err)
+    firebaseInitError = err
+    app = null
+    auth = null
+    db = null
+    storage = null
+    functions = null
+  }
 }
 
 export { auth, db, storage, functions, httpsCallable }
-export const isFirebaseConfigured = () => !!hasConfig
+/** True only when Firebase app initialized successfully (safe for Auth / Firestore). */
+export const isFirebaseConfigured = () => !!app
+export const getFirebaseInitError = () => firebaseInitError
 export default app

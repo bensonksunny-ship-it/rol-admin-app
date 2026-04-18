@@ -2,7 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { isFirebaseConfigured } from './lib/firebase'
+import ErrorBoundary from './components/ErrorBoundary'
+import { getFirebaseInitError, isFirebaseConfigured } from './lib/firebase'
 
 function SetupMessage() {
   return (
@@ -32,8 +33,47 @@ function SetupMessage() {
   )
 }
 
+function FirebaseInitFailedMessage() {
+  const err = getFirebaseInitError()
+  const msg = err?.message || String(err || 'Unknown error')
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+      fontFamily: 'system-ui, sans-serif',
+      background: '#fef2f2',
+      color: '#7f1d1d',
+    }}>
+      <div style={{ maxWidth: 560, textAlign: 'left' }}>
+        <h1 style={{ fontSize: '1.25rem', marginBottom: 12 }}>Firebase could not start</h1>
+        <p style={{ marginBottom: 12, color: '#991b1b' }}>
+          Check your <strong>.env</strong> values and restart the dev server (<code style={{ background: '#fee2e2', padding: '2px 6px', borderRadius: 4 }}>npm run dev</code>).
+        </p>
+        <pre style={{ fontSize: 12, overflow: 'auto', background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>{msg}</pre>
+      </div>
+    </div>
+  )
+}
+
+function Root() {
+  if (getFirebaseInitError()) {
+    return <FirebaseInitFailedMessage />
+  }
+  if (!isFirebaseConfigured()) {
+    return <SetupMessage />
+  }
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  )
+}
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    {isFirebaseConfigured() ? <App /> : <SetupMessage />}
+    <Root />
   </StrictMode>,
 )

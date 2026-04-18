@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
+const { onSchedule } = require('firebase-functions/v2/scheduler')
 const admin = require('firebase-admin')
 
 if (!admin.apps.length) {
@@ -310,4 +311,204 @@ exports.migrateUserDepartmentsAndPositions = onCall(async (request) => {
 
   return { updatedCount: updated.length }
 })
+
+function toISTDate(now = new Date()) {
+  return new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+}
+
+function formatISODateYYYYMMDD(d) {
+  const dt = d instanceof Date ? d : new Date(d)
+  if (Number.isNaN(dt.getTime())) return ''
+  const yyyy = dt.getFullYear()
+  const mm = String(dt.getMonth() + 1).padStart(2, '0')
+  const dd = String(dt.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function meetingDayToJsDay(meetingDay) {
+  const s = String(meetingDay || '')
+    .trim()
+    .toLowerCase()
+  if (!s) return null
+  if (s.startsWith('sun')) return 0
+  if (s.startsWith('mon')) return 1
+  if (s.startsWith('tue') || s.startsWith('tues')) return 2
+  if (s.startsWith('wed')) return 3
+  if (s.startsWith('thu') || s.startsWith('thur') || s.startsWith('thurs')) return 4
+  if (s.startsWith('fri')) return 5
+  if (s.startsWith('sat')) return 6
+  return null
+}
+
+function computeMeetingDateYYYYMMDD(meetingDay, weekStartIST) {
+  const jsDay = meetingDayToJsDay(meetingDay)
+  if (jsDay == null) return formatISODateYYYYMMDD(weekStartIST)
+  // weekStartIST is Monday 00:00; JS: Monday=1..Sunday=0 => offset from Monday.
+  const offset = (jsDay + 6) % 7
+  const dt = new Date(weekStartIST)
+  dt.setDate(weekStartIST.getDate() + offset)
+  return formatISODateYYYYMMDD(dt)
+}
+
+function computeWeekRangeYYYYMMDD(now = new Date()) {
+  const nowIST = toISTDate(now)
+  const day = nowIST.getDay() // Sun=0..Sat=6
+  const diffToMonday = (day + 6) % 7
+  const weekStart = new Date(nowIST)
+  weekStart.setDate(nowIST.getDate() - diffToMonday)
+  weekStart.setHours(0, 0, 0, 0)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekStart.getDate() + 6)
+  return {
+    weekStartISO: formatISODateYYYYMMDD(weekStart),
+    weekEndISO: formatISODateYYYYMMDD(weekEnd),
+    weekStartIST: weekStart,
+  }
+}
+
+function formatHHmm(d) {
+  const dt = d instanceof Date ? d : new Date(d)
+  if (Number.isNaN(dt.getTime())) return ''
+  const ist = new Date(dt.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+  const hh = String(ist.getHours()).padStart(2, '0')
+  const mm = String(ist.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
+function computeMeetingDurationMinutes(programDocs) {
+  if (!programDocs || programDocs.length < 2) return 0
+  const first = programDocs[0]?.startTime?.toDate?.() || null
+  const last = programDocs[programDocs.length - 1]?.startTime?.toDate?.() || null
+  if (!first || !last) return 0
+  return Math.max(0, Math.round((last.getTime() - first.getTime()) / 60000))
+}
+
+/**
+ * Sunday 11:59 PM IST: archive current week cell reports into `cell_report_history`.
+ * Copies meeting-day reports for each cell group into a single weekly history doc.
+ */
+exports.archiveCurrentWeekCellReportsToHistory = onSchedule(
+  { schedule: '59 23 * * 0', timeZone: 'Asia/Kolkata' },
+  async () => {
+    const db = admin.firestore()
+    const { weekStartISO, weekEndISO, weekStartIST } = computeWeekRangeYYYYMMDD(new Date())
+
+    const cellsSnap = await db
+      .collection('cell_groups')
+      .where('department', '==', 'Cell')
+      .get()
+
+    const cellDocs = cellsSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+
+    // Archive docs keyed by `${weekStartISO}_${cellId}`
+    const historyWritePromises = cellDocs.map(async (cellDoc) => {
+      const cellId = cellDoc.id
+      const cellName = cellDoc.cellName || ''
+      const meetingDateISO = computeMeetingDateYYYYMMDD(cellDoc.meetingDay, weekStartIST)
+
+      const reportSnap = await db
+        .collection('cell_reports')
+        .where('cellId', '==', cellId)
+        .where('reportDate', '==', meetingDateISO)
+        .limit(1)
+        .get()
+
+      const reportData = reportSnap.docs[0]?.data() || {}
+
+      const programSnap = await db
+        .collection('cell_program_log')
+        .where('cellName', '==', cellName)
+        .where('reportDate', '==', meetingDateISO)
+        .orderBy('startTime', 'asc')
+        .get()
+
+      const programDocs = programSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      const meetingDurationMinutes = computeMeetingDurationMinutes(programDocs)
+      const programList = programDocs.map((p) => ({
+        programName: p.programName || '',
+        startTime: p.startTime ? formatHHmm(p.startTime.toDate()) : '',
+      }))
+
+      const membersAttended = Number(reportData.membersAttended) || 0
+      const visitors = Number(reportData.visitors) || 0
+      const children = Number(reportData.children) || 0
+      const totalAttendance = membersAttended + visitors + children
+
+      const docId = `${weekStartISO}_${cellId}`
+      await db.collection('cell_report_history').doc(docId).set({
+        weekStartISO,
+        weekEndISO,
+        cellId,
+        cellName,
+        meetingDay: cellDoc.meetingDay || '',
+        meetingDateISO,
+        membersAttended,
+        visitors,
+        children,
+        totalAttendance,
+        meetingDurationMinutes,
+        programList,
+        archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+      })
+    })
+
+    await Promise.all(historyWritePromises)
+    return { weekStartISO, weekEndISO, archivedCells: cellDocs.length }
+  }
+)
+
+/**
+ * Monday 12:00 AM IST: ensure a fresh empty report exists for each cell's meeting-day.
+ * (Client UI already restricts to the current meeting date; this makes the edit flow predictable.)
+ */
+exports.resetCurrentWeekCellReports = onSchedule(
+  { schedule: '0 0 * * 1', timeZone: 'Asia/Kolkata' },
+  async () => {
+    const db = admin.firestore()
+    const { weekStartISO, weekStartIST } = computeWeekRangeYYYYMMDD(new Date())
+
+    const cellsSnap = await db
+      .collection('cell_groups')
+      .where('department', '==', 'Cell')
+      .get()
+
+    const cellDocs = cellsSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+
+    const resetPromises = cellDocs.map(async (cellDoc) => {
+      const cellId = cellDoc.id
+      const cellName = cellDoc.cellName || ''
+      const meetingDateISO = computeMeetingDateYYYYMMDD(cellDoc.meetingDay, weekStartIST)
+
+      const existingSnap = await db
+        .collection('cell_reports')
+        .where('cellId', '==', cellId)
+        .where('reportDate', '==', meetingDateISO)
+        .limit(1)
+        .get()
+
+      if (!existingSnap.empty) return { created: false, cellId }
+
+      await db.collection('cell_reports').add({
+        cellId,
+        cellName,
+        meetingDay: cellDoc.meetingDay || '',
+        reportDate: meetingDateISO,
+        membersAttended: 0,
+        visitors: 0,
+        children: 0,
+        visitorsList: [],
+        childrenList: [],
+        createdBy: 'system',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      })
+
+      return { created: true, cellId }
+    })
+
+    const results = await Promise.all(resetPromises)
+    const createdCount = results.filter((r) => r.created).length
+    return { weekStartISO, createdCount }
+  }
+)
+
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
@@ -10,13 +10,37 @@ const navItems = [
   // Senior Pastor office – second in sidebar
   { to: '/senior-pastor', label: 'Senior Pastor Office', icon: '👤', permission: 'pastorHub', orFounder: true },
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
-  { to: '/sunday-planning', label: 'Sunday Planning', icon: '📋', permission: 'attendance' },
+  { to: '/sunday-planning', label: 'Sunday Plan', icon: '📋', permission: 'attendance' },
   { to: '/admin/users', label: 'User Management', icon: '👥', permission: 'manageUsers', adminOnly: true },
 ]
 
 export default function Sidebar() {
   const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead, canSeeAllDepartments } = useAuth()
   const [open, setOpen] = useState(false)
+
+  const [theme, setTheme] = useState(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('rol-theme') : null
+    if (saved === 'day' || saved === 'night') return saved
+    const prefersNight = typeof window !== 'undefined' ? window.matchMedia?.('(prefers-color-scheme: dark)')?.matches : false
+    return prefersNight ? 'night' : 'day'
+  })
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'night')
+    try {
+      window.localStorage.setItem('rol-theme', theme)
+    } catch {}
+  }, [theme])
+
+  const themeToggleLabel = useMemo(
+    () => (theme === 'night' ? 'Switch to Day mode' : 'Switch to Night mode'),
+    [theme]
+  )
+
+  const displayDeptName = (deptName) => {
+    if (deptName === 'Event M') return 'Event Management'
+    return deptName
+  }
 
   // Scoped sidebar mode: for all non-Founder/Admin users, map the sidebar directly
   // from their `positions[]` (Director/Coordinator only; associate-only is hidden).
@@ -31,7 +55,19 @@ export default function Sidebar() {
       const rUpper = role.toUpperCase()
 
       if (sLower === 'director' || rUpper === 'DIRECTOR') return 'DIRECTOR'
-      if (sLower === 'coordinator' || sLower === 'cell leader' || rUpper === 'COORDINATOR' || rUpper === 'LEADER') return 'COORDINATOR'
+      // Only treat "Cell Leader"/"LEADER" as COORDINATOR head-role for the *Cell* department.
+      // For any other department, "Cell Leader" must not grant hub access.
+      const deptNorm = String(p.department || '').trim().toLowerCase()
+      const isCellDept = deptNorm === 'cell'
+
+      const isCoordinatorToken =
+        sLower === 'coordinator' ||
+        rUpper === 'COORDINATOR'
+
+      const isCellLeaderToken = sLower === 'cell leader' || rUpper === 'LEADER'
+
+      if (isCoordinatorToken) return 'COORDINATOR'
+      if (isCellDept && isCellLeaderToken) return 'COORDINATOR'
       return null
     }
 
@@ -62,14 +98,14 @@ export default function Sidebar() {
 
     const scopedItems = []
 
-    // Sunday Planning is visible to everyone.
-    scopedItems.push({ to: '/sunday-planning', label: 'Sunday Planning', icon: '📋' })
+    // Sunday Plan is visible to everyone.
+    scopedItems.push({ to: '/sunday-planning', label: 'Sunday Plan', icon: '📋' })
 
     // Department hubs for Director/Coordinator positions.
     for (const v of headDeptMap.values()) {
       scopedItems.push({
         to: getDepartmentPath(v.deptName),
-        label: `${v.deptName} (${v.headRole === 'DIRECTOR' ? 'Director' : 'Coordinator'})`,
+        label: `${displayDeptName(v.deptName)} (${v.headRole === 'DIRECTOR' ? 'Director' : 'Coordinator'})`,
         icon: '📁',
       })
     }
@@ -129,6 +165,14 @@ export default function Sidebar() {
               <br />
               <span className="text-slate-500">{userProfile?.role || ''}</span>
             </div>
+        <button
+          type="button"
+          onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
+          aria-label={themeToggleLabel}
+          className="w-full mt-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
+        >
+          {theme === 'night' ? '🌙 Night mode' : '☀️ Day mode'}
+        </button>
             <button
               onClick={signOut}
               className="w-full mt-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
@@ -156,7 +200,7 @@ export default function Sidebar() {
     return hasPermission(item.permission)
   })
 
-  // For Cell Director/Leader with ONLY Cell: restrict menu to Cell (Director) and Sunday Planning
+  // For Cell Director/Leader with ONLY Cell: restrict menu to Cell (Director) and Sunday Plan
   // If they also have another department (e.g. D Light Director + Cell Leader), show full menu + both dept links
   if (isCellDirectorOrLeader && onlyCell) {
     visible = navItems.filter(
@@ -169,7 +213,7 @@ export default function Sidebar() {
     .map((d) => {
       return {
         to: getDepartmentPath(d),
-        label: `${d} (${getDepartmentRole(userProfile, d) === 'DIRECTOR' ? 'Director' : 'Coordinator'})`,
+        label: `${displayDeptName(d)} (${getDepartmentRole(userProfile, d) === 'DIRECTOR' ? 'Director' : 'Coordinator'})`,
         icon: '📁',
       }
     })

@@ -7,6 +7,17 @@
   --rol-bg: #f8fafc;
   --rol-card: #ffffff;
   --rol-border: #e2e8f0;
+  --rol-text: #1e293b;
+  --rol-muted: #64748b;
+}
+
+/* Day/Night mode: toggle `dark` on <html> */
+.dark {
+  --rol-bg: #0b1220;
+  --rol-card: rgba(15, 23, 42, 0.92);
+  --rol-border: #334155;
+  --rol-text: #e5e7eb;
+  --rol-muted: #94a3b8;
 }
 
 body {
@@ -15,9 +26,78 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--rol-bg);
-  color: #1e293b;
+  color: var(--rol-text);
 }
 
 #root {
   min-height: 100vh;
+}
+
+/* Broad Tailwind color overrides so the existing UI actually "turns dark"
+   without rewriting every component. We keep it limited to the main classes used
+   throughout the admin UI. */
+.dark .bg-slate-50,
+.dark .bg-slate-100,
+.dark .bg-slate-200,
+.dark .bg-white {
+  background-color: var(--rol-bg) !important;
+}
+
+.dark .bg-white {
+  background-color: var(--rol-card) !important;
+}
+
+.dark .bg-slate-800,
+.dark .bg-slate-900 {
+  background-color: #0a1222 !important;
+}
+
+.dark .from-slate-50 {
+  --tw-gradient-from: #0b1220 !important;
+}
+.dark .to-white {
+  --tw-gradient-to: rgba(15, 23, 42, 0.92) !important;
+}
+
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-slate-400,
+.dark .text-slate-300 {
+  color: var(--rol-text) !important;
+}
+
+.dark .text-slate-500,
+.dark .text-slate-600,
+.dark .text-slate-400 {
+  color: var(--rol-muted) !important;
+}
+
+.dark .border-slate-200,
+.dark .border-slate-100,
+.dark .border-slate-300,
+.dark .border-slate-600 {
+  border-color: var(--rol-border) !important;
+}
+
+.dark .bg-slate-200,
+.dark .bg-slate-100 {
+  background-color: rgba(15, 23, 42, 0.65) !important;
+}
+
+@keyframes rolAccordionSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rol-accordion-slide-open {
+  animation: rolAccordionSlideIn 220ms ease-out both;
 }

@@ -41,6 +41,15 @@
         { "fieldPath": "date", "order": "ASCENDING" }
       ]
     }
+    ,
+    {
+      "collectionGroup": "cell_report_history",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cellId", "order": "ASCENDING" },
+        { "fieldPath": "weekStartISO", "order": "DESCENDING" }
+      ]
+    }
   ],
   "fieldOverrides": []
 }
