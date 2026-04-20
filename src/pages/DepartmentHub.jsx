@@ -71,6 +71,9 @@ import { formatDMY, formatDMYTime, parseDateToYYYYMMDD } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
+import CellReportsTab from './cell/CellReportsTab'
+import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
+import CellOperationsToggle from './cell/CellOperationsToggle'
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -129,6 +132,7 @@ export default function DepartmentHub() {
   const [planningDraftStatus, setPlanningDraftStatus] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
+  const [opsSubTab, setOpsSubTab] = useState('team')
   const [team, setTeam] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(false)
   const [teamError, setTeamError] = useState('')
@@ -557,13 +561,14 @@ export default function DepartmentHub() {
   }, [slug, activeTab, liveControlTab, liveExpandedCellId])
 
   useEffect(() => {
-    if (department && activeTab === 'financial') {
+    const wantsFinancial = activeTab === 'financial' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'financial')
+    if (department && wantsFinancial) {
       setLoadingBudget(true)
       getFinanceBudgetItemsByDepartment(department.name)
         .then(setBudgetItems)
         .finally(() => setLoadingBudget(false))
     }
-  }, [department, activeTab])
+  }, [department, slug, activeTab, opsSubTab])
 
   useEffect(() => {
     if (slug !== 'event-m' || activeTab !== 'financial' || !department) return
@@ -575,12 +580,13 @@ export default function DepartmentHub() {
   }, [slug, activeTab, department])
 
   useEffect(() => {
-    if (!department || activeTab !== 'planning') return
+    const wantsPlanning = activeTab === 'planning' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'planning')
+    if (!department || !wantsPlanning) return
     setLoadingDepartmentUpdates(true)
     getDepartmentUpdates(department.name)
       .then(setDepartmentUpdates)
       .finally(() => setLoadingDepartmentUpdates(false))
-  }, [department, activeTab])
+  }, [department, slug, activeTab, opsSubTab])
 
   useEffect(() => {
     if (department && slug === 'cell' && activeTab === 'cellGroups') {
@@ -606,20 +612,21 @@ export default function DepartmentHub() {
   }, [department, slug, activeTab, canViewAllCells, userProfile?.cellGroup, userProfile?.cellId])
 
   useEffect(() => {
-    if (slug === 'cell') {
+    if (slug === 'cell' && activeTab === 'summary') {
       setLoadingCellPending(true)
       getCellMemberPendingChanges()
         .then(setCellPendingChanges)
         .catch(() => setCellPendingChanges([]))
         .finally(() => setLoadingCellPending(false))
     }
-  }, [slug])
+  }, [slug, activeTab])
 
   useEffect(() => {
-    if (slug === 'cell' && activeTab === 'planning') {
+    const wantsCellPlanning = slug === 'cell' && (activeTab === 'planning' || (activeTab === 'operations' && opsSubTab === 'planning'))
+    if (wantsCellPlanning) {
       getBackToBibleList().then(setBackToBibleList).catch(() => setBackToBibleList([]))
     }
-  }, [slug, activeTab])
+  }, [slug, activeTab, opsSubTab])
 
   useEffect(() => {
     if (slug === 'd-light' && activeTab === 'visitorEntry') {
@@ -705,11 +712,6 @@ export default function DepartmentHub() {
         </p>
       </div>
     )
-  }
-
-  // Cell Leaders should not access the Cell department hub/tabs.
-  if (slug === 'cell' && !canViewAllCells) {
-    return <Navigate to="/department/cell/cell-report" replace />
   }
 
   // D Light Director: only Sunday Planning — block department hub and all hub tabs.
@@ -835,6 +837,7 @@ export default function DepartmentHub() {
           setActiveTab(t)
           setSearchParams({ tab: t }, { replace: true })
         }}
+        userProfile={userProfile}
       />
 
       <div className="space-y-6 p-4">
@@ -1500,7 +1503,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {activeTab === 'planning' && (
+          {(activeTab === 'planning' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'planning')) && (
             <div className="space-y-6">
               {slug === 'cell' && (
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -2164,7 +2167,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {activeTab === 'team' && (
+          {(activeTab === 'team' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'team')) && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-6">
               <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-slate-800">Team</h2>
@@ -3424,7 +3427,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {activeTab === 'financial' && (
+          {(activeTab === 'financial' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'financial')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <h2 className="font-semibold text-slate-800 p-5 pb-0">Budget & Spending</h2>
               <p className="text-sm text-slate-500 px-5 pt-1">Budget items for this department (₹).</p>
@@ -4197,6 +4200,16 @@ export default function DepartmentHub() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'reports' && slug === 'cell' && <CellReportsTab />}
+
+          {activeTab === 'leaderEntry' && slug === 'cell' && <CellLeaderEntryTab />}
+
+          {activeTab === 'operations' && slug === 'cell' && (
+            <div className="space-y-4">
+              <CellOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
             </div>
           )}
 

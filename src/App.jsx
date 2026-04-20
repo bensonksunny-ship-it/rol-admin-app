@@ -15,10 +15,6 @@ import Reports from './pages/Reports'
 import DepartmentWorship from './pages/DepartmentWorship'
 import SundayReport from './pages/SundayReport'
 import SundayProgram from './pages/SundayProgram'
-import CellReport from './pages/CellReport'
-import CellHistory from './pages/CellHistory'
-import ShepherdView from './pages/ShepherdView'
-import MidweekMinistry from './pages/MidweekMinistry'
 import DepartmentHub from './pages/DepartmentHub'
 import DepartmentPastorView from './pages/DepartmentPastorView'
 import DepartmentPastorUpdates from './pages/DepartmentPastorUpdates'
@@ -55,10 +51,10 @@ function App() {
               <Route path="department/worship" element={<DepartmentWorship />} />
               <Route path="department/sunday-ministry/sunday-report" element={<SundayReport />} />
               <Route path="department/sunday-ministry/sunday-program" element={<SundayProgram />} />
-              <Route path="department/cell/cell-report" element={<CellReport />} />
-              <Route path="department/cell/cell-history" element={<CellHistory />} />
-              <Route path="department/cell/shepherd" element={<ShepherdView />} />
-              <Route path="department/cell/midweek" element={<MidweekMinistry />} />
+              <Route path="department/cell/cell-report" element={<Navigate to="/department/cell?tab=reports" replace />} />
+              <Route path="department/cell/cell-history" element={<Navigate to="/department/cell?tab=reports" replace />} />
+              <Route path="department/cell/shepherd" element={<Navigate to="/department/cell?tab=leaderEntry" replace />} />
+              <Route path="department/cell/midweek" element={<Navigate to="/department/cell?tab=leaderEntry" replace />} />
               <Route path="department/junior-c" element={<Navigate to="/department/river-kids" replace />} />
               <Route path="department/build-c" element={<Navigate to="/department/building-care" replace />} />
               <Route path="department/:slug" element={<DepartmentHub />} />

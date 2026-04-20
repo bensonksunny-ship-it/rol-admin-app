@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
+import { visibleCellTabs } from '../utils/cellTabVisibility'
 
 /**
  * Returns the tab list for a department slug (same logic as DepartmentHub).
@@ -21,14 +22,12 @@ function getTabLabel(tab) {
       return 'Budget'
     case 'cellGroups':
       return 'Cell Groups'
-    case 'cellReport':
-      return 'Cell Report'
-    case 'cellHistory':
-      return 'History'
-    case 'shepherd':
-      return 'Shepherd'
-    case 'midweek':
-      return 'Mid-week'
+    case 'reports':
+      return 'Reports'
+    case 'leaderEntry':
+      return 'Leader Entry'
+    case 'operations':
+      return 'Operations'
     case 'members':
       return 'Members'
     case 'sundayReport':
@@ -64,9 +63,11 @@ function getTabLabel(tab) {
  * @param {string} slug
  * @param {string} activeTab
  * @param {function} [setActiveTab] - Hub: in-page tabs. Subpages: omit → tabs link to hub with ?tab=
+ * @param {object} [userProfile] - Required for Cell to filter tabs by role
  */
-export default function DepartmentTabBar({ slug, activeTab, setActiveTab }) {
-  const tabs = getDepartmentHubTabs(slug)
+export default function DepartmentTabBar({ slug, activeTab, setActiveTab, userProfile }) {
+  const allTabs = getDepartmentHubTabs(slug)
+  const tabs = slug === 'cell' ? visibleCellTabs(userProfile).filter(t => allTabs.includes(t)) : allTabs
   const hubPath = `/department/${slug}`
 
   const tabHref = (tab) => `${hubPath}?tab=${encodeURIComponent(tab)}`
@@ -112,50 +113,6 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab }) {
               key={tab}
               to="/department/sunday-ministry/sunday-program"
               className={`${baseClass} ${activeTab === 'sundayProgram' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
-            >
-              {label}
-            </Link>
-          )
-        }
-        if (tab === 'cellReport') {
-          return (
-            <Link
-              key={tab}
-              to="/department/cell/cell-report"
-              className={`${baseClass} ${activeTab === 'cellReport' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
-            >
-              {label}
-            </Link>
-          )
-        }
-        if (tab === 'cellHistory') {
-          return (
-            <Link
-              key={tab}
-              to="/department/cell/cell-history"
-              className={`${baseClass} ${activeTab === 'cellHistory' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
-            >
-              {label}
-            </Link>
-          )
-        }
-        if (tab === 'shepherd') {
-          return (
-            <Link
-              key={tab}
-              to="/department/cell/shepherd"
-              className={`${baseClass} ${activeTab === 'shepherd' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
-            >
-              {label}
-            </Link>
-          )
-        }
-        if (tab === 'midweek') {
-          return (
-            <Link
-              key={tab}
-              to="/department/cell/midweek"
-              className={`${baseClass} ${activeTab === 'midweek' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
             >
               {label}
             </Link>

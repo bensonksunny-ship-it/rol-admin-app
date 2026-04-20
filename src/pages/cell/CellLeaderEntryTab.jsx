@@ -1,30 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import ShepherdView from '../ShepherdView'
 import MidweekMinistry from '../MidweekMinistry'
-import { useAuth } from '../../context/AuthContext'
-import { isCellDirectorInPositions, isCellLeaderInPositions } from '../../utils/cellReportPermissions'
-import { ROLES } from '../../constants/roles'
 
 /**
  * Leader Entry tab on the Cell page.
- * Internal toggle: Mid-week | Shepherd Care.
- *
- * Default sub-view (per the agreed UX defaults):
- *  - Cell Leader → Mid-week (primary weekly workflow)
- *  - Director / Founder → Shepherd (care oversight view)
+ * Internal toggle: Shepherd Care | Mid-week. Defaults to Shepherd Care.
  */
 export default function CellLeaderEntryTab() {
-  const { userProfile } = useAuth()
-
-  const defaultView = useMemo(() => {
-    const isFounder = userProfile?.globalRole === 'FOUNDER' || userProfile?.role === ROLES.FOUNDER
-    const isDirector = isCellDirectorInPositions(userProfile)
-    const isLeader = isCellLeaderInPositions(userProfile)
-    if (isLeader && !isDirector && !isFounder) return 'midweek'
-    return 'midweek'
-  }, [userProfile])
-
-  const [view, setView] = useState(defaultView)
+  const [view, setView] = useState('shepherd')
 
   return (
     <div className="space-y-4">
