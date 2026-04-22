@@ -21,12 +21,14 @@ Upgrade the Cell Director's experience across three surfaces:
 
 | Card | Colour | Value | Source |
 |------|--------|-------|--------|
-| Pending Approvals | Amber | Count of pending `cell_member_pending_changes` with `status === 'pending'` | `getCellMemberPendingChanges()` |
+| Pending Approvals | Amber | Count of `cell_member_pending_changes` docs with `status === 'pending'` | `getCellMemberPendingChanges()` |
 | Active Cells | Green | Count of active cell groups in scope | `getCellGroups('Cell')` filtered |
-| Total Members | Blue | Sum of active member counts across all cells in scope | `getCellGroupMembers` per cell |
-| Unassigned | Purple, clickable | Count of names in `secondWeekAttendeesNames` across last 8 Sunday reports, minus names already in any cell | See §1.3 |
+| Total Members | Blue | Sum of active member counts across all cells | Derived from the shared member fetch (see note below) |
+| Unassigned | Purple, clickable | Repeat visitors not yet in any cell | Derived from the shared member fetch (see note below) |
 
 The **Unassigned** card has a "tap to view list ↗" sub-label and opens the Unassigned drawer on click.
+
+**Shared member fetch:** "Total Members" and "Unassigned" both require all cell members. Load them once: for each active cell call `getCellGroupMembers(cellId)`, filter to `status !== 'inactive'`, build (a) a total count and (b) a lowercase name Set. These two cards show a skeleton/spinner until that fetch resolves. Pending Approvals and Active Cells load independently and resolve first.
 
 ### 1.2 Pending Member Changes Section
 
@@ -91,9 +93,9 @@ Data: loaded together with the cells data already fetched for the Summary tab.
 
 ### 1.5 Weekly Attendance Trends Chart (existing, now integrated)
 
-The existing `CellWeeklyTrendsChart` and `MissingCellReportsTable` components from `DirectorDashboard.jsx` are imported and rendered in the Summary tab below the Cell Growth chart. They already have all their own data-loading logic.
+Render the existing `DirectorDashboardCellWidgets` default export from `DirectorDashboard.jsx` in the Summary tab below the Cell Growth chart. This parent component already handles its own data fetching (cell groups, latest reports) and conditionally renders the alert panel, missing-reports table, and weekly trends chart.
 
-**Currently `DirectorDashboard.jsx` is not imported anywhere** — this integration is the first use of those components.
+**Currently `DirectorDashboard.jsx` is not imported anywhere** — this is the first use of those components. Do not decompose it; just render `<DirectorDashboardCellWidgets userProfile={userProfile} />`.
 
 ---
 
@@ -137,7 +139,7 @@ export async function getRecentSundayReports(numWeeks = 8)
 | `src/services/firestore.js` | Add `getRecentSundayReports(numWeeks)`. Add `reason` field to `addCellMemberPendingChange` payload and return shape of `getCellMemberPendingChanges`. |
 | `src/components/DirectorDashboard.jsx` | Add `CellMemberGrowthChart` component (bar chart). No changes to existing exports — they stay as-is. |
 | `src/pages/ShepherdView.jsx` | Replace non-Director `window.confirm` deactivation with a reason modal. Pass `reason` to `addCellMemberPendingChange`. |
-| `src/pages/DepartmentHub.jsx` | In the `summary` tab for `slug === 'cell'`: (a) replace the plain table pending-changes UI with the new card layout described in §1.2; (b) add the Unassigned stat card and drawer (§1.3); (c) add stat cards row (§1.1); (d) import and render `CellWeeklyTrendsChart`, `MissingCellReportsTable` from `DirectorDashboard.jsx` and `CellMemberGrowthChart` from the updated file. |
+| `src/pages/DepartmentHub.jsx` | Target only the `slug === 'cell' && activeTab === 'summary'` branch (~line 887 in the current file, inside the "Work Cockpit" block). Replace the existing plain `<table>` pending-changes UI in that block with the new card layout (§1.2). Add the stat cards row (§1.1), Unassigned drawer (§1.3), and `CellMemberGrowthChart` + `<DirectorDashboardCellWidgets>` below the approvals. The separate "Pending Actions" block at ~line 3712 (inside the cell detail expansion) is **not changed**. |
 
 ---
 
