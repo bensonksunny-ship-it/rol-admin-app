@@ -79,26 +79,24 @@ export default function MidweekMinistry() {
       <DepartmentTabBar slug="cell" activeTab="midweek" />
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Mid-week Ministry</h1>
-            <p className="text-slate-500 text-sm mt-0.5">Live cell meeting tools</p>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Mid-week Ministry</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Live cell meeting tools</p>
+        </div>
+
+        {/* Report date selector — change this to enter historical data */}
+        <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-3">
+          <span className="text-indigo-500 text-lg">📅</span>
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Report Date</p>
+            <p className="text-xs text-indigo-500 mt-0.5">Change this to enter data for a past session</p>
           </div>
-          <label className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm cursor-pointer">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-              <line x1="16" y1="2" x2="16" y2="6" />
-              <line x1="8" y1="2" x2="8" y2="6" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-            <input
-              type="date"
-              value={selectedDate}
-              max={format(new Date(), 'yyyy-MM-dd')}
-              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-              className="text-sm text-slate-700 font-medium bg-transparent border-none outline-none cursor-pointer"
-            />
-          </label>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-indigo-300 bg-white text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          />
         </div>
 
         {isFounder && viewAsRole !== 'founder' && (
