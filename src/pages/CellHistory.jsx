@@ -46,7 +46,7 @@ function getInitials(name) {
 
 // ── Root Component ────────────────────────────────────────────────────────────
 
-export default function CellHistory() {
+export default function CellHistory({ embedded = false }) {
   const { userProfile } = useAuth()
 
   const [cellGroups, setCellGroups]   = useState([])
@@ -114,6 +114,37 @@ export default function CellHistory() {
   const toggleExpand = useCallback((id) => {
     setExpandedId((prev) => (prev === id ? null : id))
   }, [])
+
+  if (embedded) {
+    return (
+      <div className="space-y-3">
+        <div>
+          <h2 className="font-bold text-slate-900 text-base">Past Meeting Records</h2>
+          <p className="text-slate-500 text-xs mt-0.5">Read only · newest first</p>
+        </div>
+        {loading ? (
+          <div className="text-slate-400 text-sm py-6 text-center">Loading history…</div>
+        ) : sorted.length === 0 ? (
+          <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center shadow-sm">
+            <p className="text-4xl mb-3">📭</p>
+            <p className="font-semibold text-slate-700">No meeting records yet.</p>
+            <p className="text-slate-400 text-sm mt-1">Past meetings will appear here after they are submitted.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sorted.map((row) => (
+              <HistoryCard
+                key={row.id}
+                row={row}
+                expanded={expandedId === row.id}
+                onToggle={() => toggleExpand(row.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
