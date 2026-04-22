@@ -10,6 +10,8 @@ import {
   getLatestSundayAttendanceForCell,
   addCellGroupMember,
   updateCellGroupMember,
+  getMidweekPrayerPoints,
+  saveMidweekPrayerPoints,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
@@ -298,6 +300,8 @@ function MinistryContentTab({ isDirector }) {
 // ─── Tab 2: Shepherd Care ─────────────────────────────────────────────────────
 
 function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = true, canTransfer: canTransferProp = true }) {
+  const today = format(new Date(), 'yyyy-MM-dd')
+
   const [cellGroups, setCellGroups]         = useState([])
   const [selectedCellId, setSelectedCellId] = useState(null)
   const [members, setMembers]               = useState([])
@@ -306,11 +310,16 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [loadingGroups, setLoadingGroups]   = useState(true)
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [search, setSearch]                 = useState('')
-  const [transferState, setTransferState]   = useState(null) // { memberId, memberName }
+  const [transferState, setTransferState]   = useState(null)
   const [transferTarget, setTransferTarget] = useState('')
   const [transferring, setTransferring]     = useState(false)
   const [toast, setToast]                   = useState(null)
-  const [glowFilter, setGlowFilter]         = useState('all') // 'all' | 'green' | 'amber' | 'red'
+  const [glowFilter, setGlowFilter]         = useState('all')
+
+  // Prayer state
+  const [prayerMember, setPrayerMember]   = useState(null) // member object
+  const [prayerSubject, setPrayerSubject] = useState('')
+  const [savingPrayer, setSavingPrayer]   = useState(false)
 
   // Load cell groups
   useEffect(() => {
@@ -370,10 +379,41 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     }
   }
 
+  // Transfer only for Directors/Founders (effectiveIsDirector covers both)
   const canTransfer = useCallback(
-    () => canTransferProp && (isDirector || isLeader),
-    [canTransferProp, isDirector, isLeader]
+    () => canTransferProp && isDirector,
+    [canTransferProp, isDirector]
   )
+
+  const handleAddPrayer = async () => {
+    if (!prayerMember || !prayerSubject.trim() || !selectedCellId) return
+    setSavingPrayer(true)
+    try {
+      const existing = await getMidweekPrayerPoints(selectedCellId, today)
+      const newPoint = {
+        id: Date.now().toString(),
+        name: prayerMember.name || 'Member',
+        subject: prayerSubject.trim(),
+        addedBy: userProfile?.name || userProfile?.email || 'Unknown',
+        addedByUid: userProfile?.id || '',
+        isDirector,
+        createdAt: new Date().toISOString(),
+      }
+      await saveMidweekPrayerPoints(
+        selectedCellId,
+        today,
+        [...existing, newPoint],
+        userProfile?.name || 'unknown'
+      )
+      showToast(`Prayer added for ${prayerMember.name}.`)
+      setPrayerMember(null)
+      setPrayerSubject('')
+    } catch {
+      showToast('Failed to save prayer point.', 'error')
+    } finally {
+      setSavingPrayer(false)
+    }
+  }
 
   const activeMembers = useMemo(
     () => members.filter((m) => m.status !== 'inactive'),
@@ -586,6 +626,13 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                         WhatsApp
                       </a>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => { setPrayerMember(member); setPrayerSubject('') }}
+                      className="flex-1 px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition"
+                    >
+                      🙏 Add Prayer
+                    </button>
                     {canTransfer() && otherCells.length > 0 && (
                       <button
                         type="button"
@@ -607,6 +654,45 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
             </div>
           )}
         </>
+      )}
+
+      {/* Prayer Modal */}
+      {prayerMember && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <div>
+              <h3 className="font-bold text-slate-900">Add Prayer Point</h3>
+              <p className="text-sm text-slate-500 mt-0.5">
+                For <strong>{prayerMember.name}</strong> · saved to today's active meeting
+              </p>
+            </div>
+            <textarea
+              value={prayerSubject}
+              onChange={(e) => setPrayerSubject(e.target.value)}
+              placeholder="Prayer request or matter…"
+              rows={3}
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleAddPrayer}
+                disabled={savingPrayer || !prayerSubject.trim()}
+                className="flex-1 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {savingPrayer ? 'Saving…' : '🙏 Save Prayer'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrayerMember(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 text-sm hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Transfer Modal */}
