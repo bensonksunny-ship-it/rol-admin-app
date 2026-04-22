@@ -2,6 +2,9 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -292,6 +295,41 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
         <MissingCellReportsTable rows={rows} loading={loading} remindLeader={remindLeader} />
       </div>
       <CellWeeklyTrendsChart chartData={chartData} cellSeries={cellSeries} />
+    </div>
+  )
+}
+
+export function CellMemberGrowthChart({ cellMemberData }) {
+  if (!cellMemberData || cellMemberData.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        <p className="text-sm text-gray-400 text-center">No cell data available.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      <h3 className="font-bold text-gray-800 text-base mb-1">Active Members per Cell</h3>
+      <p className="text-xs text-gray-400 mb-4">Current active member count across all cells you oversee</p>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={cellMemberData} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+          <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
+          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
+          <Tooltip
+            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+            formatter={(value) => [value, 'Members']}
+          />
+          <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+            {cellMemberData.map((entry, index) => (
+              <Cell
+                key={index}
+                fill={entry.count >= 20 ? '#6366f1' : '#c7d2fe'}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   )
 }
