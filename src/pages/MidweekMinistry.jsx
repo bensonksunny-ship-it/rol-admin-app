@@ -265,14 +265,16 @@ function LiveControlTab({ userProfile, isDirector, isLeader }) {
     }
   }
 
-  const confirmEndMeeting = useCallback(async () => {
+  const confirmEndMeeting = useCallback(async (finalPresentIds) => {
+    const ids = finalPresentIds ?? presentIds
     segmentTimingsRef.current = pendingTimings
+    setPresentIds(ids)
     setShowEndModal(false)
     setSegmentIdx(segmentOrder.length)   // isEnded = true
     if (selectedCellId) {
       saveMidweekSessionSummary(selectedCellId, today, {
         segmentTimings: pendingTimings,
-        presentIds: Array.from(presentIds),
+        presentIds: Array.from(ids),
         updatedBy: userProfile?.name || userProfile?.email || 'unknown',
       }).catch(() => {})
     }
@@ -479,8 +481,16 @@ function LiveControlTab({ userProfile, isDirector, isLeader }) {
 // ─── End Meeting Modal ────────────────────────────────────────────────────────
 
 function EndMeetingModal({ timings, presentIds, members, prayerPoints, onConfirm, onCancel }) {
-  const presentMembers = members.filter((m) => presentIds.has(m.id))
-  const totalMinutes   = timings.reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
+  const [localPresent, setLocalPresent] = useState(() => new Set(presentIds))
+  const totalMinutes = timings.reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
+
+  const toggleMember = (id) => {
+    setLocalPresent((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   return (
     <>
@@ -544,25 +554,22 @@ function EndMeetingModal({ timings, presentIds, members, prayerPoints, onConfirm
             )}
           </div>
 
-          {/* Attendance */}
-          <div className="space-y-2">
+          {/* Attendance — interactive bubbles */}
+          <div className="space-y-3">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              👥 Attendance — {presentIds.size} present
+              👥 Attendance — {localPresent.size} / {members.length} present
             </p>
-            {presentMembers.length === 0 ? (
-              <p className="text-slate-400 text-sm">No one marked present.</p>
+            {members.length === 0 ? (
+              <p className="text-slate-400 text-sm">No members loaded.</p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {presentMembers.map((m) => (
-                  <span
+              <div className="flex flex-wrap gap-3">
+                {members.map((m) => (
+                  <MemberBubble
                     key={m.id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100 text-sm font-medium"
-                  >
-                    <span className="w-5 h-5 rounded-full bg-emerald-400/30 text-emerald-900 text-xs font-bold flex items-center justify-center">
-                      {getInitials(m.name).slice(0, 1)}
-                    </span>
-                    {(m.name || '').split(' ')[0]}
-                  </span>
+                    member={m}
+                    present={localPresent.has(m.id)}
+                    onToggle={toggleMember}
+                  />
                 ))}
               </div>
             )}
@@ -606,7 +613,7 @@ function EndMeetingModal({ timings, presentIds, members, prayerPoints, onConfirm
           </button>
           <motion.button
             type="button"
-            onClick={onConfirm}
+            onClick={() => onConfirm(localPresent)}
             whileTap={{ scale: 0.97 }}
             className="flex-1 py-3.5 rounded-2xl bg-emerald-700 text-white text-sm font-bold hover:bg-emerald-800 transition-all shadow-lg shadow-emerald-200"
           >
