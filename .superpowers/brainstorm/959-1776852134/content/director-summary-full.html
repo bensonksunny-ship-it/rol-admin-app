@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Director Summary Tab — Full Design</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }
+
+  .page-shell { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  /* Tab bar */
+  .tab-bar { display: flex; gap: 4px; background: #e2e8f0; border-radius: 16px; padding: 4px; margin-bottom: 20px; overflow-x: auto; }
+  .tab { padding: 8px 16px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; color: #64748b; }
+  .tab.active { background: white; color: #1e293b; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+  /* Stat cards row */
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+  .stat-card { background: white; border-radius: 16px; padding: 14px 12px; border: 1px solid #e2e8f0; text-align: center; }
+  .stat-card.amber { background: #fffbeb; border-color: #fcd34d; }
+  .stat-card.green { background: #f0fdf4; border-color: #86efac; }
+  .stat-card.blue { background: #eff6ff; border-color: #93c5fd; }
+  .stat-card.purple { background: #faf5ff; border-color: #d8b4fe; cursor: pointer; transition: all 0.15s; }
+  .stat-card.purple:hover { background: #f3e8ff; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(139,92,246,0.15); }
+  .stat-value { font-size: 24px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
+  .stat-label { font-size: 11px; font-weight: 600; }
+  .stat-card.amber .stat-value { color: #92400e; }
+  .stat-card.amber .stat-label { color: #b45309; }
+  .stat-card.green .stat-value { color: #166534; }
+  .stat-card.green .stat-label { color: #15803d; }
+  .stat-card.blue .stat-value { color: #1e40af; }
+  .stat-card.blue .stat-label { color: #1d4ed8; }
+  .stat-card.purple .stat-value { color: #6d28d9; }
+  .stat-card.purple .stat-label { color: #7c3aed; }
+  .stat-card.purple .click-hint { font-size: 10px; color: #a78bfa; margin-top: 4px; }
+
+  /* Section heading */
+  .section-heading { font-size: 13px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .badge { background: #f59e0b; color: white; border-radius: 20px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+  .badge.empty { background: #94a3b8; }
+
+  /* Approval cards */
+  .approval-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+  .approval-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: 16px; padding: 14px 16px; }
+  .approval-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+  .approval-name { font-weight: 700; font-size: 14px; color: #1e293b; }
+  .approval-meta { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .approval-reason { font-size: 12px; color: #78716c; font-style: italic; background: #fef3c7; border-radius: 8px; padding: 6px 10px; margin: 8px 0; border-left: 3px solid #f59e0b; }
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn { padding: 8px 16px; border-radius: 10px; font-size: 12px; font-weight: 700; border: none; cursor: pointer; flex: 1; }
+  .btn-approve { background: #22c55e; color: white; }
+  .btn-approve:hover { background: #16a34a; }
+  .btn-reject { background: #ef4444; color: white; }
+  .btn-reject:hover { background: #dc2626; }
+  .change-type-tag { font-size: 10px; font-weight: 700; background: #fed7aa; color: #c2410c; padding: 2px 8px; border-radius: 20px; flex-shrink: 0; }
+
+  /* Empty state */
+  .empty-state { background: white; border: 1px dashed #cbd5e1; border-radius: 16px; padding: 24px; text-align: center; color: #94a3b8; font-size: 13px; margin-bottom: 20px; }
+
+  /* Chart section */
+  .chart-card { background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+  .chart-title { font-weight: 700; font-size: 14px; color: #1e293b; margin-bottom: 2px; }
+  .chart-sub { font-size: 12px; color: #94a3b8; margin-bottom: 14px; }
+  .bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 100px; padding: 0 4px; }
+  .bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
+  .bar { width: 100%; border-radius: 4px 4px 0 0; background: #6366f1; }
+  .bar-label { font-size: 9px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-align: center; }
+  .bar-val { font-size: 9px; font-weight: 700; color: #6366f1; }
+  .line-chart-placeholder { height: 90px; background: linear-gradient(to bottom right, #eff6ff, #dbeafe); border-radius: 10px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .line-chart-placeholder svg { width: 100%; height: 100%; }
+
+  /* Missing reports table */
+  .mini-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .mini-table th { text-align: left; padding: 6px 10px; color: #64748b; font-weight: 600; border-bottom: 1px solid #e2e8f0; }
+  .mini-table td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+  .status-ok { color: #16a34a; font-weight: 600; }
+  .status-miss { color: #dc2626; font-weight: 600; }
+
+  /* Unassigned panel overlay */
+  .overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: none; z-index: 100; align-items: flex-end; justify-content: center; }
+  .overlay.open { display: flex; }
+  .drawer { background: white; border-radius: 24px 24px 0 0; width: 100%; max-width: 860px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; padding: 0; }
+  .drawer-header { padding: 20px 20px 14px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; }
+  .drawer-title { font-weight: 800; font-size: 16px; color: #1e293b; }
+  .drawer-sub { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .drawer-close { width: 32px; height: 32px; border-radius: 50%; background: #f1f5f9; border: none; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #64748b; }
+  .drawer-body { overflow-y: auto; padding: 16px 20px 20px; flex: 1; }
+  .unassigned-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 14px; margin-bottom: 8px; }
+  .ua-avatar { width: 38px; height: 38px; border-radius: 50%; background: #7c3aed; color: white; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .ua-name { font-weight: 700; font-size: 13px; color: #1e293b; }
+  .ua-weeks { font-size: 11px; color: #7c3aed; font-weight: 600; margin-top: 2px; }
+  .ua-assign { margin-left: auto; padding: 7px 14px; background: #7c3aed; color: white; border: none; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+  .ua-assign:hover { background: #6d28d9; }
+
+  /* Leader modal (shown at bottom of page as demo) */
+  .leader-demo { background: white; border-radius: 20px; border: 2px dashed #a5b4fc; padding: 20px; margin-bottom: 20px; }
+  .leader-demo-label { font-size: 11px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+
+  .section-divider { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
+
+  @media (max-width: 600px) {
+    .stat-row { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<!-- UNASSIGNED PANEL DRAWER -->
+<div class="overlay" id="unassigned-overlay" onclick="if(event.target===this)closeDrawer()">
+  <div class="drawer">
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-title">🔍 Unassigned Repeat Visitors</div>
+        <div class="drawer-sub">Attended 2+ Sundays · Not yet in a cell group · Auto-refreshed from Sunday reports</div>
+      </div>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="drawer-body">
+      <div class="unassigned-item">
+        <div class="ua-avatar">RK</div>
+        <div>
+          <div class="ua-name">Rajan Kumar</div>
+          <div class="ua-weeks">🗓 Attended 4 Sundays — still unassigned</div>
+        </div>
+        <button class="ua-assign">Assign to Cell</button>
+      </div>
+      <div class="unassigned-item">
+        <div class="ua-avatar">PS</div>
+        <div>
+          <div class="ua-name">Preethi Sundar</div>
+          <div class="ua-weeks">🗓 Attended 3 Sundays — still unassigned</div>
+        </div>
+        <button class="ua-assign">Assign to Cell</button>
+      </div>
+      <div class="unassigned-item">
+        <div class="ua-avatar">AM</div>
+        <div>
+          <div class="ua-name">Ancy Mathew</div>
+          <div class="ua-weeks">🗓 Attended 2 Sundays — still unassigned</div>
+        </div>
+        <button class="ua-assign">Assign to Cell</button>
+      </div>
+      <div class="unassigned-item">
+        <div class="ua-avatar">TJ</div>
+        <div>
+          <div class="ua-name">Thomas Jacob</div>
+          <div class="ua-weeks">🗓 Attended 2 Sundays — still unassigned</div>
+        </div>
+        <button class="ua-assign">Assign to Cell</button>
+      </div>
+
+      <p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:14px;">
+        Data sourced from <strong>sunday_reports → secondWeekAttendeesNames</strong>.<br>
+        Updates automatically each Sunday when the Sunday Report is saved.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN PAGE -->
+<div class="page-shell">
+
+  <!-- Breadcrumb -->
+  <div style="font-size:12px;color:#94a3b8;margin-bottom:12px;">Cell Department &rsaquo; <strong style="color:#1e293b;">Director Summary</strong></div>
+
+  <!-- Page title -->
+  <div style="margin-bottom:16px;">
+    <h1 style="font-size:22px;font-weight:800;color:#1e293b;">Cell Director — Summary</h1>
+    <p style="font-size:13px;color:#64748b;margin-top:2px;">Your cells, your people, what needs action today.</p>
+  </div>
+
+  <!-- Tab strip -->
+  <div class="tab-bar">
+    <div class="tab active">📊 Summary</div>
+    <div class="tab">📋 Cell Report</div>
+    <div class="tab">💚 Shepherd</div>
+    <div class="tab">📖 Back to Bible</div>
+    <div class="tab">⚙️ Manage</div>
+  </div>
+
+  <!-- ── STAT CARDS ROW ──────────────────────────── -->
+  <div class="stat-row">
+    <div class="stat-card amber">
+      <div class="stat-value">3</div>
+      <div class="stat-label">⏳ Pending Approvals</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-value">7</div>
+      <div class="stat-label">🏘 Active Cells</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-value">142</div>
+      <div class="stat-label">👥 Total Members</div>
+    </div>
+    <div class="stat-card purple" onclick="openDrawer()">
+      <div class="stat-value">4</div>
+      <div class="stat-label">🔍 Unassigned</div>
+      <div class="click-hint">tap to view list ↗</div>
+    </div>
+  </div>
+
+  <!-- ── PENDING MEMBER CHANGES ──────────────────── -->
+  <div class="section-heading">
+    ⏳ Pending Member Changes
+    <span class="badge">3 requests</span>
+  </div>
+
+  <div class="approval-list">
+
+    <div class="approval-card">
+      <div class="approval-header">
+        <div>
+          <div class="approval-name">John Mathew</div>
+          <div class="approval-meta">👤 Leader: <strong>Priya Samuel</strong> &nbsp;·&nbsp; 🏘 Grace Cell</div>
+        </div>
+        <span class="change-type-tag">DEACTIVATE</span>
+      </div>
+      <div class="approval-reason">
+        "Relocated to another city permanently. Has not attended for 2 months."
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-approve">✓ Approve — Move to Inactive</button>
+        <button class="btn btn-reject">✕ Reject — Keep Active</button>
+      </div>
+    </div>
+
+    <div class="approval-card">
+      <div class="approval-header">
+        <div>
+          <div class="approval-name">Mary Thomas</div>
+          <div class="approval-meta">👤 Leader: <strong>Rajan K</strong> &nbsp;·&nbsp; 🏘 Hope Cell</div>
+        </div>
+        <span class="change-type-tag">DEACTIVATE</span>
+      </div>
+      <div class="approval-reason">
+        "Moved to the evening cell group. No longer coming to morning."
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-approve">✓ Approve — Move to Inactive</button>
+        <button class="btn btn-reject">✕ Reject — Keep Active</button>
+      </div>
+    </div>
+
+    <div class="approval-card">
+      <div class="approval-header">
+        <div>
+          <div class="approval-name">Samuel Oommen</div>
+          <div class="approval-meta">👤 Leader: <strong>Jeena Philip</strong> &nbsp;·&nbsp; 🏘 Faith Cell</div>
+        </div>
+        <span class="change-type-tag">DEACTIVATE</span>
+      </div>
+      <div class="approval-reason">
+        "Backslidden, no contact for 3 months despite follow-ups."
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-approve">✓ Approve — Move to Inactive</button>
+        <button class="btn btn-reject">✕ Reject — Keep Active</button>
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="section-divider">
+
+  <!-- ── CELL GROWTH CHART ───────────────────────── -->
+  <div class="section-heading">📊 Cell Member Growth</div>
+
+  <div class="chart-card">
+    <div class="chart-title">Active Members per Cell</div>
+    <div class="chart-sub">Current active member count across all cells you oversee</div>
+    <div class="bar-chart">
+      <div class="bar-group">
+        <div class="bar-val">22</div>
+        <div class="bar" style="height:70%"></div>
+        <div class="bar-label">Grace</div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-val">28</div>
+        <div class="bar" style="height:88%"></div>
+        <div class="bar-label">Hope</div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-val">14</div>
+        <div class="bar" style="height:44%; background:#a5b4fc"></div>
+        <div class="bar-label">Faith</div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-val">32</div>
+        <div class="bar" style="height:100%"></div>
+        <div class="bar-label">Joy</div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-val">19</div>
+        <div class="bar" style="height:59%; background:#a5b4fc"></div>
+        <div class="bar-label">Peace</div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-val">18</div>
+        <div class="bar" style="height:56%"></div>
+        <div class="bar-label">Bethel</div>
+      </div>
+      <div class="bar-group">
+        <div class="bar-val">9</div>
+        <div class="bar" style="height:28%; background:#c7d2fe"></div>
+        <div class="bar-label">New Cell</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:10px;justify-content:flex-end;">
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#64748b;"><span style="width:10px;height:10px;border-radius:2px;background:#6366f1;display:inline-block"></span>Strong (20+)</span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#64748b;"><span style="width:10px;height:10px;border-radius:2px;background:#c7d2fe;display:inline-block"></span>Growing (&lt;20)</span>
+    </div>
+  </div>
+
+  <!-- ── WEEKLY ATTENDANCE TRENDS ───────────────── -->
+  <div class="section-heading" style="margin-top:4px;">📈 Weekly Attendance Trends</div>
+
+  <div class="chart-card">
+    <div class="chart-title">Attendance per Cell — Last 6 Weeks</div>
+    <div class="chart-sub">Total members + visitors per meeting report</div>
+    <div class="line-chart-placeholder">
+      <svg viewBox="0 0 400 80" preserveAspectRatio="none">
+        <polyline points="20,60 80,45 140,50 200,30 260,35 320,20 380,25" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round"/>
+        <polyline points="20,70 80,65 140,60 200,55 260,50 320,45 380,40" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-dasharray="4,2"/>
+        <polyline points="20,75 80,72 140,68 200,65 260,60 320,58 380,55" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-dasharray="2,3"/>
+        <circle cx="380" cy="25" r="3" fill="#6366f1"/>
+        <circle cx="380" cy="40" r="3" fill="#059669"/>
+        <circle cx="380" cy="55" r="3" fill="#d97706"/>
+      </svg>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:10px;justify-content:center;flex-wrap:wrap;">
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#64748b;"><span style="width:16px;height:2px;background:#6366f1;display:inline-block"></span>Grace</span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#64748b;"><span style="width:16px;height:2px;background:#059669;display:inline-block"></span>Hope</span>
+      <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#64748b;"><span style="width:16px;height:2px;background:#d97706;display:inline-block"></span>Faith</span>
+    </div>
+  </div>
+
+  <!-- ── MISSING REPORTS TABLE ──────────────────── -->
+  <div class="section-heading" style="margin-top:4px;">🔴 Missing Cell Reports This Week</div>
+  <div class="chart-card">
+    <div class="chart-title">Current Week (Mon–Sun)</div>
+    <div class="chart-sub">Expected report date follows each cell's meeting day</div>
+    <table class="mini-table">
+      <thead>
+        <tr>
+          <th>Cell</th>
+          <th>Leader</th>
+          <th>Due Date</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Grace Cell</td><td>Priya Samuel</td><td>Wed Apr 23</td><td class="status-ok">✅ Submitted</td><td></td></tr>
+        <tr><td>Hope Cell</td><td>Rajan K</td><td>Fri Apr 25</td><td class="status-miss">❌ Missing</td><td><span style="font-size:11px;color:#64748b;cursor:pointer;text-decoration:underline">Remind</span></td></tr>
+        <tr><td>Faith Cell</td><td>Jeena Philip</td><td>Thu Apr 24</td><td class="status-ok">✅ Submitted</td><td></td></tr>
+        <tr><td>Joy Cell</td><td>Benny A</td><td>Sat Apr 26</td><td style="color:#94a3b8;font-size:12px;">Not yet due</td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <hr class="section-divider">
+
+  <!-- ── LEADER SIDE: DEACTIVATION REASON (demo) ── -->
+  <div class="leader-demo">
+    <div class="leader-demo-label">📱 Leader Side — Deactivation Modal (new reason field)</div>
+    <div style="background:white;border-radius:16px;padding:18px;box-shadow:0 2px 8px rgba(0,0,0,0.08);max-width:380px;">
+      <h3 style="font-size:15px;font-weight:800;color:#1e293b;margin-bottom:4px;">Request Deactivation</h3>
+      <p style="font-size:12px;color:#64748b;margin-bottom:14px;">For <strong>Samuel Oommen</strong> · A Director will review and approve this.</p>
+      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">Reason for deactivation <span style="color:#ef4444;">*</span></label>
+      <textarea rows="3" style="width:100%;padding:10px;border-radius:10px;border:1px solid #d1d5db;font-size:13px;resize:none;color:#374151;font-family:inherit;" placeholder="e.g. Relocated, backslidden, long absence…">Backslidden, no contact for 3 months despite follow-ups.</textarea>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button style="flex:1;padding:10px;background:#dc2626;color:white;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;">Submit Request</button>
+        <button style="padding:10px 14px;background:#f1f5f9;color:#374151;border:none;border-radius:10px;font-size:13px;cursor:pointer;">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function openDrawer() { document.getElementById('unassigned-overlay').classList.add('open'); }
+function closeDrawer() { document.getElementById('unassigned-overlay').classList.remove('open'); }
+</script>
+</body>
+</html>

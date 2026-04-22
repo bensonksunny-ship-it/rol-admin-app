@@ -1,0 +1,151 @@
+<h2>Director Summary Tab — Layout Options</h2>
+<p class="subtitle">How should the upgraded Summary tab be organized? Pick the layout that feels right for a Director reviewing their cells.</p>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Cockpit-First (Urgent → Charts)</h3>
+      <p>Pending approvals sit at the top with a bold badge, so the Director sees what needs action immediately. Charts and attendance stats scroll below.</p>
+      <div style="margin-top:14px; background:#f8fafc; border-radius:12px; padding:14px; font-size:12px; border:1px solid #e2e8f0;">
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+          <div style="flex:1; background:#fef3c7; border-radius:8px; padding:8px; text-align:center; border:1px solid #fcd34d;">
+            <div style="font-weight:700; color:#92400e; font-size:16px;">3</div>
+            <div style="color:#b45309; font-size:10px;">Pending Approvals</div>
+          </div>
+          <div style="flex:1; background:#f0fdf4; border-radius:8px; padding:8px; text-align:center; border:1px solid #86efac;">
+            <div style="font-weight:700; color:#166534; font-size:16px;">7</div>
+            <div style="color:#15803d; font-size:10px;">Active Cells</div>
+          </div>
+          <div style="flex:1; background:#eff6ff; border-radius:8px; padding:8px; text-align:center; border:1px solid #93c5fd;">
+            <div style="font-weight:700; color:#1e40af; font-size:16px;">142</div>
+            <div style="color:#1d4ed8; font-size:10px;">Total Members</div>
+          </div>
+        </div>
+        <div style="background:white; border-radius:8px; border:1px solid #e2e8f0; padding:10px; margin-bottom:8px;">
+          <div style="font-weight:600; color:#f59e0b; margin-bottom:6px; font-size:11px;">⏳ PENDING MEMBER CHANGES (3)</div>
+          <div style="background:#fffbeb; border-radius:6px; padding:8px; margin-bottom:6px; border:1px solid #fde68a;">
+            <div style="font-weight:600; color:#1e293b; font-size:11px;">John Mathew</div>
+            <div style="color:#64748b; font-size:10px;">Leader: Priya Samuel · Grace Cell</div>
+            <div style="color:#64748b; font-size:10px; margin-top:2px; font-style:italic;">"Relocated to another city, no longer attending"</div>
+            <div style="display:flex; gap:6px; margin-top:8px;">
+              <span style="flex:1; background:#22c55e; color:white; border-radius:6px; padding:4px 8px; text-align:center; font-size:10px; font-weight:600;">✓ Approve</span>
+              <span style="flex:1; background:#ef4444; color:white; border-radius:6px; padding:4px 8px; text-align:center; font-size:10px; font-weight:600;">✕ Reject</span>
+            </div>
+          </div>
+          <div style="color:#94a3b8; font-size:10px; text-align:center;">+ 2 more…</div>
+        </div>
+        <div style="background:white; border-radius:8px; border:1px solid #e2e8f0; padding:10px;">
+          <div style="font-weight:600; color:#1e293b; margin-bottom:4px; font-size:11px;">📊 Cell Growth & Attendance Charts</div>
+          <div style="height:40px; background:linear-gradient(to right, #eff6ff, #dbeafe); border-radius:6px; display:flex; align-items:center; justify-content:center; color:#1d4ed8; font-size:10px;">Bar chart + Weekly trend lines</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Charts-First (Growth → Approvals)</h3>
+      <p>Cell Growth chart and attendance trends lead the page, giving the Director a bird's-eye view of health. Pending approvals are a section below, always visible.</p>
+      <div style="margin-top:14px; background:#f8fafc; border-radius:12px; padding:14px; font-size:12px; border:1px solid #e2e8f0;">
+        <div style="background:white; border-radius:8px; border:1px solid #e2e8f0; padding:10px; margin-bottom:8px;">
+          <div style="font-weight:600; color:#1e293b; margin-bottom:4px; font-size:11px;">📊 Cell Member Growth (All Cells)</div>
+          <div style="display:flex; align-items:flex-end; gap:4px; height:50px; padding:4px 0;">
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;">
+              <div style="flex:1; background:#6366f1; border-radius:3px 3px 0 0; width:100%; min-height:8px; height:60%;"></div>
+              <div style="font-size:8px; color:#94a3b8;">Grace</div>
+            </div>
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;">
+              <div style="flex:1; background:#6366f1; border-radius:3px 3px 0 0; width:100%; height:80%;"></div>
+              <div style="font-size:8px; color:#94a3b8;">Hope</div>
+            </div>
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;">
+              <div style="flex:1; background:#6366f1; border-radius:3px 3px 0 0; width:100%; height:45%;"></div>
+              <div style="font-size:8px; color:#94a3b8;">Faith</div>
+            </div>
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;">
+              <div style="flex:1; background:#6366f1; border-radius:3px 3px 0 0; width:100%; height:100%;"></div>
+              <div style="font-size:8px; color:#94a3b8;">Joy</div>
+            </div>
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;">
+              <div style="flex:1; background:#6366f1; border-radius:3px 3px 0 0; width:100%; height:70%;"></div>
+              <div style="font-size:8px; color:#94a3b8;">Peace</div>
+            </div>
+          </div>
+        </div>
+        <div style="background:white; border-radius:8px; border:1px solid #e2e8f0; padding:10px; margin-bottom:8px;">
+          <div style="font-weight:600; color:#1e293b; margin-bottom:4px; font-size:11px;">📈 Weekly Attendance Trends</div>
+          <div style="height:40px; background:linear-gradient(to right, #eff6ff, #dbeafe); border-radius:6px; display:flex; align-items:center; justify-content:center; color:#1d4ed8; font-size:10px;">Line chart (last 6 weeks)</div>
+        </div>
+        <div style="background:#fffbeb; border-radius:8px; border:1px solid #fde68a; padding:10px;">
+          <div style="font-weight:600; color:#b45309; margin-bottom:6px; font-size:11px;">⏳ Pending Member Changes (3)</div>
+          <div style="color:#64748b; font-size:10px; font-style:italic; margin-bottom:4px;">"John Mathew — Relocated to another city…"</div>
+          <div style="color:#94a3b8; font-size:10px;">+ 2 more requests →</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Two-Column Cockpit (Side-by-Side)</h3>
+      <p>On wider screens: Left column = Pending Approvals, Right column = Charts. Both visible at once. Collapses to single column on mobile.</p>
+      <div style="margin-top:14px; background:#f8fafc; border-radius:12px; padding:14px; font-size:12px; border:1px solid #e2e8f0;">
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1; background:white; border-radius:8px; border:1px solid #fde68a; padding:8px;">
+            <div style="font-weight:600; color:#b45309; font-size:10px; margin-bottom:6px;">⏳ PENDING (3)</div>
+            <div style="background:#fffbeb; border-radius:6px; padding:6px; margin-bottom:4px;">
+              <div style="font-weight:600; font-size:10px;">John Mathew</div>
+              <div style="color:#64748b; font-size:9px;">Grace Cell · Priya Samuel</div>
+              <div style="color:#78716c; font-size:9px; margin-top:2px; font-style:italic;">"Relocated…"</div>
+              <div style="display:flex; gap:4px; margin-top:6px;">
+                <span style="flex:1; background:#22c55e; color:white; border-radius:4px; padding:3px; text-align:center; font-size:9px; font-weight:600;">✓</span>
+                <span style="flex:1; background:#ef4444; color:white; border-radius:4px; padding:3px; text-align:center; font-size:9px; font-weight:600;">✕</span>
+              </div>
+            </div>
+            <div style="background:#fffbeb; border-radius:6px; padding:6px;">
+              <div style="font-weight:600; font-size:10px;">Mary Thomas</div>
+              <div style="color:#64748b; font-size:9px;">Hope Cell · Rajan K</div>
+              <div style="color:#78716c; font-size:9px; margin-top:2px; font-style:italic;">"Moved to evening…"</div>
+              <div style="display:flex; gap:4px; margin-top:6px;">
+                <span style="flex:1; background:#22c55e; color:white; border-radius:4px; padding:3px; text-align:center; font-size:9px; font-weight:600;">✓</span>
+                <span style="flex:1; background:#ef4444; color:white; border-radius:4px; padding:3px; text-align:center; font-size:9px; font-weight:600;">✕</span>
+              </div>
+            </div>
+          </div>
+          <div style="flex:1;">
+            <div style="background:white; border-radius:8px; border:1px solid #e2e8f0; padding:8px; margin-bottom:6px;">
+              <div style="font-weight:600; color:#1e293b; font-size:10px; margin-bottom:4px;">📊 Cell Member Growth</div>
+              <div style="display:flex; align-items:flex-end; gap:3px; height:42px;">
+                <div style="flex:1; background:#818cf8; border-radius:2px 2px 0 0; height:60%;"></div>
+                <div style="flex:1; background:#818cf8; border-radius:2px 2px 0 0; height:85%;"></div>
+                <div style="flex:1; background:#818cf8; border-radius:2px 2px 0 0; height:40%;"></div>
+                <div style="flex:1; background:#818cf8; border-radius:2px 2px 0 0; height:100%;"></div>
+                <div style="flex:1; background:#818cf8; border-radius:2px 2px 0 0; height:70%;"></div>
+              </div>
+            </div>
+            <div style="background:white; border-radius:8px; border:1px solid #e2e8f0; padding:8px;">
+              <div style="font-weight:600; color:#1e293b; font-size:10px; margin-bottom:4px;">📈 Weekly Attendance</div>
+              <div style="height:38px; background:linear-gradient(135deg,#eff6ff,#dbeafe); border-radius:6px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top:24px; background:#f0fdf4; border-radius:12px; padding:16px; border:1px solid #86efac;">
+  <p style="margin:0; font-size:13px; color:#166534; font-weight:600;">All three options include:</p>
+  <ul style="margin:8px 0 0; padding-left:18px; font-size:13px; color:#15803d; line-height:1.8;">
+    <li>Deactivation <strong>reason</strong> shown on each approval card</li>
+    <li>Leader name + Cell name clearly labeled</li>
+    <li>Approve (green) and Reject (red) buttons per request</li>
+    <li>Cell Growth bar chart (member counts across all cells)</li>
+    <li>Weekly attendance line chart (existing DirectorDashboard.jsx charts)</li>
+  </ul>
+</div>
