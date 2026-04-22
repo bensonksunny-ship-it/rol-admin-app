@@ -1,5 +1,5 @@
 import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation } from 'react-router-dom'
-import { useEffect, useMemo, useState, Fragment } from 'react'
+import { useEffect, useMemo, useState, useCallback, Fragment } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
@@ -70,6 +70,7 @@ import { differenceInDays, differenceInYears, differenceInMonths, format, startO
 import { formatDMY, formatDMYTime, parseDateToYYYYMMDD } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import DepartmentTabBar from '../components/DepartmentTabBar'
+import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
 import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
 import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
@@ -184,6 +185,10 @@ export default function DepartmentHub() {
   const [cellImportSaving, setCellImportSaving] = useState(false)
   const [cellPendingChanges, setCellPendingChanges] = useState([])
   const [loadingCellPending, setLoadingCellPending] = useState(false)
+  const handleCellChangeResolved = useCallback(
+    (id) => setCellPendingChanges((prev) => prev.filter((x) => x.id !== id)),
+    []
+  )
   const [backToBibleList, setBackToBibleList] = useState([])
   const [btbForm, setBtbForm] = useState(() => {
     const now = new Date()
@@ -882,91 +887,13 @@ export default function DepartmentHub() {
                 </div>
               </div>
               {slug === 'cell' ? (
-                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                  <h2 className="font-semibold text-slate-800 mb-3">Pending For Review</h2>
-                  <p className="text-sm text-slate-600 mb-4">Member change requests from Cell Leaders. Approve or deny each request.</p>
-                  {loadingCellPending ? (
-                    <p className="text-sm text-slate-500">Loading…</p>
-                  ) : cellPendingChanges.length === 0 ? (
-                    <p className="text-sm text-slate-500">No pending member changes.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-sm">
-                        <thead className="bg-slate-100">
-                          <tr>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600 w-10">SL</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Cell Name</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Member Name</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Change Type</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Field changed</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Requested By</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Date & Time</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {cellPendingChanges.map((p, idx) => (
-                            <tr key={p.id}>
-                              <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
-                              <td className="px-3 py-2 text-slate-800">{p.cellName || '—'}</td>
-                              <td className="px-3 py-2 text-slate-800">{p.memberData?.name ?? (p.changeType === 'delete' ? '(delete)' : p.changeType === 'add' ? (p.memberData?.name || '—') : '—')}</td>
-                              <td className="px-3 py-2 text-slate-600">
-                                {p.changeType === 'deactivate' ? 'Deactivate Member' : (p.changeType || '—')}
-                              </td>
-                              <td className="px-3 py-2 text-slate-600">{p.changeType === 'edit' ? (p.changeSummary || '—') : '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{p.requestedBy || '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{p.requestedAt ? formatDMYTime(p.requestedAt) : '—'}</td>
-                              <td className="px-3 py-2 space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    try {
-                                      if (p.changeType === 'add' && p.memberData) {
-                                        await addCellGroupMember(p.cellId, p.memberData)
-                                      } else if (p.changeType === 'edit' && p.memberId && p.memberData) {
-                                        await updateCellGroupMember(p.cellId, p.memberId, p.memberData)
-                                      } else if (p.changeType === 'delete' && p.memberId) {
-                                        await deleteCellGroupMember(p.cellId, p.memberId)
-                                      } else if (p.changeType === 'activate' && p.memberId) {
-                                        await updateCellGroupMember(p.cellId, p.memberId, { status: 'active' })
-                                      } else if (p.changeType === 'deactivate' && p.memberId) {
-                                        await updateCellGroupMember(p.cellId, p.memberId, { status: 'inactive' })
-                                      }
-                                      await deleteCellMemberPendingChange(p.id)
-                                      setCellPendingChanges((prev) => prev.filter((x) => x.id !== p.id))
-                                      const updatedList = await getCellGroupMembers(p.cellId)
-                                      setCellGroups((prev) => prev.map((c) => (c.id === p.cellId ? { ...c, memberCount: updatedList.length } : c)))
-                                    } catch (err) {
-                                      console.error(err)
-                                      alert('Failed to apply')
-                                    }
-                                  }}
-                                  className="text-emerald-600 hover:underline font-medium"
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    try {
-                                      await deleteCellMemberPendingChange(p.id)
-                                      setCellPendingChanges((prev) => prev.filter((x) => x.id !== p.id))
-                                    } catch (err) {
-                                      console.error(err)
-                                    }
-                                  }}
-                                  className="text-red-600 hover:underline"
-                                >
-                                  Deny
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
+                <CellDirectorCockpit
+                  userProfile={userProfile}
+                  cellGroups={cellGroups}
+                  cellPendingChanges={cellPendingChanges}
+                  loadingCellPending={loadingCellPending}
+                  onChangeResolved={handleCellChangeResolved}
+                />
               ) : slug === 'd-light' ? (
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                   <h2 className="font-semibold text-slate-800 mb-2">D Light</h2>
