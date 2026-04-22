@@ -1491,6 +1491,7 @@ export async function addCellMemberPendingChange(data) {
     status: 'pending',
   }
   if (data.changeSummary != null) payload.changeSummary = data.changeSummary
+  if (data.reason != null) payload.reason = String(data.reason)
   const ref = await addDoc(collection(db, CELL_MEMBER_PENDING_CHANGES_COLLECTION), payload)
   return ref.id
 }
@@ -1509,6 +1510,7 @@ export async function getCellMemberPendingChanges() {
       id: d.id,
       changeType: data.changeType || '',
       changeSummary: data.changeSummary || '',
+      reason: data.reason || '',
       cellId: data.cellId || '',
       cellName: data.cellName || '',
       memberId: data.memberId || '',
@@ -2160,6 +2162,33 @@ export async function getSundayReport(dateStr) {
       updatedAt: toDate(data.updatedAt),
     }),
   }
+}
+
+export async function getRecentSundayReports(numWeeks = 8) {
+  if (!db) return []
+  const today = new Date()
+  const lastSunday = new Date(today)
+  lastSunday.setDate(today.getDate() - today.getDay())
+  const dateStrings = Array.from({ length: numWeeks }, (_, i) => {
+    const d = new Date(lastSunday)
+    d.setDate(lastSunday.getDate() - i * 7)
+    return d.toISOString().slice(0, 10)
+  })
+  const snaps = await Promise.all(
+    dateStrings.map((dateStr) => getDoc(doc(db, SUNDAY_REPORTS_COLLECTION, dateStr)))
+  )
+  return snaps
+    .filter((snap) => snap.exists())
+    .map((snap) => {
+      const data = snap.data()
+      return {
+        id: snap.id,
+        date: snap.id,
+        secondWeekAttendeesNames: Array.isArray(data.secondWeekAttendeesNames)
+          ? data.secondWeekAttendeesNames.map((n) => String(n).trim()).filter(Boolean)
+          : [],
+      }
+    })
 }
 
 export async function setSundayReport(dateStr, payload, updatedBy) {
