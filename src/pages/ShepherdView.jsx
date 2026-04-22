@@ -12,6 +12,8 @@ import {
   updateCellGroupMember,
   getMidweekPrayerPoints,
   saveMidweekPrayerPoints,
+  addCellMemberPendingChange,
+  getCellMemberPendingChanges,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
@@ -776,6 +778,8 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
   const [editForm, setEditForm] = useState(EMPTY_MEMBER_FORM)
   const [saving, setSaving]     = useState(false)
 
+  const [pendingDeactivationIds, setPendingDeactivationIds] = useState(new Set())
+
   const [toast, setToast] = useState(null)
   const showToastMsg = useCallback((msg, type = 'success') => {
     setToast({ msg, type })
@@ -810,6 +814,20 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
   useEffect(() => {
     if (selectedCellId) refreshMembers(selectedCellId)
   }, [selectedCellId, refreshMembers])
+
+  useEffect(() => {
+    if (!selectedCellId) return
+    getCellMemberPendingChanges(selectedCellId)
+      .then((changes) => {
+        const ids = new Set(
+          changes
+            .filter((c) => c.changeType === 'deactivate' && c.status === 'pending')
+            .map((c) => c.memberId)
+        )
+        setPendingDeactivationIds(ids)
+      })
+      .catch(() => setPendingDeactivationIds(new Set()))
+  }, [selectedCellId])
 
   const activeMembers   = useMemo(() => members.filter((m) => m.status !== 'inactive'), [members])
   const inactiveMembers = useMemo(() => members.filter((m) => m.status === 'inactive'),  [members])
@@ -859,12 +877,29 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
   }
 
   const handleDeactivate = async (member) => {
-    if (!selectedCellId || !window.confirm(`Deactivate ${member.name}? They will move to the Inactive list.`)) return
-    try {
-      await updateCellGroupMember(selectedCellId, member.id, { status: 'inactive' })
-      showToastMsg(`${member.name} moved to Inactive.`)
-      await refreshMembers(selectedCellId)
-    } catch { showToastMsg('Failed to deactivate.', 'error') }
+    if (!selectedCellId) return
+    if (isDirector) {
+      if (!window.confirm(`Deactivate ${member.name}? They will move to the Inactive list.`)) return
+      try {
+        await updateCellGroupMember(selectedCellId, member.id, { status: 'inactive' })
+        showToastMsg(`${member.name} moved to Inactive.`)
+        await refreshMembers(selectedCellId)
+      } catch { showToastMsg('Failed to deactivate.', 'error') }
+    } else {
+      if (!window.confirm(`Submit a deactivation request for ${member.name}? A Director will review and approve it.`)) return
+      try {
+        await addCellMemberPendingChange({
+          changeType: 'deactivate',
+          cellId: selectedCellId,
+          memberId: member.id,
+          memberData: { name: member.name, phone: member.phone || '', locality: member.locality || '' },
+          requestedBy: userProfile?.name || userProfile?.email || 'Cell Leader',
+          requestedByUid: userProfile?.id || '',
+        })
+        setPendingDeactivationIds((prev) => new Set([...prev, member.id]))
+        showToastMsg(`Deactivation request submitted for ${member.name}. Awaiting Director approval.`)
+      } catch { showToastMsg('Failed to submit request.', 'error') }
+    }
   }
 
   const handleReactivate = async (member) => {
@@ -969,6 +1004,9 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
                           {member.role && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">{member.role}</span>
                           )}
+                          {pendingDeactivationIds.has(member.id) && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">⏳ Pending Deactivation</span>
+                          )}
                         </div>
                         {/* Attendance duration */}
                         {member.since && (
@@ -996,9 +1034,17 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
                             className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition">
                             Edit
                           </button>
-                          <button type="button" onClick={() => handleDeactivate(member)}
-                            className="px-3 py-1.5 rounded-xl bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition">
-                            Deactivate
+                          <button
+                            type="button"
+                            onClick={() => handleDeactivate(member)}
+                            disabled={pendingDeactivationIds.has(member.id)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                              pendingDeactivationIds.has(member.id)
+                                ? 'bg-amber-50 text-amber-500 cursor-not-allowed opacity-70'
+                                : 'bg-red-50 text-red-600 hover:bg-red-100'
+                            }`}
+                          >
+                            {pendingDeactivationIds.has(member.id) ? 'Pending…' : 'Deactivate'}
                           </button>
                         </div>
                       )}
