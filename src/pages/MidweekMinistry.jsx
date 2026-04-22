@@ -867,10 +867,15 @@ function CellPrepTab({ userProfile, isDirector, isLeader }) {
   const [programSegments, setProgramSegments]   = useState(DEFAULT_PROGRAM)
   const [savingProgram, setSavingProgram]       = useState(false)
   const [savedProgram, setSavedProgram]         = useState(false)
+  const [newSegmentName, setNewSegmentName]     = useState('')
+  const [addingSegment, setAddingSegment]       = useState(false)
 
-  // Prayer points (today's accumulated — from Live Control)
+  // Prayer points
   const [prayerPoints, setPrayerPoints]   = useState([])
   const [loadingPrayer, setLoadingPrayer] = useState(false)
+  const [savingPrayer, setSavingPrayer]   = useState(false)
+  const [prayerName, setPrayerName]       = useState('')
+  const [prayerSubject, setPrayerSubject] = useState('')
 
   // Back to Bible imported content
   const [b2b, setB2b]           = useState(null)
@@ -941,6 +946,57 @@ function CellPrepTab({ userProfile, isDirector, isLeader }) {
       prev.map((s) => s.name === name ? { ...s, [field]: field === 'durationMinutes' ? Number(value) || 0 : Number(value) || 1 } : s)
     )
     setSavedProgram(false)
+  }
+
+  const addSegment = () => {
+    const name = newSegmentName.trim()
+    if (!name) return
+    if (programSegments.some((s) => s.name.toLowerCase() === name.toLowerCase())) return
+    const nextOrder = programSegments.length + 1
+    setProgramSegments((prev) => [...prev, { name, order: nextOrder, durationMinutes: 20 }])
+    setNewSegmentName('')
+    setAddingSegment(false)
+    setSavedProgram(false)
+  }
+
+  const removeSegment = (name) => {
+    setProgramSegments((prev) => {
+      const filtered = prev.filter((s) => s.name !== name)
+      return filtered.map((s, i) => ({ ...s, order: i + 1 }))
+    })
+    setSavedProgram(false)
+  }
+
+  const addPrayerPoint = async () => {
+    const name = prayerName.trim()
+    const subject = prayerSubject.trim()
+    if (!name || !subject || !selectedCellId) return
+    setSavingPrayer(true)
+    try {
+      const newPoint = {
+        id: Date.now().toString(),
+        name,
+        subject,
+        addedBy: userProfile?.name || userProfile?.email || 'Unknown',
+        addedByUid: userProfile?.id || '',
+        isDirector: isDirector,
+        createdAt: new Date().toISOString(),
+      }
+      const updated = [...prayerPoints, newPoint]
+      setPrayerPoints(updated)
+      await saveMidweekPrayerPoints(selectedCellId, today, updated, userProfile?.name || 'unknown')
+      setPrayerName('')
+      setPrayerSubject('')
+    } finally {
+      setSavingPrayer(false)
+    }
+  }
+
+  const removePrayerPoint = async (pointId) => {
+    if (!selectedCellId) return
+    const updated = prayerPoints.filter((p) => p.id !== pointId)
+    setPrayerPoints(updated)
+    await saveMidweekPrayerPoints(selectedCellId, today, updated, userProfile?.name || 'unknown')
   }
 
   const handleSaveProgram = async () => {
@@ -1030,7 +1086,7 @@ function CellPrepTab({ userProfile, isDirector, isLeader }) {
             return (
               <div
                 key={seg.name}
-                className="grid grid-cols-[36px_1fr_90px_96px] gap-2 items-center bg-slate-50 rounded-2xl px-3 py-3 border border-slate-100"
+                className="grid grid-cols-[36px_1fr_90px_80px_28px] gap-2 items-center bg-slate-50 rounded-2xl px-3 py-3 border border-slate-100"
               >
                 {/* Order number input */}
                 <input
@@ -1065,10 +1121,49 @@ function CellPrepTab({ userProfile, isDirector, isLeader }) {
 
                 {/* Calculated time */}
                 <span className="text-xs text-indigo-600 font-semibold text-center leading-tight">{timeLabel}</span>
+
+                {/* Remove button */}
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => removeSegment(seg.name)}
+                    className="text-slate-300 hover:text-red-400 transition text-lg leading-none"
+                    aria-label={`Remove ${seg.name}`}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             )
           })}
         </div>
+
+        {/* Add Segment */}
+        {canEdit && (
+          addingSegment ? (
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                type="text"
+                value={newSegmentName}
+                onChange={(e) => setNewSegmentName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') addSegment(); if (e.key === 'Escape') { setAddingSegment(false); setNewSegmentName('') } }}
+                placeholder="Segment name…"
+                autoFocus
+                className="flex-1 px-3 py-2 rounded-xl border border-indigo-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+              <button type="button" onClick={addSegment} className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700">Add</button>
+              <button type="button" onClick={() => { setAddingSegment(false); setNewSegmentName('') }} className="px-3 py-2 rounded-xl border border-slate-300 text-slate-600 text-sm hover:bg-slate-50">Cancel</button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddingSegment(true)}
+              className="w-full py-2.5 rounded-2xl border border-dashed border-slate-300 text-slate-500 text-sm font-medium hover:border-indigo-400 hover:text-indigo-600 transition"
+            >
+              + Add Segment
+            </button>
+          )
+        )}
 
         {/* Summary row */}
         <div className="flex items-center justify-between px-1 pt-1">
@@ -1094,37 +1189,79 @@ function CellPrepTab({ userProfile, isDirector, isLeader }) {
         )}
       </div>
 
-      {/* ── Prayer Points (from Live Control, read-only) ── */}
+      {/* ── Prayer Points ── */}
       <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3">
         <div>
           <h2 className="font-bold text-slate-900">🙏 Prayer Points</h2>
-          <p className="text-slate-500 text-xs mt-0.5">Added during Live Control · Add more using the 🙏 button there</p>
+          <p className="text-slate-500 text-xs mt-0.5">Prayer matters for today's cell meeting</p>
         </div>
+
         {!selectedCellId ? (
           <p className="text-slate-400 text-sm">Select a cell group to view prayer points.</p>
         ) : loadingPrayer ? (
           <div className="text-center text-slate-400 py-4 text-sm">Loading…</div>
-        ) : prayerPoints.length === 0 ? (
-          <div className="text-center py-6">
-            <p className="text-3xl mb-2">🙏</p>
-            <p className="text-slate-400 text-sm">No prayer points recorded yet for today.</p>
-          </div>
         ) : (
-          <div className="space-y-2">
-            {prayerPoints.map((p, i) => (
-              <div key={p.id || i} className="flex items-start gap-3 p-3.5 rounded-2xl bg-slate-50">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                    <p className="font-semibold text-slate-900 text-sm">{p.name}</p>
-                    {p.isDirector && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">From Director</span>
+          <>
+            {prayerPoints.length === 0 ? (
+              <div className="text-center py-4">
+                <p className="text-3xl mb-2">🙏</p>
+                <p className="text-slate-400 text-sm">No prayer points recorded yet for today.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {prayerPoints.map((p, i) => (
+                  <div key={p.id || i} className="flex items-start gap-3 p-3.5 rounded-2xl bg-slate-50">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <p className="font-semibold text-slate-900 text-sm">{p.name}</p>
+                        {p.isDirector && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">From Director</span>
+                        )}
+                      </div>
+                      <p className="text-slate-600 text-sm leading-relaxed">{p.subject}</p>
+                    </div>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => removePrayerPoint(p.id)}
+                        className="text-slate-300 hover:text-red-400 transition text-lg leading-none flex-shrink-0 mt-0.5"
+                        aria-label="Remove prayer point"
+                      >
+                        ×
+                      </button>
                     )}
                   </div>
-                  <p className="text-slate-600 text-sm leading-relaxed">{p.subject}</p>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+
+            {canEdit && (
+              <div className="space-y-2 pt-1">
+                <input
+                  type="text"
+                  value={prayerName}
+                  onChange={(e) => setPrayerName(e.target.value)}
+                  placeholder="Person / matter name…"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+                <input
+                  type="text"
+                  value={prayerSubject}
+                  onChange={(e) => setPrayerSubject(e.target.value)}
+                  placeholder="Prayer request / subject…"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+                <button
+                  type="button"
+                  onClick={addPrayerPoint}
+                  disabled={savingPrayer || !prayerName.trim() || !prayerSubject.trim()}
+                  className="w-full py-2.5 rounded-2xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 transition-all active:scale-[0.98]"
+                >
+                  {savingPrayer ? 'Saving…' : '🙏 Add Prayer Point'}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
