@@ -780,6 +780,10 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
 
   const [pendingDeactivationIds, setPendingDeactivationIds] = useState(new Set())
 
+  const [deactivateTarget, setDeactivateTarget]   = useState(null)
+  const [deactivateReason, setDeactivateReason]   = useState('')
+  const [submittingDeactivate, setSubmittingDeactivate] = useState(false)
+
   const [toast, setToast] = useState(null)
   const showToastMsg = useCallback((msg, type = 'success') => {
     setToast({ msg, type })
@@ -886,20 +890,30 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
         await refreshMembers(selectedCellId)
       } catch { showToastMsg('Failed to deactivate.', 'error') }
     } else {
-      if (!window.confirm(`Submit a deactivation request for ${member.name}? A Director will review and approve it.`)) return
-      try {
-        await addCellMemberPendingChange({
-          changeType: 'deactivate',
-          cellId: selectedCellId,
-          memberId: member.id,
-          memberData: { name: member.name, phone: member.phone || '', locality: member.locality || '' },
-          requestedBy: userProfile?.name || userProfile?.email || 'Cell Leader',
-          requestedByUid: userProfile?.id || '',
-        })
-        setPendingDeactivationIds((prev) => new Set([...prev, member.id]))
-        showToastMsg(`Deactivation request submitted for ${member.name}. Awaiting Director approval.`)
-      } catch { showToastMsg('Failed to submit request.', 'error') }
+      setDeactivateTarget(member)
+      setDeactivateReason('')
     }
+  }
+
+  const handleSubmitDeactivateRequest = async () => {
+    if (!deactivateTarget || !selectedCellId) return
+    setSubmittingDeactivate(true)
+    try {
+      await addCellMemberPendingChange({
+        changeType: 'deactivate',
+        cellId: selectedCellId,
+        memberId: deactivateTarget.id,
+        memberData: { name: deactivateTarget.name, phone: deactivateTarget.phone || '', locality: deactivateTarget.locality || '' },
+        requestedBy: userProfile?.name || userProfile?.email || 'Cell Leader',
+        requestedByUid: userProfile?.id || '',
+        reason: deactivateReason.trim(),
+      })
+      setPendingDeactivationIds((prev) => new Set([...prev, deactivateTarget.id]))
+      showToastMsg(`Deactivation request submitted for ${deactivateTarget.name}. Awaiting Director approval.`)
+      setDeactivateTarget(null)
+      setDeactivateReason('')
+    } catch { showToastMsg('Failed to submit request.', 'error') }
+    finally { setSubmittingDeactivate(false) }
   }
 
   const handleReactivate = async (member) => {
@@ -917,6 +931,46 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
         <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl text-white shadow-lg text-sm font-medium ${
           toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'
         }`}>{toast.msg}</div>
+      )}
+
+      {deactivateTarget && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="font-bold text-gray-800 text-base">
+              Request Deactivation — {deactivateTarget.name}
+            </h3>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">
+                Reason for deactivation <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                value={deactivateReason}
+                onChange={(e) => setDeactivateReason(e.target.value)}
+                placeholder="e.g. Relocated, backslidden, long absence…"
+                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+              {deactivateReason.length > 0 && deactivateReason.trim().length < 10 && (
+                <p className="text-xs text-red-500">Please enter at least 10 characters.</p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setDeactivateTarget(null); setDeactivateReason('') }}
+                className="flex-1 py-2.5 rounded-xl border border-gray-300 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitDeactivateRequest}
+                disabled={deactivateReason.trim().length < 10 || submittingDeactivate}
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-semibold disabled:opacity-40 hover:bg-amber-600"
+              >
+                {submittingDeactivate ? 'Submitting…' : 'Submit Request'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {isDirector && (
