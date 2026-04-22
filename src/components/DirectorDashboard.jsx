@@ -314,17 +314,17 @@ export function CellMemberGrowthChart({ cellMemberData }) {
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={cellMemberData} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-          <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
+          <XAxis dataKey="cellName" tick={{ fontSize: 11, fill: '#64748b' }} />
           <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
           <Tooltip
             contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
             formatter={(value) => [value, 'Members']}
           />
-          <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+          <Bar dataKey="memberCount" radius={[4, 4, 0, 0]}>
             {cellMemberData.map((entry, index) => (
               <Cell
                 key={index}
-                fill={entry.count >= 20 ? '#6366f1' : '#c7d2fe'}
+                fill={entry.memberCount >= 20 ? '#6366f1' : '#c7d2fe'}
               />
             ))}
           </Bar>
