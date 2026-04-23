@@ -21,9 +21,13 @@ import {
   addFinanceBudgetItem,
   updateFinanceBudgetItem,
   deleteFinanceBudgetItem,
+  getFinanceVoucherRequests,
+  createFinanceVoucherRequest,
+  approveFinanceVoucherRequest,
+  rejectFinanceVoucherRequest,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
-import { INCOME_TYPES, EXPENSE_CATEGORIES } from '../constants/roles'
+import { INCOME_TYPES, EXPENSE_CATEGORIES, DEPARTMENT_TAGS } from '../constants/roles'
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
 
@@ -38,7 +42,15 @@ export default function Finance() {
   const [month, setMonth] = useState('')
   const [tab, setTab] = useState('overview')
   const [modal, setModal] = useState(null)
-  const [form, setForm] = useState({ type: 'income', date: format(new Date(), 'yyyy-MM-dd'), category: '', amount: '', description: '' })
+  const [form, setForm] = useState({
+    type: 'income',
+    date: format(new Date(), 'yyyy-MM-dd'),
+    category: INCOME_TYPES[0],
+    departmentTag: DEPARTMENT_TAGS[0],
+    amount: '',
+    description: '',
+    submittedBy: '',
+  })
   const [budgetItems, setBudgetItems] = useState([])
   const [loadingBudget, setLoadingBudget] = useState(false)
   const [editingBudgetId, setEditingBudgetId] = useState(null)
@@ -54,6 +66,28 @@ export default function Finance() {
     expectedDate: format(new Date(), 'yyyy-MM-dd'),
   })
 
+  // Persistent date for all entry modals
+  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+
+  // All-time balance (not affected by year/month filter)
+  const [allTimeBalance, setAllTimeBalance] = useState(null)
+
+  // Voucher requests
+  const [voucherRequests, setVoucherRequests] = useState([])
+  const [loadingVouchers, setLoadingVouchers] = useState(true)
+  const [showVoucherPanel, setShowVoucherPanel] = useState(false)
+
+  // Voucher request modal
+  const [voucherModal, setVoucherModal] = useState(false)
+  const [voucherForm, setVoucherForm] = useState({
+    date: '',
+    category: EXPENSE_CATEGORIES[0],
+    departmentTag: DEPARTMENT_TAGS[0],
+    amount: '',
+    description: '',
+  })
+  const [submittingVoucher, setSubmittingVoucher] = useState(false)
+
   const canEnter = hasPermission('enterFinance')
 
   useEffect(() => {
@@ -63,6 +97,20 @@ export default function Finance() {
   useEffect(() => {
     if (tab === 'budget') loadBudget()
   }, [tab])
+
+  useEffect(() => {
+    Promise.all([getFinanceIncome({}), getFinanceExpense({})])
+      .then(([inc, exp]) => {
+        const totalInc = inc.reduce((s, i) => s + (Number(i.amount) || 0), 0)
+        const totalExp = exp.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+        setAllTimeBalance(totalInc - totalExp)
+      })
+      .catch(() => setAllTimeBalance(0))
+  }, [])
+
+  useEffect(() => {
+    loadVouchers()
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -88,9 +136,19 @@ export default function Finance() {
     setLoadingBudget(false)
   }
 
+  async function loadVouchers() {
+    setLoadingVouchers(true)
+    try {
+      const list = await getFinanceVoucherRequests('pending')
+      setVoucherRequests(list)
+    } catch (e) {
+      console.error(e)
+    }
+    setLoadingVouchers(false)
+  }
+
   const totalIncome = income.reduce((s, i) => s + (Number(i.amount) || 0), 0)
   const totalExpense = expense.reduce((s, e) => s + (Number(e.amount) || 0), 0)
-  const balance = totalIncome - totalExpense
 
   const last6Months = eachMonthOfInterval({
     start: subMonths(new Date(), 5),
@@ -119,30 +177,105 @@ export default function Finance() {
     value: expense.filter((e) => e.category === cat).reduce((s, e) => s + (Number(e.amount) || 0), 0),
   })).filter((x) => x.value > 0)
 
+  const recentTransactions = [
+    ...income.map((i) => ({ ...i, _type: 'income' })),
+    ...expense.map((e) => ({ ...e, _type: 'expense' })),
+  ]
+    .sort((a, b) => {
+      const da = a.date ? new Date(a.date) : new Date(0)
+      const db2 = b.date ? new Date(b.date) : new Date(0)
+      return db2 - da
+    })
+    .slice(0, 20)
+
   async function handleSubmit(e) {
     e.preventDefault()
     try {
-      if (form.type === 'income') {
-        await createFinanceIncome({
-          date: form.date,
-          category: form.category,
-          amount: Number(form.amount) || 0,
-          description: form.description || '',
-        })
-      } else {
-        await createFinanceExpense({
-          date: form.date,
-          category: form.category,
-          amount: Number(form.amount) || 0,
-          description: form.description || '',
-        })
+      const payload = {
+        date: form.date,
+        category: form.category,
+        amount: Number(form.amount) || 0,
+        description: form.description || '',
+        departmentTag: form.departmentTag || '',
+        submittedBy: form.submittedBy || userProfile?.name || userProfile?.email || '',
       }
+      if (form.type === 'income') {
+        await createFinanceIncome(payload)
+      } else {
+        await createFinanceExpense({ ...payload, voucherRequestId: null })
+      }
+      setSelectedDate(form.date)
       setModal(null)
       load()
+      Promise.all([getFinanceIncome({}), getFinanceExpense({})])
+        .then(([inc, exp]) => {
+          setAllTimeBalance(
+            inc.reduce((s, i) => s + (Number(i.amount) || 0), 0) -
+            exp.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+          )
+        })
+        .catch(() => {})
     } catch (err) {
       console.error(err)
       alert('Failed to save')
     }
+  }
+
+  async function handleApproveVoucher(request) {
+    const approvedBy = userProfile?.name || userProfile?.email || 'Finance'
+    try {
+      await approveFinanceVoucherRequest(request.id, approvedBy)
+      setVoucherRequests((prev) => prev.filter((r) => r.id !== request.id))
+      load()
+      setAllTimeBalance(null)
+      Promise.all([getFinanceIncome({}), getFinanceExpense({})])
+        .then(([inc, exp]) => {
+          setAllTimeBalance(
+            inc.reduce((s, i) => s + (Number(i.amount) || 0), 0) -
+            exp.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+          )
+        })
+        .catch(() => {})
+    } catch (err) {
+      console.error(err)
+      alert('Failed to approve voucher')
+    }
+  }
+
+  async function handleRejectVoucher(request) {
+    const rejectedBy = userProfile?.name || userProfile?.email || 'Finance'
+    try {
+      await rejectFinanceVoucherRequest(request.id, rejectedBy)
+      setVoucherRequests((prev) => prev.filter((r) => r.id !== request.id))
+    } catch (err) {
+      console.error(err)
+      alert('Failed to reject voucher')
+    }
+  }
+
+  async function handleVoucherSubmit(e) {
+    e.preventDefault()
+    setSubmittingVoucher(true)
+    try {
+      await createFinanceVoucherRequest({
+        ...voucherForm,
+        submittedBy: userProfile?.name || userProfile?.email || 'Unknown',
+        submittedByUid: userProfile?.id || userProfile?.uid || '',
+      })
+      setVoucherModal(false)
+      setVoucherForm({
+        date: selectedDate,
+        category: EXPENSE_CATEGORIES[0],
+        departmentTag: DEPARTMENT_TAGS[0],
+        amount: '',
+        description: '',
+      })
+      loadVouchers()
+    } catch (err) {
+      console.error(err)
+      alert('Failed to submit voucher request')
+    }
+    setSubmittingVoucher(false)
   }
 
   return (
@@ -152,41 +285,157 @@ export default function Finance() {
           <h1 className="text-2xl font-bold text-slate-900">Church Finance</h1>
           <p className="text-slate-500 mt-1">Income, expenses, and balance</p>
         </div>
-        {canEnter && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                setForm({
-                  type: 'income',
-                  date: format(new Date(), 'yyyy-MM-dd'),
-                  category: INCOME_TYPES[0],
-                  amount: '',
-                  description: '',
-                })
-                setModal('form')
-              }}
-              className="px-4 py-2 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700"
-            >
-              + Income
-            </button>
-            <button
-              onClick={() => {
-                setForm({
-                  type: 'expense',
-                  date: format(new Date(), 'yyyy-MM-dd'),
-                  category: EXPENSE_CATEGORIES[0],
-                  amount: '',
-                  description: '',
-                })
-                setModal('form')
-              }}
-              className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700"
-            >
-              + Expense
-            </button>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {canEnter && (
+            <>
+              <button
+                onClick={() => {
+                  setForm({
+                    type: 'income',
+                    date: selectedDate,
+                    category: INCOME_TYPES[0],
+                    departmentTag: DEPARTMENT_TAGS[0],
+                    amount: '',
+                    description: '',
+                    submittedBy: userProfile?.name || userProfile?.email || '',
+                  })
+                  setModal('form')
+                }}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700"
+              >
+                + Income
+              </button>
+              <button
+                onClick={() => {
+                  setForm({
+                    type: 'expense',
+                    date: selectedDate,
+                    category: EXPENSE_CATEGORIES[0],
+                    departmentTag: DEPARTMENT_TAGS[0],
+                    amount: '',
+                    description: '',
+                    submittedBy: userProfile?.name || userProfile?.email || '',
+                  })
+                  setModal('form')
+                }}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700"
+              >
+                + Expense
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => {
+              setVoucherForm({
+                date: selectedDate,
+                category: EXPENSE_CATEGORIES[0],
+                departmentTag: DEPARTMENT_TAGS[0],
+                amount: '',
+                description: '',
+              })
+              setVoucherModal(true)
+            }}
+            className="px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600"
+          >
+            📋 Request Voucher
+          </button>
+        </div>
       </div>
+
+      <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-3">
+        <span className="text-indigo-500 text-lg">📅</span>
+        <div className="flex-1">
+          <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Entry Date</p>
+          <p className="text-xs text-indigo-500 mt-0.5">Selected date is used when you add a transaction or voucher</p>
+        </div>
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-indigo-300 bg-white text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-center">
+          <div className="text-2xl font-black text-blue-900">
+            {allTimeBalance === null ? '—' : `RM ${allTimeBalance.toLocaleString()}`}
+          </div>
+          <div className="text-xs font-semibold text-blue-700 mt-1">💰 Current Balance</div>
+        </div>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center">
+          <div className="text-2xl font-black text-emerald-900">RM {totalIncome.toLocaleString()}</div>
+          <div className="text-xs font-semibold text-emerald-700 mt-1">📈 This Period Income</div>
+        </div>
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center">
+          <div className="text-2xl font-black text-red-900">RM {totalExpense.toLocaleString()}</div>
+          <div className="text-xs font-semibold text-red-700 mt-1">📉 This Period Expenses</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowVoucherPanel((v) => !v)}
+          className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center hover:bg-amber-100 transition-all"
+        >
+          <div className="text-2xl font-black text-amber-900">
+            {loadingVouchers ? '—' : voucherRequests.length}
+          </div>
+          <div className="text-xs font-semibold text-amber-700 mt-1">⏳ Pending Vouchers</div>
+          <div className="text-xs text-amber-400 mt-0.5">tap to review ↗</div>
+        </button>
+      </div>
+
+      {showVoucherPanel && canEnter && (
+        <div className="bg-white border border-amber-200 rounded-2xl p-5 space-y-3">
+          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+            ⏳ Pending Voucher Requests
+            {voucherRequests.length > 0 && (
+              <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                {voucherRequests.length}
+              </span>
+            )}
+          </h3>
+          {loadingVouchers ? (
+            <p className="text-sm text-slate-500">Loading…</p>
+          ) : voucherRequests.length === 0 ? (
+            <div className="border border-dashed border-slate-200 rounded-2xl p-6 text-center text-sm text-slate-400">
+              No pending voucher requests.
+            </div>
+          ) : (
+            voucherRequests.map((req) => (
+              <div key={req.id} className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-slate-900">RM {req.amount.toLocaleString()}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      👤 {req.submittedBy || '—'} · 🏷 {req.departmentTag || '—'} · {req.category || '—'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {req.date ? formatDMY(req.date) : '—'}
+                      {req.description ? ` · ${req.description}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleApproveVoucher(req)}
+                    className="flex-1 py-2 rounded-xl bg-green-500 text-white text-xs font-bold hover:bg-green-600 transition"
+                  >
+                    ✓ Approve — Move to Expenses
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRejectVoucher(req)}
+                    className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition"
+                  >
+                    ✕ Reject
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-3 items-center">
         <select
@@ -208,23 +457,6 @@ export default function Finance() {
             <option key={i} value={i}>{format(new Date(year, i), 'MMMM')}</option>
           ))}
         </select>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Total Income</p>
-          <p className="text-2xl font-bold text-emerald-600">RM {totalIncome.toLocaleString()}</p>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Total Expense</p>
-          <p className="text-2xl font-bold text-red-600">RM {totalExpense.toLocaleString()}</p>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Balance</p>
-          <p className={`text-2xl font-bold ${balance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
-            RM {balance.toLocaleString()}
-          </p>
-        </div>
       </div>
 
       <div className="flex gap-2 border-b border-slate-200">
@@ -263,72 +495,131 @@ export default function Finance() {
       </div>
 
       {tab === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h2 className="font-semibold text-slate-900 mb-4">Income vs Expense</h2>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={incomeVsExpenseChart}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="income" fill="#10b981" name="Income" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expense" fill="#ef4444" name="Expense" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h2 className="font-semibold text-slate-900 mb-4">Income by Type</h2>
-            {incomeByType.length > 0 ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={incomeByType}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    label
-                  >
-                    {incomeByType.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v) => `RM ${v.toLocaleString()}`} />
-                </PieChart>
-              </ResponsiveContainer>
+        <>
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h2 className="font-semibold text-slate-800 text-sm">Recent Transactions</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Last 20 entries — income and expenses</p>
+            </div>
+            {recentTransactions.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-slate-400">No transactions recorded yet.</p>
             ) : (
-              <p className="text-slate-500 py-8 text-center">No income data</p>
+              <div className="divide-y divide-slate-100">
+                {recentTransactions.map((tx) => (
+                  <div
+                    key={tx.id}
+                    className={`flex items-center gap-3 px-5 py-3 border-l-4 ${
+                      tx._type === 'income'
+                        ? 'border-emerald-400'
+                        : tx.isReversal
+                        ? 'border-orange-400'
+                        : 'border-red-400'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                          tx._type === 'income'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-red-100 text-red-700'
+                        }`}>
+                          {tx._type === 'income' ? 'INCOME' : tx.isReversal ? 'REVERSAL' : 'EXPENSE'}
+                        </span>
+                        <span className="text-xs text-slate-600 font-medium">{tx.category || '—'}</span>
+                        {tx.departmentTag && (
+                          <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                            {tx.departmentTag}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-slate-400">{tx.date ? formatDMY(tx.date) : '—'}</span>
+                        {tx.submittedBy && (
+                          <span className="text-xs text-slate-400">· {tx.submittedBy}</span>
+                        )}
+                        {tx.description && (
+                          <span className="text-xs text-slate-400 truncate max-w-[160px]">· {tx.description}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className={`text-sm font-bold flex-shrink-0 ${
+                      tx._type === 'income' ? 'text-emerald-600' : 'text-red-600'
+                    }`}>
+                      {tx._type === 'income' ? '+' : '−'} RM {(Number(tx.amount) || 0).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm lg:col-span-2">
-            <h2 className="font-semibold text-slate-900 mb-4">Expense by Category</h2>
-            {expenseByCat.length > 0 ? (
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+              <h2 className="font-semibold text-slate-900 mb-4">Income vs Expense</h2>
               <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={expenseByCat}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    label
-                  >
-                    {expenseByCat.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v) => `RM ${v.toLocaleString()}`} />
-                </PieChart>
+                <BarChart data={incomeVsExpenseChart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="income" fill="#10b981" name="Income" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="expense" fill="#ef4444" name="Expense" radius={[4, 4, 0, 0]} />
+                </BarChart>
               </ResponsiveContainer>
-            ) : (
-              <p className="text-slate-500 py-8 text-center">No expense data</p>
-            )}
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+              <h2 className="font-semibold text-slate-900 mb-4">Income by Type</h2>
+              {incomeByType.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie
+                      data={incomeByType}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      label
+                    >
+                      {incomeByType.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v) => `RM ${v.toLocaleString()}`} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-slate-500 py-8 text-center">No income data</p>
+              )}
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm lg:col-span-2">
+              <h2 className="font-semibold text-slate-900 mb-4">Expense by Category</h2>
+              {expenseByCat.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie
+                      data={expenseByCat}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      label
+                    >
+                      {expenseByCat.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v) => `RM ${v.toLocaleString()}`} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-slate-500 py-8 text-center">No expense data</p>
+              )}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {tab === 'income' && (
@@ -339,26 +630,28 @@ export default function Finance() {
                 <tr>
                   <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Date</th>
                   <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Type</th>
+                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Department</th>
                   <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Amount</th>
                   <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Description</th>
+                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Submitted By</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {income.map((i) => (
                   <tr key={i.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-3 text-slate-800">
-                      {formatDMY(i.date)}
-                    </td>
+                    <td className="px-5 py-3 text-slate-800">{formatDMY(i.date)}</td>
                     <td className="px-5 py-3 text-slate-600">{i.category || '—'}</td>
+                    <td className="px-5 py-3 text-slate-500 text-xs">{i.departmentTag || '—'}</td>
                     <td className="px-5 py-3 font-medium text-emerald-600">
                       RM {(Number(i.amount) || 0).toLocaleString()}
                     </td>
                     <td className="px-5 py-3 text-slate-600">{i.description || '—'}</td>
+                    <td className="px-5 py-3 text-slate-500 text-xs">{i.submittedBy || '—'}</td>
                   </tr>
                 ))}
                 {income.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-5 py-8 text-center text-slate-500">
+                    <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
                       No income records
                     </td>
                   </tr>
@@ -377,26 +670,28 @@ export default function Finance() {
                 <tr>
                   <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Date</th>
                   <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Category</th>
+                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Department</th>
                   <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Amount</th>
                   <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Description</th>
+                  <th className="text-left px-5 py-3 text-sm font-medium text-slate-600">Submitted By</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {expense.map((e) => (
                   <tr key={e.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-3 text-slate-800">
-                      {formatDMY(e.date)}
-                    </td>
+                    <td className="px-5 py-3 text-slate-800">{formatDMY(e.date)}</td>
                     <td className="px-5 py-3 text-slate-600">{e.category || '—'}</td>
+                    <td className="px-5 py-3 text-slate-500 text-xs">{e.departmentTag || '—'}</td>
                     <td className="px-5 py-3 font-medium text-red-600">
                       RM {(Number(e.amount) || 0).toLocaleString()}
                     </td>
                     <td className="px-5 py-3 text-slate-600">{e.description || '—'}</td>
+                    <td className="px-5 py-3 text-slate-500 text-xs">{e.submittedBy || '—'}</td>
                   </tr>
                 ))}
                 {expense.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-5 py-8 text-center text-slate-500">
+                    <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
                       No expense records
                     </td>
                   </tr>
@@ -697,11 +992,31 @@ export default function Finance() {
 
       {modal === 'form' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
-            <div className="p-5 border-b border-slate-200">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between">
               <h2 className="text-lg font-semibold">
                 Add {form.type === 'income' ? 'Income' : 'Expense'}
               </h2>
+              <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, type: 'income', category: INCOME_TYPES[0] }))}
+                  className={`px-3 py-1 rounded-lg text-sm font-semibold transition-all ${
+                    form.type === 'income' ? 'bg-white shadow-sm text-emerald-700' : 'text-slate-500'
+                  }`}
+                >
+                  Income
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, type: 'expense', category: EXPENSE_CATEGORIES[0] }))}
+                  className={`px-3 py-1 rounded-lg text-sm font-semibold transition-all ${
+                    form.type === 'expense' ? 'bg-white shadow-sm text-red-700' : 'text-slate-500'
+                  }`}
+                >
+                  Expense
+                </button>
+              </div>
             </div>
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
               <div>
@@ -709,7 +1024,10 @@ export default function Finance() {
                 <input
                   type="date"
                   value={form.date}
-                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, date: e.target.value }))
+                    if (e.target.value) setSelectedDate(e.target.value)
+                  }}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"
                   required
                 />
@@ -730,6 +1048,19 @@ export default function Finance() {
                 </select>
               </div>
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Department *</label>
+                <select
+                  value={form.departmentTag}
+                  onChange={(e) => setForm((f) => ({ ...f, departmentTag: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  required
+                >
+                  {DEPARTMENT_TAGS.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Amount (RM) *</label>
                 <input
                   type="number"
@@ -742,8 +1073,19 @@ export default function Finance() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Submitted By</label>
+                <input
+                  type="text"
+                  value={form.submittedBy}
+                  onChange={(e) => setForm((f) => ({ ...f, submittedBy: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  placeholder="Your name"
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
                 <input
+                  type="text"
                   value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"
@@ -759,6 +1101,99 @@ export default function Finance() {
                 <button
                   type="button"
                   onClick={() => setModal(null)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {voucherModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+            <div className="p-5 border-b border-slate-200">
+              <h2 className="text-lg font-semibold text-slate-900">📋 Request a Voucher</h2>
+              <p className="text-xs text-slate-500 mt-1">Submit an expense for Finance team approval</p>
+            </div>
+            <form onSubmit={handleVoucherSubmit} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Date *</label>
+                <input
+                  type="date"
+                  value={voucherForm.date}
+                  onChange={(e) => {
+                    setVoucherForm((f) => ({ ...f, date: e.target.value }))
+                    if (e.target.value) setSelectedDate(e.target.value)
+                  }}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Category *</label>
+                <select
+                  value={voucherForm.category}
+                  onChange={(e) => setVoucherForm((f) => ({ ...f, category: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  required
+                >
+                  {EXPENSE_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Department *</label>
+                <select
+                  value={voucherForm.departmentTag}
+                  onChange={(e) => setVoucherForm((f) => ({ ...f, departmentTag: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  required
+                >
+                  {DEPARTMENT_TAGS.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Amount (RM) *</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={voucherForm.amount}
+                  onChange={(e) => setVoucherForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                <textarea
+                  rows={3}
+                  value={voucherForm.description}
+                  onChange={(e) => setVoucherForm((f) => ({ ...f, description: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 resize-none"
+                  placeholder="What is this expense for?"
+                />
+              </div>
+              <div className="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-500">
+                Submitted by: <strong>{userProfile?.name || userProfile?.email || 'You'}</strong>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={submittingVoucher}
+                  className="flex-1 px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 disabled:opacity-50"
+                >
+                  {submittingVoucher ? 'Submitting…' : 'Submit for Approval'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVoucherModal(false)}
                   className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
                 >
                   Cancel
