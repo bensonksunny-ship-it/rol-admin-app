@@ -891,6 +891,95 @@ export async function createFinanceExpense(data) {
   return ref.id
 }
 
+// Finance Voucher Requests
+const FINANCE_VOUCHER_REQUESTS_COLLECTION = 'finance_voucher_requests'
+
+export async function getFinanceVoucherRequests(status = 'pending') {
+  if (!db) return []
+  const q = query(
+    collection(db, FINANCE_VOUCHER_REQUESTS_COLLECTION),
+    where('status', '==', status),
+    orderBy('createdAt', 'desc')
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      date: toDate(data.date),
+      category: data.category || '',
+      amount: Number(data.amount) || 0,
+      description: data.description || '',
+      departmentTag: data.departmentTag || '',
+      submittedBy: data.submittedBy || '',
+      submittedByUid: data.submittedByUid || '',
+      status: data.status || 'pending',
+      reviewedBy: data.reviewedBy || null,
+      reviewedAt: toDate(data.reviewedAt),
+      rejectionReason: data.rejectionReason || null,
+      createdAt: toDate(data.createdAt),
+    }
+  })
+}
+
+export async function createFinanceVoucherRequest(data) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, FINANCE_VOUCHER_REQUESTS_COLLECTION), {
+    date: Timestamp.fromDate(new Date(data.date)),
+    category: data.category || '',
+    amount: Number(data.amount) || 0,
+    description: data.description || '',
+    departmentTag: data.departmentTag || '',
+    submittedBy: data.submittedBy || '',
+    submittedByUid: data.submittedByUid || '',
+    status: 'pending',
+    reviewedBy: null,
+    reviewedAt: null,
+    rejectionReason: null,
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function approveFinanceVoucherRequest(requestId, approvedBy) {
+  if (!db || !requestId) return null
+  const voucherRef = doc(db, FINANCE_VOUCHER_REQUESTS_COLLECTION, requestId)
+  const voucherSnap = await getDoc(voucherRef)
+  if (!voucherSnap.exists()) throw new Error('Voucher not found')
+  const voucherData = voucherSnap.data()
+  const now = Timestamp.now()
+  const batch = writeBatch(db)
+  batch.update(voucherRef, {
+    status: 'approved',
+    reviewedBy: approvedBy,
+    reviewedAt: now,
+  })
+  const expenseRef = doc(collection(db, 'finance_expense'))
+  batch.set(expenseRef, {
+    date: voucherData.date,
+    category: voucherData.category,
+    amount: voucherData.amount,
+    description: voucherData.description,
+    departmentTag: voucherData.departmentTag,
+    submittedBy: voucherData.submittedBy,
+    approvedBy,
+    voucherRequestId: requestId,
+    createdAt: now,
+  })
+  await batch.commit()
+  return expenseRef.id
+}
+
+export async function rejectFinanceVoucherRequest(requestId, rejectedBy, rejectionReason = '') {
+  if (!db || !requestId) return
+  await updateDoc(doc(db, FINANCE_VOUCHER_REQUESTS_COLLECTION, requestId), {
+    status: 'rejected',
+    reviewedBy: rejectedBy,
+    reviewedAt: Timestamp.now(),
+    rejectionReason: rejectionReason || '',
+  })
+}
+
 // Finance Budget (Budget tab: category, subCategory, description, quantity, unitCost, priority, type, justification, expectedDate)
 const FINANCE_BUDGET_COLLECTION = 'finance_budget'
 
