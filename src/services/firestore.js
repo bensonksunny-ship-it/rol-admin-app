@@ -855,6 +855,20 @@ export async function createFinanceIncome(data) {
   return ref.id
 }
 
+export async function updateFinanceIncome(id, data) {
+  await updateDoc(doc(db, 'finance_income', id), {
+    date: Timestamp.fromDate(new Date(data.date)),
+    category: data.category,
+    departmentTag: data.departmentTag || '',
+    amount: Number(data.amount) || 0,
+    updatedAt: Timestamp.now(),
+  })
+}
+
+export async function deleteFinanceIncome(id) {
+  await deleteDoc(doc(db, 'finance_income', id))
+}
+
 // Finance Expense
 export async function getFinanceExpense(filters = {}) {
   let q = collection(db, 'finance_expense')
