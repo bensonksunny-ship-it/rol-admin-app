@@ -84,7 +84,7 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab, userPr
 
         // Accounts → Entry is a real sub-page (route), not a ?tab= in-page panel.
         if (tab === 'entry' && slug === 'accounts') {
-          const to = `${ACCOUNTS_ENTRY_BASE_PATH}/tally`
+          const to = ACCOUNTS_ENTRY_BASE_PATH
           return (
             <Link
               key={tab}
