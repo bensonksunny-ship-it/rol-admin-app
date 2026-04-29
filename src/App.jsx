@@ -22,7 +22,7 @@ import AdminUserManagement from './pages/AdminUserManagement'
 import CellUserManagement from './pages/CellUserManagement'
 import SundayMinistryPastor from './pages/SundayMinistryPastor'
 import SeniorPastorHub from './pages/SeniorPastorHub'
-import IncomePage from './pages/accounts/IncomePage'
+import EntryPage from './pages/accounts/EntryPage'
 
 function App() {
   return (
@@ -59,7 +59,7 @@ function App() {
               <Route path="department/junior-c" element={<Navigate to="/department/river-kids" replace />} />
               <Route path="department/build-c" element={<Navigate to="/department/building-care" replace />} />
               <Route path="department/:slug" element={<DepartmentHub />}>
-                <Route path="entry" element={<IncomePage />} />
+                <Route path="entry/*" element={<EntryPage />} />
               </Route>
               <Route path="department/:slug/pastor" element={<DepartmentPastorView />} />
               <Route path="department/:slug/pastor/updates" element={<DepartmentPastorUpdates />} />
