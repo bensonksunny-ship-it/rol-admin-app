@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
-import { INCOME_TYPES, DEPARTMENT_TAGS } from '../../constants/roles'
+import { INCOME_TYPES } from '../../constants/roles'
 import {
   getFinanceIncome,
   createFinanceIncome,
@@ -14,7 +14,6 @@ import {
 const EMPTY_FORM = {
   date: format(new Date(), 'yyyy-MM-dd'),
   category: INCOME_TYPES[0],
-  departmentTag: DEPARTMENT_TAGS[0],
   amount: '',
 }
 
@@ -75,7 +74,6 @@ export default function IncomePage() {
       const payload = {
         date: form.date,
         category: form.category,
-        departmentTag: form.departmentTag,
         amount: Number(form.amount),
       }
       if (editingId) {
@@ -101,7 +99,6 @@ export default function IncomePage() {
         ? format(entry.date, 'yyyy-MM-dd')
         : format(new Date(entry.date), 'yyyy-MM-dd'),
       category: entry.category || INCOME_TYPES[0],
-      departmentTag: entry.departmentTag || DEPARTMENT_TAGS[0],
       amount: String(entry.amount ?? ''),
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -167,7 +164,7 @@ export default function IncomePage() {
           {editingId ? 'Edit Income Entry' : 'Add Income Entry'}
         </h3>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-slate-600">Date</label>
             <input
@@ -185,16 +182,6 @@ export default function IncomePage() {
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {INCOME_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Department Tag</label>
-            <select
-              value={form.departmentTag}
-              onChange={e => setForm(f => ({ ...f, departmentTag: e.target.value }))}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {DEPARTMENT_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1">
@@ -254,7 +241,6 @@ export default function IncomePage() {
                 <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Income Type</th>
-                  <th className="px-4 py-3">Dept Tag</th>
                   <th className="px-4 py-3 text-right">Amount</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -268,7 +254,6 @@ export default function IncomePage() {
                         : format(new Date(entry.date), 'dd/MM/yyyy')}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{entry.category}</td>
-                    <td className="px-4 py-3 text-slate-500">{entry.departmentTag}</td>
                     <td className="px-4 py-3 text-right font-medium text-slate-800">
                       ₹{Number(entry.amount).toLocaleString('en-IN')}
                     </td>

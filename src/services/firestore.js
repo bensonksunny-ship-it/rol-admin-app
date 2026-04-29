@@ -859,7 +859,6 @@ export async function updateFinanceIncome(id, data) {
   await updateDoc(doc(db, 'finance_income', id), {
     date: Timestamp.fromDate(new Date(data.date)),
     category: data.category,
-    departmentTag: data.departmentTag || '',
     amount: Number(data.amount) || 0,
     updatedAt: Timestamp.now(),
   })
@@ -903,6 +902,19 @@ export async function createFinanceExpense(data) {
     createdAt: Timestamp.now(),
   })
   return ref.id
+}
+
+export async function updateFinanceExpense(id, data) {
+  await updateDoc(doc(db, 'finance_expense', id), {
+    date: Timestamp.fromDate(new Date(data.date)),
+    category: data.category,
+    amount: Number(data.amount) || 0,
+    updatedAt: Timestamp.now(),
+  })
+}
+
+export async function deleteFinanceExpense(id) {
+  await deleteDoc(doc(db, 'finance_expense', id))
 }
 
 // Finance Voucher Requests
