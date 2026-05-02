@@ -47,8 +47,8 @@ export function visibleCellTabs(user) {
   }
 
   if (leader) {
-    // Cell Leader: needs data-entry (Leader Entry) and their own reports. No Ops, no full Cell Groups list.
-    return ['summary', 'reports', 'leaderEntry']
+    // Cell Leader: their own entry and reports only. No summary, no full cell groups list, no ops.
+    return ['leaderEntry', 'reports']
   }
 
   // Other staff with departmental visibility: read-only overview.

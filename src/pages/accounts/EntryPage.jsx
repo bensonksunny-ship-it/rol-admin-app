@@ -23,12 +23,7 @@ export default function EntryPage() {
   const navigate = useNavigate()
   const [recent, setRecent] = useState([])
 
-  if (!canAccessAccountsEntry(userProfile, hasPermission, isFounder)) {
-    return <Navigate to="/" replace />
-  }
-
   const weeklyOnly = canAccessWeeklyEntryOnly(userProfile)
-
   const visibleTabs = weeklyOnly ? TABS.filter(t => t.path === 'weekly') : TABS
 
   const activePath = useMemo(() => {
@@ -56,6 +51,10 @@ export default function EntryPage() {
       setRecent([])
     }
   }, [])
+
+  if (!canAccessAccountsEntry(userProfile, hasPermission, isFounder)) {
+    return <Navigate to="/" replace />
+  }
 
   return (
     <div className="space-y-6 pb-24">

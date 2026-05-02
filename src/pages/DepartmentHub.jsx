@@ -306,18 +306,30 @@ export default function DepartmentHub() {
   const [spendingItemsPurchased, setSpendingItemsPurchased] = useState('')
   const [spendingDescription, setSpendingDescription] = useState('')
 
-  const tabs = useMemo(() => getDepartmentHubTabs(slug), [slug])
+  const tabs = useMemo(() => {
+    const allTabs = getDepartmentHubTabs(slug)
+    // Cell leaders only see their own tabs, not the director's overview
+    if (slug === 'cell' && !canViewAllCells) {
+      return allTabs.filter(t => t === 'leaderEntry' || t === 'reports')
+    }
+    return allTabs
+  }, [slug, canViewAllCells])
 
   const isAccountsEntryRoute =
     slug === 'accounts' && String(location?.pathname || '').includes('/department/accounts/entry')
   const activeTabForBar = isAccountsEntryRoute ? 'entry' : activeTab
 
   const tabFromUrl = searchParams.get('tab')
+  const isCellLeader = slug === 'cell' && !canViewAllCells
   useEffect(() => {
     const nextTabs = getDepartmentHubTabs(slug)
-    if (tabFromUrl && nextTabs.includes(tabFromUrl)) setActiveTab(tabFromUrl)
-    else setActiveTab('summary')
-  }, [slug, tabFromUrl])
+    const cellLeaderTabs = ['leaderEntry', 'reports']
+    if (tabFromUrl && nextTabs.includes(tabFromUrl)) {
+      setActiveTab(isCellLeader && !cellLeaderTabs.includes(tabFromUrl) ? 'leaderEntry' : tabFromUrl)
+    } else {
+      setActiveTab(isCellLeader ? 'leaderEntry' : 'summary')
+    }
+  }, [slug, tabFromUrl, isCellLeader])
 
   function formatDuration(firstSundayStr) {
     if (!firstSundayStr) return '—'
@@ -697,6 +709,42 @@ export default function DepartmentHub() {
       .finally(() => setLoadingCellMembers(false))
   }, [expandedCellId])
 
+  const canEdit = department
+    ? (department.name === 'Cell' ? canViewAllCells : canManageDepartment(department.name))
+    : false
+
+  const planningDraftPeriod = useMemo(() => new Date().toISOString().slice(0, 7), [])
+  const planningDraftStorageKey = useMemo(() => {
+    if (!department?.name) return null
+    const who = userProfile?.email || userProfile?.displayName || user?.uid || 'unknown'
+    return `rol:planningDraft:${department.name}:${who}:${planningDraftPeriod}`
+  }, [department?.name, userProfile?.email, userProfile?.displayName, user?.uid, planningDraftPeriod])
+
+  useEffect(() => {
+    setPlanningDraftLoadedOnce(false)
+    setPlanningDraftStatus('')
+  }, [slug])
+
+  useEffect(() => {
+    if (activeTab !== 'planning') return
+    if (!canEdit) return
+    if (!planningDraftStorageKey) return
+    if (planningDraftLoadedOnce) return
+    try {
+      const saved = localStorage.getItem(planningDraftStorageKey)
+      if (saved != null) setPlanningNotes(saved)
+    } catch {
+      // Ignore localStorage errors (private mode, blocked storage, etc).
+    } finally {
+      setPlanningDraftLoadedOnce(true)
+    }
+  }, [activeTab, canEdit, planningDraftLoadedOnce, planningDraftStorageKey])
+
+  const subDeptOptionList = useMemo(
+    () => (slug === 'd-light' ? dlightTeamSubOpts : subDepartments),
+    [slug, dlightTeamSubOpts, subDepartments]
+  )
+
   if (!department) {
     return (
       <div className="p-6 text-slate-600">
@@ -709,7 +757,10 @@ export default function DepartmentHub() {
   if (department.customPage === 'worship') return <Navigate to="/department/worship" replace />
 
   // SAFETY RULE: block manual URL access to other departments
-  if (!hasAccess(userProfile, department.name)) {
+  // Exception: Accounts entry users (Weekly Expense Manager / Weekly Entry role) must pass through
+  // to reach the nested EntryPage even though they aren't department heads.
+  const isAccountsEntryPassthrough = slug === 'accounts' && canAccessAccountsEntry(userProfile, hasPermission, isFounder)
+  if (!hasAccess(userProfile, department.name) && !isAccountsEntryPassthrough) {
     return (
       <div className="p-6 text-slate-600">
         <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
@@ -718,6 +769,12 @@ export default function DepartmentHub() {
         </p>
       </div>
     )
+  }
+
+  // Weekly-only accounts entry users (Weekly Expense Manager / Weekly Entry role):
+  // skip the full department hub and render only the entry outlet.
+  if (isAccountsEntryPassthrough && !hasAccess(userProfile, department.name)) {
+    return <Outlet />
   }
 
   // D Light Director: only Sunday Planning — block department hub and all hub tabs.
@@ -731,9 +788,6 @@ export default function DepartmentHub() {
     )
   }
 
-  const canEdit = department.name === 'Cell'
-    ? canViewAllCells
-    : canManageDepartment(department.name)
   const canEditDelightVisitors =
     department.name === 'D Light' &&
     (userProfile?.role === ROLES.ADMIN ||
@@ -742,36 +796,6 @@ export default function DepartmentHub() {
   const headLabel = userProfile?.department === department.name && isDepartmentHead(department.name)
     ? (userProfile?.role === ROLES.DIRECTOR ? 'Director' : 'Coordinator')
     : null
-
-  // Local-only drafts (device/browser). Does not change Firestore structure or save logic.
-  const planningDraftPeriod = useMemo(() => new Date().toISOString().slice(0, 7), [])
-  const planningDraftStorageKey = useMemo(() => {
-    if (!department?.name) return null
-    const who = userProfile?.email || userProfile?.displayName || user?.uid || 'unknown'
-    return `rol:planningDraft:${department.name}:${who}:${planningDraftPeriod}`
-  }, [department?.name, userProfile?.email, userProfile?.displayName, user?.uid, planningDraftPeriod])
-
-  useEffect(() => {
-    // Reset when switching departments.
-    setPlanningDraftLoadedOnce(false)
-    setPlanningDraftStatus('')
-  }, [slug])
-
-  useEffect(() => {
-    if (activeTab !== 'planning') return
-    if (!canEdit) return
-    if (!planningDraftStorageKey) return
-    if (planningDraftLoadedOnce) return
-
-    try {
-      const saved = localStorage.getItem(planningDraftStorageKey)
-      if (saved != null) setPlanningNotes(saved)
-    } catch {
-      // Ignore localStorage errors (private mode, blocked storage, etc).
-    } finally {
-      setPlanningDraftLoadedOnce(true)
-    }
-  }, [activeTab, canEdit, planningDraftLoadedOnce, planningDraftStorageKey])
 
   const handleSavePlanningDraft = () => {
     if (!canEdit) return
@@ -812,11 +836,6 @@ export default function DepartmentHub() {
 
   const pending = tasks.filter((t) => t.status !== 'Completed')
   const completed = tasks.filter((t) => t.status === 'Completed')
-
-  const subDeptOptionList = useMemo(
-    () => (slug === 'd-light' ? dlightTeamSubOpts : subDepartments),
-    [slug, dlightTeamSubOpts, subDepartments]
-  )
 
   function formatTeamSubDepartmentCell(m) {
     const names =

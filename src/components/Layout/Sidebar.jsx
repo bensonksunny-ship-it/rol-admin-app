@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { ROLES } from '../../constants/roles'
 import { getDepartmentRole } from '../../utils/access'
+import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard' },
@@ -116,6 +117,15 @@ export default function Sidebar() {
         to: '/department/cell/cell-report',
         label: `Cell (${cellName})`,
         icon: '🍃',
+      })
+    }
+
+    // Weekly Entry direct link for Weekly Expense Manager / Weekly Entry role.
+    if (canAccessWeeklyEntryOnly(userProfile)) {
+      scopedItems.push({
+        to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`,
+        label: 'Weekly Entry',
+        icon: '📝',
       })
     }
 
