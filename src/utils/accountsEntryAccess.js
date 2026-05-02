@@ -8,7 +8,10 @@ export const ACCOUNTS_ENTRY_BASE_PATH = '/department/accounts/entry'
 
 /** Weekly Entry restricted role — can only access the Weekly Entry tab, 3 months back. */
 export function canAccessWeeklyEntryOnly(userProfile) {
-  return userProfile?.role === ROLES.WEEKLY_ENTRY
+  if (!userProfile) return false
+  if (userProfile.role === ROLES.WEEKLY_ENTRY) return true
+  const positions = Array.isArray(userProfile.positions) ? userProfile.positions : []
+  return positions.some(p => String(p?.position || '').trim() === 'Weekly Expense Manager')
 }
 
 /**
@@ -19,7 +22,7 @@ export function canAccessAccountsEntry(userProfile, hasPermission, isFounder) {
   if (!userProfile) return false
   if (isFounder || userProfile.role === ROLES.FOUNDER) return true
   if (userProfile.role === ROLES.ADMIN) return true
-  if (userProfile.role === ROLES.WEEKLY_ENTRY) return true
+  if (canAccessWeeklyEntryOnly(userProfile)) return true
   if (hasPermission('enterFinance')) return true
   const accountsRole = getDepartmentRole(userProfile, ACCOUNTS_DEPT)
   if (accountsRole === 'DIRECTOR' || accountsRole === 'COORDINATOR') return true
