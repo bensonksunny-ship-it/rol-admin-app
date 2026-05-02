@@ -13,7 +13,8 @@ import {
 
 const EMPTY_FORM = {
   date: format(new Date(), 'yyyy-MM-dd'),
-  department: EXPENSE_CATEGORIES[0],
+  item: '',
+  billNo: '',
   amount: '',
 }
 
@@ -64,6 +65,7 @@ export default function ExpensePage() {
   function nextMonth() { setActiveMonth(m => addMonths(m, 1)); setFilterDept('all') }
 
   function validate() {
+    if (filterDept === 'all') return 'Select a department before adding an entry.'
     if (!form.date) return 'Date is required.'
     if (!form.amount || Number(form.amount) <= 0) return 'Amount must be greater than 0.'
     return ''
@@ -78,7 +80,9 @@ export default function ExpensePage() {
     try {
       const payload = {
         date: form.date,
-        department: form.department,
+        department: filterDept,
+        item: form.item,
+        billNo: form.billNo,
         amount: Number(form.amount),
       }
       if (editingId) {
@@ -99,11 +103,13 @@ export default function ExpensePage() {
 
   function handleEdit(entry) {
     setEditingId(entry.id)
+    setFilterDept(entry.department || entry.category || 'all')
     setForm({
       date: entry.date instanceof Date
         ? format(entry.date, 'yyyy-MM-dd')
         : format(new Date(entry.date), 'yyyy-MM-dd'),
-      department: entry.department || entry.category || EXPENSE_CATEGORIES[0],
+      item: entry.item || '',
+      billNo: entry.billNo || '',
       amount: String(entry.amount ?? ''),
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -182,7 +188,7 @@ export default function ExpensePage() {
           {editingId ? 'Edit Expense Entry' : 'Add Expense Entry'}
         </h3>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-slate-600">Date</label>
             <input
@@ -193,14 +199,24 @@ export default function ExpensePage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Department</label>
-            <select
-              value={form.department}
-              onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
+            <label className="text-xs font-medium text-slate-600">Item</label>
+            <input
+              type="text"
+              value={form.item}
+              onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
+              placeholder="Item description"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {EXPENSE_CATEGORIES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-600">Bill No</label>
+            <input
+              type="text"
+              value={form.billNo}
+              onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
+              placeholder="Bill number"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-slate-600">Amount (₹)</label>
@@ -261,6 +277,8 @@ export default function ExpensePage() {
                 <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Department</th>
+                  <th className="px-4 py-3">Item</th>
+                  <th className="px-4 py-3">Bill No</th>
                   <th className="px-4 py-3 text-right">Amount</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -274,6 +292,8 @@ export default function ExpensePage() {
                         : format(new Date(entry.date), 'dd/MM/yyyy')}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{entry.department || entry.category}</td>
+                    <td className="px-4 py-3 text-slate-700">{entry.item || '—'}</td>
+                    <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
                     <td className="px-4 py-3 text-right font-medium text-slate-800">
                       ₹{Number(entry.amount).toLocaleString('en-IN')}
                     </td>

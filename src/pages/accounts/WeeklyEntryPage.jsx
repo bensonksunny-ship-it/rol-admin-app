@@ -15,7 +15,8 @@ const WEEK_START = { weekStartsOn: 1 }
 
 const EMPTY_FORM = {
   date: format(new Date(), 'yyyy-MM-dd'),
-  department: EXPENSE_CATEGORIES[0],
+  item: '',
+  billNo: '',
   amount: '',
 }
 
@@ -30,6 +31,7 @@ export default function WeeklyEntryPage() {
   const [formError, setFormError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+  const [filterDept, setFilterDept] = useState('all')
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
@@ -58,12 +60,17 @@ export default function WeeklyEntryPage() {
     }
   }
 
-  const totalExpense = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  const visibleEntries = filterDept === 'all'
+    ? entries
+    : entries.filter(e => (e.department || e.category) === filterDept)
 
-  function prevWeek() { setActiveWeekStart(w => subWeeks(w, 1)) }
-  function nextWeek() { setActiveWeekStart(w => addWeeks(w, 1)) }
+  const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+
+  function prevWeek() { setActiveWeekStart(w => subWeeks(w, 1)); setFilterDept('all') }
+  function nextWeek() { setActiveWeekStart(w => addWeeks(w, 1)); setFilterDept('all') }
 
   function validate() {
+    if (filterDept === 'all') return 'Select a department before adding an entry.'
     if (!form.date) return 'Date is required.'
     if (!form.amount || Number(form.amount) <= 0) return 'Amount must be greater than 0.'
     return ''
@@ -78,7 +85,9 @@ export default function WeeklyEntryPage() {
     try {
       const payload = {
         date: form.date,
-        department: form.department,
+        department: filterDept,
+        item: form.item,
+        billNo: form.billNo,
         amount: Number(form.amount),
       }
       if (editingId) {
@@ -99,11 +108,13 @@ export default function WeeklyEntryPage() {
 
   function handleEdit(entry) {
     setEditingId(entry.id)
+    setFilterDept(entry.department || entry.category || 'all')
     setForm({
       date: entry.date instanceof Date
         ? format(entry.date, 'yyyy-MM-dd')
         : format(new Date(entry.date), 'yyyy-MM-dd'),
-      department: entry.department || entry.category || EXPENSE_CATEGORIES[0],
+      item: entry.item || '',
+      billNo: entry.billNo || '',
       amount: String(entry.amount ?? ''),
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -152,6 +163,19 @@ export default function WeeklyEntryPage() {
         </button>
       </div>
 
+      {/* Department filter */}
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-medium text-slate-600 shrink-0">Department</label>
+        <select
+          value={filterDept}
+          onChange={e => setFilterDept(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="all">All Departments</option>
+          {EXPENSE_CATEGORIES.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </div>
+
       {/* Summary card */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center justify-between">
         <p className="text-sm font-medium text-slate-500">Total This Week</p>
@@ -169,7 +193,7 @@ export default function WeeklyEntryPage() {
           {editingId ? 'Edit Expense Entry' : 'Add Expense Entry'}
         </h3>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-slate-600">Date</label>
             <input
@@ -180,14 +204,24 @@ export default function WeeklyEntryPage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Department</label>
-            <select
-              value={form.department}
-              onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
+            <label className="text-xs font-medium text-slate-600">Item</label>
+            <input
+              type="text"
+              value={form.item}
+              onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
+              placeholder="Item description"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {EXPENSE_CATEGORIES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-600">Bill No</label>
+            <input
+              type="text"
+              value={form.billNo}
+              onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
+              placeholder="Bill number"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-slate-600">Amount (₹)</label>
@@ -235,9 +269,11 @@ export default function WeeklyEntryPage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-10 text-center text-slate-500 text-sm">Loading…</div>
-        ) : entries.length === 0 ? (
+        ) : visibleEntries.length === 0 ? (
           <div className="p-10 text-center text-slate-400 text-sm">
-            No expenses recorded for this week.
+            {filterDept === 'all'
+              ? 'No expenses recorded for this week.'
+              : `No expenses recorded for ${filterDept} this week.`}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -246,12 +282,14 @@ export default function WeeklyEntryPage() {
                 <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Department</th>
+                  <th className="px-4 py-3">Item</th>
+                  <th className="px-4 py-3">Bill No</th>
                   <th className="px-4 py-3 text-right">Amount</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {entries.map(entry => (
+                {visibleEntries.map(entry => (
                   <tr key={entry.id} className="hover:bg-slate-50 transition">
                     <td className="px-4 py-3 text-slate-700">
                       {entry.date instanceof Date
@@ -259,6 +297,8 @@ export default function WeeklyEntryPage() {
                         : format(new Date(entry.date), 'dd/MM/yyyy')}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{entry.department || entry.category}</td>
+                    <td className="px-4 py-3 text-slate-700">{entry.item || '—'}</td>
+                    <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
                     <td className="px-4 py-3 text-right font-medium text-slate-800">
                       ₹{Number(entry.amount).toLocaleString('en-IN')}
                     </td>

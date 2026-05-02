@@ -911,6 +911,8 @@ export async function updateFinanceExpense(id, data) {
   await updateDoc(doc(db, 'finance_expense', id), {
     date: Timestamp.fromDate(new Date(data.date)),
     department: data.department,
+    item: data.item || '',
+    billNo: data.billNo || '',
     amount: Number(data.amount) || 0,
     updatedAt: Timestamp.now(),
   })
