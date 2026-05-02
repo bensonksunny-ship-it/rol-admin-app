@@ -872,7 +872,10 @@ export async function deleteFinanceIncome(id) {
 export async function getFinanceExpense(filters = {}) {
   let q = collection(db, 'finance_expense')
   const constraints = []
-  if (filters.month != null && filters.year != null) {
+  if (filters.startDate && filters.endDate) {
+    constraints.push(where('date', '>=', Timestamp.fromDate(filters.startDate)))
+    constraints.push(where('date', '<=', Timestamp.fromDate(filters.endDate)))
+  } else if (filters.month != null && filters.year != null) {
     const y = filters.year
     const m = filters.month
     const start = new Date(y, m, 1)
