@@ -1,4 +1,4 @@
-import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation } from 'react-router-dom'
+import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useState, useCallback, Fragment } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
@@ -112,6 +112,7 @@ export default function DepartmentHub() {
   const { slug } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
+  const navigate = useNavigate()
   const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder } = useAuth()
   const department = getDepartmentBySlug(slug)
 
@@ -839,8 +840,12 @@ export default function DepartmentHub() {
         slug={slug}
         activeTab={activeTabForBar}
         setActiveTab={(t) => {
-          setActiveTab(t)
-          setSearchParams({ tab: t }, { replace: true })
+          if (isAccountsEntryRoute) {
+            navigate(`/department/${slug}?tab=${encodeURIComponent(t)}`)
+          } else {
+            setActiveTab(t)
+            setSearchParams({ tab: t }, { replace: true })
+          }
         }}
         userProfile={userProfile}
       />
