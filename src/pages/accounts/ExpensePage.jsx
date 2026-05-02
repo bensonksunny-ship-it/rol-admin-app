@@ -60,8 +60,8 @@ export default function ExpensePage() {
 
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
-  function prevMonth() { setActiveMonth(m => subMonths(m, 1)) }
-  function nextMonth() { setActiveMonth(m => addMonths(m, 1)) }
+  function prevMonth() { setActiveMonth(m => subMonths(m, 1)); setFilterDept('all') }
+  function nextMonth() { setActiveMonth(m => addMonths(m, 1)); setFilterDept('all') }
 
   function validate() {
     if (!form.date) return 'Date is required.'
