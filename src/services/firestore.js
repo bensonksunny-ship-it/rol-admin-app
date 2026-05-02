@@ -907,7 +907,7 @@ export async function createFinanceExpense(data) {
 export async function updateFinanceExpense(id, data) {
   await updateDoc(doc(db, 'finance_expense', id), {
     date: Timestamp.fromDate(new Date(data.date)),
-    category: data.category,
+    department: data.department,
     amount: Number(data.amount) || 0,
     updatedAt: Timestamp.now(),
   })
