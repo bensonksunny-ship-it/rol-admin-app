@@ -17,6 +17,7 @@ export const POSITION_OPTIONS = [
   { value: 'Coordinator', label: 'Coordinator' },
   { value: 'Cell Leader', label: 'Cell Leader' },
   { value: 'Associate', label: 'Associate' },
+  { value: 'Weekly Expense Manager', label: 'Weekly Expense Manager' },
 ]
 
 /** Derive app role from positions array (highest wins). Used for permissions. */
