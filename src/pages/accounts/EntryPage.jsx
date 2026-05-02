@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
+import { canAccessAccountsEntry, canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 import TallyPage from './TallyPage'
 import IncomePage from './IncomePage'
 import ExpensePage from './ExpensePage'
@@ -27,13 +27,17 @@ export default function EntryPage() {
     return <Navigate to="/" replace />
   }
 
+  const weeklyOnly = canAccessWeeklyEntryOnly(userProfile)
+
+  const visibleTabs = weeklyOnly ? TABS.filter(t => t.path === 'weekly') : TABS
+
   const activePath = useMemo(() => {
     const hit = TABS.find((t) => location.pathname.endsWith(`/${t.path}`))
-    return hit?.path || 'tally'
-  }, [location.pathname])
+    return hit?.path || (weeklyOnly ? 'weekly' : 'tally')
+  }, [location.pathname, weeklyOnly])
 
-  const activeIndex = Math.max(0, TABS.findIndex((t) => t.path === activePath))
-  const activeLabel = TABS[activeIndex]?.label || 'Tally'
+  const activeIndex = Math.max(0, visibleTabs.findIndex((t) => t.path === activePath))
+  const activeLabel = visibleTabs[activeIndex]?.label || 'Weekly Entry'
 
   const fabLabelForActiveTab = useMemo(() => {
     if (activePath === 'tally') return 'New Tally'
@@ -65,12 +69,12 @@ export default function EntryPage() {
           <div
             className="absolute top-1 bottom-1 rounded-full bg-white shadow-sm border border-slate-200 transition-all duration-300"
             style={{
-              left: `calc(${(activeIndex * 100) / TABS.length}% + 4px)`,
-              width: `calc(${100 / TABS.length}% - 8px)`,
+              left: `calc(${(activeIndex * 100) / visibleTabs.length}% + 4px)`,
+              width: `calc(${100 / visibleTabs.length}% - 8px)`,
             }}
           />
-          <div className="relative grid grid-cols-4">
-            {TABS.map((tab) => (
+          <div className={`relative grid grid-cols-${visibleTabs.length}`}>
+            {visibleTabs.map((tab) => (
               <button
                 key={tab.path}
                 type="button"
@@ -119,12 +123,12 @@ export default function EntryPage() {
       </div>
 
       <Routes>
-        <Route index element={<Navigate to="tally" replace />} />
-        <Route path="tally" element={<TallyPage />} />
-        <Route path="income" element={<IncomePage />} />
-        <Route path="expense" element={<ExpensePage />} />
+        <Route index element={<Navigate to={weeklyOnly ? 'weekly' : 'tally'} replace />} />
+        <Route path="tally" element={weeklyOnly ? <Navigate to="../weekly" replace /> : <TallyPage />} />
+        <Route path="income" element={weeklyOnly ? <Navigate to="../weekly" replace /> : <IncomePage />} />
+        <Route path="expense" element={weeklyOnly ? <Navigate to="../weekly" replace /> : <ExpensePage />} />
         <Route path="weekly" element={<WeeklyEntryPage />} />
-        <Route path="*" element={<Navigate to="tally" replace />} />
+        <Route path="*" element={<Navigate to={weeklyOnly ? 'weekly' : 'tally'} replace />} />
       </Routes>
 
       <div className="md:hidden fixed bottom-6 right-6 z-40">

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
-import { format, addWeeks, subWeeks, startOfWeek, endOfWeek } from 'date-fns'
+import { format, addWeeks, subWeeks, startOfWeek, endOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
-import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
+import { canAccessAccountsEntry, canAccessWeeklyEntryOnly } from '../../utils/accountsEntryAccess'
 import { EXPENSE_CATEGORIES } from '../../constants/roles'
 import {
   getFinanceExpense,
@@ -38,6 +38,8 @@ export default function WeeklyEntryPage() {
   const [approvingAll, setApprovingAll] = useState(false)
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
+  const weeklyOnly = canAccessWeeklyEntryOnly(userProfile)
+  const minWeekStart = startOfWeek(subMonths(new Date(), 3), WEEK_START)
 
   useEffect(() => {
     if (!canAccess) return
@@ -71,7 +73,13 @@ export default function WeeklyEntryPage() {
   const pendingEntries = visibleEntries.filter(e => e.status !== 'approved')
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
-  function prevWeek() { setActiveWeekStart(w => subWeeks(w, 1)); setFilterDept('all') }
+  function prevWeek() {
+    setActiveWeekStart(w => {
+      const prev = subWeeks(w, 1)
+      return (weeklyOnly && prev < minWeekStart) ? w : prev
+    })
+    setFilterDept('all')
+  }
   function nextWeek() { setActiveWeekStart(w => addWeeks(w, 1)); setFilterDept('all') }
 
   function validate() {
@@ -181,7 +189,8 @@ export default function WeeklyEntryPage() {
         <button
           type="button"
           onClick={prevWeek}
-          className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
+          disabled={weeklyOnly && activeWeekStart <= minWeekStart}
+          className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none disabled:opacity-30 disabled:cursor-not-allowed"
           aria-label="Previous week"
         >
           ‹
