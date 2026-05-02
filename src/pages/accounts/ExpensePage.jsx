@@ -13,7 +13,7 @@ import {
 
 const EMPTY_FORM = {
   date: format(new Date(), 'yyyy-MM-dd'),
-  category: EXPENSE_CATEGORIES[0],
+  department: EXPENSE_CATEGORIES[0],
   amount: '',
 }
 
@@ -28,6 +28,7 @@ export default function ExpensePage() {
   const [formError, setFormError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+  const [filterDept, setFilterDept] = useState('all')
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
@@ -53,7 +54,11 @@ export default function ExpensePage() {
     }
   }
 
-  const totalExpense = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  const visibleEntries = filterDept === 'all'
+    ? entries
+    : entries.filter(e => (e.department || e.category) === filterDept)
+
+  const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
   function prevMonth() { setActiveMonth(m => subMonths(m, 1)) }
   function nextMonth() { setActiveMonth(m => addMonths(m, 1)) }
@@ -73,7 +78,7 @@ export default function ExpensePage() {
     try {
       const payload = {
         date: form.date,
-        category: form.category,
+        department: form.department,
         amount: Number(form.amount),
       }
       if (editingId) {
@@ -98,7 +103,7 @@ export default function ExpensePage() {
       date: entry.date instanceof Date
         ? format(entry.date, 'yyyy-MM-dd')
         : format(new Date(entry.date), 'yyyy-MM-dd'),
-      category: entry.category || EXPENSE_CATEGORIES[0],
+      department: entry.department || entry.category || EXPENSE_CATEGORIES[0],
       amount: String(entry.amount ?? ''),
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -147,6 +152,19 @@ export default function ExpensePage() {
         </button>
       </div>
 
+      {/* Department filter */}
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-medium text-slate-600 shrink-0">Department</label>
+        <select
+          value={filterDept}
+          onChange={e => setFilterDept(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="all">All Departments</option>
+          {EXPENSE_CATEGORIES.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </div>
+
       {/* Summary card */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center justify-between">
         <p className="text-sm font-medium text-slate-500">Total Expense</p>
@@ -175,10 +193,10 @@ export default function ExpensePage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Category</label>
+            <label className="text-xs font-medium text-slate-600">Department</label>
             <select
-              value={form.category}
-              onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+              value={form.department}
+              onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {EXPENSE_CATEGORIES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -230,9 +248,11 @@ export default function ExpensePage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-10 text-center text-slate-500 text-sm">Loading…</div>
-        ) : entries.length === 0 ? (
+        ) : visibleEntries.length === 0 ? (
           <div className="p-10 text-center text-slate-400 text-sm">
-            No expenses recorded for this month.
+            {filterDept === 'all'
+              ? 'No expenses recorded for this month.'
+              : `No expenses recorded for ${filterDept} this month.`}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -240,20 +260,20 @@ export default function ExpensePage() {
               <thead>
                 <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
                   <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Department</th>
                   <th className="px-4 py-3 text-right">Amount</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {entries.map(entry => (
+                {visibleEntries.map(entry => (
                   <tr key={entry.id} className="hover:bg-slate-50 transition">
                     <td className="px-4 py-3 text-slate-700">
                       {entry.date instanceof Date
                         ? format(entry.date, 'dd/MM/yyyy')
                         : format(new Date(entry.date), 'dd/MM/yyyy')}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">{entry.category}</td>
+                    <td className="px-4 py-3 text-slate-700">{entry.department || entry.category}</td>
                     <td className="px-4 py-3 text-right font-medium text-slate-800">
                       ₹{Number(entry.amount).toLocaleString('en-IN')}
                     </td>
