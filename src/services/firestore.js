@@ -922,6 +922,24 @@ export async function deleteFinanceExpense(id) {
   await deleteDoc(doc(db, 'finance_expense', id))
 }
 
+export async function approveFinanceWeeklyEntry(id) {
+  await updateDoc(doc(db, 'finance_expense', id), {
+    status: 'approved',
+    approvedAt: Timestamp.now(),
+  })
+}
+
+export async function approveAllFinanceWeeklyEntries(ids) {
+  const batch = writeBatch(db)
+  ids.forEach(id => {
+    batch.update(doc(db, 'finance_expense', id), {
+      status: 'approved',
+      approvedAt: Timestamp.now(),
+    })
+  })
+  await batch.commit()
+}
+
 // Finance Voucher Requests
 const FINANCE_VOUCHER_REQUESTS_COLLECTION = 'finance_voucher_requests'
 

@@ -55,9 +55,10 @@ export default function ExpensePage() {
     }
   }
 
+  const approvedEntries = entries.filter(e => e.status !== 'pending')
   const visibleEntries = filterDept === 'all'
-    ? entries
-    : entries.filter(e => (e.department || e.category) === filterDept)
+    ? approvedEntries
+    : approvedEntries.filter(e => (e.department || e.category) === filterDept)
 
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 

@@ -9,6 +9,8 @@ import {
   createFinanceExpense,
   updateFinanceExpense,
   deleteFinanceExpense,
+  approveFinanceWeeklyEntry,
+  approveAllFinanceWeeklyEntries,
 } from '../../services/firestore'
 
 const WEEK_START = { weekStartsOn: 1 }
@@ -32,6 +34,8 @@ export default function WeeklyEntryPage() {
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
   const [filterDept, setFilterDept] = useState('all')
+  const [approvingId, setApprovingId] = useState(null)
+  const [approvingAll, setApprovingAll] = useState(false)
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
@@ -64,6 +68,7 @@ export default function WeeklyEntryPage() {
     ? entries
     : entries.filter(e => (e.department || e.category) === filterDept)
 
+  const pendingEntries = visibleEntries.filter(e => e.status !== 'approved')
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
   function prevWeek() { setActiveWeekStart(w => subWeeks(w, 1)); setFilterDept('all') }
@@ -89,6 +94,7 @@ export default function WeeklyEntryPage() {
         item: form.item,
         billNo: form.billNo,
         amount: Number(form.amount),
+        status: 'pending',
       }
       if (editingId) {
         await updateFinanceExpense(editingId, payload)
@@ -134,6 +140,36 @@ export default function WeeklyEntryPage() {
     } catch {
       setSaveError('Failed to delete. Please try again.')
       setTimeout(() => setSaveError(''), 4000)
+    }
+  }
+
+  async function handleApprove(id) {
+    setApprovingId(id)
+    try {
+      await approveFinanceWeeklyEntry(id)
+      setEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'approved' } : e))
+    } catch {
+      setSaveError('Failed to approve. Please try again.')
+      setTimeout(() => setSaveError(''), 4000)
+    } finally {
+      setApprovingId(null)
+    }
+  }
+
+  async function handleApproveAll() {
+    const ids = pendingEntries.map(e => e.id)
+    if (!ids.length) return
+    setApprovingAll(true)
+    try {
+      await approveAllFinanceWeeklyEntries(ids)
+      setEntries(prev => prev.map(e =>
+        ids.includes(e.id) ? { ...e, status: 'approved' } : e
+      ))
+    } catch {
+      setSaveError('Failed to approve all. Please try again.')
+      setTimeout(() => setSaveError(''), 4000)
+    } finally {
+      setApprovingAll(false)
     }
   }
 
@@ -190,7 +226,7 @@ export default function WeeklyEntryPage() {
         className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4"
       >
         <h3 className="text-sm font-semibold text-slate-700">
-          {editingId ? 'Edit Expense Entry' : 'Add Expense Entry'}
+          {editingId ? 'Edit Entry' : 'Add Entry'}
         </h3>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -265,15 +301,37 @@ export default function WeeklyEntryPage() {
         )}
       </form>
 
-      {/* Expense list */}
+      {/* Review list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* List header with Add All */}
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <p className="text-sm font-semibold text-slate-700">
+            Weekly Entries
+            {pendingEntries.length > 0 && (
+              <span className="ml-2 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                {pendingEntries.length} pending
+              </span>
+            )}
+          </p>
+          {pendingEntries.length > 0 && (
+            <button
+              type="button"
+              onClick={handleApproveAll}
+              disabled={approvingAll}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium disabled:opacity-50 transition"
+            >
+              {approvingAll ? 'Adding…' : 'Add All'}
+            </button>
+          )}
+        </div>
+
         {loading ? (
           <div className="p-10 text-center text-slate-500 text-sm">Loading…</div>
         ) : visibleEntries.length === 0 ? (
           <div className="p-10 text-center text-slate-400 text-sm">
             {filterDept === 'all'
-              ? 'No expenses recorded for this week.'
-              : `No expenses recorded for ${filterDept} this week.`}
+              ? 'No entries for this week.'
+              : `No entries for ${filterDept} this week.`}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -289,61 +347,76 @@ export default function WeeklyEntryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {visibleEntries.map(entry => (
-                  <tr key={entry.id} className="hover:bg-slate-50 transition">
-                    <td className="px-4 py-3 text-slate-700">
-                      {entry.date instanceof Date
-                        ? format(entry.date, 'dd/MM/yyyy')
-                        : format(new Date(entry.date), 'dd/MM/yyyy')}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{entry.department || entry.category}</td>
-                    <td className="px-4 py-3 text-slate-700">{entry.item || '—'}</td>
-                    <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
-                    <td className="px-4 py-3 text-right font-medium text-slate-800">
-                      ₹{Number(entry.amount).toLocaleString('en-IN')}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {deletingId === entry.id ? (
-                        <span className="flex items-center justify-end gap-2 text-xs text-slate-600">
-                          <span>Confirm delete?</span>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(entry.id)}
-                            className="text-red-600 font-medium hover:underline"
-                          >
-                            Yes
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeletingId(null)}
-                            className="text-slate-500 hover:underline"
-                          >
-                            No
-                          </button>
-                        </span>
-                      ) : (
-                        <span className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(entry)}
-                            className="p-1.5 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition"
-                            aria-label="Edit"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeletingId(entry.id)}
-                            className="p-1.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition"
-                            aria-label="Delete"
-                          >
-                            🗑️
-                          </button>
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {visibleEntries.map(entry => {
+                  const isApproved = entry.status === 'approved'
+                  return (
+                    <tr key={entry.id} className={`transition ${isApproved ? 'bg-emerald-50/40' : 'hover:bg-slate-50'}`}>
+                      <td className="px-4 py-3 text-slate-700">
+                        {entry.date instanceof Date
+                          ? format(entry.date, 'dd/MM/yyyy')
+                          : format(new Date(entry.date), 'dd/MM/yyyy')}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{entry.department || entry.category}</td>
+                      <td className="px-4 py-3 text-slate-700">{entry.item || '—'}</td>
+                      <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
+                      <td className="px-4 py-3 text-right font-medium text-slate-800">
+                        ₹{Number(entry.amount).toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {isApproved ? (
+                          <span className="text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">
+                            Added
+                          </span>
+                        ) : deletingId === entry.id ? (
+                          <span className="flex items-center justify-end gap-2 text-xs text-slate-600">
+                            <span>Confirm delete?</span>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(entry.id)}
+                              className="text-red-600 font-medium hover:underline"
+                            >
+                              Yes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingId(null)}
+                              className="text-slate-500 hover:underline"
+                            >
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleApprove(entry.id)}
+                              disabled={approvingId === entry.id}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium disabled:opacity-50 transition"
+                            >
+                              {approvingId === entry.id ? '…' : 'Add'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(entry)}
+                              className="p-1.5 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition"
+                              aria-label="Edit"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingId(entry.id)}
+                              className="p-1.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition"
+                              aria-label="Delete"
+                            >
+                              🗑️
+                            </button>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
