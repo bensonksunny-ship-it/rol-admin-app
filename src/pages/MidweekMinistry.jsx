@@ -59,7 +59,7 @@ function getInitials(name) {
 
 // ─── Root Component ───────────────────────────────────────────────────────────
 
-export default function MidweekMinistry() {
+export default function MidweekMinistry({ embedded = false }) {
   const { userProfile } = useAuth()
   const [subTab, setSubTab] = useState('live')
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
@@ -75,8 +75,8 @@ export default function MidweekMinistry() {
   const canUseLive          = isSimulating ? capabilities.canUseLiveControl : true
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <DepartmentTabBar slug="cell" activeTab="midweek" />
+    <div className={embedded ? undefined : 'min-h-screen bg-slate-50'}>
+      {!embedded && <DepartmentTabBar slug="cell" activeTab="midweek" />}
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
         <div>
@@ -178,6 +178,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
   // End-meeting confirmation modal
   const [showEndModal, setShowEndModal]     = useState(false)
   const [pendingTimings, setPendingTimings] = useState([])
+  const [saveError, setSaveError]           = useState(null)
 
   // Shepherd notes
   const [shepherdNotes, setShepherdNotes] = useState('')
@@ -289,12 +290,16 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
     setPresentIds(ids)
     setShowEndModal(false)
     setSegmentIdx(segmentOrder.length)   // isEnded = true
+    setSaveError(null)
     if (selectedCellId) {
       saveMidweekSessionSummary(selectedCellId, today, {
         segmentTimings: pendingTimings,
         presentIds: Array.from(ids),
         updatedBy: userProfile?.name || userProfile?.email || 'unknown',
-      }).catch(() => {})
+      }).catch((err) => {
+        console.error('Failed to save session summary:', err)
+        setSaveError('Session could not be saved. Please check your connection and try again.')
+      })
     }
   }, [pendingTimings, selectedCellId, today, presentIds, userProfile, segmentOrder.length])
 
@@ -396,6 +401,22 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
               </div>
             )}
           </motion.button>
+        </div>
+      )}
+
+      {/* ── Save Error ── */}
+      {saveError && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3 flex items-start gap-3">
+          <span className="text-red-500 text-lg flex-shrink-0">⚠️</span>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-red-700">Save Failed</p>
+            <p className="text-sm text-red-600 mt-0.5">{saveError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSaveError(null)}
+            className="text-red-400 hover:text-red-600 text-xl leading-none flex-shrink-0"
+          >×</button>
         </div>
       )}
 

@@ -104,7 +104,7 @@ function isUpcomingSoon(dateStr, days = 7) {
 
 // ─── Root Component ───────────────────────────────────────────────────────────
 
-export default function ShepherdView() {
+export default function ShepherdView({ embedded = false }) {
   const { userProfile } = useAuth()
   const [tab, setTab] = useState('members')
 
@@ -127,8 +127,8 @@ export default function ShepherdView() {
     : (isDirector || isFounder)
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <DepartmentTabBar slug="cell" activeTab="shepherd" />
+    <div className={embedded ? undefined : 'min-h-screen bg-slate-50'}>
+      {!embedded && <DepartmentTabBar slug="cell" activeTab="shepherd" />}
 
       <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
         {/* Page Header */}
