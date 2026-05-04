@@ -8,6 +8,7 @@ import {
   getCellReportAttendees,
   getMidweekSessionData,
   getMidweekPrayerPoints,
+  getLatestCellReports,
 } from '../services/firestore'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 import DepartmentTabBar from '../components/DepartmentTabBar'
@@ -81,21 +82,54 @@ export default function CellHistory({ embedded = false }) {
     return null
   }, [userProfile, cellGroups])
 
-  // Load history
+  // Load history (archived) + live (current-week) reports, merged
   useEffect(() => {
     if (!userProfile) return
     let alive = true
     setLoading(true)
     ;(async () => {
       try {
-        let list
+        let historyList = []
+        let liveList = []
+
         if (isDirector) {
-          list = await getCellReportHistory({ limitCount: 200 })
+          ;[historyList, liveList] = await Promise.all([
+            getCellReportHistory({ limitCount: 200 }),
+            getLatestCellReports(50),
+          ])
         } else {
           if (!linkedCellId) { if (alive) setHistory([]); return }
-          list = await getCellReportHistory({ cellId: linkedCellId, limitCount: 200 })
+          ;[historyList, liveList] = await Promise.all([
+            getCellReportHistory({ cellId: linkedCellId, limitCount: 200 }),
+            getCellReportsByCell(linkedCellId),
+          ])
         }
-        if (alive) setHistory(list)
+
+        // Dates already covered by the archived history — skip those from live list
+        const archivedKeys = new Set(
+          historyList.map((h) => `${h.cellId}_${String(h.meetingDateISO || '').slice(0, 10)}`)
+        )
+
+        const liveHistory = liveList
+          .filter((r) => {
+            const date = String(r.reportDate || '').slice(0, 10)
+            return date && !archivedKeys.has(`${r.cellId}_${date}`)
+          })
+          .map((r) => ({
+            id: r.id,
+            cellId: r.cellId,
+            cellName: r.cellName,
+            meetingDateISO: String(r.reportDate || '').slice(0, 10),
+            meetingDay: r.meetingDay || '',
+            membersAttended: r.membersAttended || 0,
+            visitors: r.visitors || 0,
+            children: r.children || 0,
+            totalAttendance: (r.membersAttended || 0) + (r.visitors || 0) + (r.children || 0),
+            meetingDurationMinutes: null,
+            programList: [],
+          }))
+
+        if (alive) setHistory([...historyList, ...liveHistory])
       } catch {
         if (alive) setHistory([])
       } finally {
