@@ -2741,11 +2741,12 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
 
 // Returns the ISO date string (YYYY-MM-DD) of the Monday of the week containing dateStr
 function toMondayISO(dateStr) {
-  const d = new Date(String(dateStr).slice(0, 10))
-  const day = d.getDay() // 0 = Sun, 1 = Mon, …
-  const diff = day === 0 ? -6 : 1 - day
+  const [y, m, day] = String(dateStr).slice(0, 10).split('-').map(Number)
+  const d = new Date(y, m - 1, day)
+  const dow = d.getDay()
+  const diff = dow === 0 ? -6 : 1 - dow
   d.setDate(d.getDate() + diff)
-  return d.toISOString().slice(0, 10)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 /**
@@ -2812,24 +2813,21 @@ export async function updateCellReportFull(row, { attendees, segmentTimings, she
   }
   await batch.commit()
 
-  // Add new docs (those not already present by memberId or name)
-  const existingMemberIds = new Set(existingDocs.map((e) => e.memberId).filter(Boolean))
+  // Add new docs not already present by name
   const existingNames = new Set(existingDocs.map((e) => String(e.name || '').trim().toLowerCase()))
   const addBatch = writeBatch(db)
   for (const a of attendees) {
     const normName = String(a.name || '').trim().toLowerCase()
-    const alreadyById = a.memberId && existingMemberIds.has(a.memberId)
-    const alreadyByName = normName && existingNames.has(normName)
-    if (!alreadyById && !alreadyByName) {
-      addBatch.set(doc(attendeesRef), {
-        memberId: a.memberId || null,
-        name: String(a.name || '').trim(),
-        birthday: a.birthday || '',
-        anniversary: a.anniversary || '',
-        phone: a.phone || '',
-        locality: a.locality || '',
-      })
-    }
+    if (!normName) continue   // skip blank-name entries
+    if (existingNames.has(normName)) continue
+    addBatch.set(doc(attendeesRef), {
+      memberId: a.memberId || null,
+      name: String(a.name || '').trim(),
+      birthday: a.birthday || '',
+      anniversary: a.anniversary || '',
+      phone: a.phone || '',
+      locality: a.locality || '',
+    })
   }
   await addBatch.commit()
 
@@ -2845,13 +2843,13 @@ export async function updateCellReportFull(row, { attendees, segmentTimings, she
   }, { merge: true })
 
   // 5. Patch cell_report_history if an archived doc exists
+  const meetingDurationMinutes = (segmentTimings || []).reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
   const weekStart = toMondayISO(d)
   const historyId = `${weekStart}_${row.cellId}`
   try {
     const historyRef = doc(db, CELL_REPORT_HISTORY_COLLECTION, historyId)
     const historySnap = await getDoc(historyRef)
     if (historySnap.exists()) {
-      const meetingDurationMinutes = (segmentTimings || []).reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
       await updateDoc(historyRef, {
         membersAttended: attendees.length,
         totalAttendance: attendees.length + (Number(visitors) || 0) + (Number(children) || 0),
@@ -2865,7 +2863,6 @@ export async function updateCellReportFull(row, { attendees, segmentTimings, she
     console.warn('updateCellReportFull: could not patch cell_report_history', err)
   }
 
-  const meetingDurationMinutes = (segmentTimings || []).reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
   return {
     membersAttended: attendees.length,
     visitors: Number(visitors) || 0,
