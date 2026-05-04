@@ -2738,3 +2738,183 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
     membersAttended: finalSnap.size,
   })
 }
+
+// Returns the ISO date string (YYYY-MM-DD) of the Monday of the week containing dateStr
+function toMondayISO(dateStr) {
+  const d = new Date(String(dateStr).slice(0, 10))
+  const day = d.getDay() // 0 = Sun, 1 = Mon, …
+  const diff = day === 0 ? -6 : 1 - day
+  d.setDate(d.getDate() + diff)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Full update of a cell meeting report.
+ * Reconciles cell_reports, its attendees subcollection, cell_midweek_sessions,
+ * and patches cell_report_history if an archived doc exists.
+ *
+ * @param {object} row - history/live row with { cellId, cellName, meetingDateISO }
+ * @param {object} payload
+ * @param {Array<{id?:string, memberId?:string, name:string}>} payload.attendees - full desired list
+ * @param {Array<{name:string, durationMinutes:number}>} payload.segmentTimings
+ * @param {string} payload.shepherdNotes
+ * @param {number} payload.visitors
+ * @param {number} payload.children
+ * @param {string} [payload.updatedBy]
+ * @returns {Promise<{membersAttended:number, visitors:number, children:number, meetingDurationMinutes:number, programList:Array}>}
+ */
+export async function updateCellReportFull(row, { attendees, segmentTimings, shepherdNotes, visitors, children, updatedBy }) {
+  if (!db || !row?.cellId || !row?.meetingDateISO) throw new Error('updateCellReportFull: missing row fields')
+  const d = String(row.meetingDateISO).slice(0, 10)
+
+  // 1. Find or create cell_reports doc
+  let report = await getCellReportByCellAndDate(row.cellId, d)
+  if (!report) {
+    const ref = await addDoc(collection(db, CELL_REPORTS_COLLECTION), {
+      cellId: row.cellId,
+      cellName: row.cellName || '',
+      meetingDay: row.meetingDay || '',
+      membersAttended: 0,
+      visitors: Number(visitors) || 0,
+      children: Number(children) || 0,
+      visitorsList: [],
+      childrenList: [],
+      reportDate: d,
+      createdBy: updatedBy || 'unknown',
+      createdAt: Timestamp.now(),
+    })
+    report = { id: ref.id, cellId: row.cellId, cellName: row.cellName || '' }
+  }
+  const reportId = report.id
+
+  // 2. Update counts on cell_reports doc
+  await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), {
+    membersAttended: attendees.length,
+    visitors: Number(visitors) || 0,
+    children: Number(children) || 0,
+  })
+
+  // 3. Reconcile attendees subcollection
+  const attendeesRef = collection(db, CELL_REPORTS_COLLECTION, reportId, 'attendees')
+  const existingSnap = await getDocs(attendeesRef)
+  const existingDocs = existingSnap.docs.map((sd) => ({ docId: sd.id, ...sd.data() }))
+
+  // Build desired set by name (case-insensitive) for matching
+  const desiredNames = new Set(attendees.map((a) => String(a.name || '').trim().toLowerCase()).filter(Boolean))
+
+  // Delete removed docs
+  const batch = writeBatch(db)
+  for (const ex of existingDocs) {
+    const exName = String(ex.name || '').trim().toLowerCase()
+    if (!desiredNames.has(exName)) {
+      batch.delete(doc(attendeesRef, ex.docId))
+    }
+  }
+  await batch.commit()
+
+  // Add new docs (those not already present by memberId or name)
+  const existingMemberIds = new Set(existingDocs.map((e) => e.memberId).filter(Boolean))
+  const existingNames = new Set(existingDocs.map((e) => String(e.name || '').trim().toLowerCase()))
+  const addBatch = writeBatch(db)
+  for (const a of attendees) {
+    const normName = String(a.name || '').trim().toLowerCase()
+    const alreadyById = a.memberId && existingMemberIds.has(a.memberId)
+    const alreadyByName = normName && existingNames.has(normName)
+    if (!alreadyById && !alreadyByName) {
+      addBatch.set(doc(attendeesRef), {
+        memberId: a.memberId || null,
+        name: String(a.name || '').trim(),
+        birthday: a.birthday || '',
+        anniversary: a.anniversary || '',
+        phone: a.phone || '',
+        locality: a.locality || '',
+      })
+    }
+  }
+  await addBatch.commit()
+
+  // 4. Upsert cell_midweek_sessions
+  const sessionId = `${row.cellId}_${d}`
+  await setDoc(doc(db, MIDWEEK_SESSIONS, sessionId), {
+    cellId: row.cellId,
+    date: d,
+    segmentTimings: Array.isArray(segmentTimings) ? segmentTimings : [],
+    shepherdNotes: shepherdNotes || '',
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+
+  // 5. Patch cell_report_history if an archived doc exists
+  const weekStart = toMondayISO(d)
+  const historyId = `${weekStart}_${row.cellId}`
+  try {
+    const historyRef = doc(db, CELL_REPORT_HISTORY_COLLECTION, historyId)
+    const historySnap = await getDoc(historyRef)
+    if (historySnap.exists()) {
+      const meetingDurationMinutes = (segmentTimings || []).reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
+      await updateDoc(historyRef, {
+        membersAttended: attendees.length,
+        totalAttendance: attendees.length + (Number(visitors) || 0) + (Number(children) || 0),
+        visitors: Number(visitors) || 0,
+        children: Number(children) || 0,
+        meetingDurationMinutes,
+        programList: (segmentTimings || []).map((t) => ({ programName: t.name, durationMinutes: t.durationMinutes })),
+      })
+    }
+  } catch (err) {
+    console.warn('updateCellReportFull: could not patch cell_report_history', err)
+  }
+
+  const meetingDurationMinutes = (segmentTimings || []).reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
+  return {
+    membersAttended: attendees.length,
+    visitors: Number(visitors) || 0,
+    children: Number(children) || 0,
+    meetingDurationMinutes,
+    programList: (segmentTimings || []).map((t) => ({ programName: t.name, durationMinutes: t.durationMinutes })),
+  }
+}
+
+/**
+ * Delete all Firestore data for a cell meeting report:
+ * cell_report_history (if archived), cell_reports attendees, cell_reports doc,
+ * and cell_midweek_sessions doc.
+ *
+ * @param {object} row - { cellId, meetingDateISO }
+ */
+export async function deleteCellReportFull(row) {
+  if (!db || !row?.cellId || !row?.meetingDateISO) throw new Error('deleteCellReportFull: missing row fields')
+  const d = String(row.meetingDateISO).slice(0, 10)
+
+  // 1. Delete cell_report_history if archived
+  const weekStart = toMondayISO(d)
+  const historyId = `${weekStart}_${row.cellId}`
+  try {
+    await deleteDoc(doc(db, CELL_REPORT_HISTORY_COLLECTION, historyId))
+  } catch {
+    // may not exist — ignore
+  }
+
+  // 2. Find and delete cell_reports + attendees subcollection
+  const q = query(
+    collection(db, CELL_REPORTS_COLLECTION),
+    where('cellId', '==', row.cellId),
+    where('reportDate', '==', d)
+  )
+  const snap = await getDocs(q)
+  for (const reportDoc of snap.docs) {
+    const attendeesRef = collection(db, CELL_REPORTS_COLLECTION, reportDoc.id, 'attendees')
+    const attendeesSnap = await getDocs(attendeesRef)
+    const batch = writeBatch(db)
+    attendeesSnap.docs.forEach((ad) => batch.delete(ad.ref))
+    batch.delete(reportDoc.ref)
+    await batch.commit()
+  }
+
+  // 3. Delete cell_midweek_sessions doc
+  try {
+    await deleteDoc(doc(db, MIDWEEK_SESSIONS, `${row.cellId}_${d}`))
+  } catch {
+    // may not exist — ignore
+  }
+}
