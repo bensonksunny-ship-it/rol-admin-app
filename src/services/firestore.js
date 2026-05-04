@@ -2671,3 +2671,70 @@ export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTiming
     updatedAt: Timestamp.now(),
   }, { merge: true })
 }
+
+/**
+ * After a midweek meeting ends, sync attendance into cell_reports so it
+ * appears in the reports history immediately (without waiting for the Sunday Cloud Function).
+ * Creates a minimal cell_reports doc if none exists for the given cell + date.
+ * Adds present members to the attendees subcollection (skipping any already recorded).
+ */
+export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy) {
+  if (!db || !cellId || !dateStr || !Array.isArray(presentMembers)) return
+  const d = String(dateStr).slice(0, 10)
+
+  // Find or create the cell_reports doc for this cell + date
+  const q = query(
+    collection(db, CELL_REPORTS_COLLECTION),
+    where('cellId', '==', cellId),
+    where('reportDate', '==', d),
+    limit(1)
+  )
+  const snap = await getDocs(q)
+
+  let reportId
+  if (!snap.empty) {
+    reportId = snap.docs[0].id
+  } else {
+    const ref = await addDoc(collection(db, CELL_REPORTS_COLLECTION), {
+      cellId,
+      cellName: cellName || '',
+      meetingDay: '',
+      membersAttended: 0,
+      visitors: 0,
+      children: 0,
+      visitorsList: [],
+      childrenList: [],
+      reportDate: d,
+      createdBy: updatedBy || 'unknown',
+      createdAt: Timestamp.now(),
+    })
+    reportId = ref.id
+  }
+
+  // Load existing attendees to avoid duplicates
+  const attendeesRef = collection(db, CELL_REPORTS_COLLECTION, reportId, 'attendees')
+  const existingSnap = await getDocs(attendeesRef)
+  const existingMemberIds = new Set(existingSnap.docs.map((d) => d.data().memberId).filter(Boolean))
+
+  // Batch-write new attendees
+  const batch = writeBatch(db)
+  for (const member of presentMembers) {
+    if (member.id && !existingMemberIds.has(member.id)) {
+      batch.set(doc(attendeesRef), {
+        memberId: member.id,
+        name: member.name || '',
+        birthday: member.birthday || '',
+        anniversary: member.anniversary || '',
+        phone: member.phone || '',
+        locality: member.locality || '',
+      })
+    }
+  }
+  await batch.commit()
+
+  // Update membersAttended count from final subcollection size
+  const finalSnap = await getDocs(attendeesRef)
+  await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), {
+    membersAttended: finalSnap.size,
+  })
+}

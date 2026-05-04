@@ -14,6 +14,7 @@ import {
   setMidweekSettings,
   saveMidweekSessionSummary,
   saveMidweekShepherdNotes,
+  syncMidweekAttendanceToCellReport,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
@@ -292,16 +293,23 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
     setSegmentIdx(segmentOrder.length)   // isEnded = true
     setSaveError(null)
     if (selectedCellId) {
+      const updatedBy = userProfile?.name || userProfile?.email || 'unknown'
+      const cellName = cellGroups.find((g) => g.id === selectedCellId)?.cellName || ''
+      const presentMembers = members.filter((m) => ids.has(m.id))
+
       saveMidweekSessionSummary(selectedCellId, today, {
         segmentTimings: pendingTimings,
         presentIds: Array.from(ids),
-        updatedBy: userProfile?.name || userProfile?.email || 'unknown',
+        updatedBy,
       }).catch((err) => {
         console.error('Failed to save session summary:', err)
         setSaveError('Session could not be saved. Please check your connection and try again.')
       })
+
+      syncMidweekAttendanceToCellReport(selectedCellId, cellName, today, presentMembers, updatedBy)
+        .catch((err) => console.error('Failed to sync attendance to cell report:', err))
     }
-  }, [pendingTimings, selectedCellId, today, presentIds, userProfile, segmentOrder.length])
+  }, [pendingTimings, selectedCellId, today, presentIds, userProfile, segmentOrder.length, cellGroups, members])
 
   // Master button appearance
   let masterBg, masterText, masterIcon, masterLabel, masterSub

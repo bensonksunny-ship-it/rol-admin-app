@@ -9,6 +9,7 @@ import {
   getMidweekSessionData,
   getMidweekPrayerPoints,
   getLatestCellReports,
+  getCellGroupMembers,
 } from '../services/firestore'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 import DepartmentTabBar from '../components/DepartmentTabBar'
@@ -318,6 +319,21 @@ function HistoryDetail({ row }) {
             // Attendee names optional — no crash
           }
         }
+
+        // Fallback: if cell_reports has no attendees but MidweekMinistry recorded presentIds,
+        // resolve member names from the cell group members collection
+        if (reportAttendees.length === 0 && session?.presentIds?.length > 0 && row.cellId) {
+          try {
+            const members = await getCellGroupMembers(row.cellId)
+            const presentSet = new Set(session.presentIds)
+            reportAttendees = members
+              .filter((m) => presentSet.has(m.id))
+              .map((m) => ({ id: m.id, name: m.name, status: 'present' }))
+          } catch {
+            // ignore — names are optional
+          }
+        }
+
         if (alive) setAttendees(reportAttendees)
       } catch {
         if (alive) { setError(true); setAttendees([]) }
