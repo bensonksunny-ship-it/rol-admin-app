@@ -91,7 +91,7 @@ export function AlertPanelCellReports({ missingCount, onOpenDetails }) {
 /**
  * Missing cell reports for the current week (same meeting-date rules as Cell Report).
  */
-export function MissingCellReportsTable({ rows, loading, remindLeader }) {
+export function MissingCellReportsTable({ rows, loading, remindLeader, dismissedIds = new Set(), onDismiss, onUndismiss }) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
       <h2 className="font-semibold text-slate-800 mb-1">Missing cell reports</h2>
@@ -111,33 +111,60 @@ export function MissingCellReportsTable({ rows, loading, remindLeader }) {
                 <th className="py-2 pr-4 font-medium">Leader</th>
                 <th className="py-2 pr-4 font-medium">Due date</th>
                 <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 font-medium w-36" />
+                <th className="py-2 font-medium w-48" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={row.cellId} className="border-b border-slate-100">
-                  <td className="py-2 pr-4 text-slate-800">{row.cellName}</td>
-                  <td className="py-2 pr-4 text-slate-700">{row.leaderName || '—'}</td>
-                  <td className="py-2 pr-4 text-slate-600 tabular-nums">{row.expectedDate}</td>
-                  <td className="py-2 pr-4">
-                    {row.submitted ? (
-                      <span className="text-emerald-700 font-medium">✅ Submitted</span>
-                    ) : (
-                      <span className="text-red-600 font-medium">❌ Missing</span>
-                    )}
-                  </td>
-                  <td className="py-2">
-                    <button
-                      type="button"
-                      onClick={() => remindLeader(row)}
-                      className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
-                    >
-                      Remind leader
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((row) => {
+                const isDismissed = !row.submitted && dismissedIds.has(row.cellId)
+                return (
+                  <tr key={row.cellId} className="border-b border-slate-100">
+                    <td className="py-2 pr-4 text-slate-800">{row.cellName}</td>
+                    <td className="py-2 pr-4 text-slate-700">{row.leaderName || '—'}</td>
+                    <td className="py-2 pr-4 text-slate-600 tabular-nums">{row.expectedDate}</td>
+                    <td className="py-2 pr-4">
+                      {row.submitted ? (
+                        <span className="text-emerald-700 font-medium">✅ Submitted</span>
+                      ) : isDismissed ? (
+                        <span className="text-amber-700 font-medium">🔕 Alert dismissed</span>
+                      ) : (
+                        <span className="text-red-600 font-medium">❌ Missing</span>
+                      )}
+                    </td>
+                    <td className="py-2">
+                      <div className="flex gap-2">
+                        {!row.submitted && !isDismissed && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => remindLeader(row)}
+                              className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+                            >
+                              Remind leader
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onDismiss?.(row.cellId)}
+                              className="text-xs px-2 py-1 rounded border border-amber-300 text-amber-700 hover:bg-amber-50"
+                            >
+                              Turn down alert
+                            </button>
+                          </>
+                        )}
+                        {isDismissed && (
+                          <button
+                            type="button"
+                            onClick={() => onUndismiss?.(row.cellId)}
+                            className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-500 hover:bg-slate-50"
+                          >
+                            Undo
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -194,6 +221,12 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   const [scrollToTable, setScrollToTable] = useState(false)
 
   const weekStartDate = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), [])
+  const storageKey = `cell_alerts_dismissed_${format(weekStartDate, 'yyyy-MM-dd')}`
+
+  const [dismissedIds, setDismissedIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`cell_alerts_dismissed_${format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')}`) || '[]')) }
+    catch { return new Set() }
+  })
 
   const load = useCallback(() => {
     setLoading(true)
@@ -237,7 +270,28 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
     })
   }, [visibleGroups, reportLookup, weekStartDate])
 
-  const missingCount = useMemo(() => rows.filter((r) => !r.submitted).length, [rows])
+  const dismissAlert = useCallback((cellId) => {
+    setDismissedIds((prev) => {
+      const next = new Set(prev)
+      next.add(cellId)
+      localStorage.setItem(storageKey, JSON.stringify([...next]))
+      return next
+    })
+  }, [storageKey])
+
+  const undismissAlert = useCallback((cellId) => {
+    setDismissedIds((prev) => {
+      const next = new Set(prev)
+      next.delete(cellId)
+      localStorage.setItem(storageKey, JSON.stringify([...next]))
+      return next
+    })
+  }, [storageKey])
+
+  const missingCount = useMemo(
+    () => rows.filter((r) => !r.submitted && !dismissedIds.has(r.cellId)).length,
+    [rows, dismissedIds]
+  )
 
   const trendCells = useMemo(() => visibleGroups.slice(0, MAX_TREND_CELLS), [visibleGroups])
 
@@ -292,7 +346,14 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
     <div className="space-y-6">
       <AlertPanelCellReports missingCount={missingCount} onOpenDetails={onOpenDetails} />
       <div id="missing-cell-reports-table">
-        <MissingCellReportsTable rows={rows} loading={loading} remindLeader={remindLeader} />
+        <MissingCellReportsTable
+          rows={rows}
+          loading={loading}
+          remindLeader={remindLeader}
+          dismissedIds={dismissedIds}
+          onDismiss={dismissAlert}
+          onUndismiss={undismissAlert}
+        />
       </div>
       <CellWeeklyTrendsChart chartData={chartData} cellSeries={cellSeries} />
     </div>
