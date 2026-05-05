@@ -75,6 +75,7 @@ import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accou
 import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import CellOperationsToggle from './cell/CellOperationsToggle'
+import SundayOperationsToggle from './sunday/SundayOperationsToggle'
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -440,7 +441,9 @@ export default function DepartmentHub() {
   // Generic sub-departments (Firestore department_sub_departments) for Team + Sub Department tab
   useEffect(() => {
     if (!department || slug === 'cell' || slug === 'd-light') return
-    if (activeTab !== 'team' && activeTab !== 'subDepartment') return
+    const wantsSubOrTeam = activeTab === 'team' || activeTab === 'subDepartment' ||
+      (slug === 'sunday-ministry' && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment'))
+    if (!wantsSubOrTeam) return
     setSubDeptLoading(true)
     getDepartmentSubDepartments(department.name)
       .then((list) => {
@@ -452,7 +455,7 @@ export default function DepartmentHub() {
         setSubDeptError('Could not load sub-departments.')
       })
       .finally(() => setSubDeptLoading(false))
-  }, [department, slug, activeTab])
+  }, [department, slug, activeTab, opsSubTab])
 
   useEffect(() => {
     if (slug !== 'd-light' || activeTab !== 'team') {
@@ -579,7 +582,8 @@ export default function DepartmentHub() {
   }, [slug, activeTab, liveControlTab, liveExpandedCellId])
 
   useEffect(() => {
-    const wantsFinancial = activeTab === 'financial' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'financial')
+    const wantsFinancial = activeTab === 'financial' ||
+      ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'financial')
     if (department && wantsFinancial) {
       setLoadingBudget(true)
       getFinanceBudgetItemsByDepartment(department.name)
@@ -598,7 +602,8 @@ export default function DepartmentHub() {
   }, [slug, activeTab, department])
 
   useEffect(() => {
-    const wantsPlanning = activeTab === 'planning' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'planning')
+    const wantsPlanning = activeTab === 'planning' ||
+      ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'planning')
     if (!department || !wantsPlanning) return
     setLoadingDepartmentUpdates(true)
     getDepartmentUpdates(department.name)
@@ -1454,7 +1459,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {(activeTab === 'planning' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'planning')) && (
+          {(activeTab === 'planning' || ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'planning')) && (
             <div className="space-y-6">
               {slug === 'cell' && (
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -1803,7 +1808,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {usesGenericSubDepartmentCollection(slug) && activeTab === 'subDepartment' && (
+          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || (slug === 'sunday-ministry' && activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center">
                 <h2 className="font-semibold text-slate-800">Sub Department</h2>
@@ -2118,7 +2123,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {(activeTab === 'team' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'team')) && (
+          {(activeTab === 'team' || ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'team')) && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-6">
               <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-slate-800">Team</h2>
@@ -2145,7 +2150,7 @@ export default function DepartmentHub() {
                   </button>
                 )}
               </div>
-              {slug !== 'cell' && tabs.includes('subDepartment') && (
+              {slug !== 'cell' && (tabs.includes('subDepartment') || slug === 'sunday-ministry') && (
                 <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                   Sub departments (name & serving area) are managed in the <strong>Sub Department</strong> tab. Assign team
                   members to sub departments below.
@@ -3378,7 +3383,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {(activeTab === 'financial' || (slug === 'cell' && activeTab === 'operations' && opsSubTab === 'financial')) && (
+          {(activeTab === 'financial' || ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'financial')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <h2 className="font-semibold text-slate-800 p-5 pb-0">Budget & Spending</h2>
               <p className="text-sm text-slate-500 px-5 pt-1">Budget items for this department (₹).</p>
@@ -4161,6 +4166,12 @@ export default function DepartmentHub() {
           {activeTab === 'operations' && slug === 'cell' && (
             <div className="space-y-4">
               <CellOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+            </div>
+          )}
+
+          {activeTab === 'operations' && slug === 'sunday-ministry' && (
+            <div className="space-y-4">
+              <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
             </div>
           )}
 
