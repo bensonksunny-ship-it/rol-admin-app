@@ -31,7 +31,7 @@ function getTabLabel(tab) {
     case 'members':
       return 'Members'
     case 'sundayReport':
-      return 'Sunday Report'
+      return 'Live Control'
     case 'sundayProgram':
       return 'Sunday Program'
     case 'subDepartment':
