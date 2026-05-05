@@ -183,7 +183,10 @@ service cloud.firestore {
       return g != null && g != '' ? g : d.get('cellId', null);
     }
     function isCellDirector() {
-      return isSignedIn() && userDepartment() == 'Cell' && getUserRole() == 'Director';
+      // Accept 'Cell' in either the singular `department` field or the `departments` array,
+      // so multi-department directors (whose primary dept isn't Cell) are not blocked.
+      return isSignedIn() && getUserRole() == 'Director' &&
+        (userDepartment() == 'Cell' || 'Cell' in userDepartments());
     }
     match /cell_reports/{reportId} {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));

@@ -59,7 +59,18 @@ export default function CellHistory({ embedded = false }) {
   const [history, setHistory]         = useState([])
   const [expandedId, setExpandedId]   = useState(null)
 
-  const isDirector = useMemo(() => isCellDirectorInPositions(userProfile), [userProfile])
+  const isDirector = useMemo(() => {
+    if (!userProfile) return false
+    if (isCellDirectorInPositions(userProfile)) return true
+    // Fallback: top-level fields match Firestore rules' isCellDirector() check.
+    // Handles legacy users without a positions array and multi-dept directors
+    // whose primary `department` field isn't 'Cell'.
+    const depts = Array.isArray(userProfile.departments) ? userProfile.departments : []
+    return (
+      userProfile.role === 'Director' &&
+      (userProfile.department === 'Cell' || depts.includes('Cell'))
+    )
+  }, [userProfile])
 
   const isLeader = useMemo(() => isCellLeaderInPositions(userProfile), [userProfile])
 
@@ -175,7 +186,8 @@ export default function CellHistory({ embedded = false }) {
           }))
 
         if (alive) setHistory([...historyList, ...liveHistory])
-      } catch {
+      } catch (e) {
+        console.error('[CellHistory] Failed to load reports:', e)
         if (alive) setHistory([])
       } finally {
         if (alive) setLoading(false)
