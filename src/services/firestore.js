@@ -2691,6 +2691,10 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
   )
   const snap = await getDocs(q)
 
+  // Don't create a new doc if the meeting ended with no attendance recorded.
+  // If an existing doc is already there, proceed normally (preserve its data).
+  if (snap.empty && presentMembers.length === 0) return
+
   let reportId
   if (!snap.empty) {
     reportId = snap.docs[0].id
