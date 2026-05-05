@@ -62,10 +62,6 @@ export default function CellHistory({ embedded = false }) {
   const isDirector = useMemo(() => isCellDirectorInPositions(userProfile), [userProfile])
 
   const isLeader = useMemo(() => isCellLeaderInPositions(userProfile), [userProfile])
-  const canEditRow = useCallback(
-    (row) => isDirector || (isLeader && row.cellId === linkedCellId),
-    [isDirector, isLeader, linkedCellId]
-  )
 
   const [editRow, setEditRow]       = useState(null)
   const [isNewEntry, setIsNewEntry] = useState(false)
@@ -125,6 +121,11 @@ export default function CellHistory({ embedded = false }) {
     }
     return null
   }, [userProfile, cellGroups])
+
+  const canEditRow = useCallback(
+    (row) => isDirector || (isLeader && row.cellId === linkedCellId),
+    [isDirector, isLeader, linkedCellId]
+  )
 
   // Load history (archived) + live (current-week) reports, merged
   useEffect(() => {
