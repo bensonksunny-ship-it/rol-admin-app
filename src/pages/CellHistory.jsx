@@ -13,6 +13,7 @@ import {
   deleteCellReportFull,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
+import { formatDisplayDate } from '../utils/date'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { AnimatePresence } from 'framer-motion'
 import EditReportSheet from './cell/EditReportSheet'
@@ -21,15 +22,6 @@ const CELL_DEPARTMENT = 'Cell'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function toDDMMYYYY(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  const dd   = String(d.getDate()).padStart(2, '0')
-  const mm   = String(d.getMonth() + 1).padStart(2, '0')
-  const yyyy = d.getFullYear()
-  return `${dd}/${mm}/${yyyy}`
-}
 
 function formatDuration(minutes) {
   if (minutes == null || Number.isNaN(Number(minutes))) return '—'
@@ -364,7 +356,7 @@ function HistoryCard({ row, expanded, onToggle, canEdit = false, isDirector = fa
               <span className="font-bold text-slate-900 text-base">{row.cellName || '—'}</span>
               {row.meetingDateISO && (
                 <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                  {toDDMMYYYY(row.meetingDateISO)}
+                  {formatDisplayDate(row.meetingDateISO)}
                 </span>
               )}
             </div>

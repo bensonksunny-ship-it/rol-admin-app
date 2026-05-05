@@ -12,6 +12,7 @@ import {
   getUsersByDepartment,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
+import { formatDisplayDate } from '../utils/date'
 
 export default function DepartmentPastorView() {
   const { slug } = useParams()
@@ -208,7 +209,7 @@ export default function DepartmentPastorView() {
                   </p>
                 )}
                 <p className="text-xs text-slate-400 mt-1">
-                  {e.enteredBy} · {e.createdAt ? new Date(e.createdAt).toLocaleDateString() : ''}
+                  {e.enteredBy} · {e.createdAt ? formatDisplayDate(e.createdAt) : ''}
                 </p>
               </li>
             ))}

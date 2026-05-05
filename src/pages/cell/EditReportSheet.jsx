@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { formatDisplayDate } from '../../utils/date'
 import {
   getCellGroupMembers,
   getCellReportByCellAndDate,
@@ -180,7 +181,7 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
     }
   }
 
-  const title = isNew ? 'New Entry' : `Edit Report — ${formatDate(row?.meetingDateISO)}`
+  const title = isNew ? 'New Entry' : `Edit Report — ${formatDisplayDate(row?.meetingDateISO)}`
 
   return (
     <>
@@ -485,13 +486,6 @@ function NotesTab({ notes, onChange }) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatDate(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
-}
 
 function formatDuration(minutes) {
   const m = Number(minutes) || 0

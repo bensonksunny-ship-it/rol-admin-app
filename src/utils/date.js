@@ -39,3 +39,9 @@ export function formatDMYTime(value) {
   return d ? format(d, 'dd-MM-yyyy HH:mm') : '—'
 }
 
+export function formatDisplayDate(value) {
+  if (!value) return '—'
+  const d = toDate(value) ?? (isValid(new Date(value)) ? new Date(value) : null)
+  return d ? format(d, 'dd/MMM/yyyy') : '—'
+}
+

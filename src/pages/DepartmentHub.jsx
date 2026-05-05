@@ -67,7 +67,7 @@ import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { differenceInDays, differenceInYears, differenceInMonths, format, startOfWeek, endOfWeek } from 'date-fns'
-import { formatDMY, formatDMYTime, parseDateToYYYYMMDD } from '../utils/date'
+import { formatDMY, formatDMYTime, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
@@ -955,7 +955,7 @@ export default function DepartmentHub() {
                             <span className="text-slate-500">{e.period || e.type || 'Entry'}</span>
                             {e.notes && <p className="text-slate-800 mt-0.5 whitespace-pre-wrap">{e.notes}</p>}
                             <p className="text-xs text-slate-400 mt-1">
-                              {e.enteredBy} · {e.createdAt ? new Date(e.createdAt).toLocaleDateString() : ''}
+                              {e.enteredBy} · {e.createdAt ? formatDisplayDate(e.createdAt) : ''}
                             </p>
                           </li>
                         ))}

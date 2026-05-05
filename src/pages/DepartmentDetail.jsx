@@ -6,6 +6,7 @@ import { DEPARTMENTS } from '../constants/roles'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useAuth } from '../context/AuthContext'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
+import { formatDisplayDate } from '../utils/date'
 
 function getDepartmentName(slug) {
   const fromConfig = getDepartmentBySlug(slug)
@@ -114,7 +115,7 @@ export default function DepartmentDetail() {
                       </span>
                     </td>
                     <td className="px-5 py-3 text-slate-600">
-                      {t.deadline ? new Date(t.deadline).toLocaleDateString() : '—'}
+                      {t.deadline ? formatDisplayDate(t.deadline) : '—'}
                     </td>
                   </tr>
                 ))}
