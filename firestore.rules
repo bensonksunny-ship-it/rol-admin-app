@@ -191,16 +191,19 @@ service cloud.firestore {
     match /cell_reports/{reportId} {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
       allow create: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && request.resource.data.cellId == userLinkedCellId()));
-      allow update, delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
+      allow update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
+      allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }
     match /cell_reports/{reportId}/attendees/{attendeeId} {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userLinkedCellId()));
-      allow create, update, delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userLinkedCellId()));
+      allow create, update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userLinkedCellId()));
+      allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }
 
-    // Weekly cell report history (read-only for clients)
+    // Weekly cell report history
     match /cell_report_history/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
+      allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }
 
     match /caring_members/{docId} {
@@ -286,7 +289,7 @@ service cloud.firestore {
     match /cell_midweek_sessions/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
       allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
-      allow delete: if isSignedIn() && isFullAccess();
+      allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }
 
     // Sunday service attendance (cell-level bubble grid)
