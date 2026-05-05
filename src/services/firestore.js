@@ -2329,6 +2329,39 @@ export async function getRecentSundayReports(numWeeks = 8) {
     })
 }
 
+export async function getSundayReportSummaries(numWeeks = 12) {
+  if (!db) return []
+  const today = new Date()
+  const lastSunday = new Date(today)
+  lastSunday.setDate(today.getDate() - today.getDay())
+  const dateStrings = Array.from({ length: numWeeks }, (_, i) => {
+    const d = new Date(lastSunday)
+    d.setDate(lastSunday.getDate() - i * 7)
+    return d.toISOString().slice(0, 10)
+  })
+  const snaps = await Promise.all(
+    dateStrings.map((dateStr) => getDoc(doc(db, SUNDAY_REPORTS_COLLECTION, dateStr)))
+  )
+  return snaps
+    .filter((snap) => snap.exists())
+    .map((snap) => {
+      const data = snap.data()
+      const s = data.summary && typeof data.summary === 'object' ? data.summary : {}
+      return {
+        date: snap.id,
+        totalAttendance: s.totalAttendance ?? '',
+        totalAdults: s.totalAdults ?? '',
+        cellAttendance: s.cellAttendance ?? '',
+        newcomers: s.newcomers ?? '',
+        secondWeekAttendees: s.secondWeekAttendees ?? '',
+        riverKids: s.riverKids ?? '',
+        totalVolunteers: s.totalVolunteers ?? '',
+        englishServiceAttendance: s.englishServiceAttendance ?? '',
+        tamilServiceAttendance: s.tamilServiceAttendance ?? '',
+      }
+    })
+}
+
 export async function setSundayReport(dateStr, payload, updatedBy) {
   if (!db || !dateStr) return null
   const id = String(dateStr).slice(0, 10)

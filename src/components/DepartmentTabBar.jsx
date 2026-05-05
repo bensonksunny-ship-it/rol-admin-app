@@ -32,6 +32,8 @@ function getTabLabel(tab) {
       return 'Members'
     case 'sundayReport':
       return 'Live Control'
+    case 'sundayReportsHistory':
+      return 'Reports'
     case 'sundayProgram':
       return 'Sunday Program'
     case 'subDepartment':
@@ -102,6 +104,17 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab, userPr
               key={tab}
               to="/department/sunday-ministry/sunday-report"
               className={`${baseClass} ${activeTab === 'sundayReport' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
+            >
+              {label}
+            </Link>
+          )
+        }
+        if (tab === 'sundayReportsHistory') {
+          return (
+            <Link
+              key={tab}
+              to="/department/sunday-ministry/reports"
+              className={`${baseClass} ${activeTab === 'sundayReportsHistory' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
             >
               {label}
             </Link>
