@@ -156,6 +156,7 @@ export default function Sidebar() {
               <NavLink
                 key={(item.to || '/') + (item.label || '')}
                 to={item.to || '/'}
+                onClick={() => setOpen(false)}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
                     isActive

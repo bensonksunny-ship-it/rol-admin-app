@@ -272,77 +272,94 @@ export default function ExpensePage() {
               : `No expenses recorded for ${filterDept} this month.`}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Department</th>
-                  <th className="px-4 py-3">Item</th>
-                  <th className="px-4 py-3">Bill No</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {visibleEntries.map(entry => (
-                  <tr key={entry.id} className="hover:bg-slate-50 transition">
-                    <td className="px-4 py-3 text-slate-700">
-                      {entry.date instanceof Date
-                        ? format(entry.date, 'dd/MM/yyyy')
-                        : format(new Date(entry.date), 'dd/MM/yyyy')}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{entry.department || entry.category}</td>
-                    <td className="px-4 py-3 text-slate-700">{entry.item || '—'}</td>
-                    <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
-                    <td className="px-4 py-3 text-right font-medium text-slate-800">
-                      ₹{Number(entry.amount).toLocaleString('en-IN')}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {deletingId === entry.id ? (
-                        <span className="flex items-center justify-end gap-2 text-xs text-slate-600">
-                          <span>Confirm delete?</span>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(entry.id)}
-                            className="text-red-600 font-medium hover:underline"
-                          >
-                            Yes
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeletingId(null)}
-                            className="text-slate-500 hover:underline"
-                          >
-                            No
-                          </button>
-                        </span>
-                      ) : (
-                        <span className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(entry)}
-                            className="p-1.5 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition"
-                            aria-label="Edit"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeletingId(entry.id)}
-                            className="p-1.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition"
-                            aria-label="Delete"
-                          >
-                            🗑️
-                          </button>
-                        </span>
-                      )}
-                    </td>
+          <>
+            {/* Mobile cards */}
+            <div className="sm:hidden divide-y divide-slate-100">
+              {visibleEntries.map(entry => (
+                <div key={entry.id} className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-slate-800 text-sm">
+                        ₹{Number(entry.amount).toLocaleString('en-IN')}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {entry.date instanceof Date
+                          ? format(entry.date, 'dd/MM/yyyy')
+                          : format(new Date(entry.date), 'dd/MM/yyyy')}
+                      </p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 shrink-0">
+                      {entry.department || entry.category}
+                    </span>
+                  </div>
+                  {(entry.item || entry.billNo) && (
+                    <div className="text-xs text-slate-600 space-y-0.5">
+                      {entry.item && <p>{entry.item}</p>}
+                      {entry.billNo && <p className="text-slate-400">Bill: {entry.billNo}</p>}
+                    </div>
+                  )}
+                  {deletingId === entry.id ? (
+                    <div className="flex items-center gap-3 text-xs pt-1">
+                      <span className="text-slate-600">Confirm delete?</span>
+                      <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-medium">Yes</button>
+                      <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500">No</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 pt-1">
+                      <button type="button" onClick={() => handleEdit(entry)} className="text-xs text-indigo-600 font-medium hover:underline">Edit</button>
+                      <button type="button" onClick={() => setDeletingId(entry.id)} className="text-xs text-red-500 hover:underline">Delete</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Department</th>
+                    <th className="px-4 py-3">Item</th>
+                    <th className="px-4 py-3">Bill No</th>
+                    <th className="px-4 py-3 text-right">Amount</th>
+                    <th className="px-4 py-3"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {visibleEntries.map(entry => (
+                    <tr key={entry.id} className="hover:bg-slate-50 transition">
+                      <td className="px-4 py-3 text-slate-700">
+                        {entry.date instanceof Date
+                          ? format(entry.date, 'dd/MM/yyyy')
+                          : format(new Date(entry.date), 'dd/MM/yyyy')}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{entry.department || entry.category}</td>
+                      <td className="px-4 py-3 text-slate-700">{entry.item || '—'}</td>
+                      <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
+                      <td className="px-4 py-3 text-right font-medium text-slate-800">
+                        ₹{Number(entry.amount).toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {deletingId === entry.id ? (
+                          <span className="flex items-center justify-end gap-2 text-xs text-slate-600">
+                            <span>Confirm delete?</span>
+                            <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
+                            <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => handleEdit(entry)} className="p-1.5 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition" aria-label="Edit">✏️</button>
+                            <button type="button" onClick={() => setDeletingId(entry.id)} className="p-1.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition" aria-label="Delete">🗑️</button>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

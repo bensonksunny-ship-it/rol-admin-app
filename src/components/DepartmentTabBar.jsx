@@ -75,10 +75,11 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab, userPr
   const tabHref = (tab) => `${hubPath}?tab=${encodeURIComponent(tab)}`
 
   return (
-    <div className="sticky top-0 z-40 min-h-[48px] flex flex-wrap items-center gap-2 px-4 py-2 bg-white text-slate-900 border-b border-slate-200 shadow-sm">
+    <div className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
+      <div className="flex items-center overflow-x-auto scrollbar-hide gap-1 px-3 py-2 min-h-[48px]">
       {tabs.map((tab) => {
         const label = getTabLabel(tab)
-        const baseClass = 'px-3 py-1.5 text-sm font-medium rounded transition whitespace-nowrap border border-transparent'
+        const baseClass = 'px-3 py-1.5 text-sm font-medium rounded transition whitespace-nowrap border border-transparent flex-shrink-0'
         const activeClass =
           activeTab === tab
             ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
@@ -151,10 +152,12 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab, userPr
       })}
       <Link
         to="/departments"
-        className="px-3 py-1.5 text-sm font-medium rounded hover:bg-slate-100 transition whitespace-nowrap ml-auto border border-slate-200 hover:border-slate-300"
+        className="px-3 py-1.5 text-sm font-medium rounded hover:bg-slate-100 transition whitespace-nowrap ml-2 flex-shrink-0 border border-slate-200 hover:border-slate-300"
       >
-        Back to Department
+        <span className="sm:hidden">← Depts</span>
+        <span className="hidden sm:inline">← Departments</span>
       </Link>
+      </div>
     </div>
   )
 }

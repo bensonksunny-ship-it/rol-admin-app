@@ -356,7 +356,7 @@ export default function Finance() {
         />
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-center">
           <div className="text-2xl font-black text-blue-900">
             {allTimeBalance === null ? '—' : `RM ${allTimeBalance.toLocaleString()}`}
@@ -459,39 +459,18 @@ export default function Finance() {
         </select>
       </div>
 
-      <div className="flex gap-2 border-b border-slate-200">
-        <button
-          onClick={() => setTab('overview')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-            tab === 'overview' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          Overview
-        </button>
-        <button
-          onClick={() => setTab('income')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-            tab === 'income' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          Income
-        </button>
-        <button
-          onClick={() => setTab('expense')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-            tab === 'expense' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          Expense
-        </button>
-        <button
-          onClick={() => setTab('budget')}
-          className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
-            tab === 'budget' ? 'bg-white border border-slate-200 border-b-0 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          Budget
-        </button>
+      <div className="flex gap-1 border-b border-slate-200 overflow-x-auto scrollbar-hide">
+        {[['overview','Overview'],['income','Income'],['expense','Expense'],['budget','Budget']].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap flex-shrink-0 border-b-2 -mb-px transition-colors ${
+              tab === key ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {tab === 'overview' && (
@@ -624,7 +603,24 @@ export default function Finance() {
 
       {tab === 'income' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Mobile cards */}
+          <div className="sm:hidden divide-y divide-slate-100">
+            {income.length === 0 ? (
+              <p className="px-4 py-8 text-center text-slate-500 text-sm">No income records</p>
+            ) : income.map((i) => (
+              <div key={i.id} className="px-4 py-3 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-emerald-600 text-sm">RM {(Number(i.amount) || 0).toLocaleString()}</span>
+                  <span className="text-xs text-slate-400">{formatDMY(i.date)}</span>
+                </div>
+                <div className="text-sm text-slate-700">{i.category || '—'}{i.departmentTag ? ` · ${i.departmentTag}` : ''}</div>
+                {i.description && <div className="text-xs text-slate-500">{i.description}</div>}
+                {i.submittedBy && <div className="text-xs text-slate-400">by {i.submittedBy}</div>}
+              </div>
+            ))}
+          </div>
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead className="bg-slate-50">
                 <tr>
@@ -642,19 +638,13 @@ export default function Finance() {
                     <td className="px-5 py-3 text-slate-800">{formatDMY(i.date)}</td>
                     <td className="px-5 py-3 text-slate-600">{i.category || '—'}</td>
                     <td className="px-5 py-3 text-slate-500 text-xs">{i.departmentTag || '—'}</td>
-                    <td className="px-5 py-3 font-medium text-emerald-600">
-                      RM {(Number(i.amount) || 0).toLocaleString()}
-                    </td>
+                    <td className="px-5 py-3 font-medium text-emerald-600">RM {(Number(i.amount) || 0).toLocaleString()}</td>
                     <td className="px-5 py-3 text-slate-600">{i.description || '—'}</td>
                     <td className="px-5 py-3 text-slate-500 text-xs">{i.submittedBy || '—'}</td>
                   </tr>
                 ))}
                 {income.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
-                      No income records
-                    </td>
-                  </tr>
+                  <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500">No income records</td></tr>
                 )}
               </tbody>
             </table>
@@ -664,7 +654,24 @@ export default function Finance() {
 
       {tab === 'expense' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Mobile cards */}
+          <div className="sm:hidden divide-y divide-slate-100">
+            {expense.length === 0 ? (
+              <p className="px-4 py-8 text-center text-slate-500 text-sm">No expense records</p>
+            ) : expense.map((e) => (
+              <div key={e.id} className="px-4 py-3 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-red-600 text-sm">RM {(Number(e.amount) || 0).toLocaleString()}</span>
+                  <span className="text-xs text-slate-400">{formatDMY(e.date)}</span>
+                </div>
+                <div className="text-sm text-slate-700">{e.category || '—'}{e.departmentTag ? ` · ${e.departmentTag}` : ''}</div>
+                {e.description && <div className="text-xs text-slate-500">{e.description}</div>}
+                {e.submittedBy && <div className="text-xs text-slate-400">by {e.submittedBy}</div>}
+              </div>
+            ))}
+          </div>
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead className="bg-slate-50">
                 <tr>
@@ -682,19 +689,13 @@ export default function Finance() {
                     <td className="px-5 py-3 text-slate-800">{formatDMY(e.date)}</td>
                     <td className="px-5 py-3 text-slate-600">{e.category || '—'}</td>
                     <td className="px-5 py-3 text-slate-500 text-xs">{e.departmentTag || '—'}</td>
-                    <td className="px-5 py-3 font-medium text-red-600">
-                      RM {(Number(e.amount) || 0).toLocaleString()}
-                    </td>
+                    <td className="px-5 py-3 font-medium text-red-600">RM {(Number(e.amount) || 0).toLocaleString()}</td>
                     <td className="px-5 py-3 text-slate-600">{e.description || '—'}</td>
                     <td className="px-5 py-3 text-slate-500 text-xs">{e.submittedBy || '—'}</td>
                   </tr>
                 ))}
                 {expense.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
-                      No expense records
-                    </td>
-                  </tr>
+                  <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500">No expense records</td></tr>
                 )}
               </tbody>
             </table>
@@ -731,98 +732,110 @@ export default function Finance() {
           )}
           {loadingBudget ? (
             <div className="px-5 py-8 text-center text-slate-500">Loading budget…</div>
+          ) : budgetItems.length === 0 ? (
+            <p className="px-5 py-8 text-center text-slate-500">No budget items. Add a row to get started.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Category</th>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Sub-Category</th>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Description</th>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Quantity</th>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Unit Cost (₹)</th>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Total Cost (₹)</th>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Priority</th>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Type</th>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Justification</th>
-                    <th className="text-left px-5 py-3 font-medium text-slate-600">Expected Date</th>
-                    {canEnter && (
-                      <th className="text-left px-5 py-3 font-medium text-slate-600">Actions</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {budgetItems.map((row) => {
-                    const totalCost = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0)
-                    return (
-                      <tr key={row.id} className="hover:bg-slate-50">
-                        <td className="px-5 py-3 text-slate-800">{row.category || '—'}</td>
-                        <td className="px-5 py-3 text-slate-600">{row.subCategory || '—'}</td>
-                        <td className="px-5 py-3 text-slate-600">{row.description || '—'}</td>
-                        <td className="px-5 py-3 text-slate-600">{row.quantity ?? '—'}</td>
-                        <td className="px-5 py-3 text-slate-600">
-                          {row.unitCost != null && row.unitCost !== '' ? `₹ ${Number(row.unitCost).toLocaleString()}` : '—'}
-                        </td>
-                        <td className="px-5 py-3 font-medium text-slate-800">
-                          ₹ {totalCost.toLocaleString()}
-                        </td>
-                        <td className="px-5 py-3 text-slate-600">{row.priority || '—'}</td>
-                        <td className="px-5 py-3 text-slate-600">{row.type || '—'}</td>
-                        <td className="px-5 py-3 text-slate-600 max-w-[200px] truncate" title={row.justification || ''}>
-                          {row.justification || '—'}
-                        </td>
-                        <td className="px-5 py-3 text-slate-600">
-                          {row.expectedDate ? formatDMY(row.expectedDate) : '—'}
-                        </td>
-                        {canEnter && (
-                          <td className="px-5 py-3 text-sm space-x-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingBudgetId(row.id)
-                                setBudgetForm({
-                                  category: row.category || '',
-                                  subCategory: row.subCategory || '',
-                                  description: row.description || '',
-                                  quantity: row.quantity ?? '',
-                                  unitCost: row.unitCost ?? '',
-                                  priority: row.priority || 'Medium',
-                                  type: row.type || 'Recurring',
-                                  justification: row.justification || '',
-                                  expectedDate: row.expectedDate ? (typeof row.expectedDate === 'string' ? row.expectedDate : format(new Date(row.expectedDate), 'yyyy-MM-dd')) : format(new Date(), 'yyyy-MM-dd'),
-                                })
-                                setModal('budgetForm')
-                              }}
-                              className="text-blue-600 hover:underline"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (!window.confirm('Delete this budget row?')) return
-                                await deleteFinanceBudgetItem(row.id)
-                                setBudgetItems((prev) => prev.filter((r) => r.id !== row.id))
-                              }}
-                              className="text-red-600 hover:underline"
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    )
-                  })}
-                  {budgetItems.length === 0 && (
+            <>
+              {/* Mobile cards */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {budgetItems.map((row) => {
+                  const totalCost = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0)
+                  return (
+                    <div key={row.id} className="px-4 py-3 space-y-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="font-semibold text-slate-800 text-sm">{row.category || '—'}</span>
+                          {row.subCategory && <span className="text-slate-500 text-xs"> · {row.subCategory}</span>}
+                        </div>
+                        <span className="font-bold text-slate-800 text-sm flex-shrink-0">₹ {totalCost.toLocaleString()}</span>
+                      </div>
+                      {row.description && <div className="text-xs text-slate-600">{row.description}</div>}
+                      <div className="text-xs text-slate-500 flex flex-wrap gap-x-3">
+                        {row.quantity && <span>Qty: {row.quantity}</span>}
+                        {row.unitCost != null && row.unitCost !== '' && <span>Unit: ₹{Number(row.unitCost).toLocaleString()}</span>}
+                        {row.priority && <span>{row.priority}</span>}
+                        {row.type && <span>{row.type}</span>}
+                        {row.expectedDate && <span>{formatDMY(row.expectedDate)}</span>}
+                      </div>
+                      {row.justification && <div className="text-xs text-slate-400 italic">{row.justification}</div>}
+                      {canEnter && (
+                        <div className="flex gap-3 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingBudgetId(row.id)
+                              setBudgetForm({
+                                category: row.category || '', subCategory: row.subCategory || '',
+                                description: row.description || '', quantity: row.quantity ?? '',
+                                unitCost: row.unitCost ?? '', priority: row.priority || 'Medium',
+                                type: row.type || 'Recurring', justification: row.justification || '',
+                                expectedDate: row.expectedDate ? (typeof row.expectedDate === 'string' ? row.expectedDate : format(new Date(row.expectedDate), 'yyyy-MM-dd')) : format(new Date(), 'yyyy-MM-dd'),
+                              })
+                              setModal('budgetForm')
+                            }}
+                            className="text-blue-600 text-sm hover:underline"
+                          >Edit</button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!window.confirm('Delete this budget row?')) return
+                              await deleteFinanceBudgetItem(row.id)
+                              setBudgetItems((prev) => prev.filter((r) => r.id !== row.id))
+                            }}
+                            className="text-red-600 text-sm hover:underline"
+                          >Delete</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              {/* Desktop table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
                     <tr>
-                      <td colSpan={canEnter ? 11 : 10} className="px-5 py-8 text-center text-slate-500">
-                        No budget items. Add a row to get started.
-                      </td>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Category</th>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Sub-Category</th>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Description</th>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Qty</th>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Unit (₹)</th>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Total (₹)</th>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Priority</th>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Type</th>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Justification</th>
+                      <th className="text-left px-5 py-3 font-medium text-slate-600">Expected</th>
+                      {canEnter && <th className="text-left px-5 py-3 font-medium text-slate-600">Actions</th>}
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {budgetItems.map((row) => {
+                      const totalCost = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0)
+                      return (
+                        <tr key={row.id} className="hover:bg-slate-50">
+                          <td className="px-5 py-3 text-slate-800">{row.category || '—'}</td>
+                          <td className="px-5 py-3 text-slate-600">{row.subCategory || '—'}</td>
+                          <td className="px-5 py-3 text-slate-600">{row.description || '—'}</td>
+                          <td className="px-5 py-3 text-slate-600">{row.quantity ?? '—'}</td>
+                          <td className="px-5 py-3 text-slate-600">{row.unitCost != null && row.unitCost !== '' ? `₹ ${Number(row.unitCost).toLocaleString()}` : '—'}</td>
+                          <td className="px-5 py-3 font-medium text-slate-800">₹ {totalCost.toLocaleString()}</td>
+                          <td className="px-5 py-3 text-slate-600">{row.priority || '—'}</td>
+                          <td className="px-5 py-3 text-slate-600">{row.type || '—'}</td>
+                          <td className="px-5 py-3 text-slate-600 max-w-[200px] truncate" title={row.justification || ''}>{row.justification || '—'}</td>
+                          <td className="px-5 py-3 text-slate-600">{row.expectedDate ? formatDMY(row.expectedDate) : '—'}</td>
+                          {canEnter && (
+                            <td className="px-5 py-3 text-sm space-x-2">
+                              <button type="button" onClick={() => { setEditingBudgetId(row.id); setBudgetForm({ category: row.category || '', subCategory: row.subCategory || '', description: row.description || '', quantity: row.quantity ?? '', unitCost: row.unitCost ?? '', priority: row.priority || 'Medium', type: row.type || 'Recurring', justification: row.justification || '', expectedDate: row.expectedDate ? (typeof row.expectedDate === 'string' ? row.expectedDate : format(new Date(row.expectedDate), 'yyyy-MM-dd')) : format(new Date(), 'yyyy-MM-dd') }); setModal('budgetForm') }} className="text-blue-600 hover:underline">Edit</button>
+                              <button type="button" onClick={async () => { if (!window.confirm('Delete this budget row?')) return; await deleteFinanceBudgetItem(row.id); setBudgetItems((prev) => prev.filter((r) => r.id !== row.id)) }} className="text-red-600 hover:underline">Delete</button>
+                            </td>
+                          )}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
