@@ -2460,6 +2460,36 @@ export async function setSundayReport(dateStr, payload, updatedBy) {
   return ref.id
 }
 
+export async function bulkImportSundayReports(rows, importedBy) {
+  if (!db || !Array.isArray(rows) || rows.length === 0) return { imported: 0, skipped: 0 }
+  const now = Timestamp.now()
+  let imported = 0
+  let skipped = 0
+  for (const row of rows) {
+    const id = String(row.date || '').slice(0, 10)
+    if (!id || id.length < 10) { skipped++; continue }
+    const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+    const snap = await getDoc(ref)
+    if (snap.exists()) { skipped++; continue }
+    await setDoc(ref, {
+      date: id,
+      sundayCellAttendance:    row.sundayCellAttendance    || {},
+      others:                  row.others                  || [],
+      newComers:               row.newcomers               || [],
+      secondWeekAttendeesNames: row.secondWeekAttendees    || [],
+      summary: { sundaySchool: Number(row.sundaySchool) || 0 },
+      programTimings: Array.isArray(row.programTimings) ? row.programTimings : [],
+      importedBy: importedBy || 'import',
+      importedAt: now,
+      createdAt: now,
+      updatedBy: importedBy || 'import',
+      updatedAt: now,
+    })
+    imported++
+  }
+  return { imported, skipped }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SHEPHERD VIEW — Back to Bible (extend with 5 pastoral fields)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3018,3 +3048,54 @@ export async function deleteCellReportFull(row) {
     // may not exist — ignore
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEC-CORE — Director Board & Sunday Leader
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SEC_CORE_COLLECTION = 'sec_core'
+const SEC_CORE_SUNDAY_LEADER = 'sec_core_sunday_leader'
+
+export async function getSecCoreDirectorBoard() {
+  if (!db) return {}
+  const snap = await getDoc(doc(db, SEC_CORE_COLLECTION, 'director_board'))
+  return snap.exists() ? snap.data() : {}
+}
+
+export async function setSecCoreDirectorBoard(data, updatedBy) {
+  if (!db) return
+  await setDoc(doc(db, SEC_CORE_COLLECTION, 'director_board'), {
+    ...data,
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+export async function getSecCoreSundayLeaderEntries(count = 12) {
+  if (!db) return []
+  const q = query(collection(db, SEC_CORE_SUNDAY_LEADER), orderBy('date', 'desc'), limit(count))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+export async function getSecCoreSundayLeaderEntry(dateStr) {
+  if (!db || !dateStr) return null
+  const snap = await getDoc(doc(db, SEC_CORE_SUNDAY_LEADER, dateStr))
+  return snap.exists() ? snap.data() : null
+}
+
+export async function setSecCoreSundayLeaderEntry(dateStr, data, updatedBy) {
+  if (!db || !dateStr) return
+  await setDoc(doc(db, SEC_CORE_SUNDAY_LEADER, dateStr), {
+    date: dateStr,
+    ...data,
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+export async function deleteSecCoreSundayLeaderEntry(dateStr) {
+  if (!db || !dateStr) return
+  await deleteDoc(doc(db, SEC_CORE_SUNDAY_LEADER, dateStr))
+}
+

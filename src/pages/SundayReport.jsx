@@ -448,7 +448,6 @@ export default function SundayReport() {
                 style={{ width: `${attendanceProgressPct}%` }}
               />
             </div>
-            <p className="text-xs text-slate-500 mt-1.5">Local progress only — use Save report to persist.</p>
           </div>
         )}
 
@@ -466,9 +465,6 @@ export default function SundayReport() {
               onUndo={() => handleAttendanceUndo('cells')}
             >
               <h2 className="text-lg font-semibold text-slate-800 mb-1">Attendance</h2>
-              <p className="text-sm text-slate-500 mb-4">
-                Cell groups come from the Cell department. Tap a cell to expand, then tap members to mark attendance.
-              </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {cellGroups.map((g) => {
                   const expanded = expandedCellId === g.id
@@ -599,7 +595,6 @@ export default function SundayReport() {
                 </ul>
                 {canEditEffective && currentProgramItem && (
                   <div className="flex flex-col items-center pt-2">
-                    <p className="text-sm text-slate-500 mb-2">Tap START when this segment begins.</p>
                     <button
                       type="button"
                       onClick={handleProgramStart}

@@ -110,7 +110,7 @@ function PlanComingSundayCard({
   userProfile,
   loadComingPlan,
   setSelectedDate,
-  setActiveTab,
+  onOpenAssign,
   DEPARTMENT,
   formatDMY,
 }) {
@@ -132,7 +132,7 @@ function PlanComingSundayCard({
             {canManageWorship && (
               <button
                 type="button"
-                onClick={() => { setSelectedDate(comingSundayDate); setActiveTab('assign') }}
+                onClick={() => { setSelectedDate(comingSundayDate); onOpenAssign() }}
                 className="px-3 py-1.5 rounded-lg bg-white text-amber-700 font-semibold text-sm hover:bg-amber-50 shadow transition-colors"
               >
                 Open Assign
@@ -319,6 +319,7 @@ export default function DepartmentWorship() {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
+  const [summarySubTab, setSummarySubTab] = useState('plan')
   const [teamMembers, setTeamMembers] = useState([])
   const [formerMembers, setFormerMembers] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(true)
@@ -458,8 +459,8 @@ export default function DepartmentWorship() {
   }, [dateFromUrl])
 
   useEffect(() => {
-    if (activeTab === 'assign' && selectedDate) loadScheduleForDate(selectedDate)
-  }, [activeTab, selectedDate])
+    if ((activeTab === 'summary' && summarySubTab === 'assign') && selectedDate) loadScheduleForDate(selectedDate)
+  }, [activeTab, summarySubTab, selectedDate])
 
   function getAssignedMemberId(role) {
     const a = (scheduleForDate.assignments || []).find((x) => x.role === role)
@@ -563,6 +564,28 @@ export default function DepartmentWorship() {
       <div className="space-y-4 p-4">
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
+          {/* Sub-tab bar */}
+          <div className="flex gap-1 border-b border-slate-200">
+            <button
+              type="button"
+              onClick={() => setSummarySubTab('plan')}
+              className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${summarySubTab === 'plan' ? 'border-amber-500 text-amber-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+              Plan Coming Sunday
+            </button>
+            {canManageWorship && (
+              <button
+                type="button"
+                onClick={() => setSummarySubTab('assign')}
+                className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${summarySubTab === 'assign' ? 'border-amber-500 text-amber-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+              >
+                Assign Team
+              </button>
+            )}
+          </div>
+
+          {summarySubTab === 'plan' && (
+          <div className="space-y-4">
           {/* Budget 2026 - compact, colourful */}
           <div className="bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 rounded-xl shadow-md p-4 text-white max-w-3xl">
             <h2 className="text-sm font-semibold uppercase tracking-wider opacity-95">Budget 2026 (Worship)</h2>
@@ -596,10 +619,72 @@ export default function DepartmentWorship() {
             userProfile={userProfile}
             loadComingPlan={loadComingPlan}
             setSelectedDate={setSelectedDate}
-            setActiveTab={setActiveTab}
+            onOpenAssign={() => setSummarySubTab('assign')}
             DEPARTMENT={DEPARTMENT}
             formatDMY={formatDMY}
           />
+          </div>
+          )}
+
+          {summarySubTab === 'assign' && canManageWorship && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+              <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center gap-4">
+                <h2 className="font-semibold text-slate-800">Assign worship team</h2>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  Date
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </label>
+              </div>
+              {loadingSchedule ? (
+                <div className="p-8 text-center text-slate-500">Loading...</div>
+              ) : teamMembers.length === 0 ? (
+                <div className="p-8 text-center text-slate-500">Add team members in the Team tab first.</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[220px]">Role</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Assigned to</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {ASSIGNMENT_ROLES.map((role) => (
+                      <tr key={role} className="hover:bg-slate-50/50">
+                        <td className="px-5 py-2 font-medium text-slate-800">{role}</td>
+                        <td className="px-5 py-2">
+                          <select
+                            value={getAssignedMemberId(role)}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              const member = teamMembers.find((m) => m.id === val)
+                              setAssignmentForRole(role, val || '', member?.name || '')
+                            }}
+                            className="w-full max-w-[220px] px-3 py-2 text-sm rounded border border-slate-300 bg-white"
+                          >
+                            <option value="">— Not assigned</option>
+                            {(() => {
+                              const posKey = positionKeyForRole(role)
+                              const eligible = posKey
+                                ? teamMembers.filter((m) => m.positions?.includes(posKey))
+                                : teamMembers
+                              return eligible.map((m) => (
+                                <option key={m.id} value={m.id}>{m.name}</option>
+                              ))
+                            })()}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -934,66 +1019,6 @@ export default function DepartmentWorship() {
         </div>
       )}
 
-      {activeTab === 'assign' && canManageWorship && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-          <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center gap-4">
-            <h2 className="font-semibold text-slate-800">Assign worship team</h2>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              Date
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="px-3 py-2 rounded-lg border border-slate-300"
-              />
-            </label>
-            <p className="text-slate-500 text-sm">Pick a date (e.g. Sunday), then assign people from the team list to each role.</p>
-          </div>
-          {loadingSchedule ? (
-            <div className="p-8 text-center text-slate-500">Loading...</div>
-          ) : teamMembers.length === 0 ? (
-            <div className="p-8 text-center text-slate-500">Add team members in the Team tab first (e.g. &quot;Add demo team&quot; for demo names).</div>
-          ) : (
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[220px]">Role</th>
-                  <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Assigned to</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {ASSIGNMENT_ROLES.map((role) => (
-                  <tr key={role} className="hover:bg-slate-50/50">
-                    <td className="px-5 py-2 font-medium text-slate-800">{role}</td>
-                    <td className="px-5 py-2">
-                      <select
-                        value={getAssignedMemberId(role)}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          const member = teamMembers.find((m) => m.id === val)
-                          setAssignmentForRole(role, val || '', member?.name || '')
-                        }}
-                        className="w-full max-w-[220px] px-3 py-2 text-sm rounded border border-slate-300 bg-white"
-                      >
-                        <option value="">— Not assigned</option>
-                        {(() => {
-                          const posKey = positionKeyForRole(role)
-                          const eligible = posKey
-                            ? teamMembers.filter((m) => m.positions?.includes(posKey))
-                            : teamMembers
-                          return eligible.map((m) => (
-                            <option key={m.id} value={m.id}>{m.name}</option>
-                          ))
-                        })()}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
 
       {activeTab === 'budget' && (canManageWorship || canViewInsights) && (
         <div className="space-y-6">

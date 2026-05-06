@@ -76,6 +76,8 @@ import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import CellOperationsToggle from './cell/CellOperationsToggle'
 import SundayOperationsToggle from './sunday/SundayOperationsToggle'
+import SundayPlanning from './SundayPlanning'
+import SecCoreSummary from './seccore/SecCoreSummary'
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -930,6 +932,10 @@ export default function DepartmentHub() {
                     Use the tabs above for Visitor Entry, Assign, Sub Department, Team, Planning, and Budget.
                   </p>
                 </div>
+              ) : slug === 'sunday-ministry' ? (
+                <SundayPlanning />
+              ) : slug === 'sec-core' ? (
+                <SecCoreSummary />
               ) : (
                 <>
                   <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">

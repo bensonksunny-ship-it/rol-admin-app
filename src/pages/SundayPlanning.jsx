@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan } from '../services/firestore'
+import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan, getSundayProgramDefault } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
@@ -60,47 +60,45 @@ function WorshipPlanSummary({ selectedDate }) {
       .catch(() => setWorshipPlan({ date: selectedDate, assignments: [], songs: [] }))
       .finally(() => setLoading(false))
   }, [selectedDate])
-  if (loading) return <div className="bg-white rounded-lg border border-amber-200 p-4 shadow-sm"><p className="text-slate-500 text-sm">Loading Worship plan...</p></div>
+  if (loading) return <div className="bg-white rounded-xl border border-amber-200 p-3 shadow-sm"><p className="text-slate-500 text-sm">Loading Worship plan...</p></div>
   const assignments = worshipPlan?.assignments || []
   const songs = worshipPlan?.songs || []
+  const assignedRoles = WORSHIP_ROLES.filter((role) => assignments.find((x) => x.role === role)?.memberName)
   return (
-    <div className="bg-white rounded-lg border border-amber-200 border-l-4 border-l-amber-500 p-4 shadow-sm">
-      <h3 className="font-semibold text-amber-900 mb-1">Worship (from Worship department)</h3>
-      <p className="text-slate-500 text-sm mb-2">Same as Plan coming Sunday. {formatDMY(selectedDate)}</p>
-      <p className="mb-2">
-        <Link to={`/department/worship?date=${selectedDate}`} className="text-amber-600 hover:text-amber-700 text-sm font-semibold">Edit in Worship department →</Link>
-      </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-          <h4 className="text-sm font-semibold text-slate-950 bg-slate-50 px-4 py-3">Team by role</h4>
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <th className="text-left py-3 px-4 text-slate-600 font-medium">Role</th>
-                <th className="text-left py-3 px-4 text-slate-600 font-medium">Assigned</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {WORSHIP_ROLES.map((role, i) => {
-                const a = assignments.find((x) => x.role === role)
-                return (
-                  <tr key={role} className={i % 2 === 1 ? 'bg-slate-50' : ''}>
-                    <td className="py-4 px-4 text-slate-800">{role}</td>
-                    <td className="py-4 px-4 text-slate-600">{a?.memberName || '—'}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+    <div className="bg-white rounded-xl border border-amber-200 border-l-4 border-l-amber-500 p-3 shadow-sm">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-semibold text-amber-900 text-sm">Worship</h3>
+        <Link to={`/department/worship?date=${selectedDate}`} className="text-amber-600 hover:text-amber-700 text-xs font-semibold">Edit in Worship dept →</Link>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+          <h4 className="text-xs font-semibold text-slate-600 bg-slate-50 px-3 py-1.5">Team by role</h4>
+          {assignedRoles.length === 0 ? (
+            <p className="text-slate-400 text-xs px-3 py-2">No assignments yet.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <tbody className="divide-y divide-slate-100">
+                {assignedRoles.map((role) => {
+                  const a = assignments.find((x) => x.role === role)
+                  return (
+                    <tr key={role}>
+                      <td className="py-1 px-3 text-slate-500">{role}</td>
+                      <td className="py-1 px-3 text-slate-800 font-medium">{a?.memberName}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
-        <div className="rounded border border-orange-100 bg-orange-50/50 overflow-hidden">
-          <h4 className="text-sm font-semibold text-orange-900 bg-orange-100 px-2 py-1">Songs & lead</h4>
-          {songs.length === 0 ? <p className="text-slate-500 text-sm p-2">No songs yet.</p> : (
-            <table className="w-full text-sm">
-              <thead><tr><th className="text-left py-1 px-2 w-6 text-slate-600">#</th><th className="text-left py-1 px-2 text-slate-600">Song</th><th className="text-left py-1 px-2 text-slate-600">Key</th><th className="text-left py-1 px-2 text-slate-600">Lead</th></tr></thead>
+        <div className="rounded-lg border border-orange-100 bg-orange-50/50 overflow-hidden">
+          <h4 className="text-xs font-semibold text-orange-900 bg-orange-100 px-3 py-1.5">Songs & lead</h4>
+          {songs.length === 0 ? <p className="text-slate-400 text-xs px-3 py-2">No songs yet.</p> : (
+            <table className="w-full text-xs">
+              <thead><tr><th className="text-left py-1 px-3 text-slate-500">#</th><th className="text-left py-1 px-3 text-slate-500">Song</th><th className="text-left py-1 px-3 text-slate-500">Key</th><th className="text-left py-1 px-3 text-slate-500">Lead</th></tr></thead>
               <tbody className="divide-y divide-orange-100">
                 {songs.map((s, i) => (
-                  <tr key={i}><td className="py-1 px-2 text-slate-600">{i + 1}</td><td className="py-1 px-2 text-slate-800">{s?.title || '—'}</td><td className="py-1 px-2 text-slate-600">{s?.key || '—'}</td><td className="py-1 px-2 text-slate-600">{s?.memberName || '—'}</td></tr>
+                  <tr key={i}><td className="py-1 px-3 text-slate-500">{i + 1}</td><td className="py-1 px-3 text-slate-800">{s?.title || '—'}</td><td className="py-1 px-3 text-slate-500">{s?.key || '—'}</td><td className="py-1 px-3 text-slate-600">{s?.memberName || '—'}</td></tr>
                 ))}
               </tbody>
             </table>
@@ -122,29 +120,29 @@ function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
   }
 
   return (
-    <div className={`bg-white rounded-3xl border border-slate-200 border-l-4 ${style.border} p-5 shadow-sm`}>
-      <h3 className="font-semibold text-slate-950 mb-2">{label}</h3>
+    <div className={`bg-white rounded-xl border border-slate-200 border-l-4 ${style.border} p-3 shadow-sm`}>
+      <h3 className="font-semibold text-slate-950 mb-1.5 text-sm">{label}</h3>
       {canEdit ? (
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-2">
           <textarea
             value={form.notes ?? ''}
             onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
             placeholder="Planning notes, names, details..."
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[80px]"
-            rows={3}
+            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm"
+            rows={2}
           />
-          <div className="flex justify-end pt-1">
+          <div className="flex justify-end">
             <button
               type="submit"
               disabled={saving}
-              className={`px-5 py-2 rounded-xl text-white text-sm font-semibold disabled:opacity-50 ${style.btn}`}
+              className={`px-3 py-1 rounded-lg text-white text-xs font-semibold disabled:opacity-50 ${style.btn}`}
             >
-              {saving ? 'Saving...' : 'Save section'}
+              {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </form>
       ) : (
-        <div className="text-slate-600 whitespace-pre-wrap">
+        <div className="text-slate-600 whitespace-pre-wrap text-sm">
           {form.notes || '— No data yet —'}
         </div>
       )}
@@ -152,10 +150,47 @@ function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
   )
 }
 
+const DEFAULT_SEED = [
+  { programName: 'Pre Worship Talk', order: 0 },
+  { programName: 'Worship', order: 1 },
+  { programName: 'Leader Prayer', order: 2 },
+  { programName: 'Announcements', order: 3 },
+  { programName: 'Sermon', order: 4 },
+  { programName: 'Prayer & Benediction', order: 5 },
+]
+
+function SundayProgramView() {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    getSundayProgramDefault()
+      .then((doc) => {
+        const list = doc?.items?.length ? doc.items : [...DEFAULT_SEED]
+        setItems([...list].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)))
+      })
+      .catch(() => setItems([...DEFAULT_SEED]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <p className="text-sm text-slate-400">Loading…</p>
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <ul className="divide-y divide-slate-100">
+        {items.map((row, idx) => (
+          <li key={idx} className="flex items-center gap-3 px-4 py-2.5">
+            <span className="w-5 text-xs text-slate-400 text-right">{idx + 1}.</span>
+            <span className="text-sm font-medium text-slate-800">{row.programName}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export default function SundayPlanning() {
   const [searchParams, setSearchParams] = useSearchParams()
   const dateFromUrl = searchParams.get('date')
-  const { hasPermission, canEditSundaySection, userProfile } = useAuth()
+  const { hasPermission, userProfile } = useAuth()
   const [selectedDate, setSelectedDate] = useState(() => dateFromUrl || nextSundayISO())
   const [plan, setPlan] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -241,7 +276,6 @@ export default function SundayPlanning() {
               </span>
             )}
           </div>
-          <p className="text-slate-500 text-sm mt-0.5">Plan by section; publish to share as Digital Bulletin.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-sm font-medium text-slate-600">Date</label>
@@ -289,30 +323,21 @@ export default function SundayPlanning() {
         </div>
       </div>
 
-      <div className="relative bg-slate-100 rounded-full p-1 max-w-md w-full">
-        <div
-          className="absolute top-1 bottom-1 rounded-full bg-white shadow-sm border border-slate-200 transition-all duration-200"
-          style={{
-            left: activeTab === 'combined' ? '0%' : '50%',
-            width: '50%',
-          }}
-        />
-        <div className="relative grid grid-cols-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab('combined')}
-            className={`py-2 text-sm font-semibold rounded-full transition-colors ${activeTab === 'combined' ? 'text-slate-950' : 'text-slate-600'}`}
-          >
-            Combined view
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('mysection')}
-            className={`py-2 text-sm font-semibold rounded-full transition-colors ${activeTab === 'mysection' ? 'text-slate-950' : 'text-slate-600'}`}
-          >
-            My section only
-          </button>
-        </div>
+      <div className="flex gap-1 border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setActiveTab('combined')}
+          className={`px-3 py-1.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === 'combined' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+        >
+          Sunday plan
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('sundayProgram')}
+          className={`px-3 py-1.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === 'sundayProgram' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+        >
+          Sunday program
+        </button>
       </div>
 
       {loading ? (
@@ -320,55 +345,27 @@ export default function SundayPlanning() {
       ) : isPublished ? (
         /* ── Digital Bulletin (read-only for all users) ───────────────── */
         <DigitalBulletin plan={plan} selectedDate={selectedDate} />
-      ) : activeTab === 'mysection' ? (
-        <MySectionView
-          plan={plan}
-          canEditSundaySection={canEditSundaySection}
-          onSave={handleSaveSection}
-          saving={saving}
-        />
+      ) : activeTab === 'sundayProgram' ? (
+        <SundayProgramView />
       ) : (
-        <div className="space-y-3">
-          <p className="text-sm text-slate-500">Combined sheet for {formatDMY(selectedDate)}.</p>
-          {SECTION_ORDER.map((key) =>
-            key === SUNDAY_PLAN_SECTIONS.WORSHIP ? (
-              <WorshipPlanSummary key={key} selectedDate={selectedDate} />
-            ) : (
+        <div className="space-y-2">
+          <WorshipPlanSummary selectedDate={selectedDate} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {SECTION_ORDER.filter((key) => key !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) => (
               <SectionForm
                 key={key}
                 sectionKey={key}
                 label={SECTION_LABELS[key]}
                 data={plan?.[key]}
-                canEdit={canEditFull || canEditSundaySection(key)}
+                canEdit={canEditFull}
                 onSave={handleSaveSection}
                 saving={saving}
               />
-            )
-          )}
+            ))}
+          </div>
         </div>
       )}
     </div>
-  )
-}
-
-function MySectionView({ plan, canEditSundaySection, onSave, saving }) {
-  const mySection = SECTION_ORDER.find((key) => canEditSundaySection(key))
-  if (!mySection) {
-    return (
-      <div className="bg-slate-50 rounded-lg border border-slate-200 border-l-4 border-l-slate-400 p-4 text-slate-600">
-        <p>Your account is not assigned to a specific section. Use Combined view, or ask an admin to set <strong>sundaySection</strong> in Firestore (users) to: sundayMinistry, worship, sundayLeader, media, announcements, dLite, riverKids.</p>
-      </div>
-    )
-  }
-  return (
-    <SectionForm
-      sectionKey={mySection}
-      label={SECTION_LABELS[mySection]}
-      data={plan?.[mySection]}
-      canEdit
-      onSave={onSave}
-      saving={saving}
-    />
   )
 }
 
@@ -390,13 +387,14 @@ function DigitalBulletin({ plan, selectedDate }) {
       <WorshipPlanSummary selectedDate={selectedDate} />
 
       {/* All other sections */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       {SECTION_ORDER.filter((k) => k !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) => {
         const data = plan?.[key]
         const notes = data?.notes || ''
         const style = SECTION_ACCENT[key] || { border: 'border-l-indigo-400' }
         return (
-          <div key={key} className={`bg-white rounded-3xl border border-slate-200 border-l-4 ${style.border} p-5 shadow-sm`}>
-            <h3 className="font-semibold text-slate-900 mb-2">{SECTION_LABELS[key]}</h3>
+          <div key={key} className={`bg-white rounded-xl border border-slate-200 border-l-4 ${style.border} p-3 shadow-sm`}>
+            <h3 className="font-semibold text-slate-900 mb-1.5 text-sm">{SECTION_LABELS[key]}</h3>
             {notes ? (
               <p className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">{notes}</p>
             ) : (
@@ -405,6 +403,7 @@ function DigitalBulletin({ plan, selectedDate }) {
           </div>
         )
       })}
+      </div>
 
       {plan?.publishedBy && (
         <p className="text-center text-xs text-slate-400">

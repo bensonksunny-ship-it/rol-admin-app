@@ -243,7 +243,6 @@ function PreServiceTab({ canEdit, userProfile }) {
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
         <div>
           <h2 className="font-semibold text-slate-800">Weekly Assignment</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Assign speakers and record topics for each Sunday.</p>
         </div>
 
         {/* Sunday navigation — no free-form date input */}
@@ -391,7 +390,6 @@ export default function SundayProgram() {
       <div className="space-y-2 p-4 max-w-3xl">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold text-slate-800">Sunday Program</h1>
-          <p className="text-sm text-slate-500">Configure the order of service and pre-service assignments.</p>
         </div>
 
         <SubTabBar active={subTab} onChange={setSubTab} />
