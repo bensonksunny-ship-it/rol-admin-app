@@ -2807,9 +2807,10 @@ export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTiming
  * Creates a minimal cell_reports doc if none exists for the given cell + date.
  * Adds present members to the attendees subcollection (skipping any already recorded).
  */
-export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy) {
+export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy, visitors = []) {
   if (!db || !cellId || !dateStr || !Array.isArray(presentMembers)) return
   const d = String(dateStr).slice(0, 10)
+  const visitorNames = Array.isArray(visitors) ? visitors.map((v) => v.name).filter(Boolean) : []
 
   // Find or create the cell_reports doc for this cell + date
   const q = query(
@@ -2869,6 +2870,8 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
   const finalSnap = await getDocs(attendeesRef)
   await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), {
     membersAttended: finalSnap.size,
+    visitors: visitorNames.length,
+    visitorsList: visitorNames,
   })
 }
 

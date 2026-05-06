@@ -29,6 +29,8 @@ const ASSIGNMENT_ROLES = [
   'Lead Vocal-2',
   'Lead Vocal-3',
   'Lead Vocal-4',
+  'Lead Vocal-5',
+  'Lead Vocal-6',
   'Parts-1',
   'Parts-2',
   'Choir member-1',
@@ -57,6 +59,20 @@ const MEMBER_POSITIONS = [
   'Sound engineer',
   'Media',
 ]
+
+function upcomingSundays(count = 5) {
+  const result = []
+  const today = new Date()
+  const daysToNext = today.getDay() === 0 ? 0 : 7 - today.getDay()
+  const first = new Date(today)
+  first.setDate(today.getDate() + daysToNext)
+  for (let i = 0; i < count; i++) {
+    const d = new Date(first)
+    d.setDate(first.getDate() + i * 7)
+    result.push(format(d, 'yyyy-MM-dd'))
+  }
+  return result
+}
 
 function positionKeyForRole(role) {
   if (role.startsWith('Lead Vocal')) return 'Lead vocal'
@@ -149,126 +165,27 @@ function PlanComingSundayCard({
               <table className="w-full text-sm">
                 <thead className="bg-amber-100/70">
                   <tr>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Role</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Assigned to</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-[160px]">Role</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-[160px]">Assigned to</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Song</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-[60px]">Key</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-amber-100">
                   {ASSIGNMENT_ROLES.map((role) => {
                     const a = (comingPlan.assignments || []).find((x) => x.role === role)
+                    const songName = a?.songName && typeof a.songName === 'string' ? a.songName : ''
                     return (
                       <tr key={role} className="hover:bg-amber-50/80">
                         <td className="px-3 py-1 font-medium text-slate-800">{role}</td>
                         <td className="px-3 py-1 text-slate-600">{a?.memberName || '\u2014'}</td>
+                        <td className="px-3 py-1 text-slate-500 italic">{songName || ''}</td>
+                        <td className="px-3 py-1 text-slate-500">{a?.key || ''}</td>
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
-            </div>
-            <div className="rounded-lg border border-orange-200/80 bg-white/80 overflow-hidden">
-              <h3 className="text-sm font-semibold text-orange-900 bg-orange-100/90 px-3 py-1.5 border-b border-orange-200">Songs & lead vocalist</h3>
-              <p className="text-sm text-slate-500 px-3 pt-1">Same person can lead multiple songs.</p>
-              <table className="w-full text-sm">
-                <thead className="bg-orange-100/70">
-                  <tr>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-6">#</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Song</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-14">Key</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Lead vocalist</th>
-                    {canManageWorship && <th className="w-8" />}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-orange-100">
-                  {(comingPlan.songs || []).map((song, idx) => (
-                    <tr key={idx} className="hover:bg-orange-50/80">
-                      <td className="px-3 py-1 text-slate-600">{idx + 1}</td>
-                      <td className="px-3 py-1">
-                        {canManageWorship ? (
-                          <input
-                            type="text"
-                            value={song.title || ''}
-                            onChange={(e) => {
-                              const next = [...(comingPlan.songs || [])]
-                              next[idx] = { ...next[idx], title: e.target.value }
-                              setComingPlan((p) => ({ ...p, songs: next }))
-                            }}
-                            placeholder="Song title"
-                            className="w-full min-w-[12rem] max-w-[24rem] px-2 py-1 rounded border border-slate-300"
-                          />
-                        ) : (
-                          <span className="text-slate-800">{song.title || '\u2014'}</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-1">
-                        {canManageWorship ? (
-                          <input
-                            type="text"
-                            value={song.key || ''}
-                            onChange={(e) => {
-                              const next = [...(comingPlan.songs || [])]
-                              next[idx] = { ...next[idx], key: e.target.value }
-                              setComingPlan((p) => ({ ...p, songs: next }))
-                            }}
-                            placeholder="Key"
-                            className="w-16 px-2 py-1 rounded border border-slate-300"
-                          />
-                        ) : (
-                          <span className="text-slate-600">{song.key || '\u2014'}</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-1">
-                        {canManageWorship ? (
-                          <select
-                            value={song.memberId || ''}
-                            onChange={(e) => {
-                              const val = e.target.value
-                              const member = teamMembers.find((m) => m.id === val)
-                              const next = [...(comingPlan.songs || [])]
-                              next[idx] = { ...next[idx], memberId: val || '', memberName: member?.name || '' }
-                              setComingPlan((p) => ({ ...p, songs: next }))
-                            }}
-                            className="min-w-[8rem] px-2 py-1 rounded border border-slate-300 bg-white"
-                          >
-                            <option value="">- Not set</option>
-                            {teamMembers
-                              .filter((m) => m.positions?.includes('Lead vocal'))
-                              .map((m) => (
-                                <option key={m.id} value={m.id}>{m.name}</option>
-                              ))}
-                          </select>
-                        ) : (
-                          <span className="text-slate-600">{song.memberName || '\u2014'}</span>
-                        )}
-                      </td>
-                      {canManageWorship && (
-                        <td className="px-2 py-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = (comingPlan.songs || []).filter((_, i) => i !== idx)
-                              setComingPlan((p) => ({ ...p, songs: next }))
-                            }}
-                            className="text-slate-400 hover:text-red-600 text-sm leading-none"
-                            title="Remove song"
-                          >
-                            &#215;
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {canManageWorship && (
-                <button
-                  type="button"
-                  onClick={() => setComingPlan((p) => ({ ...p, songs: [...(p.songs || []), { title: '', key: '', memberId: '', memberName: '' }] }))}
-                  className="mt-1.5 px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800 text-sm font-medium hover:bg-orange-200"
-                >
-                  + Add song
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -358,6 +275,9 @@ export default function DepartmentWorship() {
   const [loadingBudgetItems, setLoadingBudgetItems] = useState(true)
   const [budgetItemsError, setBudgetItemsError] = useState(null)
   const [editingBudgetItem, setEditingBudgetItem] = useState(null)
+  const [structureModal, setStructureModal] = useState(null)
+  const [localAssignments, setLocalAssignments] = useState([])
+  const [savingAssign, setSavingAssign] = useState(false)
   const [budgetItemForm, setBudgetItemForm] = useState({
     category: '',
     subCategory: '',
@@ -462,30 +382,52 @@ export default function DepartmentWorship() {
     if ((activeTab === 'summary' && summarySubTab === 'assign') && selectedDate) loadScheduleForDate(selectedDate)
   }, [activeTab, summarySubTab, selectedDate])
 
-  function getAssignedMemberId(role) {
-    const a = (scheduleForDate.assignments || []).find((x) => x.role === role)
-    return a?.memberId || ''
+  useEffect(() => {
+    setLocalAssignments(scheduleForDate.assignments || [])
+  }, [scheduleForDate])
+
+  function getLocalField(role, field) {
+    const a = localAssignments.find((x) => x.role === role)
+    return a?.[field] ?? ''
   }
 
-  async function setAssignmentForRole(role, memberId, memberName) {
-    const list = [...(scheduleForDate.assignments || [])]
-    const idx = list.findIndex((x) => x.role === role)
-    if (!memberId) {
-      if (idx >= 0) list.splice(idx, 1)
-    } else {
-      const slot = { role, memberId, memberName }
-      if (idx >= 0) list[idx] = slot
-      else list.push(slot)
-    }
+  function getStructureData(role) {
+    const raw = getLocalField(role, 'structure')
+    if (!raw) return null
+    if (typeof raw === 'object') return raw
+    if (typeof raw === 'string' && raw.trim()) return { text: raw, fileName: null }
+    return null
+  }
+
+  function updateLocal(role, patch) {
+    setLocalAssignments((prev) => {
+      const list = [...prev]
+      const idx = list.findIndex((x) => x.role === role)
+      if (patch.memberId !== undefined && !patch.memberId) {
+        if (idx >= 0) list.splice(idx, 1)
+      } else {
+        const existing = idx >= 0 ? list[idx] : { role }
+        const merged = { ...existing, ...patch }
+        if (idx >= 0) list[idx] = merged
+        else list.push(merged)
+      }
+      return list
+    })
+  }
+
+  async function saveAssignPlan() {
+    setSavingAssign(true)
     try {
-      await setWorshipScheduleByDate(DEPARTMENT, selectedDate, list, userProfile?.email)
-      setScheduleForDate((s) => ({ ...s, assignments: list }))
+      await setWorshipScheduleByDate(DEPARTMENT, selectedDate, localAssignments, userProfile?.email)
+      setScheduleForDate((s) => ({ ...s, assignments: localAssignments }))
       if (selectedDate === comingSundayDate) {
-        setComingPlan((p) => ({ ...p, assignments: list }))
+        setComingPlan((p) => ({ ...p, assignments: localAssignments }))
       }
     } catch (e) {
       console.error(e)
       alert('Failed to save')
+    } finally {
+      setSavingAssign(false)
     }
   }
 
@@ -628,43 +570,69 @@ export default function DepartmentWorship() {
 
           {summarySubTab === 'assign' && canManageWorship && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-              <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center gap-4">
-                <h2 className="font-semibold text-slate-800">Assign worship team</h2>
-                <label className="flex items-center gap-2 text-sm text-slate-600">
-                  Date
+              <div className="px-5 py-4 border-b border-slate-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="font-semibold text-slate-800">Assign worship team</h2>
+                  <button
+                    type="button"
+                    onClick={saveAssignPlan}
+                    disabled={savingAssign}
+                    className="px-4 py-1.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60 shadow-sm"
+                  >
+                    {savingAssign ? 'Saving...' : 'Save plan'}
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-slate-500 font-medium">Coming Sundays:</span>
+                  {upcomingSundays(5).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setSelectedDate(d)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${selectedDate === d ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-600 border-slate-300 hover:border-amber-400 hover:text-amber-700'}`}
+                    >
+                      {format(new Date(d), 'd MMM')}
+                    </button>
+                  ))}
                   <input
                     type="date"
                     value={selectedDate}
                     onChange={(e) => setSelectedDate(e.target.value)}
-                    className="px-3 py-2 rounded-lg border border-slate-300"
+                    className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
+                    title="Pick a custom date"
                   />
-                </label>
+                </div>
               </div>
               {loadingSchedule ? (
                 <div className="p-8 text-center text-slate-500">Loading...</div>
               ) : teamMembers.length === 0 ? (
                 <div className="p-8 text-center text-slate-500">Add team members in the Team tab first.</div>
               ) : (
-                <table className="w-full">
+                <table key={selectedDate} className="w-full">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[220px]">Role</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Assigned to</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[160px]">Role</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[190px]">Assigned to</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[170px]">Song Name</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[70px]">Key</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[160px]">Structure</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {ASSIGNMENT_ROLES.map((role) => (
+                    {ASSIGNMENT_ROLES.map((role) => {
+                      const isLeadVocal = role.startsWith('Lead Vocal')
+                      return (
                       <tr key={role} className="hover:bg-slate-50/50">
-                        <td className="px-5 py-2 font-medium text-slate-800">{role}</td>
-                        <td className="px-5 py-2">
+                        <td className="px-4 py-2 font-medium text-slate-800 text-sm">{role}</td>
+                        <td className="px-3 py-2">
                           <select
-                            value={getAssignedMemberId(role)}
+                            value={getLocalField(role, 'memberId')}
                             onChange={(e) => {
                               const val = e.target.value
                               const member = teamMembers.find((m) => m.id === val)
-                              setAssignmentForRole(role, val || '', member?.name || '')
+                              updateLocal(role, { memberId: val || '', memberName: member?.name || '' })
                             }}
-                            className="w-full max-w-[220px] px-3 py-2 text-sm rounded border border-slate-300 bg-white"
+                            className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
                           >
                             <option value="">— Not assigned</option>
                             {(() => {
@@ -678,11 +646,113 @@ export default function DepartmentWorship() {
                             })()}
                           </select>
                         </td>
+                        <td className="px-3 py-2">
+                          {isLeadVocal && (
+                            <input
+                              type="text"
+                              value={getLocalField(role, 'songName')}
+                              placeholder="Song name"
+                              onChange={(e) => updateLocal(role, { songName: e.target.value })}
+                              className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
+                            />
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {isLeadVocal && (
+                            <input
+                              type="text"
+                              value={getLocalField(role, 'key')}
+                              placeholder="Key"
+                              onChange={(e) => updateLocal(role, { key: e.target.value })}
+                              className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
+                            />
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {isLeadVocal ? (() => {
+                            const sd = getStructureData(role)
+                            return sd ? (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setStructureModal({ role, ...sd })}
+                                  className="text-sm text-amber-700 hover:text-amber-900 hover:underline truncate max-w-[120px]"
+                                  title={sd.fileName || 'View structure'}
+                                >
+                                  📄 {sd.fileName || 'View'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => updateLocal(role, { structure: null })}
+                                  className="text-slate-400 hover:text-red-500 text-base leading-none flex-shrink-0"
+                                  title="Remove"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="cursor-pointer inline-block">
+                                <span className="text-xs text-slate-500 hover:text-amber-700 border border-dashed border-slate-300 hover:border-amber-400 rounded px-2 py-1 transition-colors">
+                                  + Upload .docx
+                                </span>
+                                <input
+                                  type="file"
+                                  accept=".docx"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files[0]
+                                    if (!file) return
+                                    try {
+                                      const mammoth = await import('mammoth')
+                                      const arrayBuffer = await file.arrayBuffer()
+                                      const result = await mammoth.extractRawText({ arrayBuffer })
+                                      updateLocal(role, { structure: { text: result.value, fileName: file.name } })
+                                    } catch (err) {
+                                      console.error(err)
+                                      alert('Failed to read file. Make sure it is a valid .docx file.')
+                                    }
+                                    e.target.value = ''
+                                  }}
+                                />
+                              </label>
+                            )
+                          })() : null}
+                        </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               )}
+            </div>
+          )}
+
+          {structureModal && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+              onClick={() => setStructureModal(null)}
+            >
+              <div
+                className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800 truncate">{structureModal.fileName || 'Song Structure'}</p>
+                    <p className="text-xs text-slate-500">{structureModal.role}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setStructureModal(null)}
+                    className="text-slate-400 hover:text-slate-700 text-2xl leading-none flex-shrink-0"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="p-5 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-mono">
+                  {structureModal.text || <span className="text-slate-400 italic">No content extracted.</span>}
+                </div>
+              </div>
             </div>
           )}
         </div>

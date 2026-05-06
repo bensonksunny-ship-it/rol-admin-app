@@ -186,6 +186,10 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
   const [savingNotes, setSavingNotes]     = useState(false)
   const [savedNotes, setSavedNotes]       = useState(false)
 
+  // Visitor state
+  const [visitors, setVisitors]           = useState([])
+  const [visitorInput, setVisitorInput]   = useState('')
+
   // Prayer state
   const [prayerPoints, setPrayerPoints]   = useState([])
   const [loadingPrayer, setLoadingPrayer] = useState(false)
@@ -285,6 +289,17 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
     }
   }
 
+  const addVisitor = useCallback(() => {
+    const name = visitorInput.trim()
+    if (!name) return
+    setVisitors((prev) => [...prev, { id: Date.now().toString(), name }])
+    setVisitorInput('')
+  }, [visitorInput])
+
+  const removeVisitor = useCallback((id) => {
+    setVisitors((prev) => prev.filter((v) => v.id !== id))
+  }, [])
+
   const confirmEndMeeting = useCallback(async (finalPresentIds) => {
     const ids = finalPresentIds ?? presentIds
     segmentTimingsRef.current = pendingTimings
@@ -306,10 +321,10 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
         setSaveError('Session could not be saved. Please check your connection and try again.')
       })
 
-      syncMidweekAttendanceToCellReport(selectedCellId, cellName, today, presentMembers, updatedBy)
+      syncMidweekAttendanceToCellReport(selectedCellId, cellName, today, presentMembers, updatedBy, visitors)
         .catch((err) => console.error('Failed to sync attendance to cell report:', err))
     }
-  }, [pendingTimings, selectedCellId, today, presentIds, userProfile, segmentOrder.length, cellGroups, members])
+  }, [pendingTimings, selectedCellId, today, presentIds, userProfile, segmentOrder.length, cellGroups, members, visitors])
 
   // Master button appearance
   let masterBg, masterText, masterIcon, masterLabel, masterSub
@@ -430,11 +445,12 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
 
       {/* ── Attendance Bubbles ── */}
       {selectedCellId && (
-        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-5">
+        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-5">
+          <div className="flex items-center justify-between">
             <h2 className="font-bold text-slate-900 text-lg">Attendance</h2>
             <span className="text-sm font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
               {presentIds.size} / {activeMembers.length}
+              {visitors.length > 0 && <span className="ml-1 text-teal-700"> · {visitors.length} visitor{visitors.length > 1 ? 's' : ''}</span>}
             </span>
           </div>
           {loadingMembers ? (
@@ -453,6 +469,48 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
               ))}
             </div>
           )}
+
+          {/* Visitors */}
+          <div className="border-t border-slate-100 pt-4 space-y-3">
+            <p className="text-sm font-semibold text-slate-600">Visitors</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={visitorInput}
+                onChange={(e) => setVisitorInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addVisitor() } }}
+                placeholder="Visitor name"
+                className="flex-1 px-4 py-2.5 rounded-2xl border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-300 placeholder-slate-400"
+              />
+              <button
+                type="button"
+                onClick={addVisitor}
+                disabled={!visitorInput.trim()}
+                className="px-4 py-2.5 rounded-2xl bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 disabled:opacity-40 transition-all"
+              >
+                + Add
+              </button>
+            </div>
+            {visitors.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {visitors.map((v) => (
+                  <span
+                    key={v.id}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-teal-800 text-sm font-medium"
+                  >
+                    {v.name}
+                    <button
+                      type="button"
+                      onClick={() => removeVisitor(v.id)}
+                      className="text-teal-400 hover:text-teal-700 leading-none text-base"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -515,6 +573,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
             timings={pendingTimings}
             presentIds={presentIds}
             members={activeMembers}
+            visitors={visitors}
             prayerPoints={prayerPoints}
             onConfirm={confirmEndMeeting}
             onCancel={() => setShowEndModal(false)}
@@ -527,7 +586,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
 
 // ─── End Meeting Modal ────────────────────────────────────────────────────────
 
-function EndMeetingModal({ timings, presentIds, members, prayerPoints, onConfirm, onCancel }) {
+function EndMeetingModal({ timings, presentIds, members, visitors, prayerPoints, onConfirm, onCancel }) {
   const [localPresent, setLocalPresent] = useState(() => new Set(presentIds))
   const totalMinutes = timings.reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
 
@@ -604,7 +663,8 @@ function EndMeetingModal({ timings, presentIds, members, prayerPoints, onConfirm
           {/* Attendance — interactive bubbles */}
           <div className="space-y-3">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              👥 Attendance — {localPresent.size} / {members.length} present
+              👥 Attendance — {localPresent.size} / {members.length} members
+              {visitors?.length > 0 && ` · ${visitors.length} visitor${visitors.length > 1 ? 's' : ''}`}
             </p>
             {members.length === 0 ? (
               <p className="text-slate-400 text-sm">No members loaded.</p>
@@ -621,6 +681,20 @@ function EndMeetingModal({ timings, presentIds, members, prayerPoints, onConfirm
               </div>
             )}
           </div>
+
+          {/* Visitors in modal */}
+          {visitors?.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">🙋 Visitors — {visitors.length}</p>
+              <div className="flex flex-wrap gap-2">
+                {visitors.map((v) => (
+                  <span key={v.id} className="px-3 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-teal-800 text-sm font-medium">
+                    {v.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Prayer Points */}
           <div className="space-y-2">
