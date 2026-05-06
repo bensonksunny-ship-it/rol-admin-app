@@ -21,31 +21,9 @@ const MANUAL_ONLY_KEYS = [
 
 const PASTORAL_KEY = { key: 'pastoralAttendees', title: 'Pastoral Attendees' }
 
-const SUMMARY_KEYS = [
-  'totalVolunteers',
-  'cellAttendance',
-  'newcomers',
-  'secondWeekAttendees',
-  'riverKids',
-  'englishServiceAttendance',
-  'tamilServiceAttendance',
-  'totalAdults',
-  'totalAttendance',
-]
 /** Local-only UX: order for Done → scroll to next attendance section */
 const ATTENDANCE_SECTION_ORDER = ['cells', 'pastoral', 'newComers', 'others', 'secondWeekAttendeesNames']
 
-const SUMMARY_LABELS = {
-  totalVolunteers: 'Total Volunteers',
-  cellAttendance: 'Cell Attendance',
-  newcomers: 'Newcomers',
-  secondWeekAttendees: 'Second Week Attendees',
-  riverKids: 'River Kids',
-  englishServiceAttendance: 'English Service Attendance',
-  tamilServiceAttendance: 'Tamil Service Attendance',
-  totalAdults: 'Total Adults',
-  totalAttendance: 'Total Attendance',
-}
 
 /** Map legacy report field → normalized cell name (lowercase, no spaces) */
 const LEGACY_CELL_MAP = [
@@ -200,6 +178,25 @@ export default function SundayReport() {
 
   const canEditEffective = canEdit && !reportDateLocked
 
+  const summaryComputed = useMemo(() => {
+    const cellRows = (cellGroups || [])
+      .map((g) => ({
+        id: g.id,
+        name: g.cellName || 'Unnamed',
+        count: (report?.sundayCellAttendance?.[g.id] || []).filter(Boolean).length,
+      }))
+      .filter((r) => r.count > 0)
+    const othersCount       = (report?.others || []).filter(Boolean).length
+    const secondWeekCount   = (report?.secondWeekAttendeesNames || []).filter(Boolean).length
+    const newcomersCount    = (report?.newComers || []).filter(Boolean).length
+    const pastoralCount     = (report?.pastoralAttendees || []).filter(Boolean).length
+    const sundaySchool      = Number(report?.summary?.sundaySchool) || 0
+    const cellTotal         = cellRows.reduce((s, r) => s + r.count, 0)
+    const totalAdults       = cellTotal + othersCount + secondWeekCount + newcomersCount + pastoralCount
+    const total             = totalAdults + sundaySchool
+    return { cellRows, othersCount, secondWeekCount, newcomersCount, sundaySchool, totalAdults, total }
+  }, [cellGroups, report])
+
   /** First incomplete attendance section = “active” highlight (editors only) */
   const activeSectionId = useMemo(() => {
     if (!canEditEffective) return null
@@ -298,16 +295,17 @@ export default function SundayReport() {
     if (!report || !canEdit) return
     setSaving(true)
     try {
-      const cellAttendanceCount = Object.values(report.sundayCellAttendance || {})
-        .reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.filter(Boolean).length : 0), 0)
-      const newcomersCount = (report.newComers || []).filter(Boolean).length
-      const secondWeekCount = (report.secondWeekAttendeesNames || []).filter(Boolean).length
+      const { cellRows, othersCount, secondWeekCount, newcomersCount, sundaySchool, totalAdults, total } = summaryComputed
+      const cellAttendanceCount = cellRows.reduce((s, r) => s + r.count, 0)
 
       const computedSummary = {
         ...report.summary,
         cellAttendance: cellAttendanceCount,
         newcomers: newcomersCount,
         secondWeekAttendees: secondWeekCount,
+        sundaySchool,
+        totalAdults,
+        totalAttendance: total,
       }
 
       const timings = programLogs
@@ -658,23 +656,52 @@ export default function SundayReport() {
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-              <h3 className="font-semibold text-slate-800 mb-3">Summary</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {SUMMARY_KEYS.map((key) => (
-                  <div key={key}>
-                    <label className="block text-sm text-slate-600 mb-1">{SUMMARY_LABELS[key]}</label>
-                    {canEditEffective ? (
-                      <input
-                        type="text"
-                        value={report?.summary?.[key] ?? ''}
-                        onChange={(e) => updateSummary(key, e.target.value)}
-                        className="w-full px-3 py-2 rounded border border-slate-300"
-                      />
-                    ) : (
-                      <p className="text-slate-800">{report?.summary?.[key] ?? '—'}</p>
-                    )}
+              <h3 className="font-semibold text-slate-800 mb-4">Summary</h3>
+              <div className="space-y-2 text-sm max-w-sm">
+                {summaryComputed.cellRows.map((r) => (
+                  <div key={r.id} className="flex justify-between">
+                    <span className="text-slate-600">{r.name}</span>
+                    <span className="tabular-nums font-medium text-slate-800">{r.count}</span>
                   </div>
                 ))}
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Others</span>
+                  <span className="tabular-nums text-slate-800">{summaryComputed.othersCount}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600">Sunday School</span>
+                  {canEditEffective ? (
+                    <input
+                      type="number"
+                      min="0"
+                      value={report?.summary?.sundaySchool ?? ''}
+                      onChange={(e) => updateSummary('sundaySchool', e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-20 px-2 py-1 rounded border border-slate-300 text-right text-sm tabular-nums"
+                    />
+                  ) : (
+                    <span className="tabular-nums text-slate-800">{summaryComputed.sundaySchool || '—'}</span>
+                  )}
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Second Week Comers</span>
+                  <span className="tabular-nums text-slate-800">{summaryComputed.secondWeekCount}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">New Comers</span>
+                  <span className="tabular-nums text-slate-800">{summaryComputed.newcomersCount}</span>
+                </div>
+                <div className="flex justify-between font-semibold pt-2 border-t border-slate-200">
+                  <span className="text-slate-800">Total Adults</span>
+                  <span className="tabular-nums">{summaryComputed.totalAdults}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Children</span>
+                  <span className="tabular-nums text-slate-800">{summaryComputed.sundaySchool || '—'}</span>
+                </div>
+                <div className="flex justify-between font-bold text-base pt-2 border-t border-slate-200">
+                  <span>Total</span>
+                  <span className="tabular-nums">{summaryComputed.total}</span>
+                </div>
               </div>
             </div>
 

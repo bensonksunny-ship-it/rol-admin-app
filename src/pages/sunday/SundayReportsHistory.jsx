@@ -6,15 +6,11 @@ import { formatDisplayDate } from '../../utils/date'
 import DepartmentTabBar from '../../components/DepartmentTabBar'
 
 const COLS = [
-  { key: 'totalAttendance',          label: 'Total'        },
-  { key: 'totalAdults',              label: 'Adults'       },
-  { key: 'cellAttendance',           label: 'Cell'         },
-  { key: 'newcomers',                label: 'Newcomers'    },
-  { key: 'secondWeekAttendees',      label: '2nd Week'     },
-  { key: 'riverKids',                label: 'River Kids'   },
-  { key: 'totalVolunteers',          label: 'Volunteers'   },
-  { key: 'englishServiceAttendance', label: 'English Svc'  },
-  { key: 'tamilServiceAttendance',   label: 'Tamil Svc'    },
+  { key: 'totalAttendance',     label: 'Total'       },
+  { key: 'totalAdults',         label: 'Adults'      },
+  { key: 'cellAttendance',      label: 'Cell'        },
+  { key: 'newcomers',           label: 'Newcomers'   },
+  { key: 'secondWeekAttendees', label: '2nd Week'    },
 ]
 
 function formatTime(isoString) {

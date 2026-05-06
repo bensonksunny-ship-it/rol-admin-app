@@ -2230,13 +2230,10 @@ const DEFAULT_SUNDAY_REPORT = {
   programList: [],
   preservice: { lead1: '', lead2: '' },
   summary: {
-    totalVolunteers: '',
     cellAttendance: '',
     newcomers: '',
     secondWeekAttendees: '',
-    riverKids: '',
-    englishServiceAttendance: '',
-    tamilServiceAttendance: '',
+    sundaySchool: '',
     totalAdults: '',
     totalAttendance: '',
   },
@@ -2269,13 +2266,10 @@ function normalizeReport(data) {
     preservice: data.preservice && typeof data.preservice === 'object' ? { lead1: data.preservice.lead1 || '', lead2: data.preservice.lead2 || '' } : { lead1: '', lead2: '' },
     summary: data.summary && typeof data.summary === 'object'
       ? {
-          totalVolunteers: data.summary.totalVolunteers ?? '',
           cellAttendance: data.summary.cellAttendance ?? '',
           newcomers: data.summary.newcomers ?? '',
           secondWeekAttendees: data.summary.secondWeekAttendees ?? '',
-          riverKids: data.summary.riverKids ?? '',
-          englishServiceAttendance: data.summary.englishServiceAttendance ?? '',
-          tamilServiceAttendance: data.summary.tamilServiceAttendance ?? '',
+          sundaySchool: data.summary.sundaySchool ?? '',
           totalAdults: data.summary.totalAdults ?? '',
           totalAttendance: data.summary.totalAttendance ?? '',
         }
@@ -2347,10 +2341,6 @@ export async function getSundayReportSummaries(numWeeks = 12) {
       cellAttendance: s.cellAttendance ?? '',
       newcomers: s.newcomers ?? '',
       secondWeekAttendees: s.secondWeekAttendees ?? '',
-      riverKids: s.riverKids ?? '',
-      totalVolunteers: s.totalVolunteers ?? '',
-      englishServiceAttendance: s.englishServiceAttendance ?? '',
-      tamilServiceAttendance: s.tamilServiceAttendance ?? '',
       programTimings: Array.isArray(data.programTimings) ? data.programTimings : [],
     }
   })
