@@ -298,14 +298,38 @@ export default function SundayReport() {
     if (!report || !canEdit) return
     setSaving(true)
     try {
+      const cellAttendanceCount = Object.values(report.sundayCellAttendance || {})
+        .reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.filter(Boolean).length : 0), 0)
+      const newcomersCount = (report.newComers || []).filter(Boolean).length
+      const secondWeekCount = (report.secondWeekAttendeesNames || []).filter(Boolean).length
+
+      const computedSummary = {
+        ...report.summary,
+        cellAttendance: cellAttendanceCount,
+        newcomers: newcomersCount,
+        secondWeekAttendees: secondWeekCount,
+      }
+
+      const timings = programLogs
+        .map((log) => {
+          const t = log.startTime instanceof Date ? log.startTime : log.startTime?.toDate?.() ?? null
+          return { programName: log.programName, startTime: t ? t.toISOString() : null }
+        })
+        .filter((x) => x.startTime)
+
+      const scrollY = window.scrollY
       await setSundayReport(
         selectedDate,
         {
           ...report,
+          summary: computedSummary,
+          programTimings: timings,
           sundayMinistryTeam: [],
         },
         userProfile?.email || 'unknown'
       )
+      setReport((prev) => (prev ? { ...prev, summary: computedSummary } : prev))
+      requestAnimationFrame(() => window.scrollTo(0, scrollY))
     } catch (err) {
       console.error(err)
       alert('Failed to save')
@@ -557,54 +581,49 @@ export default function SundayReport() {
               })}
             </div>
 
-            {/* Program from sunday_program + timer */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-semibold text-slate-800">Program</h3>
-                <Link to="/department/sunday-ministry/sunday-program" className="text-sm text-indigo-600 hover:underline">
-                  Edit program list →
-                </Link>
+            {sortedProgram.length > 0 && (
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-semibold text-slate-800">Program</h3>
+                  <Link to="/department/sunday-ministry/sunday-program" className="text-sm text-indigo-600 hover:underline">
+                    Edit program list →
+                  </Link>
+                </div>
+                <ul className="text-sm divide-y divide-slate-100 border border-slate-100 rounded-lg">
+                  {sortedProgram.map((item, idx) => {
+                    const log = logAtIndex(idx)
+                    return (
+                      <li key={`${item.programName}-${idx}`} className="flex justify-between gap-4 px-3 py-2">
+                        <span className="font-medium text-slate-800">{item.programName}</span>
+                        <span className="text-slate-600 tabular-nums">
+                          {log?.startTime
+                            ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
+                            : '—'}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+                {canEditEffective && currentProgramItem && (
+                  <div className="flex flex-col items-center pt-2">
+                    <p className="text-sm text-slate-500 mb-2">Tap START when this segment begins.</p>
+                    <button
+                      type="button"
+                      onClick={handleProgramStart}
+                      className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition px-8 py-6"
+                    >
+                      <span className="text-2xl font-bold tracking-wide">START</span>
+                      <span className="text-sm text-white/95 mt-2 font-medium">{currentProgramItem.programName}</span>
+                    </button>
+                  </div>
+                )}
+                {canEditEffective && !currentProgramItem && (
+                  <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-center">
+                    All program start times recorded for this date.
+                  </p>
+                )}
               </div>
-              {sortedProgram.length === 0 ? (
-                <p className="text-sm text-slate-500">No program items yet. Configure them on the Sunday Program page.</p>
-              ) : (
-                <>
-                  <ul className="text-sm divide-y divide-slate-100 border border-slate-100 rounded-lg">
-                    {sortedProgram.map((item, idx) => {
-                      const log = logAtIndex(idx)
-                      return (
-                        <li key={`${item.programName}-${idx}`} className="flex justify-between gap-4 px-3 py-2">
-                          <span className="font-medium text-slate-800">{item.programName}</span>
-                          <span className="text-slate-600 tabular-nums">
-                            {log?.startTime
-                              ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
-                              : '—'}
-                          </span>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                  {canEditEffective && currentProgramItem && (
-                    <div className="flex flex-col items-center pt-2">
-                      <p className="text-sm text-slate-500 mb-2">Tap START when this segment begins (same flow as Cell timer).</p>
-                      <button
-                        type="button"
-                        onClick={handleProgramStart}
-                        className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition px-8 py-6"
-                      >
-                        <span className="text-2xl font-bold tracking-wide">START</span>
-                        <span className="text-sm text-white/95 mt-2 font-medium">{currentProgramItem.programName}</span>
-                      </button>
-                    </div>
-                  )}
-                  {canEditEffective && sortedProgram.length > 0 && !currentProgramItem && (
-                    <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-center">
-                      All program start times recorded for this date.
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
+            )}
 
             <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
               <h3 className="font-semibold text-slate-800 mb-3">Preservice</h3>

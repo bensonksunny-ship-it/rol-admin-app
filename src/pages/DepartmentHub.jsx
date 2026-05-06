@@ -1459,6 +1459,10 @@ export default function DepartmentHub() {
             </div>
           )}
 
+          {activeTab === 'operations' && slug === 'sunday-ministry' && (
+            <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
           {(activeTab === 'planning' || ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'planning')) && (
             <div className="space-y-6">
               {slug === 'cell' && (
@@ -4166,12 +4170,6 @@ export default function DepartmentHub() {
           {activeTab === 'operations' && slug === 'cell' && (
             <div className="space-y-4">
               <CellOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-            </div>
-          )}
-
-          {activeTab === 'operations' && slug === 'sunday-ministry' && (
-            <div className="space-y-4">
-              <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
             </div>
           )}
 
