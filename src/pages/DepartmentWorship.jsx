@@ -214,7 +214,7 @@ function PlanComingSundayCard({
               }}
               className="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60 shadow"
             >
-              {savingComingPlan ? 'Saving...' : 'Save plan'}
+              {savingComingPlan ? 'Pushing...' : 'Push to Sunday Plan'}
             </button>
           </div>
         )}

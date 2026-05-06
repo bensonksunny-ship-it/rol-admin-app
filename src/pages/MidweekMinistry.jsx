@@ -458,7 +458,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
           ) : activeMembers.length === 0 ? (
             <div className="text-center text-slate-400 py-8 text-sm">No active members found.</div>
           ) : (
-            <div className="grid grid-cols-4 sm:grid-cols-5 gap-4">
+            <div className="flex flex-wrap gap-2">
               {activeMembers.map((member) => (
                 <MemberBubble
                   key={member.id}
@@ -749,28 +749,25 @@ function EndMeetingModal({ timings, presentIds, members, visitors, prayerPoints,
 // ─── Member Bubble ────────────────────────────────────────────────────────────
 
 function MemberBubble({ member, present, onToggle }) {
-  const initials  = getInitials(member.name)
-  const firstName = (member.name || '').split(' ')[0]
+  const initials = getInitials(member.name)
 
   return (
     <motion.button
       type="button"
       onClick={() => onToggle(member.id)}
-      whileTap={{ scale: 0.88 }}
-      className="flex flex-col items-center gap-1.5 group"
-    >
-      <div className={`w-14 h-14 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-150 ${
+      whileTap={{ scale: 0.95 }}
+      className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-sm font-medium transition-all ${
         present
-          ? 'bg-emerald-500 text-white ring-4 ring-emerald-200 shadow-lg shadow-emerald-100 scale-110'
-          : 'bg-slate-100 text-slate-500 group-active:bg-slate-200'
+          ? 'bg-emerald-500 text-white ring-2 ring-emerald-200 shadow-md shadow-emerald-100'
+          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+      }`}
+    >
+      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+        present ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-600'
       }`}>
         {initials}
-      </div>
-      <span className={`text-xs text-center leading-tight max-w-[56px] truncate font-medium transition-colors ${
-        present ? 'text-emerald-700' : 'text-slate-500'
-      }`}>
-        {firstName}
       </span>
+      <span className="text-left leading-tight">{member.name}</span>
     </motion.button>
   )
 }

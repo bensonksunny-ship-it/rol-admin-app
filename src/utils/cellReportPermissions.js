@@ -83,5 +83,10 @@ export function canEditCellReport(user, reportCellFirestoreId, cellGroup) {
   if (!g || String(g.id) !== docId) return false
 
   if (!isCellLeaderInPositions(user)) return false
-  return userLinksToCellGroup(user, g)
+  if (userLinksToCellGroup(user, g)) return true
+
+  // Fallback: cell group's leader field matches the user's name (same logic as myCellId resolution)
+  const name = (user.displayName || user.name || '').trim()
+  const leaderField = String(g.leader || '').trim()
+  return name !== '' && leaderField !== '' && leaderField.toLowerCase() === name.toLowerCase()
 }
