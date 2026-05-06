@@ -7,7 +7,6 @@ import {
   setSundayProgramDefault,
   pushProgramToSundayReport,
   getSundayPreServiceTeam,
-  setSundayPreServiceTeam,
   getSundayPreServiceEntry,
   setSundayPreServiceEntry,
 } from '../services/firestore'
@@ -173,15 +172,11 @@ function DefaultProgramTab({ canEdit, userProfile }) {
 // ─── Pre-Service tab ──────────────────────────────────────────────────────────
 
 function PreServiceTab({ canEdit, userProfile }) {
-  // Team
+  // Team (loaded for assignment only)
   const [team, setTeam] = useState([])
   const [teamLoading, setTeamLoading] = useState(true)
-  const [teamSaving, setTeamSaving] = useState(false)
-  const [newMember, setNewMember] = useState('')
-  const [editingMemberIdx, setEditingMemberIdx] = useState(null)
-  const [editingMemberVal, setEditingMemberVal] = useState('')
 
-  // Weekly entry
+  // Weekly entry — always a Sunday
   const [selectedDate, setSelectedDate] = useState(nextSunday)
   const [entryLoading, setEntryLoading] = useState(false)
   const [entrySaving, setEntrySaving] = useState(false)
@@ -190,6 +185,9 @@ function PreServiceTab({ canEdit, userProfile }) {
   const [newTopic, setNewTopic] = useState('')
   const [editingTopicIdx, setEditingTopicIdx] = useState(null)
   const [editingTopicVal, setEditingTopicVal] = useState('')
+
+  const prevSunday = () => setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
+  const nextSundayNav = () => setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
 
   // Load team
   useEffect(() => {
@@ -213,28 +211,15 @@ function PreServiceTab({ canEdit, userProfile }) {
       .finally(() => setEntryLoading(false))
   }, [selectedDate])
 
-  const saveTeam = async () => {
-    setTeamSaving(true)
-    try {
-      await setSundayPreServiceTeam(team, userProfile?.email || 'unknown')
-    } catch (e) { console.error(e); alert('Failed to save team') }
-    setTeamSaving(false)
-  }
-
-  const addMember = () => {
-    const name = newMember.trim()
-    if (!name || team.includes(name)) return
-    setTeam((prev) => [...prev, name])
-    setNewMember('')
-  }
-
-  const toggleSpeaker = (name) => {
+  const assignSpeaker = (name) => {
     setSpeakers((prev) => {
-      if (prev.includes(name)) return prev.filter((s) => s !== name)
+      if (prev.includes(name)) return prev
       if (prev.length >= 2) return prev
       return [...prev, name]
     })
   }
+
+  const removeSpeaker = (name) => setSpeakers((prev) => prev.filter((s) => s !== name))
 
   const addTopic = () => {
     const t = newTopic.trim()
@@ -254,120 +239,67 @@ function PreServiceTab({ canEdit, userProfile }) {
   return (
     <div className="space-y-5">
 
-      {/* ── Team management ── */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
-        <div>
-          <h2 className="font-semibold text-slate-800">Pre-Service Team</h2>
-          <p className="text-xs text-slate-500 mt-0.5">People who can be assigned to give the pre-service talk.</p>
-        </div>
-
-        {teamLoading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
-        ) : (
-          <>
-            {team.length === 0 ? (
-              <p className="text-sm text-slate-400">No team members yet.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
-                {team.map((name, idx) => (
-                  <li key={idx} className="flex items-center gap-2 px-3 py-2 text-sm">
-                    {editingMemberIdx === idx ? (
-                      <>
-                        <input
-                          type="text"
-                          value={editingMemberVal}
-                          onChange={(e) => setEditingMemberVal(e.target.value)}
-                          className="flex-1 px-2 py-1 rounded border border-slate-300 text-sm"
-                          autoFocus
-                        />
-                        <button type="button" onClick={() => { const v = editingMemberVal.trim(); if (v) setTeam((prev) => prev.map((n, i) => i === idx ? v : n)); setEditingMemberIdx(null) }} className="text-indigo-600 text-xs hover:underline">Save</button>
-                        <button type="button" onClick={() => setEditingMemberIdx(null)} className="text-slate-400 text-xs hover:underline">Cancel</button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="flex-1 font-medium text-slate-800">{name}</span>
-                        {canEdit && (
-                          <>
-                            <button type="button" onClick={() => { setEditingMemberIdx(idx); setEditingMemberVal(name) }} className="text-blue-600 text-xs hover:underline">Edit</button>
-                            <button type="button" onClick={() => setTeam((prev) => prev.filter((_, i) => i !== idx))} className="text-red-600 text-xs hover:underline">Remove</button>
-                          </>
-                        )}
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {canEdit && (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newMember}
-                  onChange={(e) => setNewMember(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addMember()}
-                  placeholder="Add team member"
-                  className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                />
-                <button type="button" onClick={addMember} className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800">Add</button>
-                <button type="button" onClick={saveTeam} disabled={teamSaving} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">{teamSaving ? 'Saving…' : 'Save Team'}</button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
       {/* ── Weekly assignment ── */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
         <div>
-          <h2 className="font-semibold text-slate-800">Weekly Pre-Service Entry</h2>
+          <h2 className="font-semibold text-slate-800">Weekly Assignment</h2>
           <p className="text-xs text-slate-500 mt-0.5">Assign speakers and record topics for each Sunday.</p>
         </div>
 
-        {/* Date nav */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm">← Prev</button>
-          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm" />
-          <button type="button" onClick={() => setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm">Next →</button>
+        {/* Sunday navigation — no free-form date input */}
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={prevSunday} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">← Prev</button>
+          <span className="text-sm font-semibold text-slate-800">
+            {format(new Date(selectedDate), 'EEE, dd MMM yyyy')}
+          </span>
+          <button type="button" onClick={nextSundayNav} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next →</button>
         </div>
 
         {entryLoading ? (
           <p className="text-sm text-slate-400">Loading…</p>
         ) : (
           <>
-            {/* Speaker assignment */}
+            {/* Speaker assignment — loaded from team */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-700">Pre-Service Talk Speaker <span className="text-xs font-normal text-slate-400">(select up to 2)</span></p>
+              <p className="text-sm font-medium text-slate-700">
+                Pre-Service Talk Speaker
+                <span className="text-xs font-normal text-slate-400 ml-1">(up to 2)</span>
+              </p>
+
               {team.length === 0 ? (
-                <p className="text-xs text-slate-400">Add team members above first.</p>
+                <p className="text-xs text-slate-400">Add team members in the Pre-Service Team section above first.</p>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
                   {team.map((name) => {
-                    const selected = speakers.includes(name)
-                    const disabled = !canEdit || (!selected && speakers.length >= 2)
+                    const assigned = speakers.includes(name)
+                    const limitReached = !assigned && speakers.length >= 2
                     return (
-                      <button
-                        key={name}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => toggleSpeaker(name)}
-                        className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${
-                          selected
-                            ? 'bg-indigo-600 text-white border-indigo-700'
-                            : disabled
-                            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                            : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                        }`}
-                      >
-                        {name}
-                        {selected && <span className="ml-1 text-indigo-200">✓</span>}
-                      </button>
+                      <li key={name} className="flex items-center gap-3 px-3 py-2.5">
+                        <span className={`flex-1 text-sm font-medium ${assigned ? 'text-indigo-700' : 'text-slate-800'}`}>
+                          {name}
+                        </span>
+                        {assigned
+                          ? <span className="text-xs text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full">Assigned</span>
+                          : null
+                        }
+                        {canEdit && (
+                          assigned ? (
+                            <button type="button" onClick={() => removeSpeaker(name)} className="text-xs text-red-500 hover:underline">Remove</button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={limitReached}
+                              onClick={() => assignSpeaker(name)}
+                              className="text-xs text-indigo-600 hover:underline disabled:text-slate-300 disabled:cursor-not-allowed"
+                            >
+                              Assign
+                            </button>
+                          )
+                        )}
+                      </li>
                     )
                   })}
-                </div>
-              )}
-              {speakers.length > 0 && (
-                <p className="text-xs text-indigo-700 font-medium">Assigned: {speakers.join(', ')}</p>
+                </ul>
               )}
             </div>
 
@@ -412,7 +344,7 @@ function PreServiceTab({ canEdit, userProfile }) {
                     value={newTopic}
                     onChange={(e) => setNewTopic(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && addTopic()}
-                    placeholder="Add a topic"
+                    placeholder="Enter a topic"
                     className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
                   />
                   <button type="button" onClick={addTopic} className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800">Add</button>
@@ -427,7 +359,7 @@ function PreServiceTab({ canEdit, userProfile }) {
                 disabled={entrySaving}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
               >
-                {entrySaving ? 'Saving…' : 'Save Entry'}
+                {entrySaving ? 'Saving…' : 'Save Assignment'}
               </button>
             )}
           </>

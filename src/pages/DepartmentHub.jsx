@@ -2142,40 +2142,21 @@ export default function DepartmentHub() {
                   </button>
                 )}
               </div>
-              {slug !== 'cell' && (tabs.includes('subDepartment') || slug === 'sunday-ministry') && (
-                <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                  Sub departments are managed in the <strong>Sub Department</strong> tab. Assign team
-                  members to sub departments below.
-                </p>
-              )}
-
               {loadingTeam ? (
                 <div className="py-4 text-sm text-slate-500">Loading team...</div>
               ) : team.length === 0 ? (
-                <div className="py-4 text-sm text-slate-500">
-                  {teamError ? (
-                    <p className="text-red-600">{teamError}</p>
-                  ) : (
-                    'No team members added yet.'
-                  )}
-                </div>
+                <div className="py-4 text-sm text-slate-500"></div>
               ) : (
                 <>
-              {teamError && (
-                <p className="text-sm text-red-600 mb-2">{teamError}</p>
-              )}
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium w-10">SL</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Name</th>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Role / Position</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Sub Department</th>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Phone</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Status</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Member since</th>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Duration & positions</th>
                         {canEdit && (
                           <th className="text-left px-4 py-2 text-slate-600 font-medium">Actions</th>
                         )}
@@ -2191,20 +2172,9 @@ export default function DepartmentHub() {
                         <tr key={m.id} className="hover:bg-slate-50">
                           <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
                           <td className="px-4 py-2 text-slate-800">{m.name}</td>
-                          <td className="px-4 py-2 text-slate-600">{m.role || '—'}</td>
                           <td className="px-4 py-2 text-slate-600">{formatTeamSubDepartmentCell(m)}</td>
-                          <td className="px-4 py-2 text-slate-600">{m.phone || '—'}</td>
                           <td className="px-4 py-2 text-slate-600 capitalize">{m.status || 'active'}</td>
                           <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
-                          <td className="px-4 py-2 text-slate-600">
-                            {durationDays != null && <div>{durationDays} days</div>}
-                            {positionsText && (
-                              <div className="text-slate-600 mt-0.5">
-                                {durationDays != null ? 'Positions: ' : ''}{positionsText}
-                              </div>
-                            )}
-                            {!durationDays && !positionsText && '—'}
-                          </td>
                           {canEdit && (
                             <td className="px-4 py-2 text-sm space-x-2">
                               <button
@@ -2312,32 +2282,7 @@ export default function DepartmentHub() {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Role / Position
-                      </label>
-                      {slug === 'event-m' ? (
-                        <select
-                          value={memberForm.role}
-                          onChange={(e) => setMemberForm((f) => ({ ...f, role: e.target.value }))}
-                          className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm bg-white"
-                        >
-                          <option value="">— Select role —</option>
-                          <option value="Pastor">Pastor</option>
-                          <option value="Coordinator">Coordinator</option>
-                          <option value="Volunteer">Volunteer</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={memberForm.role}
-                          onChange={(e) => setMemberForm((f) => ({ ...f, role: e.target.value }))}
-                          className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                        />
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Sub Departments (optional, select multiple)
+                        Sub Department
                       </label>
                       <select
                         multiple
@@ -2358,20 +2303,6 @@ export default function DepartmentHub() {
                           </option>
                         ))}
                       </select>
-                      <p className="text-[11px] text-slate-500 mt-0.5">Hold Ctrl/Cmd to select multiple.</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Phone
-                      </label>
-                      <input
-                        type="text"
-                        value={memberForm.phone}
-                        onChange={(e) =>
-                          setMemberForm((f) => ({ ...f, phone: e.target.value }))
-                        }
-                        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                      />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1">
@@ -2418,19 +2349,6 @@ export default function DepartmentHub() {
                         Former member
                       </label>
                     </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Notes (optional)
-                    </label>
-                    <textarea
-                      value={memberForm.notes}
-                      onChange={(e) =>
-                        setMemberForm((f) => ({ ...f, notes: e.target.value }))
-                      }
-                      rows={2}
-                      className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                    />
                   </div>
                   <button
                     type="submit"
