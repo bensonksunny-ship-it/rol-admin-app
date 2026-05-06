@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Link } from 'react-router-dom'
-import { format, addWeeks, subWeeks, parseISO, endOfDay } from 'date-fns'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Link, useSearchParams } from 'react-router-dom'
+import { format, addWeeks, subWeeks } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import {
   getSundayReport,
   setSundayReport,
   getCellGroups,
   getCellGroupMembers,
-  getSundayProgramDefault,
   addSundayProgramLog,
   getSundayProgramLogsByDate,
 } from '../services/firestore'
@@ -17,12 +17,13 @@ const MANUAL_ONLY_KEYS = [
   { key: 'newComers', title: 'New Comers' },
   { key: 'others', title: 'Others' },
   { key: 'secondWeekAttendeesNames', title: 'Second Week Attendees' },
+  { key: 'riverKids', title: 'River Kids' },
 ]
 
 const PASTORAL_KEY = { key: 'pastoralAttendees', title: 'Pastoral Attendees' }
 
 /** Local-only UX: order for Done → scroll to next attendance section */
-const ATTENDANCE_SECTION_ORDER = ['cells', 'pastoral', 'newComers', 'others', 'secondWeekAttendeesNames']
+const ATTENDANCE_SECTION_ORDER = ['cells', 'pastoral', 'newComers', 'others', 'secondWeekAttendeesNames', 'riverKids']
 
 
 /** Map legacy report field → normalized cell name (lowercase, no spaces) */
@@ -136,7 +137,8 @@ function AttendanceSectionShell({
 
 export default function SundayReport() {
   const { userProfile, canManageDepartment } = useAuth()
-  const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+  const [searchParams] = useSearchParams()
+  const [selectedDate, setSelectedDate] = useState(() => searchParams.get('date') || format(new Date(), 'yyyy-MM-dd'))
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -144,8 +146,8 @@ export default function SundayReport() {
   const [expandedCellId, setExpandedCellId] = useState(null)
   const [membersForCell, setMembersForCell] = useState([])
   const [loadingMembers, setLoadingMembers] = useState(false)
-  const [programItems, setProgramItems] = useState([])
   const [programLogs, setProgramLogs] = useState([])
+  const [showCompleteModal, setShowCompleteModal] = useState(false)
   /** Local-only: which attendance sections are marked done (no Firestore) */
   const [completedSections, setCompletedSections] = useState({})
 
@@ -154,6 +156,7 @@ export default function SundayReport() {
   const newComersSectionRef = useRef(null)
   const othersSectionRef = useRef(null)
   const secondWeekSectionRef = useRef(null)
+  const riverKidsSectionRef = useRef(null)
 
   const sectionRefById = useMemo(
     () => ({
@@ -162,21 +165,13 @@ export default function SundayReport() {
       newComers: newComersSectionRef,
       others: othersSectionRef,
       secondWeekAttendeesNames: secondWeekSectionRef,
+      riverKids: riverKidsSectionRef,
     }),
     []
   )
 
   const canEdit = canManageDepartment('Sunday Ministry')
-
-  /** After end of the selected report date (local), edits are locked (no Firestore change). */
-  const reportDateLocked = useMemo(() => {
-    if (!selectedDate) return false
-    const d = parseISO(selectedDate)
-    if (Number.isNaN(d.getTime())) return false
-    return Date.now() > endOfDay(d).getTime()
-  }, [selectedDate])
-
-  const canEditEffective = canEdit && !reportDateLocked
+  const canEditEffective = canEdit
 
   const summaryComputed = useMemo(() => {
     const cellRows = (cellGroups || [])
@@ -190,11 +185,12 @@ export default function SundayReport() {
     const secondWeekCount   = (report?.secondWeekAttendeesNames || []).filter(Boolean).length
     const newcomersCount    = (report?.newComers || []).filter(Boolean).length
     const pastoralCount     = (report?.pastoralAttendees || []).filter(Boolean).length
+    const riverKidsCount    = (report?.riverKids || []).filter(Boolean).length
     const sundaySchool      = Number(report?.summary?.sundaySchool) || 0
     const cellTotal         = cellRows.reduce((s, r) => s + r.count, 0)
     const totalAdults       = cellTotal + othersCount + secondWeekCount + newcomersCount + pastoralCount
-    const total             = totalAdults + sundaySchool
-    return { cellRows, othersCount, secondWeekCount, newcomersCount, sundaySchool, totalAdults, total }
+    const total             = totalAdults + sundaySchool + riverKidsCount
+    return { cellRows, othersCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total }
   }, [cellGroups, report])
 
   /** First incomplete attendance section = “active” highlight (editors only) */
@@ -257,9 +253,6 @@ export default function SundayReport() {
       .finally(() => setLoadingMembers(false))
   }, [expandedCellId])
 
-  useEffect(() => {
-    getSundayProgramDefault().then((d) => setProgramItems(d.items || []))
-  }, [selectedDate])
 
   useEffect(() => {
     getSundayProgramLogsByDate(selectedDate).then(setProgramLogs).catch(() => setProgramLogs([]))
@@ -295,14 +288,18 @@ export default function SundayReport() {
     if (!report || !canEdit) return
     setSaving(true)
     try {
-      const { cellRows, othersCount, secondWeekCount, newcomersCount, sundaySchool, totalAdults, total } = summaryComputed
+      const { cellRows, othersCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
       const cellAttendanceCount = cellRows.reduce((s, r) => s + r.count, 0)
+
+      const cellBreakdown = Object.fromEntries(cellRows.map((r) => [r.name, r.count]))
 
       const computedSummary = {
         ...report.summary,
         cellAttendance: cellAttendanceCount,
+        othersCount,
         newcomers: newcomersCount,
         secondWeekAttendees: secondWeekCount,
+        riverKids: riverKidsCount,
         sundaySchool,
         totalAdults,
         totalAttendance: total,
@@ -321,12 +318,14 @@ export default function SundayReport() {
         {
           ...report,
           summary: computedSummary,
+          cellBreakdown,
+          programList: [],
           programTimings: timings,
           sundayMinistryTeam: [],
         },
         userProfile?.email || 'unknown'
       )
-      setReport((prev) => (prev ? { ...prev, summary: computedSummary } : prev))
+      setReport((prev) => (prev ? { ...prev, summary: computedSummary, programList: [] } : prev))
       requestAnimationFrame(() => window.scrollTo(0, scrollY))
     } catch (err) {
       console.error(err)
@@ -356,9 +355,8 @@ export default function SundayReport() {
   const removeCellName = (key, idx) => updateReport({ [key]: (report?.[key] || []).filter((_, i) => i !== idx) })
 
   const updateSummary = (key, value) => updateReport({ summary: { ...(report?.summary || {}), [key]: value } })
-  const updatePreservice = (field, value) => updateReport({ preservice: { ...(report?.preservice || {}), [field]: value } })
 
-  const sortedProgram = [...programItems].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const sortedProgram = [...(report?.programList || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   const logAtIndex = (idx) => programLogs[idx] || null
   const nextProgramIndex = programLogs.length
   const currentProgramItem = sortedProgram[nextProgramIndex] || null
@@ -373,6 +371,9 @@ export default function SundayReport() {
       })
       const logs = await getSundayProgramLogsByDate(selectedDate)
       setProgramLogs(logs)
+      if (logs.length >= sortedProgram.length) {
+        setShowCompleteModal(true)
+      }
     } catch (e) {
       console.error(e)
       alert(e?.message || 'Failed to record time')
@@ -421,7 +422,7 @@ export default function SundayReport() {
           >
             Next →
           </button>
-          {canEdit && !reportDateLocked && (
+          {canEdit && (
             <button
               type="button"
               onClick={handleSave}
@@ -432,13 +433,6 @@ export default function SundayReport() {
             </button>
           )}
         </div>
-
-        {reportDateLocked && canEdit && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <strong>Locked:</strong> This report date has passed (after 11:59 PM on that day). Editing is disabled; you
-            can still view and export. Choose another date if you need to enter a different Sunday.
-          </div>
-        )}
 
         {canEditEffective && (
           <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
@@ -552,6 +546,7 @@ export default function SundayReport() {
                   newComers: newComersSectionRef,
                   others: othersSectionRef,
                   secondWeekAttendeesNames: secondWeekSectionRef,
+                  riverKids: riverKidsSectionRef,
                 }
                 const sectionRef = refMap[key]
                 const manualEdit = canEditEffective && !completedSections[key]
@@ -616,110 +611,170 @@ export default function SundayReport() {
                   </div>
                 )}
                 {canEditEffective && !currentProgramItem && (
-                  <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-center">
-                    All program start times recorded for this date.
-                  </p>
+                  <div className="flex flex-col items-center gap-2 pt-1">
+                    <p className="text-sm text-emerald-700 font-medium">All program start times recorded.</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowCompleteModal(true)}
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow transition"
+                    >
+                      View Service Summary →
+                    </button>
+                  </div>
                 )}
               </div>
             )}
 
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-              <h3 className="font-semibold text-slate-800 mb-3">Preservice</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">Lead 1</label>
-                  {canEditEffective ? (
-                    <input
-                      type="text"
-                      value={report?.preservice?.lead1 || ''}
-                      onChange={(e) => updatePreservice('lead1', e.target.value)}
-                      className="w-full px-3 py-2 rounded border border-slate-300"
-                    />
-                  ) : (
-                    <p className="text-slate-800">{report?.preservice?.lead1 || '—'}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">Lead 2</label>
-                  {canEditEffective ? (
-                    <input
-                      type="text"
-                      value={report?.preservice?.lead2 || ''}
-                      onChange={(e) => updatePreservice('lead2', e.target.value)}
-                      className="w-full px-3 py-2 rounded border border-slate-300"
-                    />
-                  ) : (
-                    <p className="text-slate-800">{report?.preservice?.lead2 || '—'}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-              <h3 className="font-semibold text-slate-800 mb-4">Summary</h3>
-              <div className="space-y-2 text-sm max-w-sm">
-                {summaryComputed.cellRows.map((r) => (
-                  <div key={r.id} className="flex justify-between">
-                    <span className="text-slate-600">{r.name}</span>
-                    <span className="tabular-nums font-medium text-slate-800">{r.count}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Others</span>
-                  <span className="tabular-nums text-slate-800">{summaryComputed.othersCount}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-600">Sunday School</span>
-                  {canEditEffective ? (
-                    <input
-                      type="number"
-                      min="0"
-                      value={report?.summary?.sundaySchool ?? ''}
-                      onChange={(e) => updateSummary('sundaySchool', e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-20 px-2 py-1 rounded border border-slate-300 text-right text-sm tabular-nums"
-                    />
-                  ) : (
-                    <span className="tabular-nums text-slate-800">{summaryComputed.sundaySchool || '—'}</span>
-                  )}
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Second Week Comers</span>
-                  <span className="tabular-nums text-slate-800">{summaryComputed.secondWeekCount}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">New Comers</span>
-                  <span className="tabular-nums text-slate-800">{summaryComputed.newcomersCount}</span>
-                </div>
-                <div className="flex justify-between font-semibold pt-2 border-t border-slate-200">
-                  <span className="text-slate-800">Total Adults</span>
-                  <span className="tabular-nums">{summaryComputed.totalAdults}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Children</span>
-                  <span className="tabular-nums text-slate-800">{summaryComputed.sundaySchool || '—'}</span>
-                </div>
-                <div className="flex justify-between font-bold text-base pt-2 border-t border-slate-200">
-                  <span>Total</span>
-                  <span className="tabular-nums">{summaryComputed.total}</span>
-                </div>
-              </div>
-            </div>
-
-            {canEdit && !reportDateLocked && (
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {saving ? 'Saving…' : 'Save report'}
-                </button>
-              </div>
-            )}
           </>
         )}
       </div>
+
+      <AnimatePresence>
+        {showCompleteModal && (
+          <ServiceCompleteModal
+            sortedProgram={sortedProgram}
+            programLogs={programLogs}
+            summaryComputed={summaryComputed}
+            sundaySchoolValue={report?.summary?.sundaySchool ?? ''}
+            onSundaySchoolChange={(v) => updateSummary('sundaySchool', v)}
+            saving={saving}
+            onSave={async () => {
+              await handleSave()
+              setShowCompleteModal(false)
+              setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
+            }}
+            onClose={() => setShowCompleteModal(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  )
+}
+
+// ─── Service Complete Modal ───────────────────────────────────────────────────
+
+function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sundaySchoolValue, onSundaySchoolChange, saving, onSave, onClose }) {
+  const { cellRows, othersCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
+
+  return (
+    <>
+      <motion.div
+        key="sc-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/60 z-50"
+        onClick={onClose}
+      />
+      <motion.div
+        key="sc-sheet"
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+        className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl shadow-2xl max-h-[90vh] flex flex-col"
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-200" />
+        </div>
+
+        {/* Header */}
+        <div className="px-6 pt-2 pb-4 border-b border-slate-100 flex-shrink-0">
+          <h2 className="text-xl font-bold text-slate-900">Service Complete</h2>
+          <p className="text-slate-500 text-sm mt-0.5">Review the service before saving the report.</p>
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+
+          {/* Program timings */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">⏱ Program Timings</p>
+            <div className="space-y-1.5">
+              {sortedProgram.map((item, idx) => {
+                const log = programLogs[idx]
+                const t = log?.startTime instanceof Date ? log.startTime : (log?.startTime ? new Date(log.startTime) : null)
+                return (
+                  <div key={idx} className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50">
+                    <span className="font-semibold text-slate-800 text-sm">{item.programName}</span>
+                    <span className="text-slate-500 text-sm font-medium tabular-nums">
+                      {t ? format(t, 'h:mm a') : '—'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Attendance summary */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">👥 Attendance Summary</p>
+            <div className="space-y-1.5">
+              {cellRows.map((r) => (
+                <div key={r.id} className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
+                  <span className="text-slate-600">{r.name}</span>
+                  <span className="font-semibold tabular-nums text-slate-800">{r.count}</span>
+                </div>
+              ))}
+              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
+                <span className="text-slate-600">Others</span>
+                <span className="tabular-nums text-slate-800">{othersCount}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-2 rounded-xl bg-slate-50 text-sm">
+                <span className="text-slate-600">Sunday School</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={sundaySchoolValue}
+                  onChange={(e) => onSundaySchoolChange(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-20 px-2 py-1 rounded border border-slate-300 text-right text-sm tabular-nums"
+                />
+              </div>
+              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
+                <span className="text-slate-600">Second Week Comers</span>
+                <span className="tabular-nums text-slate-800">{secondWeekCount}</span>
+              </div>
+              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
+                <span className="text-slate-600">New Comers</span>
+                <span className="tabular-nums text-slate-800">{newcomersCount}</span>
+              </div>
+              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
+                <span className="text-slate-600">River Kids</span>
+                <span className="tabular-nums text-slate-800">{riverKidsCount}</span>
+              </div>
+              <div className="flex justify-between px-4 py-3 rounded-2xl bg-indigo-50 text-sm font-semibold">
+                <span className="text-indigo-900">Total Adults</span>
+                <span className="tabular-nums text-indigo-900">{totalAdults}</span>
+              </div>
+              <div className="flex justify-between px-4 py-3 rounded-2xl bg-indigo-100 text-sm font-bold">
+                <span className="text-indigo-900">Total</span>
+                <span className="tabular-nums text-indigo-900">{total}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-5 border-t border-slate-100 flex-shrink-0 flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-3.5 rounded-2xl border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-all"
+          >
+            Go Back
+          </button>
+          <motion.button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            whileTap={{ scale: 0.97 }}
+            className="flex-1 py-3.5 rounded-2xl bg-emerald-700 text-white text-sm font-bold hover:bg-emerald-800 transition-all shadow-lg shadow-emerald-200 disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : '✅ Save Report'}
+          </motion.button>
+        </div>
+      </motion.div>
+    </>
   )
 }

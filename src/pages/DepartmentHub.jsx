@@ -1814,8 +1814,7 @@ export default function DepartmentHub() {
 
           {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || (slug === 'sunday-ministry' && activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center">
-                <h2 className="font-semibold text-slate-800">Sub Department</h2>
+              <div className="px-5 py-4 border-b border-slate-200 flex justify-end items-center">
                 {canEdit && (
                   <button
                     type="button"
@@ -1837,8 +1836,7 @@ export default function DepartmentHub() {
                   <table className="min-w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Serving Area</th>
+                        <th className="text-left px-4 py-3 font-medium text-slate-600">Sub Department</th>
                         {canEdit && <th className="text-left px-4 py-3 font-medium text-slate-600 w-28">Actions</th>}
                       </tr>
                     </thead>
@@ -1846,7 +1844,6 @@ export default function DepartmentHub() {
                       {subDepartments.map((row) => (
                         <tr key={row.id}>
                           <td className="px-4 py-3 text-slate-800 font-medium">{row.name || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{row.servingArea || '—'}</td>
                           {canEdit && (
                             <td className="px-4 py-3 space-x-2">
                               <button
@@ -1882,7 +1879,7 @@ export default function DepartmentHub() {
                       ))}
                       {subDepartments.length === 0 && (
                         <tr>
-                          <td colSpan={canEdit ? 3 : 2} className="px-4 py-8 text-center text-slate-500">
+                          <td colSpan={canEdit ? 2 : 1} className="px-4 py-8 text-center text-slate-500">
                             No sub departments yet.
                           </td>
                         </tr>
@@ -1949,22 +1946,13 @@ export default function DepartmentHub() {
                   className="p-5 space-y-4"
                 >
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Sub Department *</label>
                     <input
                       type="text"
                       value={subDeptForm.name}
                       onChange={(e) => setSubDeptForm((f) => ({ ...f, name: e.target.value }))}
                       className="w-full px-3 py-2 rounded-lg border border-slate-300"
                       required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Serving Area</label>
-                    <input
-                      type="text"
-                      value={subDeptForm.servingArea}
-                      onChange={(e) => setSubDeptForm((f) => ({ ...f, servingArea: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
                     />
                   </div>
                   <div className="flex gap-2 pt-2">
@@ -2156,7 +2144,7 @@ export default function DepartmentHub() {
               </div>
               {slug !== 'cell' && (tabs.includes('subDepartment') || slug === 'sunday-ministry') && (
                 <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                  Sub departments (name & serving area) are managed in the <strong>Sub Department</strong> tab. Assign team
+                  Sub departments are managed in the <strong>Sub Department</strong> tab. Assign team
                   members to sub departments below.
                 </p>
               )}

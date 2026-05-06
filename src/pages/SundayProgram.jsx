@@ -1,8 +1,25 @@
 import { useEffect, useState } from 'react'
+import { format, addWeeks, subWeeks } from 'date-fns'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getSundayProgramDefault, setSundayProgramDefault } from '../services/firestore'
+import {
+  getSundayProgramDefault,
+  setSundayProgramDefault,
+  pushProgramToSundayReport,
+  getSundayPreServiceTeam,
+  setSundayPreServiceTeam,
+  getSundayPreServiceEntry,
+  setSundayPreServiceEntry,
+} from '../services/firestore'
 import DepartmentTabBar from '../components/DepartmentTabBar'
+
+function nextSunday() {
+  const today = new Date()
+  const daysUntil = today.getDay() === 0 ? 0 : 7 - today.getDay()
+  const d = new Date(today)
+  d.setDate(today.getDate() + daysUntil)
+  return format(d, 'yyyy-MM-dd')
+}
 
 const DEFAULT_SEED = [
   { programName: 'Pre Worship Talk', order: 0 },
@@ -13,12 +30,42 @@ const DEFAULT_SEED = [
   { programName: 'Prayer & Benediction', order: 5 },
 ]
 
-export default function SundayProgram() {
-  const { userProfile, canManageDepartment } = useAuth()
-  const canEdit = canManageDepartment('Sunday Ministry')
+// ─── Sub-tab bar ─────────────────────────────────────────────────────────────
+
+function SubTabBar({ active, onChange }) {
+  const tabs = [
+    { id: 'default', label: 'Default Program' },
+    { id: 'preService', label: 'Pre-Service' },
+  ]
+  return (
+    <div className="flex gap-1 border-b border-slate-200 mb-6">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => onChange(t.id)}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition ${
+            active === t.id
+              ? 'border-indigo-600 text-indigo-700'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ─── Default Program tab ─────────────────────────────────────────────────────
+
+function DefaultProgramTab({ canEdit, userProfile }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [pushDate, setPushDate] = useState(nextSunday)
+  const [pushing, setPushing] = useState(false)
+  const [pushSuccess, setPushSuccess] = useState(false)
   const [form, setForm] = useState({ programName: '', order: 0 })
   const [editingId, setEditingId] = useState(null)
 
@@ -27,16 +74,9 @@ export default function SundayProgram() {
     getSundayProgramDefault()
       .then((doc) => {
         const list = doc.items?.length ? doc.items : [...DEFAULT_SEED]
-        setItems(
-          list.map((x, i) => ({
-            ...x,
-            localId: `lp-${i}-${String(x.programName || '').slice(0, 20)}`,
-          }))
-        )
+        setItems(list.map((x, i) => ({ ...x, localId: `lp-${i}-${String(x.programName || '').slice(0, 20)}` })))
       })
-      .catch(() =>
-        setItems(DEFAULT_SEED.map((x, i) => ({ ...x, localId: `seed-${i}` })))
-      )
+      .catch(() => setItems(DEFAULT_SEED.map((x, i) => ({ ...x, localId: `seed-${i}` }))))
       .finally(() => setLoading(false))
   }, [])
 
@@ -46,10 +86,7 @@ export default function SundayProgram() {
     try {
       const payload = [...items]
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-        .map((x, i) => ({
-          programName: String(x.programName || '').trim(),
-          order: typeof x.order === 'number' ? x.order : i,
-        }))
+        .map((x, i) => ({ programName: String(x.programName || '').trim(), order: typeof x.order === 'number' ? x.order : i }))
         .filter((x) => x.programName)
       await setSundayProgramDefault(payload, userProfile?.email || userProfile?.displayName || 'unknown')
       setItems(payload.map((x, i) => ({ ...x, localId: `lp-${i}-${String(x.programName || '').slice(0, 20)}` })))
@@ -64,15 +101,348 @@ export default function SundayProgram() {
     const name = (form.programName || '').trim()
     if (!name) return
     if (editingId) {
-      setItems((prev) =>
-        prev.map((x) => (x.localId === editingId ? { ...x, programName: name, order: Number(form.order) || 0 } : x))
-      )
+      setItems((prev) => prev.map((x) => (x.localId === editingId ? { ...x, programName: name, order: Number(form.order) || 0 } : x)))
       setEditingId(null)
     } else {
       setItems((prev) => [...prev, { programName: name, order: Number(form.order) || prev.length, localId: `new-${Date.now()}` }])
     }
     setForm({ programName: '', order: items.length })
   }
+
+  const sorted = [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+  if (loading) return <p className="text-slate-500">Loading…</p>
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
+      <h2 className="font-semibold text-slate-800">Program items</h2>
+      <div className="flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs text-slate-500 mb-1">Name</label>
+          <input type="text" value={form.programName} onChange={(e) => setForm((f) => ({ ...f, programName: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" placeholder="Program name" />
+        </div>
+        <div className="w-24">
+          <label className="block text-xs text-slate-500 mb-1">Order</label>
+          <input type="number" value={form.order} onChange={(e) => setForm((f) => ({ ...f, order: Number(e.target.value) || 0 }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+        </div>
+        <button type="button" onClick={addRow} disabled={!canEdit} className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50">{editingId ? 'Apply edit' : 'Add Program'}</button>
+        {editingId && <button type="button" onClick={() => { setEditingId(null); setForm({ programName: '', order: sorted.length }) }} className="px-3 py-2 rounded-lg border border-slate-300 text-sm">Cancel edit</button>}
+      </div>
+
+      <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
+        {sorted.map((row, idx) => (
+          <li key={row.localId || row.programName + idx} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+            <span className="text-slate-400 w-6">{idx + 1}.</span>
+            <span className="font-medium text-slate-800 flex-1">{row.programName}</span>
+            <span className="text-slate-500 text-xs">order {row.order ?? idx}</span>
+            {canEdit && (
+              <>
+                <button type="button" onClick={() => { setEditingId(row.localId); setForm({ programName: row.programName, order: row.order ?? idx }) }} className="text-blue-600 hover:underline text-xs">Edit</button>
+                <button type="button" onClick={() => setItems((prev) => prev.filter((x) => x.localId !== row.localId))} className="text-red-600 hover:underline text-xs">Remove</button>
+                {idx > 0 && <button type="button" onClick={() => { const p = sorted[idx - 1]; setItems((l) => l.map((x) => x.localId === row.localId ? { ...x, order: p.order ?? idx - 1 } : x.localId === p.localId ? { ...x, order: row.order ?? idx } : x)) }} className="text-slate-600 text-xs px-1">↑</button>}
+                {idx < sorted.length - 1 && <button type="button" onClick={() => { const n = sorted[idx + 1]; setItems((l) => l.map((x) => x.localId === row.localId ? { ...x, order: n.order ?? idx + 1 } : x.localId === n.localId ? { ...x, order: row.order ?? idx } : x)) }} className="text-slate-600 text-xs px-1">↓</button>}
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {canEdit && (
+        <div className="space-y-3 pt-2">
+          <button type="button" disabled={saving} onClick={persist} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">{saving ? 'Saving…' : 'Update Default'}</button>
+          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+            <label className="text-sm text-slate-600 font-medium">Push to Live Control for:</label>
+            <input type="date" value={pushDate} onChange={(e) => { setPushDate(e.target.value); setPushSuccess(false) }} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm" />
+            <button type="button" disabled={pushing || !pushDate} onClick={async () => {
+              setPushing(true); setPushSuccess(false)
+              try {
+                const payload = [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((x, i) => ({ programName: String(x.programName || '').trim(), order: typeof x.order === 'number' ? x.order : i })).filter((x) => x.programName)
+                await pushProgramToSundayReport(pushDate, payload)
+                setPushSuccess(true)
+              } catch (e) { console.error(e); alert('Failed to push program') }
+              setPushing(false)
+            }} className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">{pushing ? 'Pushing…' : 'Push to Live Control'}</button>
+            {pushSuccess && <span className="text-sm text-emerald-700 font-medium">✓ Pushed to {pushDate}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Pre-Service tab ──────────────────────────────────────────────────────────
+
+function PreServiceTab({ canEdit, userProfile }) {
+  // Team
+  const [team, setTeam] = useState([])
+  const [teamLoading, setTeamLoading] = useState(true)
+  const [teamSaving, setTeamSaving] = useState(false)
+  const [newMember, setNewMember] = useState('')
+  const [editingMemberIdx, setEditingMemberIdx] = useState(null)
+  const [editingMemberVal, setEditingMemberVal] = useState('')
+
+  // Weekly entry
+  const [selectedDate, setSelectedDate] = useState(nextSunday)
+  const [entryLoading, setEntryLoading] = useState(false)
+  const [entrySaving, setEntrySaving] = useState(false)
+  const [speakers, setSpeakers] = useState([])
+  const [topics, setTopics] = useState([])
+  const [newTopic, setNewTopic] = useState('')
+  const [editingTopicIdx, setEditingTopicIdx] = useState(null)
+  const [editingTopicVal, setEditingTopicVal] = useState('')
+
+  // Load team
+  useEffect(() => {
+    setTeamLoading(true)
+    getSundayPreServiceTeam()
+      .then(setTeam)
+      .catch(() => setTeam([]))
+      .finally(() => setTeamLoading(false))
+  }, [])
+
+  // Load weekly entry when date changes
+  useEffect(() => {
+    if (!selectedDate) return
+    setEntryLoading(true)
+    getSundayPreServiceEntry(selectedDate)
+      .then((entry) => {
+        setSpeakers(entry?.speakers || [])
+        setTopics(entry?.topics || [])
+      })
+      .catch(() => { setSpeakers([]); setTopics([]) })
+      .finally(() => setEntryLoading(false))
+  }, [selectedDate])
+
+  const saveTeam = async () => {
+    setTeamSaving(true)
+    try {
+      await setSundayPreServiceTeam(team, userProfile?.email || 'unknown')
+    } catch (e) { console.error(e); alert('Failed to save team') }
+    setTeamSaving(false)
+  }
+
+  const addMember = () => {
+    const name = newMember.trim()
+    if (!name || team.includes(name)) return
+    setTeam((prev) => [...prev, name])
+    setNewMember('')
+  }
+
+  const toggleSpeaker = (name) => {
+    setSpeakers((prev) => {
+      if (prev.includes(name)) return prev.filter((s) => s !== name)
+      if (prev.length >= 2) return prev
+      return [...prev, name]
+    })
+  }
+
+  const addTopic = () => {
+    const t = newTopic.trim()
+    if (!t) return
+    setTopics((prev) => [...prev, t])
+    setNewTopic('')
+  }
+
+  const saveEntry = async () => {
+    setEntrySaving(true)
+    try {
+      await setSundayPreServiceEntry(selectedDate, { speakers, topics }, userProfile?.email || 'unknown')
+    } catch (e) { console.error(e); alert('Failed to save') }
+    setEntrySaving(false)
+  }
+
+  return (
+    <div className="space-y-5">
+
+      {/* ── Team management ── */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
+        <div>
+          <h2 className="font-semibold text-slate-800">Pre-Service Team</h2>
+          <p className="text-xs text-slate-500 mt-0.5">People who can be assigned to give the pre-service talk.</p>
+        </div>
+
+        {teamLoading ? (
+          <p className="text-sm text-slate-400">Loading…</p>
+        ) : (
+          <>
+            {team.length === 0 ? (
+              <p className="text-sm text-slate-400">No team members yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
+                {team.map((name, idx) => (
+                  <li key={idx} className="flex items-center gap-2 px-3 py-2 text-sm">
+                    {editingMemberIdx === idx ? (
+                      <>
+                        <input
+                          type="text"
+                          value={editingMemberVal}
+                          onChange={(e) => setEditingMemberVal(e.target.value)}
+                          className="flex-1 px-2 py-1 rounded border border-slate-300 text-sm"
+                          autoFocus
+                        />
+                        <button type="button" onClick={() => { const v = editingMemberVal.trim(); if (v) setTeam((prev) => prev.map((n, i) => i === idx ? v : n)); setEditingMemberIdx(null) }} className="text-indigo-600 text-xs hover:underline">Save</button>
+                        <button type="button" onClick={() => setEditingMemberIdx(null)} className="text-slate-400 text-xs hover:underline">Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex-1 font-medium text-slate-800">{name}</span>
+                        {canEdit && (
+                          <>
+                            <button type="button" onClick={() => { setEditingMemberIdx(idx); setEditingMemberVal(name) }} className="text-blue-600 text-xs hover:underline">Edit</button>
+                            <button type="button" onClick={() => setTeam((prev) => prev.filter((_, i) => i !== idx))} className="text-red-600 text-xs hover:underline">Remove</button>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {canEdit && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newMember}
+                  onChange={(e) => setNewMember(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addMember()}
+                  placeholder="Add team member"
+                  className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                />
+                <button type="button" onClick={addMember} className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800">Add</button>
+                <button type="button" onClick={saveTeam} disabled={teamSaving} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">{teamSaving ? 'Saving…' : 'Save Team'}</button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── Weekly assignment ── */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
+        <div>
+          <h2 className="font-semibold text-slate-800">Weekly Pre-Service Entry</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Assign speakers and record topics for each Sunday.</p>
+        </div>
+
+        {/* Date nav */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm">← Prev</button>
+          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm" />
+          <button type="button" onClick={() => setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm">Next →</button>
+        </div>
+
+        {entryLoading ? (
+          <p className="text-sm text-slate-400">Loading…</p>
+        ) : (
+          <>
+            {/* Speaker assignment */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">Pre-Service Talk Speaker <span className="text-xs font-normal text-slate-400">(select up to 2)</span></p>
+              {team.length === 0 ? (
+                <p className="text-xs text-slate-400">Add team members above first.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {team.map((name) => {
+                    const selected = speakers.includes(name)
+                    const disabled = !canEdit || (!selected && speakers.length >= 2)
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => toggleSpeaker(name)}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${
+                          selected
+                            ? 'bg-indigo-600 text-white border-indigo-700'
+                            : disabled
+                            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                            : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                        }`}
+                      >
+                        {name}
+                        {selected && <span className="ml-1 text-indigo-200">✓</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              {speakers.length > 0 && (
+                <p className="text-xs text-indigo-700 font-medium">Assigned: {speakers.join(', ')}</p>
+              )}
+            </div>
+
+            {/* Topics */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">Major Topics</p>
+              {topics.length > 0 && (
+                <ul className="space-y-1.5">
+                  {topics.map((topic, idx) => (
+                    <li key={idx} className="flex items-center gap-2">
+                      {editingTopicIdx === idx ? (
+                        <>
+                          <input
+                            type="text"
+                            value={editingTopicVal}
+                            onChange={(e) => setEditingTopicVal(e.target.value)}
+                            className="flex-1 px-2 py-1 rounded border border-slate-300 text-sm"
+                            autoFocus
+                          />
+                          <button type="button" onClick={() => { const v = editingTopicVal.trim(); if (v) setTopics((prev) => prev.map((t, i) => i === idx ? v : t)); setEditingTopicIdx(null) }} className="text-indigo-600 text-xs hover:underline">Save</button>
+                          <button type="button" onClick={() => setEditingTopicIdx(null)} className="text-slate-400 text-xs hover:underline">Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1 text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-1.5 border border-slate-100">{topic}</span>
+                          {canEdit && (
+                            <>
+                              <button type="button" onClick={() => { setEditingTopicIdx(idx); setEditingTopicVal(topic) }} className="text-blue-600 text-xs hover:underline">Edit</button>
+                              <button type="button" onClick={() => setTopics((prev) => prev.filter((_, i) => i !== idx))} className="text-red-600 text-xs hover:underline">Remove</button>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {canEdit && (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newTopic}
+                    onChange={(e) => setNewTopic(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addTopic()}
+                    placeholder="Add a topic"
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  />
+                  <button type="button" onClick={addTopic} className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800">Add</button>
+                </div>
+              )}
+            </div>
+
+            {canEdit && (
+              <button
+                type="button"
+                onClick={saveEntry}
+                disabled={entrySaving}
+                className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {entrySaving ? 'Saving…' : 'Save Entry'}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+export default function SundayProgram() {
+  const { userProfile, canManageDepartment } = useAuth()
+  const canEdit = canManageDepartment('Sunday Ministry')
+  const [subTab, setSubTab] = useState('default')
 
   if (!canManageDepartment('Sunday Ministry')) {
     return (
@@ -83,153 +453,19 @@ export default function SundayProgram() {
     )
   }
 
-  const sorted = [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-
   return (
     <div>
       <DepartmentTabBar slug="sunday-ministry" activeTab="sundayProgram" />
-      <div className="space-y-6 p-4 max-w-3xl">
+      <div className="space-y-2 p-4 max-w-3xl">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold text-slate-800">Sunday Program</h1>
-          <p className="text-sm text-slate-500">Define the default order of service. The Sunday Report page uses this list for timing.</p>
+          <p className="text-sm text-slate-500">Configure the order of service and pre-service assignments.</p>
         </div>
 
-        {loading ? (
-          <p className="text-slate-500">Loading…</p>
-        ) : (
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
-            <h2 className="font-semibold text-slate-800">Program items</h2>
-            <div className="flex flex-wrap gap-2 items-end">
-              <div className="flex-1 min-w-[160px]">
-                <label className="block text-xs text-slate-500 mb-1">Name</label>
-                <input
-                  type="text"
-                  value={form.programName}
-                  onChange={(e) => setForm((f) => ({ ...f, programName: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                  placeholder="Program name"
-                />
-              </div>
-              <div className="w-24">
-                <label className="block text-xs text-slate-500 mb-1">Order</label>
-                <input
-                  type="number"
-                  value={form.order}
-                  onChange={(e) => setForm((f) => ({ ...f, order: Number(e.target.value) || 0 }))}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={addRow}
-                disabled={!canEdit}
-                className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
-              >
-                {editingId ? 'Apply edit' : 'Add Program'}
-              </button>
-              {editingId && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingId(null)
-                    setForm({ programName: '', order: sorted.length })
-                  }}
-                  className="px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                >
-                  Cancel edit
-                </button>
-              )}
-            </div>
+        <SubTabBar active={subTab} onChange={setSubTab} />
 
-            <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
-              {sorted.map((row, idx) => (
-                <li key={row.localId || row.programName + idx} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-                  <span className="text-slate-400 w-6">{idx + 1}.</span>
-                  <span className="font-medium text-slate-800 flex-1">{row.programName}</span>
-                  <span className="text-slate-500 text-xs">order {row.order ?? idx}</span>
-                  {canEdit && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingId(row.localId)
-                          setForm({ programName: row.programName, order: row.order ?? idx })
-                        }}
-                        className="text-blue-600 hover:underline text-xs"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setItems((prev) => prev.filter((x) => x.localId !== row.localId))}
-                        className="text-red-600 hover:underline text-xs"
-                      >
-                        Remove
-                      </button>
-                      {idx > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const prev = sorted[idx - 1]
-                            setItems((list) =>
-                              list.map((x) => {
-                                if (x.localId === row.localId || x === row) return { ...x, order: prev.order ?? idx - 1 }
-                                if (x.localId === prev.localId || x === prev) return { ...x, order: row.order ?? idx }
-                                return x
-                              })
-                            )
-                          }}
-                          className="text-slate-600 text-xs px-1"
-                        >
-                          ↑
-                        </button>
-                      )}
-                      {idx < sorted.length - 1 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = sorted[idx + 1]
-                            setItems((list) =>
-                              list.map((x) => {
-                                if (x.localId === row.localId || x === row) return { ...x, order: next.order ?? idx + 1 }
-                                if (x.localId === next.localId || x === next) return { ...x, order: row.order ?? idx }
-                                return x
-                              })
-                            )
-                          }}
-                          className="text-slate-600 text-xs px-1"
-                        >
-                          ↓
-                        </button>
-                      )}
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-
-            {canEdit && (
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={persist}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {saving ? 'Saving…' : 'Update'}
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={persist}
-                  className="px-4 py-2 rounded-lg border border-indigo-600 text-indigo-700 text-sm font-medium hover:bg-indigo-50 disabled:opacity-50"
-                >
-                  Set as Default Program
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        {subTab === 'default' && <DefaultProgramTab canEdit={canEdit} userProfile={userProfile} />}
+        {subTab === 'preService' && <PreServiceTab canEdit={canEdit} userProfile={userProfile} />}
       </div>
     </div>
   )

@@ -2150,6 +2150,55 @@ export async function setSundayProgramDefault(items, updatedBy) {
   )
 }
 
+// Sunday Ministry – pre-service team config (sunday_program / pre_service doc)
+const SUNDAY_PRE_SERVICE_DOC_ID = 'pre_service'
+const SUNDAY_PRE_SERVICE_COLLECTION = 'sunday_pre_service'
+
+export async function getSundayPreServiceTeam() {
+  if (!db) return []
+  const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PRE_SERVICE_DOC_ID)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return []
+  const data = snap.data()
+  return Array.isArray(data.team) ? data.team.map((n) => String(n).trim()).filter(Boolean) : []
+}
+
+export async function setSundayPreServiceTeam(team, updatedBy) {
+  if (!db) return
+  const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PRE_SERVICE_DOC_ID)
+  const clean = (Array.isArray(team) ? team : []).map((n) => String(n).trim()).filter(Boolean)
+  await setDoc(ref, { team: clean, updatedBy: String(updatedBy || ''), updatedAt: Timestamp.now() }, { merge: true })
+}
+
+export async function getSundayPreServiceEntry(dateStr) {
+  if (!db || !dateStr) return null
+  const id = String(dateStr).slice(0, 10)
+  const snap = await getDoc(doc(db, SUNDAY_PRE_SERVICE_COLLECTION, id))
+  if (!snap.exists()) return null
+  const data = snap.data()
+  return {
+    date: id,
+    speakers: Array.isArray(data.speakers) ? data.speakers.map((n) => String(n).trim()).filter(Boolean) : [],
+    topics: Array.isArray(data.topics) ? data.topics.map((t) => String(t).trim()).filter(Boolean) : [],
+  }
+}
+
+export async function setSundayPreServiceEntry(dateStr, { speakers, topics }, updatedBy) {
+  if (!db || !dateStr) return
+  const id = String(dateStr).slice(0, 10)
+  await setDoc(
+    doc(db, SUNDAY_PRE_SERVICE_COLLECTION, id),
+    {
+      date: id,
+      speakers: (Array.isArray(speakers) ? speakers : []).map((n) => String(n).trim()).filter(Boolean),
+      topics: (Array.isArray(topics) ? topics : []).map((t) => String(t).trim()).filter(Boolean),
+      updatedBy: String(updatedBy || ''),
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true }
+  )
+}
+
 // Sunday program timing (sunday_program_log)
 const SUNDAY_PROGRAM_LOG_COLLECTION = 'sunday_program_log'
 
@@ -2231,6 +2280,7 @@ const DEFAULT_SUNDAY_REPORT = {
   preservice: { lead1: '', lead2: '' },
   summary: {
     cellAttendance: '',
+    othersCount: '',
     newcomers: '',
     secondWeekAttendees: '',
     sundaySchool: '',
@@ -2267,6 +2317,7 @@ function normalizeReport(data) {
     summary: data.summary && typeof data.summary === 'object'
       ? {
           cellAttendance: data.summary.cellAttendance ?? '',
+          othersCount: data.summary.othersCount ?? '',
           newcomers: data.summary.newcomers ?? '',
           secondWeekAttendees: data.summary.secondWeekAttendees ?? '',
           sundaySchool: data.summary.sundaySchool ?? '',
@@ -2277,6 +2328,21 @@ function normalizeReport(data) {
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
   }
+}
+
+export async function deleteSundayReport(dateStr) {
+  if (!db || !dateStr) return
+  await deleteDoc(doc(db, SUNDAY_REPORTS_COLLECTION, String(dateStr).slice(0, 10)))
+}
+
+export async function pushProgramToSundayReport(dateStr, items) {
+  if (!db || !dateStr) return
+  const id = String(dateStr).slice(0, 10)
+  const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+  const payload = items
+    .map((x) => ({ programName: String(x.programName || '').trim(), order: typeof x.order === 'number' ? x.order : 0 }))
+    .filter((x) => x.programName)
+  await setDoc(ref, { date: id, programList: payload }, { merge: true })
 }
 
 export async function getSundayReport(dateStr) {
@@ -2333,14 +2399,28 @@ export async function getSundayReportSummaries(numWeeks = 12) {
   const snap = await getDocs(q)
   return snap.docs.map((docSnap) => {
     const data = docSnap.data()
-    const s = data.summary && typeof data.summary === 'object' ? data.summary : {}
+    const s   = data.summary && typeof data.summary === 'object' ? data.summary : {}
+    const sca = data.sundayCellAttendance && typeof data.sundayCellAttendance === 'object' ? data.sundayCellAttendance : {}
+
+    const othersCount         = Array.isArray(data.others)                    ? data.others.filter(Boolean).length                    : Number(s.othersCount) || 0
+    const newcomers           = Array.isArray(data.newComers)                 ? data.newComers.filter(Boolean).length                 : Number(s.newcomers) || 0
+    const secondWeekAttendees = Array.isArray(data.secondWeekAttendeesNames)  ? data.secondWeekAttendeesNames.filter(Boolean).length  : Number(s.secondWeekAttendees) || 0
+    const pastoralCount       = Array.isArray(data.pastoralAttendees)         ? data.pastoralAttendees.filter(Boolean).length         : 0
+    const riverKidsCount      = Array.isArray(data.riverKids)                 ? data.riverKids.filter(Boolean).length                 : Number(s.riverKids) || 0
+    const sundaySchool        = Number(s.sundaySchool) || 0
+    const cellAttendance      = Object.values(sca).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.filter(Boolean).length : 0), 0)
+    const totalAdults         = cellAttendance + othersCount + newcomers + secondWeekAttendees + pastoralCount
+    const totalAttendance     = totalAdults + sundaySchool + riverKidsCount
+
     return {
       date: docSnap.id,
-      totalAttendance: s.totalAttendance ?? '',
-      totalAdults: s.totalAdults ?? '',
-      cellAttendance: s.cellAttendance ?? '',
-      newcomers: s.newcomers ?? '',
-      secondWeekAttendees: s.secondWeekAttendees ?? '',
+      sundayCellAttendance: sca,
+      othersCount,
+      newcomers,
+      secondWeekAttendees,
+      sundaySchool,
+      totalAdults,
+      totalAttendance,
       programTimings: Array.isArray(data.programTimings) ? data.programTimings : [],
     }
   })
@@ -2372,6 +2452,7 @@ export async function setSundayReport(dateStr, payload, updatedBy) {
     programList: data.programList,
     preservice: data.preservice,
     summary: data.summary,
+    cellBreakdown: payload.cellBreakdown && typeof payload.cellBreakdown === 'object' ? payload.cellBreakdown : {},
     programTimings: Array.isArray(payload.programTimings) ? payload.programTimings : [],
     updatedBy: updatedBy || 'unknown',
     updatedAt: now,
