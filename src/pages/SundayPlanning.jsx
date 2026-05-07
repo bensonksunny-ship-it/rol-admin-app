@@ -74,7 +74,7 @@ function WorshipPlanSummary({ selectedDate }) {
         <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
           <h4 className="text-xs font-semibold text-slate-600 bg-slate-50 px-3 py-1.5">Team by role</h4>
           {assignedRoles.length === 0 ? (
-            <p className="text-slate-400 text-xs px-3 py-2">No assignments yet.</p>
+            <p className="text-slate-500 text-xs px-3 py-2">No assignments yet.</p>
           ) : (
             <table className="w-full text-xs">
               <tbody className="divide-y divide-slate-100">
@@ -93,7 +93,7 @@ function WorshipPlanSummary({ selectedDate }) {
         </div>
         <div className="rounded-lg border border-orange-100 bg-orange-50/50 overflow-hidden">
           <h4 className="text-xs font-semibold text-orange-900 bg-orange-100 px-3 py-1.5">Songs & lead</h4>
-          {songs.length === 0 ? <p className="text-slate-400 text-xs px-3 py-2">No songs yet.</p> : (
+          {songs.length === 0 ? <p className="text-slate-500 text-xs px-3 py-2">No songs yet.</p> : (
             <table className="w-full text-xs">
               <thead><tr><th className="text-left py-1 px-3 text-slate-500">#</th><th className="text-left py-1 px-3 text-slate-500">Song</th><th className="text-left py-1 px-3 text-slate-500">Key</th><th className="text-left py-1 px-3 text-slate-500">Lead</th></tr></thead>
               <tbody className="divide-y divide-orange-100">
@@ -178,7 +178,7 @@ function SundayProgramView() {
       <ul className="divide-y divide-slate-100">
         {items.map((row, idx) => (
           <li key={idx} className="flex items-center gap-3 px-4 py-2.5">
-            <span className="w-5 text-xs text-slate-400 text-right">{idx + 1}.</span>
+            <span className="w-5 text-xs text-slate-500 text-right">{idx + 1}.</span>
             <span className="text-sm font-medium text-slate-800">{row.programName}</span>
           </li>
         ))}
@@ -376,7 +376,7 @@ function DigitalBulletin({ plan, selectedDate }) {
       {/* Header */}
       <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-3xl p-6 text-white shadow-lg">
         <p className="text-indigo-200 text-xs uppercase tracking-widest mb-1">River Of Life Church</p>
-        <h2 className="text-2xl font-bold">Sunday Service</h2>
+        <h2 className="text-xl sm:text-2xl font-bold">Sunday Service</h2>
         <p className="text-indigo-200 text-sm mt-1">{formatDMY(selectedDate)}</p>
         <span className="inline-block mt-3 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-semibold">
           ✓ Official Sunday Plan
@@ -406,7 +406,7 @@ function DigitalBulletin({ plan, selectedDate }) {
       </div>
 
       {plan?.publishedBy && (
-        <p className="text-center text-xs text-slate-400">
+        <p className="text-center text-xs text-slate-500">
           Published by {plan.publishedBy}
           {plan.publishedAt?.toDate ? ` on ${formatDMY(format(plan.publishedAt.toDate(), 'yyyy-MM-dd'))}` : ''}
         </p>

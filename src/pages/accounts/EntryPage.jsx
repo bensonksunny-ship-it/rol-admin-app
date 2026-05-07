@@ -59,7 +59,7 @@ export default function EntryPage() {
   return (
     <div className="space-y-6 pb-24">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Accounts · Entry</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Accounts · Entry</h1>
         <p className="text-slate-500 mt-1">Fast switch between entry modes, with local memory of recent actions.</p>
       </div>
 

@@ -120,7 +120,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Dashboard</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Dashboard</h1>
         <p className="text-slate-500 mt-1">Overview of church operations</p>
       </div>
 
@@ -163,7 +163,7 @@ export default function Dashboard() {
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <p className="text-sm text-slate-500">Sunday planning status</p>
             <p className="text-2xl font-bold text-indigo-600 mt-1">0%</p>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 mt-1">
               Visible only to Senior Pastor / Founder. Percentage formula will be defined later.
             </p>
           </div>

@@ -46,7 +46,7 @@ export default function Departments() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Departments</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Departments</h1>
         <p className="text-slate-500 mt-1">Manage department activity, reports, and tasks</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

@@ -120,7 +120,7 @@ export default function CellUserManagement() {
   return (
     <div className="space-y-6 p-4">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Cell User Management</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Cell User Management</h1>
         <p className="text-slate-500 mt-1 text-sm">
           View and manage users connected to cell groups, according to your access level.
         </p>

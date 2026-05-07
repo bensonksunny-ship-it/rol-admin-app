@@ -282,7 +282,7 @@ export default function Finance() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Church Finance</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Church Finance</h1>
           <p className="text-slate-500 mt-1">Income, expenses, and balance</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -409,7 +409,7 @@ export default function Finance() {
                     <p className="text-xs text-slate-500 mt-0.5">
                       👤 {req.submittedBy || '—'} · 🏷 {req.departmentTag || '—'} · {req.category || '—'}
                     </p>
-                    <p className="text-xs text-slate-400 mt-0.5">
+                    <p className="text-xs text-slate-500 mt-0.5">
                       {req.date ? formatDMY(req.date) : '—'}
                       {req.description ? ` · ${req.description}` : ''}
                     </p>
@@ -478,7 +478,7 @@ export default function Finance() {
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100">
               <h2 className="font-semibold text-slate-800 text-sm">Recent Transactions</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Last 20 entries — income and expenses</p>
+              <p className="text-xs text-slate-500 mt-0.5">Last 20 entries — income and expenses</p>
             </div>
             {recentTransactions.length === 0 ? (
               <p className="px-5 py-8 text-center text-sm text-slate-400">No transactions recorded yet.</p>
@@ -512,12 +512,12 @@ export default function Finance() {
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-slate-400">{tx.date ? formatDMY(tx.date) : '—'}</span>
+                        <span className="text-xs text-slate-500">{tx.date ? formatDMY(tx.date) : '—'}</span>
                         {tx.submittedBy && (
-                          <span className="text-xs text-slate-400">· {tx.submittedBy}</span>
+                          <span className="text-xs text-slate-500">· {tx.submittedBy}</span>
                         )}
                         {tx.description && (
-                          <span className="text-xs text-slate-400 truncate max-w-[160px]">· {tx.description}</span>
+                          <span className="text-xs text-slate-500 truncate max-w-[160px]">· {tx.description}</span>
                         )}
                       </div>
                     </div>
@@ -611,11 +611,11 @@ export default function Finance() {
               <div key={i.id} className="px-4 py-3 space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-emerald-600 text-sm">RM {(Number(i.amount) || 0).toLocaleString()}</span>
-                  <span className="text-xs text-slate-400">{formatDMY(i.date)}</span>
+                  <span className="text-xs text-slate-500">{formatDMY(i.date)}</span>
                 </div>
                 <div className="text-sm text-slate-700">{i.category || '—'}{i.departmentTag ? ` · ${i.departmentTag}` : ''}</div>
                 {i.description && <div className="text-xs text-slate-500">{i.description}</div>}
-                {i.submittedBy && <div className="text-xs text-slate-400">by {i.submittedBy}</div>}
+                {i.submittedBy && <div className="text-xs text-slate-500">by {i.submittedBy}</div>}
               </div>
             ))}
           </div>
@@ -662,11 +662,11 @@ export default function Finance() {
               <div key={e.id} className="px-4 py-3 space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-red-600 text-sm">RM {(Number(e.amount) || 0).toLocaleString()}</span>
-                  <span className="text-xs text-slate-400">{formatDMY(e.date)}</span>
+                  <span className="text-xs text-slate-500">{formatDMY(e.date)}</span>
                 </div>
                 <div className="text-sm text-slate-700">{e.category || '—'}{e.departmentTag ? ` · ${e.departmentTag}` : ''}</div>
                 {e.description && <div className="text-xs text-slate-500">{e.description}</div>}
-                {e.submittedBy && <div className="text-xs text-slate-400">by {e.submittedBy}</div>}
+                {e.submittedBy && <div className="text-xs text-slate-500">by {e.submittedBy}</div>}
               </div>
             ))}
           </div>
@@ -757,7 +757,7 @@ export default function Finance() {
                         {row.type && <span>{row.type}</span>}
                         {row.expectedDate && <span>{formatDMY(row.expectedDate)}</span>}
                       </div>
-                      {row.justification && <div className="text-xs text-slate-400 italic">{row.justification}</div>}
+                      {row.justification && <div className="text-xs text-slate-500 italic">{row.justification}</div>}
                       {canEnter && (
                         <div className="flex gap-3 pt-1">
                           <button

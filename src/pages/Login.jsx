@@ -30,7 +30,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-blue-50 p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-slate-800">River Of Life Admin App</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-800">River Of Life Admin App</h1>
           <p className="text-slate-500 mt-1">Sign in to continue</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-5">

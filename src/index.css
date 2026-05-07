@@ -87,6 +87,51 @@ body {
   background-color: rgba(15, 23, 42, 0.65) !important;
 }
 
+/* ─── Scrollbar hide utility ─────────────────────────────────────────────── */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* ─── Mobile typography baseline ─────────────────────────────────────────── */
+/* text-xs (12 px) is borderline illegible on phones — nudge to 13 px */
+@media (max-width: 639px) {
+  .text-xs {
+    font-size: 0.8125rem;   /* 13 px */
+    line-height: 1.25rem;
+  }
+}
+
+/* ─── Contrast: slate-400 is too light on white for body text ────────────── */
+/* Bumps it to slate-500 equivalent in light mode only */
+:root:not(.dark) .text-slate-400 {
+  color: #64748b; /* slate-500 — 4.5 : 1 on white */
+}
+
+/* ─── Consistent card style ──────────────────────────────────────────────── */
+.rol-card {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 0.875rem;
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.06), 0 1px 2px -1px rgba(0,0,0,0.04);
+  padding: 1.25rem;
+}
+.dark .rol-card {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(51, 65, 85, 0.8);
+}
+
+/* ─── Touch targets: ensure primary action buttons are tall enough ────────── */
+@media (max-width: 639px) {
+  .btn-touch {
+    min-height: 2.75rem; /* 44 px */
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+}
+
 @keyframes rolAccordionSlideIn {
   from {
     opacity: 0;

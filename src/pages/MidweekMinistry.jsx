@@ -81,7 +81,7 @@ export default function MidweekMinistry({ embedded = false }) {
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Mid-week Ministry</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Mid-week Ministry</h1>
           <p className="text-slate-500 text-sm mt-0.5">Live cell meeting tools</p>
         </div>
 
@@ -1241,7 +1241,7 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
                     disabled={!canEdit}
                     className="w-14 px-2 py-1 rounded-lg border border-slate-300 text-sm text-center font-medium focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50 bg-white"
                   />
-                  <span className="text-xs text-slate-400">m</span>
+                  <span className="text-xs text-slate-500">m</span>
                 </div>
 
                 {/* Calculated time */}

@@ -99,7 +99,7 @@ export default function SeniorPastorHub() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Senior Pastor hub</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Senior Pastor hub</h1>
         <p className="text-slate-500 mt-1">View all departments and add your remarks. Reports and planning from department heads are reflected here.</p>
       </div>
 

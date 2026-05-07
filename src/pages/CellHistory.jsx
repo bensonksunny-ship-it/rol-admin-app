@@ -265,7 +265,7 @@ export default function CellHistory({ embedded = false }) {
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Cell History</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Cell History</h1>
             <p className="text-slate-500 text-sm mt-0.5">Past meeting records</p>
           </div>
           <div className="flex items-center gap-3 flex-shrink-0 mt-1">

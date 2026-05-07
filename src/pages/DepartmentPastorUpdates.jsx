@@ -94,7 +94,7 @@ export default function DepartmentPastorUpdates() {
         </Link>
       </div>
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Updates</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Updates</h1>
         <p className="text-slate-500 mt-1">
           Pastor notes, ratings, and suggested changes for {department.name}. Only Senior Pastor and Founder can edit.
         </p>

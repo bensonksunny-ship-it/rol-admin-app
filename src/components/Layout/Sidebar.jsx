@@ -139,7 +139,7 @@ export default function Sidebar() {
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="lg:hidden fixed top-4 left-4 z-40 p-2 rounded-lg bg-slate-800 text-white shadow"
+          className="lg:hidden fixed top-3 left-3 z-40 p-2.5 rounded-xl bg-slate-800 text-white shadow text-lg leading-none"
           aria-label="Toggle menu"
         >
           {open ? '✕' : '☰'}
@@ -163,7 +163,7 @@ export default function Sidebar() {
                 to={item.to || '/'}
                 onClick={() => setOpen(false)}
                 className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
+                  `flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm transition-all ${
                     isActive
                       ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow'
                       : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
@@ -185,13 +185,13 @@ export default function Sidebar() {
           type="button"
           onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
           aria-label={themeToggleLabel}
-          className="w-full mt-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
+          className="w-full mt-1 px-3 py-3 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
         >
           {theme === 'night' ? '🌙 Night mode' : '☀️ Day mode'}
         </button>
             <button
               onClick={signOut}
-              className="w-full mt-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
+              className="w-full mt-1 px-3 py-3 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
             >
               Sign out
             </button>
@@ -246,7 +246,7 @@ export default function Sidebar() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="lg:hidden fixed top-4 left-4 z-40 p-2 rounded-lg bg-slate-800 text-white shadow"
+        className="lg:hidden fixed top-3 left-3 z-40 p-2.5 rounded-xl bg-slate-800 text-white shadow text-lg leading-none"
         aria-label="Toggle menu"
       >
         {open ? '✕' : '☰'}
@@ -269,7 +269,7 @@ export default function Sidebar() {
             key={(item.to || '/') + (item.label || '')}
             to={item.to || '/'}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
+              `flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm transition-all ${
                 isActive
                   ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow'
                   : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
@@ -291,7 +291,7 @@ export default function Sidebar() {
         </div>
         <button
           onClick={signOut}
-          className="w-full mt-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
+          className="w-full mt-1 px-3 py-3 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
         >
           Sign out
         </button>

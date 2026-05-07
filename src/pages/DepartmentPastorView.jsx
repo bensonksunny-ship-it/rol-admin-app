@@ -127,7 +127,7 @@ export default function DepartmentPastorView() {
         </Link>
       </div>
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">{department.name} – Senior Pastor view</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-800">{department.name} – Senior Pastor view</h1>
         <p className="text-slate-500 mt-1">
           Your private planning and notes for this department. Directors / coordinators cannot see this page.
         </p>

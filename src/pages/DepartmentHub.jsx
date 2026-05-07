@@ -965,7 +965,7 @@ export default function DepartmentHub() {
                           <li key={e.id} className="px-5 py-3 text-sm">
                             <span className="text-slate-500">{e.period || e.type || 'Entry'}</span>
                             {e.notes && <p className="text-slate-800 mt-0.5 whitespace-pre-wrap">{e.notes}</p>}
-                            <p className="text-xs text-slate-400 mt-1">
+                            <p className="text-xs text-slate-500 mt-1">
                               {e.enteredBy} · {e.createdAt ? formatDisplayDate(e.createdAt) : ''}
                             </p>
                           </li>
@@ -3685,7 +3685,7 @@ export default function DepartmentHub() {
                     {latestCellAttendance != null ? latestCellAttendance.totalAttendance : '—'}
                   </p>
                   {latestCellAttendance?.date && (
-                    <p className="text-xs text-slate-400 mt-0.5">{formatDMY(latestCellAttendance.date)}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{formatDMY(latestCellAttendance.date)}</p>
                   )}
                   {canEdit && (
                     <button

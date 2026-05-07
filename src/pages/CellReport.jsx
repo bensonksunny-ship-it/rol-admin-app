@@ -687,7 +687,7 @@ export default function CellReport() {
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
           <h3 className="font-semibold text-slate-800 mb-2">Members Attended</h3>
           <p className="text-2xl font-bold text-slate-800">{attendees.length}</p>
-          <p className="text-xs text-slate-400">Click a member name below to mark attended; click again to remove.</p>
+          <p className="text-xs text-slate-500">Click a member name below to mark attended; click again to remove.</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
           <h3 className="font-semibold text-slate-800 mb-2">Visitors Attended</h3>

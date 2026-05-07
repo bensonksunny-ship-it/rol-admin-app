@@ -314,7 +314,7 @@ export default function AdminUserManagement() {
     <div className="space-y-6 p-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">User Management</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-800">User Management</h1>
           <p className="text-slate-500 mt-1 text-sm">
             Create and manage users. Username is email; password is membership number.
           </p>
