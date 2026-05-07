@@ -1519,81 +1519,102 @@ export default function CellReport() {
                 </div>
                 <p className="text-sm text-slate-500">Tap START when each program begins. Use the edit buttons to correct a time after the fact.</p>
 
-                {/* ── Recorded timeline (always shown when there are logs) ── */}
-                {programLogs.length > 0 && (
-                  <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 shadow-sm">
-                    <h3 className="font-semibold text-slate-800 mb-2 text-sm">Recorded times</h3>
-                    <ul className="text-sm text-slate-700 divide-y divide-slate-200">
-                      {(() => {
-                        const sortedLogs = sortProgramLogsByStart(programLogs)
-                        return sortedLogs.map((log, i) => {
-                          const segMin = segmentDurationMinutesForSortedLog(sortedLogs, i)
-                          const timeStr = log.startTime
-                            ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
-                            : '—'
-                          return (
-                            <li key={log.id} className="py-2 flex items-center justify-between gap-2">
-                              <span className="font-medium truncate">{log.programName || '—'}</span>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <span className="text-slate-600 tabular-nums text-xs">
-                                  {timeStr}{segMin != null ? ` · ${formatDurationMinutes(segMin)}` : ''}
-                                </span>
-                                {canEditCurrentReport && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const t = log.startTime instanceof Date ? log.startTime : new Date(log.startTime)
-                                        setManualTimeModal({
-                                          mode: 'edit',
-                                          logId: log.id,
-                                          programName: log.programName,
-                                          timeStr: format(t, 'HH:mm'),
-                                          reportDate: reportDate || format(new Date(), 'yyyy-MM-dd'),
-                                        })
-                                      }}
-                                      className="text-xs text-indigo-600 hover:underline px-1"
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        if (!window.confirm(`Delete the recorded time for "${log.programName}"?`)) return
-                                        try {
-                                          await deleteProgramLog(log.id)
-                                          const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', reportDate || format(new Date(), 'yyyy-MM-dd'))
-                                          setProgramLogs(logs)
-                                        } catch (e) {
-                                          alert(e?.message || 'Failed to delete')
-                                        }
-                                      }}
-                                      className="text-xs text-red-500 hover:underline px-1"
-                                    >
-                                      Delete
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </li>
-                          )
-                        })
-                      })()}
-                    </ul>
-                  </div>
-                )}
-
                 {(() => {
                   const sorted = [...programItems].sort((a, b) => a.order - b.order)
                   const currentItem = sorted[programLogs.length] || null
                   if (sorted.length === 0) {
                     return <p className="text-slate-500 py-6">Add program items in <strong>Set Default Program</strong> first.</p>
                   }
+
+                  // ── All programs done: editable timeline + add + end meeting ──
                   if (!currentItem) {
+                    const sortedLogs = sortProgramLogsByStart(programLogs)
                     return (
-                      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
-                        <p className="font-semibold text-emerald-800">All programs recorded</p>
-                        <p className="text-sm text-emerald-700 mt-1">Edit times above if needed, then end the meeting.</p>
+                      <div className="space-y-3">
+                        {/* Editable timeline */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+                            <span className="font-semibold text-emerald-700 text-sm">✓ All programs recorded</span>
+                            {canEditCurrentReport && !meetingLocked && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const now = new Date()
+                                  setManualTimeModal({
+                                    mode: 'add',
+                                    logId: null,
+                                    programName: '',
+                                    timeStr: format(now, 'HH:mm'),
+                                    reportDate: reportDate || format(new Date(), 'yyyy-MM-dd'),
+                                  })
+                                }}
+                                className="text-xs text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1 hover:bg-indigo-50"
+                              >
+                                + Add missed entry
+                              </button>
+                            )}
+                          </div>
+                          {sortedLogs.length === 0 ? (
+                            <p className="px-4 py-4 text-sm text-slate-500">No times recorded yet.</p>
+                          ) : (
+                            <ul className="divide-y divide-slate-100 text-sm">
+                              {sortedLogs.map((log, i) => {
+                                const segMin = segmentDurationMinutesForSortedLog(sortedLogs, i)
+                                const timeStr = log.startTime
+                                  ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
+                                  : '—'
+                                return (
+                                  <li key={log.id} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                                    <span className="font-medium text-slate-800 truncate">{log.programName || '—'}</span>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      <span className="text-slate-500 tabular-nums text-xs">
+                                        {timeStr}{segMin != null ? ` · ${formatDurationMinutes(segMin)}` : ''}
+                                      </span>
+                                      {canEditCurrentReport && (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const t = log.startTime instanceof Date ? log.startTime : new Date(log.startTime)
+                                              setManualTimeModal({
+                                                mode: 'edit',
+                                                logId: log.id,
+                                                programName: log.programName,
+                                                timeStr: format(t, 'HH:mm'),
+                                                reportDate: reportDate || format(new Date(), 'yyyy-MM-dd'),
+                                              })
+                                            }}
+                                            className="text-xs text-indigo-600 hover:underline"
+                                          >
+                                            Edit
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              if (!window.confirm(`Delete the recorded time for "${log.programName}"?`)) return
+                                              try {
+                                                await deleteProgramLog(log.id)
+                                                const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', reportDate || format(new Date(), 'yyyy-MM-dd'))
+                                                setProgramLogs(logs)
+                                              } catch (e) {
+                                                alert(e?.message || 'Failed to delete')
+                                              }
+                                            }}
+                                            className="text-xs text-red-500 hover:underline"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          )}
+                        </div>
+
+                        {/* End meeting */}
                         {canEditCurrentReport && !meetingLocked ? (
                           <button
                             type="button"
@@ -1618,56 +1639,121 @@ export default function CellReport() {
                                 setSaving(false)
                               }
                             }}
-                            className="mt-4 px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium disabled:opacity-60"
+                            className="w-full py-3 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 disabled:opacity-60 shadow-sm"
                           >
                             End Cell Meeting
                           </button>
                         ) : meetingLocked ? (
-                          <p className="text-sm text-emerald-800 mt-3 font-medium">Meeting ended.</p>
+                          <p className="text-center text-sm text-emerald-700 font-medium py-2">Meeting ended.</p>
                         ) : null}
                       </div>
                     )
                   }
+
+                  // ── Still recording: show progress strip + START button ──
+                  const inProgressSorted = sortProgramLogsByStart(programLogs)
                   return (
-                    <div className="flex flex-col items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!canEditCurrentReport || meetingLocked) return
-                          try {
-                            await addProgramLog({ cellName: cell?.cellName || '', programName: currentItem.programName, startTime: new Date(), reportDate: reportDate || format(new Date(), 'yyyy-MM-dd') })
-                            const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', reportDate || format(new Date(), 'yyyy-MM-dd'))
-                            setProgramLogs(logs)
-                          } catch (e) {
-                            console.error('Program log error', e)
-                            const msg = e?.message || e?.code || (e && String(e)) || 'Failed to record'
-                            alert(msg)
-                          }
-                        }}
-                        className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition"
-                        style={{ width: '3in', minWidth: '3in', height: '3.8in', minHeight: '3.8in' }}
-                      >
-                        <span className="text-3xl md:text-4xl font-bold tracking-wide">START</span>
-                        <span className="text-sm md:text-base text-white/95 mt-3 font-medium">{currentItem.programName || '—'}</span>
-                      </button>
-                      {canEditCurrentReport && !meetingLocked && (
+                    <div className="space-y-4">
+                      {/* Recorded so far */}
+                      {inProgressSorted.length > 0 && (
+                        <div className="bg-slate-50 rounded-xl border border-slate-200 p-3 shadow-sm">
+                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Recorded so far</p>
+                          <ul className="text-sm text-slate-700 divide-y divide-slate-200">
+                            {inProgressSorted.map((log, i) => {
+                              const segMin = segmentDurationMinutesForSortedLog(inProgressSorted, i)
+                              const timeStr = log.startTime
+                                ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
+                                : '—'
+                              return (
+                                <li key={log.id} className="py-1.5 flex items-center justify-between gap-2">
+                                  <span className="truncate">{log.programName || '—'}</span>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-slate-500 tabular-nums text-xs">
+                                      {timeStr}{segMin != null ? ` · ${formatDurationMinutes(segMin)}` : ''}
+                                    </span>
+                                    {canEditCurrentReport && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const t = log.startTime instanceof Date ? log.startTime : new Date(log.startTime)
+                                            setManualTimeModal({
+                                              mode: 'edit',
+                                              logId: log.id,
+                                              programName: log.programName,
+                                              timeStr: format(t, 'HH:mm'),
+                                              reportDate: reportDate || format(new Date(), 'yyyy-MM-dd'),
+                                            })
+                                          }}
+                                          className="text-xs text-indigo-600 hover:underline"
+                                        >
+                                          Edit
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            if (!window.confirm(`Delete the recorded time for "${log.programName}"?`)) return
+                                            try {
+                                              await deleteProgramLog(log.id)
+                                              const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', reportDate || format(new Date(), 'yyyy-MM-dd'))
+                                              setProgramLogs(logs)
+                                            } catch (e) {
+                                              alert(e?.message || 'Failed to delete')
+                                            }
+                                          }}
+                                          className="text-xs text-red-500 hover:underline"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        </div>
+                      )}
+                      <div className="flex flex-col items-center gap-3">
                         <button
                           type="button"
-                          onClick={() => {
-                            const now = new Date()
-                            setManualTimeModal({
-                              mode: 'add',
-                              logId: null,
-                              programName: currentItem.programName,
-                              timeStr: format(now, 'HH:mm'),
-                              reportDate: reportDate || format(new Date(), 'yyyy-MM-dd'),
-                            })
+                          onClick={async () => {
+                            if (!canEditCurrentReport || meetingLocked) return
+                            try {
+                              await addProgramLog({ cellName: cell?.cellName || '', programName: currentItem.programName, startTime: new Date(), reportDate: reportDate || format(new Date(), 'yyyy-MM-dd') })
+                              const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', reportDate || format(new Date(), 'yyyy-MM-dd'))
+                              setProgramLogs(logs)
+                            } catch (e) {
+                              console.error('Program log error', e)
+                              const msg = e?.message || e?.code || (e && String(e)) || 'Failed to record'
+                              alert(msg)
+                            }
                           }}
-                          className="text-sm text-indigo-500 hover:text-indigo-700 underline-offset-2 hover:underline"
+                          className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition"
+                          style={{ width: '3in', minWidth: '3in', height: '3.8in', minHeight: '3.8in' }}
                         >
-                          Missed the tap? Enter time manually
+                          <span className="text-3xl md:text-4xl font-bold tracking-wide">START</span>
+                          <span className="text-sm md:text-base text-white/95 mt-3 font-medium">{currentItem.programName || '—'}</span>
                         </button>
-                      )}
+                        {canEditCurrentReport && !meetingLocked && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const now = new Date()
+                              setManualTimeModal({
+                                mode: 'add',
+                                logId: null,
+                                programName: currentItem.programName,
+                                timeStr: format(now, 'HH:mm'),
+                                reportDate: reportDate || format(new Date(), 'yyyy-MM-dd'),
+                              })
+                            }}
+                            className="text-sm text-indigo-500 hover:text-indigo-700 underline-offset-2 hover:underline"
+                          >
+                            Missed the tap? Enter time manually
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )
                 })()}
@@ -1682,10 +1768,23 @@ export default function CellReport() {
                       className="bg-white rounded-xl shadow-xl w-full max-w-xs p-5"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <h3 className="font-semibold text-slate-800 mb-1">
-                        {manualTimeModal.mode === 'edit' ? 'Edit recorded time' : 'Enter time manually'}
+                      <h3 className="font-semibold text-slate-800 mb-4">
+                        {manualTimeModal.mode === 'edit' ? 'Edit recorded time' : 'Add missed entry'}
                       </h3>
-                      <p className="text-sm text-slate-500 mb-4">{manualTimeModal.programName}</p>
+                      {manualTimeModal.mode === 'edit' ? (
+                        <p className="text-sm text-slate-500 mb-3">{manualTimeModal.programName}</p>
+                      ) : (
+                        <div className="mb-3">
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Program name</label>
+                          <input
+                            type="text"
+                            value={manualTimeModal.programName}
+                            onChange={(e) => setManualTimeModal((m) => ({ ...m, programName: e.target.value }))}
+                            placeholder="e.g. Worship"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                          />
+                        </div>
+                      )}
                       <label className="block text-sm font-medium text-slate-700 mb-1">Start time</label>
                       <input
                         type="time"
