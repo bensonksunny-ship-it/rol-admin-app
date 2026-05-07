@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import {
+  LayoutDashboard, Crown, Building2, CalendarCheck,
+  UserCog, FolderOpen, Leaf, PenLine,
+} from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { ROLES } from '../../constants/roles'
@@ -13,6 +17,17 @@ const navItems = [
   { to: '/sunday-planning', label: 'Sunday Plan', icon: '📋', permission: 'attendance' },
   { to: '/admin/users', label: 'User Management', icon: '👥', permission: 'manageUsers', adminOnly: true },
 ]
+
+const ICON_MAP = {
+  '📊': LayoutDashboard,
+  '👤': Crown,
+  '🏢': Building2,
+  '📋': CalendarCheck,
+  '👥': UserCog,
+  '📁': FolderOpen,
+  '🍃': Leaf,
+  '📝': PenLine,
+}
 
 function shortLabel(label) {
   const map = {
@@ -33,93 +48,100 @@ function shortLabel(label) {
 
 function BottomTabBar({ items, theme }) {
   const isDay = theme !== 'night'
+  const { pathname } = useLocation()
+  const tabRefs = useRef([])
+  const [pillStyle, setPillStyle] = useState(null)
 
-  if (isDay) {
-    return (
-      <nav
-        className="lg:hidden fixed z-50"
-        style={{ bottom: '14px', left: '12px', right: '12px' }}
-      >
-        <div style={{
-          background: 'rgba(255,255,255,0.88)',
-          backdropFilter: 'blur(24px) saturate(200%)',
-          WebkitBackdropFilter: 'blur(24px) saturate(200%)',
-          border: '1px solid rgba(255,255,255,0.95)',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,1)',
-          borderRadius: '20px',
-          overflow: 'hidden',
-        }}>
-          <div className="flex overflow-x-auto scrollbar-hide px-1">
-            {items.map((item) => (
-              <NavLink
-                key={(item.to || '/') + (item.label || '')}
-                to={item.to || '/'}
-                className={({ isActive }) =>
-                  `flex flex-col items-center justify-center gap-0.5 px-2.5 py-2.5 flex-shrink-0 min-w-[60px] relative transition-colors duration-150 ${
-                    isActive ? 'text-indigo-600' : 'text-slate-500'
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    {isActive && (
-                      <span
-                        className="absolute inset-x-1 top-1 bottom-1 rounded-xl"
-                        style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.14)' }}
-                      />
-                    )}
-                    <span className="text-xl leading-none relative z-10">{item.icon}</span>
-                    <span className="text-[10px] leading-none font-semibold truncate max-w-[56px] relative z-10 mt-0.5">
-                      {shortLabel(item.label)}
-                    </span>
-                  </>
-                )}
-              </NavLink>
-            ))}
-          </div>
-        </div>
-      </nav>
-    )
+  const activeIndex = useMemo(() => {
+    for (let i = 0; i < items.length; i++) {
+      const to = items[i].to
+      if (to === '/') { if (pathname === '/') return i }
+      else if (pathname === to || pathname.startsWith(to + '/')) return i
+    }
+    return -1
+  }, [pathname, items])
+
+  useLayoutEffect(() => {
+    const el = tabRefs.current[activeIndex]
+    if (el) setPillStyle({ left: el.offsetLeft + 4, width: el.offsetWidth - 8 })
+  }, [activeIndex, items.length])
+
+  const dockStyle = isDay ? {
+    background: 'rgba(255,255,255,0.88)',
+    backdropFilter: 'blur(24px) saturate(200%)',
+    WebkitBackdropFilter: 'blur(24px) saturate(200%)',
+    border: '1px solid rgba(255,255,255,0.95)',
+    boxShadow: '0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,1)',
+    borderRadius: '20px',
+    overflow: 'hidden',
+  } : {
+    background: 'rgba(15,23,42,0.96)',
+    backdropFilter: 'blur(20px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+    borderTop: '1px solid rgba(255,255,255,0.08)',
+    paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 4px)',
   }
+
+  const pillColor = isDay ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.2)'
+  const pillBorder = isDay ? '1px solid rgba(99,102,241,0.15)' : 'none'
+  const activeColor = isDay ? '#6366f1' : '#818cf8'
+  const inactiveColor = isDay ? '#94a3b8' : '#64748b'
 
   return (
     <nav
-      className="lg:hidden fixed bottom-0 left-0 right-0 z-50"
-      style={{
-        background: 'rgba(15,23,42,0.96)',
-        backdropFilter: 'blur(20px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-        borderTop: '1px solid rgba(255,255,255,0.08)',
-        paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 4px)',
-      }}
+      className="lg:hidden fixed z-50"
+      style={isDay ? { bottom: '14px', left: '12px', right: '12px' } : { bottom: 0, left: 0, right: 0 }}
     >
-      <div className="flex overflow-x-auto scrollbar-hide px-1">
-        {items.map((item) => (
-          <NavLink
-            key={(item.to || '/') + (item.label || '')}
-            to={item.to || '/'}
-            className={({ isActive }) =>
-              `flex flex-col items-center justify-center gap-0.5 px-2.5 py-2.5 flex-shrink-0 min-w-[60px] relative transition-colors duration-150 ${
-                isActive ? 'text-indigo-400' : 'text-slate-400'
-              }`
-            }
-          >
-            {({ isActive }) => (
-              <>
-                {isActive && (
+      <div style={dockStyle}>
+        <div className="flex overflow-x-auto scrollbar-hide px-1 relative">
+
+          {/* Sliding pill — renders only after first measurement */}
+          {pillStyle && (
+            <div
+              className="absolute top-1.5 bottom-1.5 rounded-xl pointer-events-none"
+              style={{
+                left: `${pillStyle.left}px`,
+                width: `${pillStyle.width}px`,
+                background: pillColor,
+                border: pillBorder,
+                transition: 'left 0.28s cubic-bezier(0.34,1.56,0.64,1), width 0.22s cubic-bezier(0.34,1.56,0.64,1)',
+              }}
+            />
+          )}
+
+          {items.map((item, i) => {
+            const isActive = i === activeIndex
+            const Icon = ICON_MAP[item.icon] || LayoutDashboard
+            return (
+              <div
+                key={(item.to || '/') + (item.label || '')}
+                ref={(el) => { tabRefs.current[i] = el }}
+                className="flex-shrink-0"
+                style={{ minWidth: '64px' }}
+              >
+                <NavLink
+                  to={item.to || '/'}
+                  className="flex flex-col items-center justify-center w-full py-2.5 relative z-10 transition-colors duration-200"
+                  style={{ color: isActive ? activeColor : inactiveColor }}
+                >
+                  <Icon size={20} strokeWidth={1.5} />
                   <span
-                    className="absolute inset-x-1 top-1 bottom-1 rounded-xl"
-                    style={{ background: 'rgba(99,102,241,0.18)' }}
-                  />
-                )}
-                <span className="text-xl leading-none relative z-10">{item.icon}</span>
-                <span className="text-[10px] leading-none font-medium truncate max-w-[56px] relative z-10 mt-0.5">
-                  {shortLabel(item.label)}
-                </span>
-              </>
-            )}
-          </NavLink>
-        ))}
+                    className="text-[10px] font-semibold leading-none transition-all duration-200 overflow-hidden whitespace-nowrap"
+                    style={{
+                      maxHeight: isActive ? '14px' : '0px',
+                      opacity: isActive ? 1 : 0,
+                      marginTop: isActive ? '3px' : '0px',
+                      transition: 'max-height 0.2s ease, opacity 0.2s ease, margin-top 0.2s ease',
+                    }}
+                  >
+                    {shortLabel(item.label)}
+                  </span>
+                </NavLink>
+              </div>
+            )
+          })}
+
+        </div>
       </div>
     </nav>
   )
