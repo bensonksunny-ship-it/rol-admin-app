@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Crown, Building2, CalendarCheck,
-  UserCog, FolderOpen, Leaf, PenLine,
+  UserCog, FolderOpen, Leaf, PenLine, LogOut,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
@@ -46,7 +46,7 @@ function shortLabel(label) {
   return base.length > 10 ? base.slice(0, 9) + '…' : base
 }
 
-function BottomTabBar({ items, theme }) {
+function BottomTabBar({ items, theme, signOut }) {
   const isDay = theme !== 'night'
   const { pathname } = useLocation()
   const tabRefs = useRef([])
@@ -93,53 +93,72 @@ function BottomTabBar({ items, theme }) {
       style={isDay ? { bottom: '14px', left: '12px', right: '12px' } : { bottom: 0, left: 0, right: 0 }}
     >
       <div style={dockStyle}>
-        <div className="flex overflow-x-auto scrollbar-hide px-1 relative">
+        <div className="flex items-stretch">
 
-          {/* Sliding pill — renders only after first measurement */}
-          {pillStyle && (
-            <div
-              className="absolute top-1.5 bottom-1.5 rounded-xl pointer-events-none"
-              style={{
-                left: `${pillStyle.left}px`,
-                width: `${pillStyle.width}px`,
-                background: pillColor,
-                border: pillBorder,
-                transition: 'left 0.28s cubic-bezier(0.34,1.56,0.64,1), width 0.22s cubic-bezier(0.34,1.56,0.64,1)',
-              }}
-            />
-          )}
+          {/* Scrollable nav items */}
+          <div className="flex-1 flex overflow-x-auto scrollbar-hide px-1 relative min-w-0">
 
-          {items.map((item, i) => {
-            const isActive = i === activeIndex
-            const Icon = ICON_MAP[item.icon] || LayoutDashboard
-            return (
+            {/* Sliding pill — renders only after first measurement */}
+            {pillStyle && (
               <div
-                key={(item.to || '/') + (item.label || '')}
-                ref={(el) => { tabRefs.current[i] = el }}
-                className="flex-shrink-0"
-                style={{ minWidth: '64px' }}
-              >
-                <NavLink
-                  to={item.to || '/'}
-                  className="flex flex-col items-center justify-center w-full py-2.5 relative z-10 transition-colors duration-200"
-                  style={{ color: isActive ? activeColor : inactiveColor }}
+                className="absolute top-1.5 bottom-1.5 rounded-xl pointer-events-none"
+                style={{
+                  left: `${pillStyle.left}px`,
+                  width: `${pillStyle.width}px`,
+                  background: pillColor,
+                  border: pillBorder,
+                  transition: 'left 0.28s cubic-bezier(0.34,1.56,0.64,1), width 0.22s cubic-bezier(0.34,1.56,0.64,1)',
+                }}
+              />
+            )}
+
+            {items.map((item, i) => {
+              const isActive = i === activeIndex
+              const Icon = ICON_MAP[item.icon] || LayoutDashboard
+              return (
+                <div
+                  key={(item.to || '/') + (item.label || '')}
+                  ref={(el) => { tabRefs.current[i] = el }}
+                  className="flex-shrink-0"
+                  style={{ minWidth: '64px' }}
                 >
-                  <Icon size={20} strokeWidth={1.5} />
-                  <span
-                    className="text-[10px] font-semibold leading-none transition-all duration-200 overflow-hidden whitespace-nowrap"
-                    style={{
-                      maxHeight: isActive ? '14px' : '0px',
-                      opacity: isActive ? 1 : 0,
-                      marginTop: isActive ? '3px' : '0px',
-                      transition: 'max-height 0.2s ease, opacity 0.2s ease, margin-top 0.2s ease',
-                    }}
+                  <NavLink
+                    to={item.to || '/'}
+                    className="flex flex-col items-center justify-center w-full py-2.5 relative z-10 transition-colors duration-200"
+                    style={{ color: isActive ? activeColor : inactiveColor }}
                   >
-                    {shortLabel(item.label)}
-                  </span>
-                </NavLink>
-              </div>
-            )
-          })}
+                    <Icon size={20} strokeWidth={1.5} />
+                    <span
+                      className="text-[10px] font-semibold leading-none transition-all duration-200 overflow-hidden whitespace-nowrap"
+                      style={{
+                        maxHeight: isActive ? '14px' : '0px',
+                        opacity: isActive ? 1 : 0,
+                        marginTop: isActive ? '3px' : '0px',
+                        transition: 'max-height 0.2s ease, opacity 0.2s ease, margin-top 0.2s ease',
+                      }}
+                    >
+                      {shortLabel(item.label)}
+                    </span>
+                  </NavLink>
+                </div>
+              )
+            })}
+
+          </div>
+
+          {/* Sign out — always visible at right edge */}
+          <button
+            type="button"
+            onClick={signOut}
+            className="flex flex-col items-center justify-center py-2.5 px-3.5 flex-shrink-0 transition-opacity active:opacity-60"
+            style={{
+              borderLeft: isDay ? '1px solid rgba(0,0,0,0.07)' : '1px solid rgba(255,255,255,0.07)',
+              color: '#f43f5e',
+            }}
+          >
+            <LogOut size={20} strokeWidth={1.5} />
+            <span className="text-[10px] font-semibold leading-none mt-0.5">Sign out</span>
+          </button>
 
         </div>
       </div>
@@ -416,7 +435,7 @@ export default function Sidebar() {
             <button onClick={signOut} className={actionBtnClass}>Sign out</button>
           </div>
         </aside>
-        <BottomTabBar items={scopedItems} theme={theme} />
+        <BottomTabBar items={scopedItems} theme={theme} signOut={signOut} />
       </>
     )
   }
@@ -498,7 +517,7 @@ export default function Sidebar() {
           <button onClick={signOut} className={actionBtnClass}>Sign out</button>
         </div>
       </aside>
-      <BottomTabBar items={visibleWithMyDept} theme={theme} />
+      <BottomTabBar items={visibleWithMyDept} theme={theme} signOut={signOut} />
     </>
   )
 }
