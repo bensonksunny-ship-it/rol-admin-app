@@ -1613,6 +1613,22 @@ export async function getLatestProgramLogs(limitCount = 50) {
   })
 }
 
+export async function updateProgramLog(id, data) {
+  if (!db || !id) return
+  const ref = doc(db, CELL_PROGRAM_LOG_COLLECTION, id)
+  const payload = {}
+  if (data.startTime != null) {
+    payload.startTime = Timestamp.fromDate(data.startTime instanceof Date ? data.startTime : new Date(data.startTime))
+  }
+  if (data.programName != null) payload.programName = data.programName
+  await updateDoc(ref, payload)
+}
+
+export async function deleteProgramLog(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, CELL_PROGRAM_LOG_COLLECTION, id))
+}
+
 // Cell member pending changes (approval workflow for Cell Leader actions)
 const CELL_MEMBER_PENDING_CHANGES_COLLECTION = 'cell_member_pending_changes'
 
