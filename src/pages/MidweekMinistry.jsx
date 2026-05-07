@@ -300,9 +300,10 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
     setVisitors((prev) => prev.filter((v) => v.id !== id))
   }, [])
 
-  const confirmEndMeeting = useCallback(async (finalPresentIds) => {
+  const confirmEndMeeting = useCallback(async (finalPresentIds, editedTimings) => {
     const ids = finalPresentIds ?? presentIds
-    segmentTimingsRef.current = pendingTimings
+    const timingsToSave = editedTimings ?? pendingTimings
+    segmentTimingsRef.current = timingsToSave
     setPresentIds(ids)
     setShowEndModal(false)
     setSegmentIdx(segmentOrder.length)   // isEnded = true
@@ -313,7 +314,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
       const presentMembers = members.filter((m) => ids.has(m.id))
 
       saveMidweekSessionSummary(selectedCellId, today, {
-        segmentTimings: pendingTimings,
+        segmentTimings: timingsToSave,
         presentIds: Array.from(ids),
         updatedBy,
       }).catch((err) => {
@@ -588,7 +589,20 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
 
 function EndMeetingModal({ timings, presentIds, members, visitors, prayerPoints, onConfirm, onCancel }) {
   const [localPresent, setLocalPresent] = useState(() => new Set(presentIds))
-  const totalMinutes = timings.reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
+  const [localTimings, setLocalTimings] = useState(() => timings.map((t) => ({ ...t })))
+  const totalMinutes = localTimings.reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
+
+  const adjustMinutes = (i, delta) => {
+    setLocalTimings((prev) => prev.map((t, j) =>
+      j === i ? { ...t, durationMinutes: Math.max(0, (Number(t.durationMinutes) || 0) + delta) } : t
+    ))
+  }
+
+  const setMinutes = (i, val) => {
+    setLocalTimings((prev) => prev.map((t, j) =>
+      j === i ? { ...t, durationMinutes: Math.max(0, Number(val) || 0) } : t
+    ))
+  }
 
   const toggleMember = (id) => {
     setLocalPresent((prev) => {
@@ -636,19 +650,38 @@ function EndMeetingModal({ timings, presentIds, members, visitors, prayerPoints,
           {/* Segment Timings */}
           <div className="space-y-2">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">⏱ Segment Timings</p>
-            {timings.length === 0 ? (
+            {localTimings.length === 0 ? (
               <p className="text-slate-400 text-sm">No timings recorded.</p>
             ) : (
               <div className="space-y-1.5">
-                {timings.map((t, i) => {
+                {localTimings.map((t, i) => {
                   const style = SEGMENT_STYLES[t.name] || SEGMENT_STYLES.Prayer
                   return (
-                    <div key={i} className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50">
-                      <div className="flex items-center gap-2">
+                    <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-2xl bg-slate-50">
+                      <div className="flex items-center gap-2 min-w-0">
                         <span>{style.icon}</span>
-                        <span className="font-semibold text-slate-800 text-sm">{t.name}</span>
+                        <span className="font-semibold text-slate-800 text-sm truncate">{t.name}</span>
                       </div>
-                      <span className="text-sm text-slate-500 font-medium">{formatDuration(t.durationMinutes)}</span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                        <button
+                          type="button"
+                          onClick={() => adjustMinutes(i, -1)}
+                          className="w-7 h-7 rounded-lg bg-slate-200 text-slate-700 font-bold text-base leading-none flex items-center justify-center active:bg-slate-300 hover:bg-slate-300"
+                        >−</button>
+                        <input
+                          type="number"
+                          min="0"
+                          value={t.durationMinutes}
+                          onChange={(e) => setMinutes(i, e.target.value)}
+                          className="w-12 text-center text-sm font-semibold rounded-lg border border-slate-200 bg-white py-1 px-1 tabular-nums"
+                        />
+                        <span className="text-xs text-slate-400 w-5">min</span>
+                        <button
+                          type="button"
+                          onClick={() => adjustMinutes(i, 1)}
+                          className="w-7 h-7 rounded-lg bg-slate-200 text-slate-700 font-bold text-base leading-none flex items-center justify-center active:bg-slate-300 hover:bg-slate-300"
+                        >+</button>
+                      </div>
                     </div>
                   )
                 })}
@@ -734,7 +767,7 @@ function EndMeetingModal({ timings, presentIds, members, visitors, prayerPoints,
           </button>
           <motion.button
             type="button"
-            onClick={() => onConfirm(localPresent)}
+            onClick={() => onConfirm(localPresent, localTimings)}
             whileTap={{ scale: 0.97 }}
             className="flex-1 py-3.5 rounded-2xl bg-emerald-700 text-white text-sm font-bold hover:bg-emerald-800 transition-all shadow-lg shadow-emerald-200"
           >
