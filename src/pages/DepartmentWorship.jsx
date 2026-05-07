@@ -130,9 +130,20 @@ function PlanComingSundayCard({
   DEPARTMENT,
   formatDMY,
 }) {
+  const [expandedRole, setExpandedRole] = useState(null)
+
+  const assignments = comingPlan.assignments || []
+  const leadVocalRoles = ASSIGNMENT_ROLES.filter((r) => r.startsWith('Lead Vocal'))
+  const otherRoles = ASSIGNMENT_ROLES.filter((r) => !r.startsWith('Lead Vocal'))
+
+  const leadVocalEntries = leadVocalRoles
+    .map((role) => ({ role, a: assignments.find((x) => x.role === role) }))
+    .filter(({ a }) => a?.memberName)
+
   return (
     <div className="rounded-xl overflow-hidden shadow-lg border-2 border-amber-200 w-3/4 max-w-4xl mx-auto flex flex-col" style={{ height: '70vh', minHeight: 480 }}>
       <div className="flex-1 min-h-0 flex flex-col bg-gradient-to-br from-amber-50 via-orange-50/30 to-amber-50">
+        {/* Header */}
         <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 border-b-2 border-amber-600/50 shadow-sm">
           <div>
             <h2 className="font-bold text-white text-base drop-shadow-sm">Plan coming Sunday</h2>
@@ -156,39 +167,100 @@ function PlanComingSundayCard({
             )}
           </div>
         </div>
+
         {loadingComingPlan ? (
           <div className="flex-1 min-h-0 flex items-center justify-center text-slate-500 text-sm">Loading...</div>
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-3 p-3">
-            <div className="rounded-lg border border-amber-200/80 bg-white/80 overflow-hidden">
-              <h3 className="text-sm font-semibold text-amber-900 bg-amber-100/90 px-3 py-1.5 border-b border-amber-200">Team by role</h3>
-              <table className="w-full text-sm">
-                <thead className="bg-amber-100/70">
-                  <tr>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-[160px]">Role</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-[160px]">Assigned to</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700">Song</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-700 w-[60px]">Key</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-amber-100">
-                  {ASSIGNMENT_ROLES.map((role) => {
-                    const a = (comingPlan.assignments || []).find((x) => x.role === role)
-                    const songName = a?.songName && typeof a.songName === 'string' ? a.songName : ''
+
+            {/* Lead Vocal \u2014 expandable cards */}
+            {leadVocalEntries.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider px-1">Lead Vocals</p>
+                {leadVocalEntries.map(({ role, a }) => {
+                  const structure = a?.structure
+                  const isExpanded = expandedRole === role
+                  const hasStructure = structure?.text
+                  return (
+                    <div key={role} className="rounded-xl border border-amber-200 bg-white/90 overflow-hidden shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRole(isExpanded ? null : role)}
+                        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-amber-50/60 transition-colors"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-slate-800 text-sm">{a.memberName}</span>
+                            {a.key && (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">{a.key}</span>
+                            )}
+                          </div>
+                          {a.songName && (
+                            <p className="text-sm text-slate-500 mt-0.5 italic truncate">{a.songName}</p>
+                          )}
+                          {!a.songName && !hasStructure && (
+                            <p className="text-xs text-slate-400 mt-0.5">{role} \u00b7 no song assigned</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {hasStructure && (
+                            <span className="text-xs text-amber-600 font-medium hidden sm:block">
+                              {isExpanded ? 'Hide structure' : 'View structure'}
+                            </span>
+                          )}
+                          {hasStructure ? (
+                            <span className={`text-amber-500 text-base transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>\u25be</span>
+                          ) : (
+                            <span className="text-slate-300 text-base">\u25be</span>
+                          )}
+                        </div>
+                      </button>
+
+                      {isExpanded && hasStructure && (
+                        <div className="border-t border-amber-100 px-4 py-3 bg-amber-50/40">
+                          <p className="text-xs font-semibold text-amber-700 mb-2 uppercase tracking-wider">
+                            {structure.fileName || 'Song Structure'}
+                          </p>
+                          <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
+                            {structure.text}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                {leadVocalEntries.length === 0 && (
+                  <p className="text-sm text-slate-400 italic px-1">No lead vocals assigned yet.</p>
+                )}
+              </div>
+            )}
+            {leadVocalEntries.length === 0 && (
+              <p className="text-sm text-slate-400 italic px-1">No lead vocals assigned yet.</p>
+            )}
+
+            {/* Other roles \u2014 compact list */}
+            {otherRoles.some((role) => assignments.find((x) => x.role === role)?.memberName) && (
+              <div className="rounded-xl border border-amber-200/80 bg-white/80 overflow-hidden">
+                <h3 className="text-xs font-semibold text-amber-800 bg-amber-100/90 px-3 py-2 border-b border-amber-200 uppercase tracking-wider">Rest of team</h3>
+                <div className="divide-y divide-amber-50">
+                  {otherRoles.map((role) => {
+                    const a = assignments.find((x) => x.role === role)
+                    if (!a?.memberName) return null
                     return (
-                      <tr key={role} className="hover:bg-amber-50/80">
-                        <td className="px-3 py-1 font-medium text-slate-800">{role}</td>
-                        <td className="px-3 py-1 text-slate-600">{a?.memberName || '\u2014'}</td>
-                        <td className="px-3 py-1 text-slate-500 italic">{songName || ''}</td>
-                        <td className="px-3 py-1 text-slate-500">{a?.key || ''}</td>
-                      </tr>
+                      <div key={role} className="flex items-center gap-3 px-3 py-2">
+                        <span className="text-xs text-slate-500 w-32 shrink-0">{role}</span>
+                        <span className="text-sm font-medium text-slate-800">{a.memberName}</span>
+                      </div>
                     )
                   })}
-                </tbody>
-              </table>
-            </div>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
+
+        {/* Push to Sunday Plan footer */}
         {canManageWorship && !loadingComingPlan && (
           <div className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-amber-100 to-orange-100 border-t-2 border-amber-300/50 flex justify-end">
             <button

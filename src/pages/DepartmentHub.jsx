@@ -1120,87 +1120,74 @@ export default function DepartmentHub() {
               </div>
               {loadingDelightVisitors ? (
                 <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+              ) : delightVisitors.length === 0 ? (
+                <div className="px-5 py-8 text-center text-slate-500">No visitor entries yet.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Ph. Number</th>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Email</th>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Nativity</th>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Current Place</th>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Service Attended</th>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Date of Attending</th>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">How did you know about church?</th>
-                        {canEditDelightVisitors && <th className="text-left px-4 py-3 font-medium text-slate-600 w-20">Actions</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {delightVisitors.map((v) => (
-                        <tr key={v.id}>
-                          <td className="px-4 py-3 text-slate-800">{v.name || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{v.phone || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{v.email || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{v.nativity || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{v.currentPlace || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{v.serviceAttended || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{v.attendedDate ? formatDMY(v.attendedDate) : '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{v.source || v.howKnown || '—'}</td>
-                          {canEditDelightVisitors && (
-                            <td className="px-4 py-3 space-x-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingDelightVisitorId(v.id)
-                                  setDelightVisitorForm({
-                                    name: v.name || '',
-                                    dob: v.dob ? String(v.dob).slice(0, 10) : '',
-                                    phone: v.phone || '',
-                                    email: v.email || '',
-                                    nativity: v.nativity || '',
-                                    currentPlace: v.currentPlace || '',
-                                    serviceAttended: v.serviceAttended || '',
-                                    attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '',
-                                    howKnown: v.howKnown || '',
-                                    source: v.source || '',
-                                  })
-                                  setDelightVisitorModalOpen(true)
-                                }}
-                                className="text-blue-600 hover:underline"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!window.confirm('Delete this visitor entry?')) return
-                                  try {
-                                    await deleteDelightVisitor(v.id)
-                                    setDelightVisitors((prev) => prev.filter((x) => x.id !== v.id))
-                                  } catch (err) {
-                                    console.error(err)
-                                    alert('Failed to delete')
-                                  }
-                                }}
-                                className="text-red-600 hover:underline"
-                              >
-                                Delete
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                      {delightVisitors.length === 0 && (
+                <>
+                  {/* Mobile cards */}
+                  <div className="sm:hidden divide-y divide-slate-100">
+                    {delightVisitors.map((v) => (
+                      <div key={v.id} className="p-4 space-y-1.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-semibold text-slate-800">{v.name || '—'}</p>
+                          {v.attendedDate && <span className="text-xs text-slate-500 shrink-0">{formatDMY(v.attendedDate)}</span>}
+                        </div>
+                        {(v.phone || v.email) && (
+                          <p className="text-sm text-slate-600">{[v.phone, v.email].filter(Boolean).join(' · ')}</p>
+                        )}
+                        {(v.nativity || v.currentPlace) && (
+                          <p className="text-sm text-slate-500">{[v.nativity, v.currentPlace].filter(Boolean).join(' → ')}</p>
+                        )}
+                        {v.serviceAttended && <p className="text-sm text-slate-500">Service: {v.serviceAttended}</p>}
+                        {(v.source || v.howKnown) && <p className="text-xs text-slate-400">How: {v.source || v.howKnown}</p>}
+                        {canEditDelightVisitors && (
+                          <div className="flex gap-3 pt-1">
+                            <button type="button" onClick={() => { setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '' }); setDelightVisitorModalOpen(true) }} className="text-sm text-blue-600 font-medium hover:underline">Edit</button>
+                            <button type="button" onClick={async () => { if (!window.confirm('Delete this visitor entry?')) return; try { await deleteDelightVisitor(v.id); setDelightVisitors((prev) => prev.filter((x) => x.id !== v.id)) } catch (err) { console.error(err); alert('Failed to delete') } }} className="text-sm text-red-500 hover:underline">Delete</button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Desktop table */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50">
                         <tr>
-                          <td colSpan={canEditDelightVisitors ? 9 : 8} className="px-4 py-8 text-center text-slate-500">
-                            No visitor entries yet.
-                          </td>
+                          <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
+                          <th className="text-left px-4 py-3 font-medium text-slate-600">Ph. Number</th>
+                          <th className="text-left px-4 py-3 font-medium text-slate-600">Email</th>
+                          <th className="text-left px-4 py-3 font-medium text-slate-600">Nativity</th>
+                          <th className="text-left px-4 py-3 font-medium text-slate-600">Current Place</th>
+                          <th className="text-left px-4 py-3 font-medium text-slate-600">Service Attended</th>
+                          <th className="text-left px-4 py-3 font-medium text-slate-600">Date of Attending</th>
+                          <th className="text-left px-4 py-3 font-medium text-slate-600">How did you know about church?</th>
+                          {canEditDelightVisitors && <th className="text-left px-4 py-3 font-medium text-slate-600 w-20">Actions</th>}
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {delightVisitors.map((v) => (
+                          <tr key={v.id}>
+                            <td className="px-4 py-3 text-slate-800">{v.name || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{v.phone || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{v.email || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{v.nativity || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{v.currentPlace || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{v.serviceAttended || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{v.attendedDate ? formatDMY(v.attendedDate) : '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{v.source || v.howKnown || '—'}</td>
+                            {canEditDelightVisitors && (
+                              <td className="px-4 py-3 space-x-2">
+                                <button type="button" onClick={() => { setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '' }); setDelightVisitorModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
+                                <button type="button" onClick={async () => { if (!window.confirm('Delete this visitor entry?')) return; try { await deleteDelightVisitor(v.id); setDelightVisitors((prev) => prev.filter((x) => x.id !== v.id)) } catch (err) { console.error(err); alert('Failed to delete') } }} className="text-red-600 hover:underline">Delete</button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -3486,92 +3473,90 @@ export default function DepartmentHub() {
               )}
               {loadingBudget ? (
                 <div className="px-5 py-8 text-center text-slate-500 text-sm">Loading budget…</div>
+              ) : budgetItems.length === 0 ? (
+                <div className="px-5 py-8 text-center text-slate-500 text-sm">No budget items. Add a row to get started.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Category</th>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Sub-Category</th>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Description</th>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Quantity</th>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Unit Cost (₹)</th>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Total Cost (₹)</th>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Priority</th>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Type</th>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Justification</th>
-                        <th className="text-left px-4 py-2 font-medium text-slate-600">Expected Date</th>
-                        {canEdit && (
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Actions</th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {budgetItems.map((row) => {
-                        const totalCost = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0)
-                        return (
-                          <tr key={row.id} className="hover:bg-slate-50">
-                            <td className="px-4 py-2 text-slate-800">{row.category || '—'}</td>
-                            <td className="px-4 py-2 text-slate-600">{row.subCategory || '—'}</td>
-                            <td className="px-4 py-2 text-slate-600">{row.description || '—'}</td>
-                            <td className="px-4 py-2 text-slate-600">{row.quantity ?? '—'}</td>
-                            <td className="px-4 py-2 text-slate-600">
-                              {row.unitCost != null && row.unitCost !== '' ? `₹ ${Number(row.unitCost).toLocaleString()}` : '—'}
-                            </td>
-                            <td className="px-4 py-2 font-medium text-slate-800">₹ {totalCost.toLocaleString()}</td>
-                            <td className="px-4 py-2 text-slate-600">{row.priority || '—'}</td>
-                            <td className="px-4 py-2 text-slate-600">{row.type || '—'}</td>
-                            <td className="px-4 py-2 text-slate-600 max-w-[180px] truncate" title={row.justification || ''}>{row.justification || '—'}</td>
-                            <td className="px-4 py-2 text-slate-600">{row.expectedDate ? formatDMY(row.expectedDate) : '—'}</td>
-                            {canEdit && (
-                              <td className="px-4 py-2 space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingBudgetId(row.id)
-                                    setBudgetForm({
-                                      category: row.category || '',
-                                      subCategory: row.subCategory || '',
-                                      description: row.description || '',
-                                      quantity: row.quantity ?? '',
-                                      unitCost: row.unitCost ?? '',
-                                      priority: row.priority || 'Medium',
-                                      type: row.type || 'Recurring',
-                                      justification: row.justification || '',
-                                      expectedDate: row.expectedDate ? (typeof row.expectedDate === 'string' ? row.expectedDate : format(new Date(row.expectedDate), 'yyyy-MM-dd')) : format(new Date(), 'yyyy-MM-dd'),
-                                    })
-                                    setBudgetModalOpen(true)
-                                  }}
-                                  className="text-blue-600 hover:underline"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (!window.confirm('Delete this budget row?')) return
-                                    await deleteFinanceBudgetItem(row.id)
-                                    setBudgetItems((prev) => prev.filter((r) => r.id !== row.id))
-                                  }}
-                                  className="text-red-600 hover:underline"
-                                >
-                                  Delete
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        )
-                      })}
-                      {budgetItems.length === 0 && (
+                <>
+                  {/* Mobile cards */}
+                  <div className="sm:hidden divide-y divide-slate-100">
+                    {budgetItems.map((row) => {
+                      const totalCost = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0)
+                      return (
+                        <div key={row.id} className="p-4 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-semibold text-slate-800 text-sm">{row.category || '—'}</p>
+                              {row.subCategory && <p className="text-xs text-slate-500">{row.subCategory}</p>}
+                            </div>
+                            <p className="font-bold text-slate-800 text-sm shrink-0">₹ {totalCost.toLocaleString()}</p>
+                          </div>
+                          {row.description && <p className="text-sm text-slate-600">{row.description}</p>}
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                            {row.quantity && <span>Qty: {row.quantity}</span>}
+                            {row.unitCost != null && row.unitCost !== '' && <span>Unit: ₹ {Number(row.unitCost).toLocaleString()}</span>}
+                            {row.expectedDate && <span>By: {formatDMY(row.expectedDate)}</span>}
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {row.priority && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{row.priority}</span>}
+                            {row.type && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-600">{row.type}</span>}
+                          </div>
+                          {row.justification && <p className="text-xs text-slate-400 italic">{row.justification}</p>}
+                          {canEdit && (
+                            <div className="flex gap-3 pt-1">
+                              <button type="button" onClick={() => { setEditingBudgetId(row.id); setBudgetForm({ category: row.category || '', subCategory: row.subCategory || '', description: row.description || '', quantity: row.quantity ?? '', unitCost: row.unitCost ?? '', priority: row.priority || 'Medium', type: row.type || 'Recurring', justification: row.justification || '', expectedDate: row.expectedDate ? (typeof row.expectedDate === 'string' ? row.expectedDate : format(new Date(row.expectedDate), 'yyyy-MM-dd')) : format(new Date(), 'yyyy-MM-dd') }); setBudgetModalOpen(true) }} className="text-sm text-blue-600 font-medium hover:underline">Edit</button>
+                              <button type="button" onClick={async () => { if (!window.confirm('Delete this budget row?')) return; await deleteFinanceBudgetItem(row.id); setBudgetItems((prev) => prev.filter((r) => r.id !== row.id)) }} className="text-sm text-red-500 hover:underline">Delete</button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {/* Desktop table */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50">
                         <tr>
-                          <td colSpan={canEdit ? 11 : 10} className="px-4 py-8 text-center text-slate-500">
-                            No budget items. Add a row to get started.
-                          </td>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Category</th>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Sub-Category</th>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Description</th>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Quantity</th>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Unit Cost (₹)</th>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Total Cost (₹)</th>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Priority</th>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Type</th>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Justification</th>
+                          <th className="text-left px-4 py-2 font-medium text-slate-600">Expected Date</th>
+                          {canEdit && <th className="text-left px-4 py-2 font-medium text-slate-600">Actions</th>}
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {budgetItems.map((row) => {
+                          const totalCost = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0)
+                          return (
+                            <tr key={row.id} className="hover:bg-slate-50">
+                              <td className="px-4 py-2 text-slate-800">{row.category || '—'}</td>
+                              <td className="px-4 py-2 text-slate-600">{row.subCategory || '—'}</td>
+                              <td className="px-4 py-2 text-slate-600">{row.description || '—'}</td>
+                              <td className="px-4 py-2 text-slate-600">{row.quantity ?? '—'}</td>
+                              <td className="px-4 py-2 text-slate-600">{row.unitCost != null && row.unitCost !== '' ? `₹ ${Number(row.unitCost).toLocaleString()}` : '—'}</td>
+                              <td className="px-4 py-2 font-medium text-slate-800">₹ {totalCost.toLocaleString()}</td>
+                              <td className="px-4 py-2 text-slate-600">{row.priority || '—'}</td>
+                              <td className="px-4 py-2 text-slate-600">{row.type || '—'}</td>
+                              <td className="px-4 py-2 text-slate-600 max-w-[180px] truncate" title={row.justification || ''}>{row.justification || '—'}</td>
+                              <td className="px-4 py-2 text-slate-600">{row.expectedDate ? formatDMY(row.expectedDate) : '—'}</td>
+                              {canEdit && (
+                                <td className="px-4 py-2 space-x-2">
+                                  <button type="button" onClick={() => { setEditingBudgetId(row.id); setBudgetForm({ category: row.category || '', subCategory: row.subCategory || '', description: row.description || '', quantity: row.quantity ?? '', unitCost: row.unitCost ?? '', priority: row.priority || 'Medium', type: row.type || 'Recurring', justification: row.justification || '', expectedDate: row.expectedDate ? (typeof row.expectedDate === 'string' ? row.expectedDate : format(new Date(row.expectedDate), 'yyyy-MM-dd')) : format(new Date(), 'yyyy-MM-dd') }); setBudgetModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
+                                  <button type="button" onClick={async () => { if (!window.confirm('Delete this budget row?')) return; await deleteFinanceBudgetItem(row.id); setBudgetItems((prev) => prev.filter((r) => r.id !== row.id)) }} className="text-red-600 hover:underline">Delete</button>
+                                </td>
+                              )}
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div>
           )}
