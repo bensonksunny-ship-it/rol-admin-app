@@ -40,6 +40,13 @@ body {
   background-attachment: fixed;
 }
 
+/* iOS Safari doesn't support background-attachment: fixed — use scroll on mobile */
+@media (max-width: 1023px) {
+  :root:not(.dark) body {
+    background-attachment: scroll;
+  }
+}
+
 #root {
   min-height: 100vh;
 }

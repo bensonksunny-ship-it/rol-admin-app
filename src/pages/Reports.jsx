@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getTasks, getAttendance, getFinanceIncome, getFinanceExpense } from '../services/firestore'
+import { getTasks, getAttendance, getFinanceIncome, getFinanceExpense, getCellReportHistory } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { format as formatDate, startOfMonth, endOfMonth } from 'date-fns'
 import { formatDMY, formatDMYTime } from '../utils/date'
@@ -27,18 +27,30 @@ export default function Reports() {
     const start = m != null ? startOfMonth(new Date(y, m)) : new Date(y, 0, 1)
     const end = m != null ? endOfMonth(new Date(y, m)) : new Date(y, 11, 31, 23, 59, 59)
 
-    const [tasks, attendance, income, expense] = await Promise.all([
+    const [tasks, attendance, income, expense, cellReports] = await Promise.all([
       getTasks(),
       hasPermission('attendance') ? getAttendance({ year: y }) : Promise.resolve([]),
       hasPermission('finance') ? getFinanceIncome({ year: y, ...(m != null && { month: m }) }) : Promise.resolve([]),
       hasPermission('finance') ? getFinanceExpense({ year: y, ...(m != null && { month: m }) }) : Promise.resolve([]),
+      (reportType === 'cell' && hasPermission('attendance')) ? getCellReportHistory({ limitCount: 500 }) : Promise.resolve([]),
     ])
 
     const attFiltered = attendance.filter(
       (a) => a.date && new Date(a.date) >= start && new Date(a.date) <= end
     )
+
+    const yearStr = String(y)
+    const cellFiltered = cellReports.filter((r) => {
+      if (!r.weekStartISO || !r.weekStartISO.startsWith(yearStr)) return false
+      if (m != null) {
+        const monthPrefix = `${yearStr}-${String(m + 1).padStart(2, '0')}`
+        return r.weekStartISO.startsWith(monthPrefix)
+      }
+      return true
+    })
+
     setLoading(false)
-    return { tasks, attendance: attFiltered, income, expense }
+    return { tasks, attendance: attFiltered, income, expense, cellReports: cellFiltered }
   }
 
   async function exportExcel(sheetName, columns, rows) {
@@ -112,6 +124,17 @@ export default function Reports() {
           t.status ?? '',
         ])
         await exportExcel('Tasks', columns, rows)
+      } else if (reportType === 'cell') {
+        const columns = ['Cell Name', 'Week Start', 'Members', 'Visitors', 'Children', 'Total']
+        const rows = data.cellReports.map((r) => [
+          r.cellName ?? '',
+          r.weekStartISO ?? '',
+          Number(r.membersAttended) || 0,
+          Number(r.visitors) || 0,
+          Number(r.children) || 0,
+          (Number(r.membersAttended) || 0) + (Number(r.visitors) || 0) + (Number(r.children) || 0),
+        ])
+        await exportExcel('Cell Reports', columns, rows)
       }
     } else {
       if (reportType === 'attendance') {
@@ -149,6 +172,17 @@ export default function Reports() {
           t.status ?? '',
         ])
         await exportPDF('Tasks Report', columns, rows)
+      } else if (reportType === 'cell') {
+        const columns = ['Cell Name', 'Week Start', 'Members', 'Visitors', 'Children', 'Total']
+        const rows = data.cellReports.map((r) => [
+          r.cellName ?? '',
+          r.weekStartISO ?? '',
+          Number(r.membersAttended) || 0,
+          Number(r.visitors) || 0,
+          Number(r.children) || 0,
+          (Number(r.membersAttended) || 0) + (Number(r.visitors) || 0) + (Number(r.children) || 0),
+        ])
+        await exportPDF('Cell Reports', columns, rows)
       }
     }
   }
@@ -157,7 +191,7 @@ export default function Reports() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Reports</h1>
-        <p className="text-slate-500 mt-1">Generate and export attendance, finance, and task reports</p>
+        <p className="text-slate-500 mt-1">Generate and export attendance, finance, task, and cell reports</p>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm max-w-2xl">
@@ -173,6 +207,7 @@ export default function Reports() {
               <option value="attendance">Attendance</option>
               <option value="finance">Finance</option>
               <option value="tasks">Task completion</option>
+              <option value="cell">Cell Reports</option>
             </select>
           </div>
           <div className="grid grid-cols-2 gap-4">

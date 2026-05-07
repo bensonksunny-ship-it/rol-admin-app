@@ -209,10 +209,6 @@ export default function Sidebar() {
     ? 'w-full mt-1 px-3 py-3 text-left text-sm text-slate-600 hover:bg-black/5 rounded-lg transition-colors duration-150'
     : 'w-full mt-1 px-3 py-3 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg'
 
-  const hamburgerClass = isDay
-    ? 'lg:hidden fixed top-3 left-3 z-40 p-2.5 rounded-xl shadow-md text-lg leading-none bg-white/90 text-slate-700 border border-white/80'
-    : 'lg:hidden fixed top-3 left-3 z-40 p-2.5 rounded-xl shadow text-lg leading-none bg-slate-800 text-white'
-
   const asideTextClass = isDay ? 'text-slate-900' : 'text-white'
 
   // ── Brand header (shared) ───────────────────────────────────────────────────
@@ -256,6 +252,71 @@ export default function Sidebar() {
           </p>
         </div>
       </div>
+    </div>
+  )
+
+  // ── Mobile header bar (shared) ─────────────────────────────────────────────
+  const MobileHeader = () => (
+    <div
+      className="lg:hidden fixed top-0 left-0 right-0 h-14 flex items-center justify-between px-3"
+      style={{
+        zIndex: 40,
+        ...(isDay ? {
+          background: 'rgba(255,255,255,0.88)',
+          backdropFilter: 'blur(20px) saturate(200%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(200%)',
+          borderBottom: '1px solid rgba(255,255,255,0.9)',
+          boxShadow: '0 2px 16px rgba(0,0,0,0.06)',
+        } : {
+          background: 'rgba(15,23,42,0.95)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          boxShadow: '0 2px 16px rgba(0,0,0,0.3)',
+        }),
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Toggle menu"
+        className="p-2 rounded-xl text-xl leading-none"
+        style={{ color: isDay ? '#475569' : '#94a3b8' }}
+      >
+        {open ? '✕' : '☰'}
+      </button>
+      <div className="flex items-center gap-2">
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
+            boxShadow: '0 2px 8px rgba(99,102,241,0.4)',
+          }}
+        >
+          <span
+            className="text-white font-black text-sm leading-none select-none"
+            style={{ fontFamily: "'Montserrat', Inter, system-ui, sans-serif" }}
+          >R</span>
+        </div>
+        <span
+          className="font-black"
+          style={{
+            fontFamily: "'Montserrat', Inter, system-ui, sans-serif",
+            fontSize: '16px',
+            background: titleGradient,
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+            letterSpacing: '-0.015em',
+          }}
+        >River Of Life</span>
+      </div>
+      <button
+        type="button"
+        onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
+        aria-label={themeToggleLabel}
+        className="p-2 rounded-xl text-base"
+      >
+        {theme === 'night' ? '🌙' : '☀️'}
+      </button>
     </div>
   )
 
@@ -316,15 +377,13 @@ export default function Sidebar() {
 
     return (
       <>
-        <button type="button" onClick={() => setOpen((o) => !o)} className={hamburgerClass} aria-label="Toggle menu">
-          {open ? '✕' : '☰'}
-        </button>
+        <MobileHeader />
         {open && (
-          <div className="lg:hidden fixed inset-0 bg-black/30 z-30 backdrop-blur-sm" onClick={() => setOpen(false)} aria-hidden />
+          <div className="lg:hidden fixed inset-0 bg-black/50 backdrop-blur-sm" style={{ zIndex: 41 }} onClick={() => setOpen(false)} aria-hidden />
         )}
         <aside
-          className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 z-30 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
-          style={sidebarStyle}
+          className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+          style={{ ...sidebarStyle, zIndex: 45 }}
         >
           <BrandHeader />
           <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
@@ -399,15 +458,13 @@ export default function Sidebar() {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen((o) => !o)} className={hamburgerClass} aria-label="Toggle menu">
-        {open ? '✕' : '☰'}
-      </button>
+      <MobileHeader />
       {open && (
-        <div className="lg:hidden fixed inset-0 bg-black/30 z-30 backdrop-blur-sm" onClick={() => setOpen(false)} aria-hidden />
+        <div className="lg:hidden fixed inset-0 bg-black/50 backdrop-blur-sm" style={{ zIndex: 41 }} onClick={() => setOpen(false)} aria-hidden />
       )}
       <aside
-        className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 z-30 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
-        style={sidebarStyle}
+        className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        style={{ ...sidebarStyle, zIndex: 45 }}
       >
         <BrandHeader />
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
