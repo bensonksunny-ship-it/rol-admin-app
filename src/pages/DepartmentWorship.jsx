@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
   getDepartmentEntries,
   addDepartmentEntry,
@@ -13,6 +13,10 @@ import {
   addWorshipBudgetItem,
   updateWorshipBudgetItem,
   deleteWorshipBudgetItem,
+  getDepartmentSubDepartments,
+  addDepartmentSubDepartment,
+  updateDepartmentSubDepartment,
+  deleteDepartmentSubDepartment,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
@@ -105,196 +109,6 @@ const DEMO_TEAM = [
   { name: 'Surya', memberSince: '2019-11-03' },
 ]
 
-function nextSundayISO() {
-  const today = new Date()
-  const day = today.getDay()
-  const daysUntilSunday = (7 - day) % 7
-  const next = new Date(today)
-  next.setDate(today.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday))
-  return format(next, 'yyyy-MM-dd')
-}
-
-function PlanComingSundayCard({
-  comingSundayDate,
-  comingPlan,
-  setComingPlan,
-  loadingComingPlan,
-  savingComingPlan,
-  setSavingComingPlan,
-  canManageWorship,
-  teamMembers,
-  userProfile,
-  loadComingPlan,
-  setSelectedDate,
-  onOpenAssign,
-  DEPARTMENT,
-  formatDMY,
-}) {
-  const [expandedRole, setExpandedRole] = useState(null)
-
-  const assignments = comingPlan.assignments || []
-  const leadVocalRoles = ASSIGNMENT_ROLES.filter((r) => r.startsWith('Lead Vocal'))
-  const otherRoles = ASSIGNMENT_ROLES.filter((r) => !r.startsWith('Lead Vocal'))
-
-  const leadVocalEntries = leadVocalRoles
-    .map((role) => ({ role, a: assignments.find((x) => x.role === role) }))
-    .filter(({ a }) => a?.memberName)
-
-  return (
-    <div className="rounded-xl overflow-hidden shadow-lg border-2 border-amber-200 w-3/4 max-w-4xl mx-auto flex flex-col" style={{ height: '70vh', minHeight: 480 }}>
-      <div className="flex-1 min-h-0 flex flex-col bg-gradient-to-br from-amber-50 via-orange-50/30 to-amber-50">
-        {/* Header */}
-        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 border-b-2 border-amber-600/50 shadow-sm">
-          <div>
-            <h2 className="font-bold text-white text-base drop-shadow-sm">Plan coming Sunday</h2>
-            <p className="text-sm text-amber-100 mt-0.5">{formatDMY(comingSundayDate)}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link
-              to={`/sunday-planning?date=${comingSundayDate}`}
-              className="px-3 py-1.5 rounded-lg border border-white/80 text-white text-sm font-medium hover:bg-white/20 transition-colors"
-            >
-              View in Sunday Planning
-            </Link>
-            {canManageWorship && (
-              <button
-                type="button"
-                onClick={() => { setSelectedDate(comingSundayDate); onOpenAssign() }}
-                className="px-3 py-1.5 rounded-lg bg-white text-amber-700 font-semibold text-sm hover:bg-amber-50 shadow transition-colors"
-              >
-                Open Assign
-              </button>
-            )}
-          </div>
-        </div>
-
-        {loadingComingPlan ? (
-          <div className="flex-1 min-h-0 flex items-center justify-center text-slate-500 text-sm">Loading...</div>
-        ) : (
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-3 p-3">
-
-            {/* Lead Vocal \u2014 expandable cards */}
-            {leadVocalEntries.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider px-1">Lead Vocals</p>
-                {leadVocalEntries.map(({ role, a }) => {
-                  const structure = a?.structure
-                  const isExpanded = expandedRole === role
-                  const hasStructure = structure?.text
-                  return (
-                    <div key={role} className="rounded-xl border border-amber-200 bg-white/90 overflow-hidden shadow-sm">
-                      <button
-                        type="button"
-                        onClick={() => setExpandedRole(isExpanded ? null : role)}
-                        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-amber-50/60 transition-colors"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-slate-800 text-sm">{a.memberName}</span>
-                            {a.key && (
-                              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">{a.key}</span>
-                            )}
-                          </div>
-                          {a.songName && (
-                            <p className="text-sm text-slate-500 mt-0.5 italic truncate">{a.songName}</p>
-                          )}
-                          {!a.songName && !hasStructure && (
-                            <p className="text-xs text-slate-400 mt-0.5">{role} \u00b7 no song assigned</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {hasStructure && (
-                            <span className="text-xs text-amber-600 font-medium hidden sm:block">
-                              {isExpanded ? 'Hide structure' : 'View structure'}
-                            </span>
-                          )}
-                          {hasStructure ? (
-                            <span className={`text-amber-500 text-base transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>\u25be</span>
-                          ) : (
-                            <span className="text-slate-300 text-base">\u25be</span>
-                          )}
-                        </div>
-                      </button>
-
-                      {isExpanded && hasStructure && (
-                        <div className="border-t border-amber-100 px-4 py-3 bg-amber-50/40">
-                          <p className="text-xs font-semibold text-amber-700 mb-2 uppercase tracking-wider">
-                            {structure.fileName || 'Song Structure'}
-                          </p>
-                          <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
-                            {structure.text}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-                {leadVocalEntries.length === 0 && (
-                  <p className="text-sm text-slate-400 italic px-1">No lead vocals assigned yet.</p>
-                )}
-              </div>
-            )}
-            {leadVocalEntries.length === 0 && (
-              <p className="text-sm text-slate-400 italic px-1">No lead vocals assigned yet.</p>
-            )}
-
-            {/* Other roles \u2014 compact list */}
-            {otherRoles.some((role) => assignments.find((x) => x.role === role)?.memberName) && (
-              <div className="rounded-xl border border-amber-200/80 bg-white/80 overflow-hidden">
-                <h3 className="text-xs font-semibold text-amber-800 bg-amber-100/90 px-3 py-2 border-b border-amber-200 uppercase tracking-wider">Rest of team</h3>
-                <div className="divide-y divide-amber-50">
-                  {otherRoles.map((role) => {
-                    const a = assignments.find((x) => x.role === role)
-                    if (!a?.memberName) return null
-                    return (
-                      <div key={role} className="flex items-center gap-3 px-3 py-2">
-                        <span className="text-xs text-slate-500 w-32 shrink-0">{role}</span>
-                        <span className="text-sm font-medium text-slate-800">{a.memberName}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-          </div>
-        )}
-
-        {/* Push to Sunday Plan footer */}
-        {canManageWorship && !loadingComingPlan && (
-          <div className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-amber-100 to-orange-100 border-t-2 border-amber-300/50 flex justify-end">
-            <button
-              type="button"
-              disabled={savingComingPlan}
-              onClick={async () => {
-                setSavingComingPlan(true)
-                try {
-                  await setWorshipScheduleByDate(
-                    DEPARTMENT,
-                    comingSundayDate,
-                    comingPlan.assignments || [],
-                    userProfile?.email,
-                    { songs: comingPlan.songs || [], worshipDirectorName: comingPlan.worshipDirectorName || '' }
-                  )
-                  await loadComingPlan(comingSundayDate)
-                } catch (e) {
-                  console.error(e)
-                  alert('Failed to save')
-                } finally {
-                  setSavingComingPlan(false)
-                }
-              }}
-              className="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60 shadow"
-            >
-              {savingComingPlan ? 'Pushing...' : 'Push to Sunday Plan'}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 export default function DepartmentWorship() {
   const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
   if (!hasAccess(userProfile, DEPARTMENT)) {
@@ -308,7 +122,13 @@ export default function DepartmentWorship() {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
-  const [summarySubTab, setSummarySubTab] = useState('plan')
+  const [operationsSubTab, setOperationsSubTab] = useState('subDepartment')
+  const [subDepartments, setSubDepartments] = useState([])
+  const [subDeptLoading, setSubDeptLoading] = useState(false)
+  const [subDeptError, setSubDeptError] = useState(null)
+  const [subDeptForm, setSubDeptForm] = useState({ name: '' })
+  const [editingSubDept, setEditingSubDept] = useState(null)
+  const [subDeptModalOpen, setSubDeptModalOpen] = useState(false)
   const [teamMembers, setTeamMembers] = useState([])
   const [formerMembers, setFormerMembers] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(true)
@@ -336,12 +156,6 @@ export default function DepartmentWorship() {
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [scheduleForDate, setScheduleForDate] = useState({ date: '', assignments: [] })
   const [loadingSchedule, setLoadingSchedule] = useState(false)
-  const [searchParams] = useSearchParams()
-  const dateFromUrl = searchParams.get('date')
-  const [comingSundayDate, setComingSundayDate] = useState(() => dateFromUrl || nextSundayISO())
-  const [comingPlan, setComingPlan] = useState({ date: '', assignments: [], songs: [], worshipDirectorName: '' })
-  const [loadingComingPlan, setLoadingComingPlan] = useState(false)
-  const [savingComingPlan, setSavingComingPlan] = useState(false)
   const [editMember, setEditMember] = useState(null)
   const [budgetItems, setBudgetItems] = useState([])
   const [loadingBudgetItems, setLoadingBudgetItems] = useState(true)
@@ -418,41 +232,31 @@ export default function DepartmentWorship() {
     }
   }
 
-  async function loadComingPlan(date) {
-    setLoadingComingPlan(true)
+  useEffect(() => {
+    loadBudgetItems()
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'assign' && selectedDate) loadScheduleForDate(selectedDate)
+  }, [activeTab, selectedDate])
+
+  async function loadSubDepartments() {
+    setSubDeptLoading(true)
+    setSubDeptError(null)
     try {
-      const data = await getWorshipScheduleByDate(DEPARTMENT, date)
-      const rawSongs = Array.isArray(data.songs) ? data.songs : []
-      const songs = rawSongs.map((s) => ({
-        title: s?.title ?? '',
-        key: s?.key ?? '',
-        memberId: s?.memberId ?? '',
-        memberName: s?.memberName ?? '',
-      }))
-      setComingPlan({
-        ...data,
-        songs,
-        worshipDirectorName: data.worshipDirectorName || '',
-      })
+      const list = await getDepartmentSubDepartments(DEPARTMENT)
+      setSubDepartments(list)
     } catch (e) {
-      console.error(e)
-      setComingPlan({ date, assignments: [], songs: [], worshipDirectorName: '' })
+      setSubDeptError(e?.message || 'Could not load sub departments.')
+      setSubDepartments([])
     } finally {
-      setLoadingComingPlan(false)
+      setSubDeptLoading(false)
     }
   }
 
   useEffect(() => {
-    const d = dateFromUrl || nextSundayISO()
-    setComingSundayDate(d)
-    loadComingPlan(d)
-    loadBudgetItems()
-    if (dateFromUrl) setActiveTab('summary')
-  }, [dateFromUrl])
-
-  useEffect(() => {
-    if ((activeTab === 'summary' && summarySubTab === 'assign') && selectedDate) loadScheduleForDate(selectedDate)
-  }, [activeTab, summarySubTab, selectedDate])
+    if (activeTab === 'operations' && operationsSubTab === 'subDepartment') loadSubDepartments()
+  }, [activeTab, operationsSubTab])
 
   useEffect(() => {
     setLocalAssignments(scheduleForDate.assignments || [])
@@ -578,28 +382,6 @@ export default function DepartmentWorship() {
       <div className="space-y-4 p-4">
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
-          {/* Sub-tab bar */}
-          <div className="flex gap-1 border-b border-slate-200">
-            <button
-              type="button"
-              onClick={() => setSummarySubTab('plan')}
-              className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${summarySubTab === 'plan' ? 'border-amber-500 text-amber-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-            >
-              Plan Coming Sunday
-            </button>
-            {canManageWorship && (
-              <button
-                type="button"
-                onClick={() => setSummarySubTab('assign')}
-                className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${summarySubTab === 'assign' ? 'border-amber-500 text-amber-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-              >
-                Assign Team
-              </button>
-            )}
-          </div>
-
-          {summarySubTab === 'plan' && (
-          <div className="space-y-4">
           {/* Budget 2026 - compact, colourful */}
           <div className="bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 rounded-xl shadow-md p-4 text-white max-w-3xl">
             <h2 className="text-sm font-semibold uppercase tracking-wider opacity-95">Budget 2026 (Worship)</h2>
@@ -619,28 +401,11 @@ export default function DepartmentWorship() {
             </div>
             <p className="mt-2 text-sm opacity-90">All Worship budget entries, period 2026.</p>
           </div>
+        </div>
+      )}
 
-          {/* Plan coming Sunday */}
-          <PlanComingSundayCard
-            comingSundayDate={comingSundayDate}
-            comingPlan={comingPlan}
-            setComingPlan={setComingPlan}
-            loadingComingPlan={loadingComingPlan}
-            savingComingPlan={savingComingPlan}
-            setSavingComingPlan={setSavingComingPlan}
-            canManageWorship={canManageWorship}
-            teamMembers={teamMembers}
-            userProfile={userProfile}
-            loadComingPlan={loadComingPlan}
-            setSelectedDate={setSelectedDate}
-            onOpenAssign={() => setSummarySubTab('assign')}
-            DEPARTMENT={DEPARTMENT}
-            formatDMY={formatDMY}
-          />
-          </div>
-          )}
-
-          {summarySubTab === 'assign' && canManageWorship && (
+      {activeTab === 'assign' && canManageWorship && (
+        <div className="space-y-4">
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
               <div className="px-5 py-4 border-b border-slate-200 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -797,7 +562,6 @@ export default function DepartmentWorship() {
                 </table>
               )}
             </div>
-          )}
 
           {structureModal && (
             <div
@@ -830,7 +594,134 @@ export default function DepartmentWorship() {
         </div>
       )}
 
-      {activeTab === 'team' && (canManageWorship || canViewInsights) && (
+      {activeTab === 'operations' && (canManageWorship || canViewInsights) && (
+        <div className="space-y-4">
+
+          <div className="flex overflow-x-auto scrollbar-hide border-b border-slate-200 gap-1">
+            {[
+              { key: 'subDepartment', label: 'Sub Department' },
+              { key: 'team', label: 'Team' },
+              { key: 'planning', label: 'Planning' },
+              { key: 'budget', label: 'Budget & Spending' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setOperationsSubTab(key)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                  operationsSubTab === key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-600 hover:text-indigo-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {operationsSubTab === 'subDepartment' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-semibold text-slate-800">Sub Departments</h2>
+                  {canManageWorship && (
+                    <button
+                      type="button"
+                      onClick={() => { setEditingSubDept(null); setSubDeptForm({ name: '' }); setSubDeptModalOpen(true) }}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    >
+                      + Add
+                    </button>
+                  )}
+                </div>
+                {subDeptLoading ? (
+                  <div className="py-6 text-center text-slate-500">Loading...</div>
+                ) : subDeptError ? (
+                  <div className="py-6 text-center text-red-600">{subDeptError}</div>
+                ) : subDepartments.length === 0 ? (
+                  <div className="py-6 text-center text-slate-500">No sub departments yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {subDepartments.map((sd) => (
+                      <div key={sd.id} className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="font-medium text-slate-800">{sd.name}</span>
+                        {canManageWorship && (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => { setEditingSubDept(sd); setSubDeptForm({ name: sd.name || '' }); setSubDeptModalOpen(true) }}
+                              className="text-sm text-blue-600 hover:underline"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!window.confirm('Delete this sub department?')) return
+                                try {
+                                  await deleteDepartmentSubDepartment(sd.id)
+                                  await loadSubDepartments()
+                                } catch (e) {
+                                  alert(e?.message || 'Failed to delete')
+                                }
+                              }}
+                              className="text-sm text-red-600 hover:underline"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {subDeptModalOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSubDeptModalOpen(false)}>
+                  <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
+                    <h3 className="font-semibold text-slate-800 mb-4">
+                      {editingSubDept ? 'Edit sub department' : 'Add sub department'}
+                    </h3>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault()
+                        try {
+                          if (editingSubDept) {
+                            await updateDepartmentSubDepartment(editingSubDept.id, { name: subDeptForm.name.trim() })
+                          } else {
+                            await addDepartmentSubDepartment(DEPARTMENT, { name: subDeptForm.name.trim() }, userProfile?.email)
+                          }
+                          setSubDeptModalOpen(false)
+                          await loadSubDepartments()
+                        } catch (err) {
+                          alert(err?.message || 'Failed to save')
+                        }
+                      }}
+                      className="space-y-3"
+                    >
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                        <input
+                          type="text"
+                          value={subDeptForm.name}
+                          onChange={(e) => setSubDeptForm((f) => ({ ...f, name: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                          required
+                        />
+                      </div>
+                      <div className="flex gap-3 pt-1">
+                        <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">
+                          {editingSubDept ? 'Save' : 'Add'}
+                        </button>
+                        <button type="button" onClick={() => setSubDeptModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100">Cancel</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {operationsSubTab === 'team' && (
         <div className="space-y-6">
           {canManageWorship && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -1005,9 +896,137 @@ export default function DepartmentWorship() {
             )}
           </div>
         </div>
-      )}
+          )}
 
-      {activeTab === 'history' && (canManageWorship || canViewInsights) && (
+          {operationsSubTab === 'planning' && (
+            <div className="space-y-6">
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+            <h2 className="font-semibold text-slate-800 mb-4">Add entry</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+                <select
+                  value={form.type}
+                  onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                >
+                  <option value="team">Team planning</option>
+                  <option value="budget">Budget / money spent</option>
+                  <option value="participation">Participation (number of people)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Period (month)</label>
+                <input
+                  type="month"
+                  value={form.period}
+                  onChange={(e) => setForm((f) => ({ ...f, period: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              {form.type === 'team' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Team / assignments notes</label>
+                  <textarea
+                    value={form.teamNotes}
+                    onChange={(e) => setForm((f) => ({ ...f, teamNotes: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    rows={3}
+                    placeholder="e.g. Lead: John, Keys: Mary, Drums: ..."
+                  />
+                </div>
+              )}
+              {form.type === 'budget' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Planned budget (RM)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.plannedBudget}
+                      onChange={(e) => setForm((f) => ({ ...f, plannedBudget: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Money spent (RM)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.spent}
+                      onChange={(e) => setForm((f) => ({ ...f, spent: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    />
+                  </div>
+                </>
+              )}
+              {form.type === 'participation' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Number of people participating</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.participantsCount}
+                      onChange={(e) => setForm((f) => ({ ...f, participantsCount: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Activity notes (optional)</label>
+                    <textarea
+                      value={form.activityNotes}
+                      onChange={(e) => setForm((f) => ({ ...f, activityNotes: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      rows={2}
+                    />
+                  </div>
+                </>
+              )}
+              <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700">
+                Save entry
+              </button>
+            </form>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Recent entries (your data → pastor sees this)</h2>
+            {loading ? (
+              <div className="p-8 text-center text-slate-500">Loading...</div>
+            ) : entries.length === 0 ? (
+              <div className="p-8 text-center text-slate-500">No entries yet.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Type</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Details</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {entries.slice(0, 20).map((e) => (
+                      <tr key={e.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 text-slate-800">{e.period}</td>
+                        <td className="px-4 py-2 text-slate-600 capitalize">{e.type}</td>
+                        <td className="px-4 py-2 text-slate-600">
+                          {e.type === 'team' && (e.data?.notes || '—')}
+                          {e.type === 'budget' && `Planned: ${e.data?.planned ?? 0} RM, Spent: ${e.data?.spent ?? 0} RM`}
+                          {e.type === 'participation' && `${e.data?.count ?? 0} people`}
+                        </td>
+                        <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">History (director entries)</h2>
           {loading ? (
@@ -1043,126 +1062,10 @@ export default function DepartmentWorship() {
             </div>
           )}
         </div>
-      )}
-
-      {editMember && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditMember(null)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-slate-800 mb-4">Edit member</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
-                <input
-                  type="text"
-                  value={editMember.name}
-                  onChange={(e) => setEditMember((m) => ({ ...m, name: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Member since</label>
-                <input
-                  type="date"
-                  value={editMember.memberSince || ''}
-                  onChange={(e) => setEditMember((m) => ({ ...m, memberSince: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                />
-              </div>
-              <div className="flex flex-wrap gap-3 text-sm text-slate-600">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={!!editMember.isWorshipDirector}
-                    onChange={(e) => setEditMember((m) => ({ ...m, isWorshipDirector: e.target.checked }))}
-                  />
-                  Worship director
-                </label>
-              </div>
-              <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-                {MEMBER_POSITIONS.map((pos) => (
-                  <label key={pos} className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-50 border border-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={editMember.positions?.includes(pos)}
-                      onChange={(e) =>
-                        setEditMember((m) => ({
-                          ...m,
-                          positions: e.target.checked
-                            ? [...(m.positions || []), pos]
-                            : (m.positions || []).filter((p) => p !== pos),
-                        }))
-                      }
-                    />
-                    <span>{pos}</span>
-                  </label>
-                ))}
-              </div>
             </div>
-            <div className="flex flex-wrap gap-3 mt-5">
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await updateWorshipTeamMember(editMember.id, {
-                      name: editMember.name,
-                      memberSince: editMember.memberSince,
-                      isWorshipDirector: !!editMember.isWorshipDirector,
-                      positions: editMember.positions || [],
-                    })
-                    await loadTeam()
-                    setEditMember(null)
-                  } catch (e) {
-                    console.error(e)
-                    alert('Failed to update')
-                  }
-                }}
-                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700"
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await updateWorshipTeamMember(editMember.id, { isFormer: true })
-                    await loadTeam()
-                    setEditMember(null)
-                  } catch (e) {
-                    console.error(e)
-                    alert('Failed to update')
-                  }
-                }}
-                className="px-4 py-2 rounded-lg bg-slate-200 text-slate-700 font-medium hover:bg-slate-300"
-              >
-                Make former
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!confirm('Delete this member permanently?')) return
-                  try {
-                    await deleteWorshipTeamMember(editMember.id)
-                    await loadTeam()
-                    setEditMember(null)
-                  } catch (e) {
-                    console.error(e)
-                    alert('Failed to delete')
-                  }
-                }}
-                className="px-4 py-2 rounded-lg bg-red-100 text-red-700 font-medium hover:bg-red-200"
-              >
-                Delete
-              </button>
-              <button type="button" onClick={() => setEditMember(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
 
-
-      {activeTab === 'budget' && (canManageWorship || canViewInsights) && (
+          {operationsSubTab === 'budget' && (
         <div className="space-y-6">
           {/* Detailed worship budget table (spreadsheet-style) */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -1536,215 +1439,129 @@ export default function DepartmentWorship() {
             )}
           </div>
         </div>
+          )}
+
+        </div>
       )}
 
-      {activeTab === 'entry' && canManageWorship && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-            <h2 className="font-semibold text-slate-800 mb-4">Add entry</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
+      {editMember && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditMember(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-slate-800 mb-4">Edit member</h3>
+            <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
-                <select
-                  value={form.type}
-                  onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                >
-                  <option value="team">Team planning</option>
-                  <option value="budget">Budget / money spent</option>
-                  <option value="participation">Participation (number of people)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Period (month)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
                 <input
-                  type="month"
-                  value={form.period}
-                  onChange={(e) => setForm((f) => ({ ...f, period: e.target.value }))}
+                  type="text"
+                  value={editMember.name}
+                  onChange={(e) => setEditMember((m) => ({ ...m, name: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"
                 />
               </div>
-              {form.type === 'team' && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Team / assignments notes</label>
-                  <textarea
-                    value={form.teamNotes}
-                    onChange={(e) => setForm((f) => ({ ...f, teamNotes: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                    rows={3}
-                    placeholder="e.g. Lead: John, Keys: Mary, Drums: ..."
-                  />
-                </div>
-              )}
-              {form.type === 'budget' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Planned budget (RM)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.plannedBudget}
-                      onChange={(e) => setForm((f) => ({ ...f, plannedBudget: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Money spent (RM)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.spent}
-                      onChange={(e) => setForm((f) => ({ ...f, spent: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                    />
-                  </div>
-                </>
-              )}
-              {form.type === 'participation' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Number of people participating</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={form.participantsCount}
-                      onChange={(e) => setForm((f) => ({ ...f, participantsCount: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Activity notes (optional)</label>
-                    <textarea
-                      value={form.activityNotes}
-                      onChange={(e) => setForm((f) => ({ ...f, activityNotes: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                      rows={2}
-                    />
-                  </div>
-                </>
-              )}
-              <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700">
-                Save entry
-              </button>
-            </form>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Recent entries (your data → pastor sees this)</h2>
-            {loading ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
-            ) : entries.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">No entries yet.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Type</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Details</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {entries.slice(0, 20).map((e) => (
-                      <tr key={e.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-2 text-slate-800">{e.period}</td>
-                        <td className="px-4 py-2 text-slate-600 capitalize">{e.type}</td>
-                        <td className="px-4 py-2 text-slate-600">
-                          {e.type === 'team' && (e.data?.notes || '—')}
-                          {e.type === 'budget' && `Planned: ${e.data?.planned ?? 0} RM, Spent: ${e.data?.spent ?? 0} RM`}
-                          {e.type === 'participation' && `${e.data?.count ?? 0} people`}
-                        </td>
-                        <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Member since</label>
+                <input
+                  type="date"
+                  value={editMember.memberSince || ''}
+                  onChange={(e) => setEditMember((m) => ({ ...m, memberSince: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
               </div>
-            )}
+              <div className="flex flex-wrap gap-3 text-sm text-slate-600">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={!!editMember.isWorshipDirector}
+                    onChange={(e) => setEditMember((m) => ({ ...m, isWorshipDirector: e.target.checked }))}
+                  />
+                  Worship director
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs text-slate-600">
+                {MEMBER_POSITIONS.map((pos) => (
+                  <label key={pos} className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-50 border border-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={editMember.positions?.includes(pos)}
+                      onChange={(e) =>
+                        setEditMember((m) => ({
+                          ...m,
+                          positions: e.target.checked
+                            ? [...(m.positions || []), pos]
+                            : (m.positions || []).filter((p) => p !== pos),
+                        }))
+                      }
+                    />
+                    <span>{pos}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3 mt-5">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await updateWorshipTeamMember(editMember.id, {
+                      name: editMember.name,
+                      memberSince: editMember.memberSince,
+                      isWorshipDirector: !!editMember.isWorshipDirector,
+                      positions: editMember.positions || [],
+                    })
+                    await loadTeam()
+                    setEditMember(null)
+                  } catch (e) {
+                    console.error(e)
+                    alert('Failed to update')
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await updateWorshipTeamMember(editMember.id, { isFormer: true })
+                    await loadTeam()
+                    setEditMember(null)
+                  } catch (e) {
+                    console.error(e)
+                    alert('Failed to update')
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-slate-200 text-slate-700 font-medium hover:bg-slate-300"
+              >
+                Make former
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm('Delete this member permanently?')) return
+                  try {
+                    await deleteWorshipTeamMember(editMember.id)
+                    await loadTeam()
+                    setEditMember(null)
+                  } catch (e) {
+                    console.error(e)
+                    alert('Failed to delete')
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-red-100 text-red-700 font-medium hover:bg-red-200"
+              >
+                Delete
+              </button>
+              <button type="button" onClick={() => setEditMember(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100">
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {activeTab === 'insights' && canViewInsights && (
-        <div className="space-y-6">
-          <p className="text-slate-600">Analytics from Worship director entries. Same data they enter, aggregated for you.</p>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <h2 className="font-semibold text-slate-800 mb-4">Participation over time</h2>
-              {participationByMonth.some((p) => p.participants > 0) ? (
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={participationByMonth}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="period" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="participants" stroke="#1e40af" strokeWidth={2} name="Participants" />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-slate-500 py-8 text-center">No participation data yet.</p>
-              )}
-            </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <h2 className="font-semibold text-slate-800 mb-4">Budget vs spent (by month)</h2>
-              {budgetByMonth.some((b) => b.planned > 0 || b.spent > 0) ? (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={budgetByMonth}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="period" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="planned" fill="#10b981" name="Planned (RM)" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="spent" fill="#ef4444" name="Spent (RM)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-slate-500 py-8 text-center">No budget data yet.</p>
-              )}
-            </div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">All Worship entries (activity)</h2>
-            {loading ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
-            ) : entries.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">No entries yet from the director.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Type</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Details</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {entries.map((e) => (
-                      <tr key={e.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-2 text-slate-800">{e.period}</td>
-                        <td className="px-4 py-2 text-slate-600 capitalize">{e.type}</td>
-                        <td className="px-4 py-2 text-slate-600">
-                          {e.type === 'team' && (e.data?.notes || '—')}
-                          {e.type === 'budget' && `Planned: ${e.data?.planned ?? 0} RM, Spent: ${e.data?.spent ?? 0} RM`}
-                          {e.type === 'participation' && `${e.data?.count ?? 0} people`}
-                        </td>
-                        <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+
       </div>
     </div>
   )
-}
+}
