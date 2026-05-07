@@ -29,6 +29,17 @@ body {
   color: var(--rol-text);
 }
 
+/* ─── Bright glassmorphism: mesh gradient in light mode ──────────────────── */
+:root:not(.dark) body {
+  background:
+    radial-gradient(ellipse at 18% 14%, rgba(219,234,254,0.72) 0%, transparent 50%),
+    radial-gradient(ellipse at 82%  8%, rgba(237,233,254,0.62) 0%, transparent 48%),
+    radial-gradient(ellipse at 58% 88%, rgba(220,252,231,0.52) 0%, transparent 50%),
+    radial-gradient(ellipse at 94% 68%, rgba(254,243,199,0.42) 0%, transparent 44%),
+    #f0f4ff !important;
+  background-attachment: fixed;
+}
+
 #root {
   min-height: 100vh;
 }
@@ -111,16 +122,39 @@ body {
 
 /* ─── Consistent card style ──────────────────────────────────────────────── */
 .rol-card {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 0.875rem;
-  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.06), 0 1px 2px -1px rgba(0,0,0,0.04);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.9);
   padding: 1.25rem;
 }
 .dark .rol-card {
   background: rgba(15, 23, 42, 0.85);
   border-color: rgba(51, 65, 85, 0.8);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+/* ─── Light mode: glass effect on rounded white cards ────────────────────── */
+:root:not(.dark) .bg-white.rounded-xl,
+:root:not(.dark) .bg-white.rounded-2xl,
+:root:not(.dark) .bg-white.rounded-lg {
+  background: rgba(255,255,255,0.68) !important;
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-color: rgba(255,255,255,0.82) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.9) !important;
+}
+
+/* ─── Light mode: soften shadow-sm ───────────────────────────────────────── */
+:root:not(.dark) .shadow-sm {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.8) !important;
+}
+
+/* ─── Light mode: .dash-card hover ───────────────────────────────────────── */
+:root:not(.dark) .dash-card:hover {
+  box-shadow: 0 16px 40px rgba(0,0,0,0.1), 0 0 0 1px rgba(99,102,241,0.18), inset 0 1px 0 rgba(255,255,255,1) !important;
 }
 
 /* ─── Touch targets: ensure primary action buttons are tall enough ────────── */

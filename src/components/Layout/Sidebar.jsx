@@ -8,7 +8,6 @@ import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard' },
-  // Senior Pastor office – second in sidebar
   { to: '/senior-pastor', label: 'Senior Pastor Office', icon: '👤', permission: 'pastorHub', orFounder: true },
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
   { to: '/sunday-planning', label: 'Sunday Plan', icon: '📋', permission: 'attendance' },
@@ -27,13 +26,62 @@ function shortLabel(label) {
   for (const [key, short] of Object.entries(map)) {
     if (label.startsWith(key)) return short
   }
-  // "Worship (Director)" → "Worship"
   const paren = label.indexOf(' (')
   const base = paren > 0 ? label.slice(0, paren) : label
   return base.length > 10 ? base.slice(0, 9) + '…' : base
 }
 
-function BottomTabBar({ items }) {
+function BottomTabBar({ items, theme }) {
+  const isDay = theme !== 'night'
+
+  if (isDay) {
+    return (
+      <nav
+        className="lg:hidden fixed z-50"
+        style={{ bottom: '14px', left: '12px', right: '12px' }}
+      >
+        <div style={{
+          background: 'rgba(255,255,255,0.88)',
+          backdropFilter: 'blur(24px) saturate(200%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(200%)',
+          border: '1px solid rgba(255,255,255,0.95)',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,1)',
+          borderRadius: '20px',
+          overflow: 'hidden',
+        }}>
+          <div className="flex overflow-x-auto scrollbar-hide px-1">
+            {items.map((item) => (
+              <NavLink
+                key={(item.to || '/') + (item.label || '')}
+                to={item.to || '/'}
+                className={({ isActive }) =>
+                  `flex flex-col items-center justify-center gap-0.5 px-2.5 py-2.5 flex-shrink-0 min-w-[60px] relative transition-colors duration-150 ${
+                    isActive ? 'text-indigo-600' : 'text-slate-500'
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    {isActive && (
+                      <span
+                        className="absolute inset-x-1 top-1 bottom-1 rounded-xl"
+                        style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.14)' }}
+                      />
+                    )}
+                    <span className="text-xl leading-none relative z-10">{item.icon}</span>
+                    <span className="text-[10px] leading-none font-semibold truncate max-w-[56px] relative z-10 mt-0.5">
+                      {shortLabel(item.label)}
+                    </span>
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      </nav>
+    )
+  }
+
   return (
     <nav
       className="lg:hidden fixed bottom-0 left-0 right-0 z-50"
@@ -78,7 +126,7 @@ function BottomTabBar({ items }) {
 }
 
 export default function Sidebar() {
-  const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead, canSeeAllDepartments } = useAuth()
+  const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead } = useAuth()
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
 
@@ -110,8 +158,86 @@ export default function Sidebar() {
     return deptName
   }
 
-  // Scoped sidebar mode: for all non-Founder/Admin users, map the sidebar directly
-  // from their `positions[]` (Director/Coordinator only; associate-only is hidden).
+  // ── Theme-aware style tokens ────────────────────────────────────────────────
+  const isDay = theme !== 'night'
+
+  const sidebarStyle = isDay ? {
+    background: 'rgba(255,255,255,0.72)',
+    backdropFilter: 'blur(24px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+    borderRight: '1px solid rgba(255,255,255,0.9)',
+    boxShadow: '4px 0 32px rgba(0,0,0,0.08)',
+  } : {}
+
+  const headerBorderClass = isDay ? 'border-slate-200/60' : 'border-slate-600/50'
+  const footerBorderClass = isDay ? 'border-slate-200/60' : 'border-slate-600/50'
+
+  const titleGradient = isDay
+    ? 'linear-gradient(to right, #1e293b 0%, #475569 100%)'
+    : 'linear-gradient(to right, #ffffff 0%, #cbd5e1 100%)'
+
+  const navLinkActive = 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-md'
+  const navLinkInactive = isDay
+    ? 'text-slate-600 hover:bg-black/5 hover:text-slate-900'
+    : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
+
+  const profileNameClass = isDay ? 'text-slate-700' : 'text-slate-400'
+  const profileRoleClass = isDay ? 'text-slate-500' : 'text-slate-500'
+  const actionBtnClass = isDay
+    ? 'w-full mt-1 px-3 py-3 text-left text-sm text-slate-600 hover:bg-black/5 rounded-lg transition-colors duration-150'
+    : 'w-full mt-1 px-3 py-3 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg'
+
+  const hamburgerClass = isDay
+    ? 'lg:hidden fixed top-3 left-3 z-40 p-2.5 rounded-xl shadow-md text-lg leading-none bg-white/90 text-slate-700 border border-white/80'
+    : 'lg:hidden fixed top-3 left-3 z-40 p-2.5 rounded-xl shadow text-lg leading-none bg-slate-800 text-white'
+
+  const asideTextClass = isDay ? 'text-slate-900' : 'text-white'
+
+  // ── Brand header (shared) ───────────────────────────────────────────────────
+  const BrandHeader = () => (
+    <div className={`p-4 border-b ${headerBorderClass}`}>
+      <div className="flex items-center gap-3">
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
+            boxShadow: '0 4px 14px rgba(99,102,241,0.45)',
+          }}
+        >
+          <span
+            className="text-white font-black text-lg leading-none select-none"
+            style={{ fontFamily: "'Montserrat', Inter, system-ui, sans-serif", letterSpacing: '-0.02em' }}
+          >
+            R
+          </span>
+        </div>
+        <div className="min-w-0">
+          <h1
+            className="font-black leading-tight truncate"
+            style={{
+              fontFamily: "'Montserrat', Inter, system-ui, sans-serif",
+              fontSize: '18px',
+              background: titleGradient,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              letterSpacing: '-0.015em',
+            }}
+          >
+            River Of Life
+          </h1>
+          <p
+            className={`font-semibold select-none ${isDay ? 'text-slate-400' : 'text-slate-500'}`}
+            style={{ fontSize: '9px', letterSpacing: '0.18em', marginTop: '2px' }}
+          >
+            ADMIN PORTAL
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ── Scoped sidebar (non-Founder/Admin users) ────────────────────────────────
   if (userProfile && !isFounder && userProfile?.role !== ROLES.ADMIN) {
     const positions = Array.isArray(userProfile?.positions) ? userProfile.positions : []
 
@@ -123,38 +249,25 @@ export default function Sidebar() {
       const rUpper = role.toUpperCase()
 
       if (sLower === 'director' || rUpper === 'DIRECTOR') return 'DIRECTOR'
-      // Only treat "Cell Leader"/"LEADER" as COORDINATOR head-role for the *Cell* department.
-      // For any other department, "Cell Leader" must not grant hub access.
       const deptNorm = String(p.department || '').trim().toLowerCase()
       const isCellDept = deptNorm === 'cell'
-
-      const isCoordinatorToken =
-        sLower === 'coordinator' ||
-        rUpper === 'COORDINATOR'
-
+      const isCoordinatorToken = sLower === 'coordinator' || rUpper === 'COORDINATOR'
       const isCellLeaderToken = sLower === 'cell leader' || rUpper === 'LEADER'
-
       if (isCoordinatorToken) return 'COORDINATOR'
       if (isCellDept && isCellLeaderToken) return 'COORDINATOR'
       return null
     }
 
-    const headDeptMap = new Map() // deptName -> { deptName, headRole, rank }
+    const headDeptMap = new Map()
     let hasCellHead = false
     positions.forEach((p) => {
       if (!p) return
       const dept = String(p.department || '').trim()
       if (!dept) return
-
       const deptNorm = dept.toLowerCase()
       const headRole = headRoleFromPosition(p)
       if (!headRole) return
-
-      if (deptNorm === 'cell') {
-        hasCellHead = true
-        return
-      }
-
+      if (deptNorm === 'cell') { hasCellHead = true; return }
       const nextRank = headRole === 'DIRECTOR' ? 2 : 1
       const existing = headDeptMap.get(dept)
       if (!existing || nextRank > existing.rank) {
@@ -163,13 +276,8 @@ export default function Sidebar() {
     })
 
     const cellName = String(userProfile?.cellGroup || '').trim() || 'Cell'
-
     const scopedItems = []
-
-    // Sunday Plan is visible to everyone.
     scopedItems.push({ to: '/sunday-planning', label: 'Sunday Plan', icon: '📋' })
-
-    // Department hubs for Director/Coordinator positions.
     for (const v of headDeptMap.values()) {
       scopedItems.push({
         to: getDepartmentPath(v.deptName),
@@ -177,47 +285,26 @@ export default function Sidebar() {
         icon: '📁',
       })
     }
-
-    // Cell report page for Cell Leader/Director (head positions).
     if (hasCellHead) {
-      scopedItems.push({
-        to: '/department/cell/cell-report',
-        label: `Cell (${cellName})`,
-        icon: '🍃',
-      })
+      scopedItems.push({ to: '/department/cell/cell-report', label: `Cell (${cellName})`, icon: '🍃' })
     }
-
-    // Weekly Entry direct link for Weekly Expense Manager / Weekly Entry role.
     if (canAccessWeeklyEntryOnly(userProfile)) {
-      scopedItems.push({
-        to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`,
-        label: 'Weekly Entry',
-        icon: '📝',
-      })
+      scopedItems.push({ to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, label: 'Weekly Entry', icon: '📝' })
     }
 
     return (
       <>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="lg:hidden fixed top-3 left-3 z-40 p-2.5 rounded-xl bg-slate-800 text-white shadow text-lg leading-none"
-          aria-label="Toggle menu"
-        >
+        <button type="button" onClick={() => setOpen((o) => !o)} className={hamburgerClass} aria-label="Toggle menu">
           {open ? '✕' : '☰'}
         </button>
         {open && (
-          <div
-            className="lg:hidden fixed inset-0 bg-black/50 z-30"
-            onClick={() => setOpen(false)}
-            aria-hidden
-          />
+          <div className="lg:hidden fixed inset-0 bg-black/30 z-30 backdrop-blur-sm" onClick={() => setOpen(false)} aria-hidden />
         )}
-        <aside className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 text-white flex flex-col fixed left-0 top-0 z-30 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
-          <div className="p-4 border-b border-slate-600/50">
-            <h1 className="text-base font-bold text-white">River Of Life</h1>
-            <p className="text-xs text-slate-400 uppercase tracking-wider">Admin App</p>
-          </div>
+        <aside
+          className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 z-30 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+          style={sidebarStyle}
+        >
+          <BrandHeader />
           <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
             {scopedItems.map((item) => (
               <NavLink
@@ -226,9 +313,7 @@ export default function Sidebar() {
                 onClick={() => setOpen(false)}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm transition-all ${
-                    isActive
-                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow'
-                      : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
+                    isActive ? navLinkActive : navLinkInactive
                   }`
                 }
               >
@@ -237,33 +322,25 @@ export default function Sidebar() {
               </NavLink>
             ))}
           </nav>
-          <div className="p-2 border-t border-slate-600/50">
-            <div className="px-3 py-1.5 text-sm text-slate-400">
+          <div className={`p-2 border-t ${footerBorderClass}`}>
+            <div className={`px-3 py-1.5 text-sm ${profileNameClass}`}>
               {userProfile?.displayName || userProfile?.email || 'User'}
               <br />
-              <span className="text-slate-500">{userProfile?.role || ''}</span>
+              <span className={profileRoleClass}>{userProfile?.role || ''}</span>
             </div>
-        <button
-          type="button"
-          onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
-          aria-label={themeToggleLabel}
-          className="w-full mt-1 px-3 py-3 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
-        >
-          {theme === 'night' ? '🌙 Night mode' : '☀️ Day mode'}
-        </button>
-            <button
-              onClick={signOut}
-              className="w-full mt-1 px-3 py-3 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
-            >
-              Sign out
+            <button type="button" onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
+              aria-label={themeToggleLabel} className={actionBtnClass}>
+              {theme === 'night' ? '🌙 Night mode' : '☀️ Day mode'}
             </button>
+            <button onClick={signOut} className={actionBtnClass}>Sign out</button>
           </div>
         </aside>
-        <BottomTabBar items={scopedItems} />
+        <BottomTabBar items={scopedItems} theme={theme} />
       </>
     )
   }
 
+  // ── Full sidebar (Founder / Admin) ──────────────────────────────────────────
   const departments = userProfile?.departments || (userProfile?.department ? [userProfile.department] : [])
   const isCellDirectorOrLeader =
     departments.includes('Cell') &&
@@ -279,23 +356,17 @@ export default function Sidebar() {
     return hasPermission(item.permission)
   })
 
-  // For Cell Director/Leader with ONLY Cell: restrict menu to Cell (Director) and Sunday Plan
-  // If they also have another department (e.g. D Light Director + Cell Leader), show full menu + both dept links
   if (isCellDirectorOrLeader && onlyCell) {
-    visible = navItems.filter(
-      (item) => item.to === '/sunday-planning'
-    )
+    visible = navItems.filter((item) => item.to === '/sunday-planning')
   }
 
   const myDeptItems = departments
     .filter((d) => isDepartmentHead(d))
-    .map((d) => {
-      return {
-        to: getDepartmentPath(d),
-        label: `${displayDeptName(d)} (${getDepartmentRole(userProfile, d) === 'DIRECTOR' ? 'Director' : 'Coordinator'})`,
-        icon: '📁',
-      }
-    })
+    .map((d) => ({
+      to: getDepartmentPath(d),
+      label: `${displayDeptName(d)} (${getDepartmentRole(userProfile, d) === 'DIRECTOR' ? 'Director' : 'Coordinator'})`,
+      icon: '📁',
+    }))
   const mergedNav = myDeptItems.length ? [...myDeptItems, ...visible] : visible
   const seenTo = new Set()
   const visibleWithMyDept = mergedNav.filter((item) => {
@@ -306,61 +377,49 @@ export default function Sidebar() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="lg:hidden fixed top-3 left-3 z-40 p-2.5 rounded-xl bg-slate-800 text-white shadow text-lg leading-none"
-        aria-label="Toggle menu"
-      >
+      <button type="button" onClick={() => setOpen((o) => !o)} className={hamburgerClass} aria-label="Toggle menu">
         {open ? '✕' : '☰'}
       </button>
       {open && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/50 z-30"
-          onClick={() => setOpen(false)}
-          aria-hidden
-        />
+        <div className="lg:hidden fixed inset-0 bg-black/30 z-30 backdrop-blur-sm" onClick={() => setOpen(false)} aria-hidden />
       )}
-    <aside className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 text-white flex flex-col fixed left-0 top-0 z-30 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
-      <div className="p-4 border-b border-slate-600/50">
-        <h1 className="text-base font-bold text-white">River Of Life</h1>
-        <p className="text-xs text-slate-400 uppercase tracking-wider">Admin App</p>
-      </div>
-      <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {visibleWithMyDept.map((item) => (
-          <NavLink
-            key={(item.to || '/') + (item.label || '')}
-            to={item.to || '/'}
-            className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm transition-all ${
-                isActive
-                  ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow'
-                  : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
-              }`
-            }
-          >
-            <span className="text-base">{item.icon}</span>
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
-      <div className="p-2 border-t border-slate-600/50">
-        <div className="px-3 py-1.5 text-sm text-slate-400">
-          {userProfile?.displayName || userProfile?.email || 'User'}
-          <br />
-          <span className="text-slate-500">
-            {userProfile?.globalRole === 'FOUNDER' ? 'Senior Pastor' : (userProfile?.role || '')}
-          </span>
+      <aside
+        className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 z-30 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        style={sidebarStyle}
+      >
+        <BrandHeader />
+        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+          {visibleWithMyDept.map((item) => (
+            <NavLink
+              key={(item.to || '/') + (item.label || '')}
+              to={item.to || '/'}
+              className={({ isActive }) =>
+                `flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm transition-all ${
+                  isActive ? navLinkActive : navLinkInactive
+                }`
+              }
+            >
+              <span className="text-base">{item.icon}</span>
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className={`p-2 border-t ${footerBorderClass}`}>
+          <div className={`px-3 py-1.5 text-sm ${profileNameClass}`}>
+            {userProfile?.displayName || userProfile?.email || 'User'}
+            <br />
+            <span className={profileRoleClass}>
+              {userProfile?.globalRole === 'FOUNDER' ? 'Senior Pastor' : (userProfile?.role || '')}
+            </span>
+          </div>
+          <button type="button" onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
+            aria-label={themeToggleLabel} className={actionBtnClass}>
+            {theme === 'night' ? '🌙 Night mode' : '☀️ Day mode'}
+          </button>
+          <button onClick={signOut} className={actionBtnClass}>Sign out</button>
         </div>
-        <button
-          onClick={signOut}
-          className="w-full mt-1 px-3 py-3 text-left text-sm text-slate-300 hover:bg-slate-800 rounded-lg"
-        >
-          Sign out
-        </button>
-      </div>
-    </aside>
-    <BottomTabBar items={visibleWithMyDept} />
+      </aside>
+      <BottomTabBar items={visibleWithMyDept} theme={theme} />
     </>
   )
 }
