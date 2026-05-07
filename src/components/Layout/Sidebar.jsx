@@ -15,6 +15,68 @@ const navItems = [
   { to: '/admin/users', label: 'User Management', icon: '👥', permission: 'manageUsers', adminOnly: true },
 ]
 
+function shortLabel(label) {
+  const map = {
+    'Dashboard': 'Home',
+    'Sunday Plan': 'Sunday',
+    'Departments': 'Depts',
+    'Senior Pastor Office': 'Pastor',
+    'User Management': 'Users',
+    'Weekly Entry': 'Entry',
+  }
+  for (const [key, short] of Object.entries(map)) {
+    if (label.startsWith(key)) return short
+  }
+  // "Worship (Director)" → "Worship"
+  const paren = label.indexOf(' (')
+  const base = paren > 0 ? label.slice(0, paren) : label
+  return base.length > 10 ? base.slice(0, 9) + '…' : base
+}
+
+function BottomTabBar({ items }) {
+  return (
+    <nav
+      className="lg:hidden fixed bottom-0 left-0 right-0 z-50"
+      style={{
+        background: 'rgba(15,23,42,0.96)',
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+        borderTop: '1px solid rgba(255,255,255,0.08)',
+        paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 4px)',
+      }}
+    >
+      <div className="flex overflow-x-auto scrollbar-hide px-1">
+        {items.map((item) => (
+          <NavLink
+            key={(item.to || '/') + (item.label || '')}
+            to={item.to || '/'}
+            className={({ isActive }) =>
+              `flex flex-col items-center justify-center gap-0.5 px-2.5 py-2.5 flex-shrink-0 min-w-[60px] relative transition-colors duration-150 ${
+                isActive ? 'text-indigo-400' : 'text-slate-400'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <span
+                    className="absolute inset-x-1 top-1 bottom-1 rounded-xl"
+                    style={{ background: 'rgba(99,102,241,0.18)' }}
+                  />
+                )}
+                <span className="text-xl leading-none relative z-10">{item.icon}</span>
+                <span className="text-[10px] leading-none font-medium truncate max-w-[56px] relative z-10 mt-0.5">
+                  {shortLabel(item.label)}
+                </span>
+              </>
+            )}
+          </NavLink>
+        ))}
+      </div>
+    </nav>
+  )
+}
+
 export default function Sidebar() {
   const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead, canSeeAllDepartments } = useAuth()
   const [open, setOpen] = useState(false)
@@ -197,6 +259,7 @@ export default function Sidebar() {
             </button>
           </div>
         </aside>
+        <BottomTabBar items={scopedItems} />
       </>
     )
   }
@@ -297,6 +360,7 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+    <BottomTabBar items={visibleWithMyDept} />
     </>
   )
 }

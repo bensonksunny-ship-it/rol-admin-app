@@ -142,7 +142,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div
-        className="relative -mx-4 -mt-14 -mb-4 lg:-mx-6 lg:-mt-5 lg:-mb-6 flex items-center justify-center"
+        className="relative -mx-4 -mt-14 -mb-20 lg:-mx-6 lg:-mt-5 lg:-mb-6 flex items-center justify-center"
         style={PAGE_BG}
       >
         <div className="text-center">
@@ -154,7 +154,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="relative -mx-4 -mt-14 -mb-4 lg:-mx-6 lg:-mt-5 lg:-mb-6" style={PAGE_BG}>
+    <div className="relative -mx-4 -mt-14 -mb-20 lg:-mx-6 lg:-mt-5 lg:-mb-6" style={PAGE_BG}>
 
       {/* Ambient glow orbs */}
       <div
