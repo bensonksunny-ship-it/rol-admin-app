@@ -220,6 +220,8 @@ export default function DepartmentHub() {
   const [loadingDelightVisitors, setLoadingDelightVisitors] = useState(false)
   const [delightVisitorModalOpen, setDelightVisitorModalOpen] = useState(false)
   const [editingDelightVisitorId, setEditingDelightVisitorId] = useState(null)
+  const [importingVisitors, setImportingVisitors] = useState(false)
+  const [importVisitorResult, setImportVisitorResult] = useState(null)
   const [delightVisitorForm, setDelightVisitorForm] = useState({
     name: '',
     dob: '',
@@ -1091,31 +1093,121 @@ export default function DepartmentHub() {
 
           {activeTab === 'visitorEntry' && slug === 'd-light' && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center">
-                <h2 className="font-semibold text-slate-800">Visitor Entry</h2>
+              <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap justify-between items-center gap-3">
+                <div>
+                  <h2 className="font-semibold text-slate-800">Visitor Entry</h2>
+                  {importVisitorResult && (
+                    <p className={`text-xs mt-0.5 font-medium ${importVisitorResult.error ? 'text-red-500' : 'text-emerald-600'}`}>
+                      {importVisitorResult.message}
+                    </p>
+                  )}
+                </div>
                 {canEditDelightVisitors && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingDelightVisitorId(null)
-                      setDelightVisitorForm({
-                        name: '',
-                        dob: '',
-                        phone: '',
-                        email: '',
-                        nativity: '',
-                        currentPlace: '',
-                        serviceAttended: '',
-                        attendedDate: '',
-                        howKnown: '',
-                        source: '',
-                      })
-                      setDelightVisitorModalOpen(true)
-                    }}
-                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
-                  >
-                    Add Visitor
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {/* Import Excel — glassmorphism icon button */}
+                    <label
+                      title="Import from Excel"
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer select-none
+                        bg-white/70 backdrop-blur-sm border border-slate-200/80 shadow-sm
+                        text-slate-600 text-sm font-medium
+                        hover:bg-white hover:shadow-md hover:border-emerald-200 hover:text-emerald-700
+                        transition-all duration-150
+                        ${importingVisitors ? 'opacity-50 pointer-events-none' : ''}`}
+                    >
+                      {/* Minimalist spreadsheet + import arrow SVG */}
+                      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
+                        <rect x="2" y="2" width="12" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                        <path d="M5 7h6M5 10h6M5 13h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+                        <circle cx="16" cy="15" r="3.5" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.25"/>
+                        <path d="M16 13.5v3M14.5 15.5l1.5 1.5 1.5-1.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      <span className="hidden sm:inline">{importingVisitors ? 'Importing…' : 'Import Excel'}</span>
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        className="hidden"
+                        disabled={importingVisitors}
+                        onChange={async (e) => {
+                          const file = e.target?.files?.[0]
+                          if (!file) return
+                          e.target.value = ''
+                          setImportingVisitors(true)
+                          setImportVisitorResult(null)
+                          try {
+                            const ext = file.name.toLowerCase()
+                            const readFile = () => new Promise((res, rej) => {
+                              const fr = new FileReader()
+                              fr.onload = (ev) => res(ev.target.result)
+                              fr.onerror = rej
+                              if (ext.endsWith('.csv')) fr.readAsText(file)
+                              else fr.readAsArrayBuffer(file)
+                            })
+                            const data = await readFile()
+                            let rows = []
+                            if (ext.endsWith('.csv')) {
+                              rows = String(data).split(/\r?\n/).map((l) => l.split(',').map((c) => c.trim().replace(/^["']|["']$/g, '')))
+                            } else {
+                              const XLSX = await import('xlsx')
+                              const wb = XLSX.read(data, { type: 'array', cellDates: true })
+                              rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 })
+                            }
+                            const headers = (rows[0] || []).map((h) => String(h || '').toLowerCase().trim())
+                            const col = (keywords) => headers.findIndex((h) => keywords.some((k) => h.includes(k)))
+                            const nameIdx    = col(['name'])
+                            const phoneIdx   = col(['phone', 'mobile', 'contact'])
+                            const emailIdx   = col(['email'])
+                            const natIdx     = col(['nativity', 'nativ', 'native'])
+                            const placeIdx   = col(['current place', 'place', 'location', 'address'])
+                            const serviceIdx = col(['service attended', 'service'])
+                            const dateIdx    = col(['date of attend', 'attended date', 'date'])
+                            const sourceIdx  = col(['how', 'source', 'known'])
+                            const get = (row, idx) => idx >= 0 ? String(row[idx] ?? '').trim() : ''
+                            let added = 0, skipped = 0
+                            for (let i = 1; i < rows.length; i++) {
+                              const row = rows[i] || []
+                              const name = nameIdx >= 0 ? get(row, nameIdx) : String(row[0] ?? '').trim()
+                              if (!name) { skipped++; continue }
+                              await addDelightVisitor({
+                                name,
+                                phone: get(row, phoneIdx),
+                                email: get(row, emailIdx),
+                                nativity: get(row, natIdx),
+                                currentPlace: get(row, placeIdx),
+                                serviceAttended: get(row, serviceIdx),
+                                attendedDate: get(row, dateIdx),
+                                howKnown: get(row, sourceIdx),
+                                source: get(row, sourceIdx),
+                                createdBy: userProfile?.email || 'import',
+                              })
+                              added++
+                            }
+                            const freshList = await getDelightVisitors()
+                            setDelightVisitors(freshList)
+                            setImportVisitorResult({ message: `✓ Imported ${added} visitor${added !== 1 ? 's' : ''}${skipped ? ` (${skipped} skipped)` : ''}` })
+                            setTimeout(() => setImportVisitorResult(null), 5000)
+                          } catch (err) {
+                            console.error(err)
+                            setImportVisitorResult({ error: true, message: 'Import failed — check file format.' })
+                            setTimeout(() => setImportVisitorResult(null), 5000)
+                          } finally {
+                            setImportingVisitors(false)
+                          }
+                        }}
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingDelightVisitorId(null)
+                        setDelightVisitorForm({ name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '', source: '' })
+                        setDelightVisitorModalOpen(true)
+                      }}
+                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    >
+                      Add Visitor
+                    </button>
+                  </div>
                 )}
               </div>
               {loadingDelightVisitors ? (

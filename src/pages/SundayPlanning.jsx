@@ -16,7 +16,8 @@ function nextSundayISO() {
 }
 
 const WORSHIP_ROLES = [
-  'Lead Vocal-1', 'Lead Vocal-2', 'Lead Vocal-3', 'Lead Vocal-4', 'Parts-1', 'Parts-2',
+  'Lead Vocal-1', 'Lead Vocal-2', 'Lead Vocal-3', 'Lead Vocal-4', 'Lead Vocal-5', 'Lead Vocal-6',
+  'Parts-1', 'Parts-2',
   'Choir member-1', 'Choir member-2', 'Choir member-3', 'Choir member-4', 'Choir member-5', 'Choir member-6',
   'Keyboard', 'Lead Guitar', 'Bass Guitar', 'Acoustic guitar', 'Drums', 'Sound Engineer',
 ]
@@ -53,58 +54,106 @@ const SECTION_ACCENT = {
 function WorshipPlanSummary({ selectedDate }) {
   const [worshipPlan, setWorshipPlan] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [expandedRole, setExpandedRole] = useState(null)
+
   useEffect(() => {
     setLoading(true)
+    setExpandedRole(null)
     getWorshipScheduleByDate('Worship', selectedDate)
       .then(setWorshipPlan)
       .catch(() => setWorshipPlan({ date: selectedDate, assignments: [], songs: [] }))
       .finally(() => setLoading(false))
   }, [selectedDate])
-  if (loading) return <div className="bg-white rounded-xl border border-amber-200 p-3 shadow-sm"><p className="text-slate-500 text-sm">Loading Worship plan...</p></div>
+
+  if (loading) return (
+    <div className="bg-white rounded-xl border border-amber-200 p-3 shadow-sm">
+      <p className="text-slate-500 text-sm">Loading Worship plan...</p>
+    </div>
+  )
+
   const assignments = worshipPlan?.assignments || []
-  const songs = worshipPlan?.songs || []
-  const assignedRoles = WORSHIP_ROLES.filter((role) => assignments.find((x) => x.role === role)?.memberName)
+  const leadVocalRoles = WORSHIP_ROLES.filter((r) => r.startsWith('Lead Vocal'))
+  const otherRoles = WORSHIP_ROLES.filter((r) => !r.startsWith('Lead Vocal'))
+
+  const leadVocalEntries = leadVocalRoles
+    .map((role) => ({ role, a: assignments.find((x) => x.role === role) }))
+    .filter(({ a }) => a?.memberName)
+
+  const otherAssigned = otherRoles
+    .map((role) => ({ role, a: assignments.find((x) => x.role === role) }))
+    .filter(({ a }) => a?.memberName)
+
+  const hasAnything = leadVocalEntries.length > 0 || otherAssigned.length > 0
+
   return (
     <div className="bg-white rounded-xl border border-amber-200 border-l-4 border-l-amber-500 p-3 shadow-sm">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2.5">
         <h3 className="font-semibold text-amber-900 text-sm">Worship</h3>
-        <Link to={`/department/worship?date=${selectedDate}`} className="text-amber-600 hover:text-amber-700 text-xs font-semibold">Edit in Worship dept →</Link>
+        <Link to={`/department/worship?date=${selectedDate}`} className="text-amber-600 hover:text-amber-700 text-xs font-semibold">
+          Edit in Worship dept →
+        </Link>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-          <h4 className="text-xs font-semibold text-slate-600 bg-slate-50 px-3 py-1.5">Team by role</h4>
-          {assignedRoles.length === 0 ? (
-            <p className="text-slate-500 text-xs px-3 py-2">No assignments yet.</p>
-          ) : (
-            <table className="w-full text-xs">
-              <tbody className="divide-y divide-slate-100">
-                {assignedRoles.map((role) => {
-                  const a = assignments.find((x) => x.role === role)
-                  return (
-                    <tr key={role}>
-                      <td className="py-1 px-3 text-slate-500">{role}</td>
-                      <td className="py-1 px-3 text-slate-800 font-medium">{a?.memberName}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-        <div className="rounded-lg border border-orange-100 bg-orange-50/50 overflow-hidden">
-          <h4 className="text-xs font-semibold text-orange-900 bg-orange-100 px-3 py-1.5">Songs & lead</h4>
-          {songs.length === 0 ? <p className="text-slate-500 text-xs px-3 py-2">No songs yet.</p> : (
-            <table className="w-full text-xs">
-              <thead><tr><th className="text-left py-1 px-3 text-slate-500">#</th><th className="text-left py-1 px-3 text-slate-500">Song</th><th className="text-left py-1 px-3 text-slate-500">Key</th><th className="text-left py-1 px-3 text-slate-500">Lead</th></tr></thead>
-              <tbody className="divide-y divide-orange-100">
-                {songs.map((s, i) => (
-                  <tr key={i}><td className="py-1 px-3 text-slate-500">{i + 1}</td><td className="py-1 px-3 text-slate-800">{s?.title || '—'}</td><td className="py-1 px-3 text-slate-500">{s?.key || '—'}</td><td className="py-1 px-3 text-slate-600">{s?.memberName || '—'}</td></tr>
+
+      {!hasAnything ? (
+        <p className="text-slate-500 text-xs">No worship assignments yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {/* Lead Vocals — expandable cards with song + structure */}
+          {leadVocalEntries.map(({ role, a }) => {
+            const structure = a?.structure
+            const isExpanded = expandedRole === role
+            const hasStructure = !!structure?.text
+            return (
+              <div key={role} className="rounded-lg border border-amber-200 bg-amber-50/40 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setExpandedRole(isExpanded ? null : role)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-amber-50/80 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-semibold text-slate-800 text-sm">{a.memberName}</span>
+                      {a.key && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">{a.key}</span>
+                      )}
+                    </div>
+                    {a.songName && (
+                      <p className="text-xs text-slate-500 mt-0.5 italic truncate">{a.songName}</p>
+                    )}
+                  </div>
+                  <span className={`text-amber-400 text-sm flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''} ${!hasStructure ? 'opacity-30' : ''}`}>
+                    ▾
+                  </span>
+                </button>
+                {isExpanded && hasStructure && (
+                  <div className="border-t border-amber-100 px-3 py-2.5 bg-white/80">
+                    <p className="text-xs font-semibold text-amber-700 mb-1.5 uppercase tracking-wide">
+                      {structure.fileName || 'Song Structure'}
+                    </p>
+                    <pre className="text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
+                      {structure.text}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {/* Rest of worship team — compact list */}
+          {otherAssigned.length > 0 && (
+            <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+              <div className="divide-y divide-slate-100">
+                {otherAssigned.map(({ role, a }) => (
+                  <div key={role} className="flex items-center gap-3 px-3 py-1.5">
+                    <span className="text-xs text-slate-500 w-28 shrink-0">{role}</span>
+                    <span className="text-xs font-medium text-slate-800">{a.memberName}</span>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   )
 }
