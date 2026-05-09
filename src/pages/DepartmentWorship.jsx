@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ChevronDown, CheckCircle2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -109,6 +111,69 @@ const DEMO_TEAM = [
   { name: 'Surya', memberSince: '2019-11-03' },
 ]
 
+function WorshipStamp({ stamp, isOpen, onToggle, onEdit }) {
+  const assignedRoles = stamp.assignments.filter((a) => a.memberId)
+  let formattedDate = stamp.date
+  try { formattedDate = format(new Date(stamp.date), 'EEE d MMM yyyy') } catch {}
+  return (
+    <motion.div
+      layoutId="assign-card"
+      key="stamp"
+      className="bg-white/75 backdrop-blur-md border border-white/30 rounded-2xl shadow-lg p-4"
+      style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <CheckCircle2 size={17} className="text-emerald-500 flex-shrink-0" />
+          <span className="font-semibold text-slate-800 text-sm">Worship</span>
+          <span className="text-slate-400 text-sm">|</span>
+          <span className="text-slate-700 text-sm truncate">{formattedDate}</span>
+          <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5 flex-shrink-0 hidden sm:inline">
+            Saved
+          </span>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <button type="button" onClick={onEdit} className="text-xs text-slate-400 hover:text-amber-600 underline">
+            Edit plan
+          </button>
+          <button type="button" onClick={onToggle} className="text-slate-400 hover:text-slate-700 transition-colors">
+            <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
+              <ChevronDown size={16} />
+            </motion.div>
+          </button>
+        </div>
+      </div>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            key="stamp-body"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              {assignedRoles.length === 0 ? (
+                <p className="text-sm text-slate-400 italic">No members assigned for this date.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {assignedRoles.map((a) => (
+                    <div key={a.role} className="flex items-center gap-2 text-sm">
+                      <span className="text-slate-400 text-xs w-36 flex-shrink-0 truncate">{a.role}</span>
+                      <span className="font-medium text-slate-800">{a.memberName}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
 export default function DepartmentWorship() {
   const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
   if (!hasAccess(userProfile, DEPARTMENT)) {
@@ -164,6 +229,8 @@ export default function DepartmentWorship() {
   const [structureModal, setStructureModal] = useState(null)
   const [localAssignments, setLocalAssignments] = useState([])
   const [savingAssign, setSavingAssign] = useState(false)
+  const [assignStamp, setAssignStamp] = useState(null)
+  const [stampOpen, setStampOpen] = useState(false)
   const [budgetItemForm, setBudgetItemForm] = useState({
     category: '',
     subCategory: '',
@@ -296,9 +363,8 @@ export default function DepartmentWorship() {
     try {
       await setWorshipScheduleByDate(DEPARTMENT, selectedDate, localAssignments, userProfile?.email)
       setScheduleForDate((s) => ({ ...s, assignments: localAssignments }))
-      if (selectedDate === comingSundayDate) {
-        setComingPlan((p) => ({ ...p, assignments: localAssignments }))
-      }
+      setAssignStamp({ date: selectedDate, assignments: [...localAssignments], savedAt: new Date() })
+      setStampOpen(false)
     } catch (e) {
       console.error(e)
       alert('Failed to save')
@@ -406,7 +472,22 @@ export default function DepartmentWorship() {
 
       {activeTab === 'assign' && canManageWorship && (
         <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+          <AnimatePresence mode="popLayout">
+            {assignStamp ? (
+              <WorshipStamp
+                stamp={assignStamp}
+                isOpen={stampOpen}
+                onToggle={() => setStampOpen((v) => !v)}
+                onEdit={() => { setAssignStamp(null); setStampOpen(false) }}
+              />
+            ) : (
+            <motion.div
+              key="assign-form"
+              layoutId="assign-card"
+              className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto"
+              exit={{ opacity: 0, scale: 0.96, y: -8 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+            >
               <div className="px-5 py-4 border-b border-slate-200 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="font-semibold text-slate-800">Assign worship team</h2>
@@ -561,7 +642,9 @@ export default function DepartmentWorship() {
                   </tbody>
                 </table>
               )}
-            </div>
+            </motion.div>
+            )}
+          </AnimatePresence>
 
           {structureModal && (
             <div
