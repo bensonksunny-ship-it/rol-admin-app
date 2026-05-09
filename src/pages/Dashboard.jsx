@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -61,7 +62,14 @@ function StatTile({ label, value, icon, glowColor, valueColor }) {
 }
 
 export default function Dashboard() {
-  const { hasPermission, isFounder } = useAuth()
+  const { hasPermission, isFounder, userProfile } = useAuth()
+
+  const depts = userProfile?.departments ?? (userProfile?.department ? [userProfile.department] : [])
+  const isWorshipDirector =
+    (userProfile?.role === 'Director' || userProfile?.role === 'Coordinator') &&
+    depts.includes('Worship') &&
+    !isFounder
+  if (isWorshipDirector) return <Navigate to="/department/worship" replace />
   const [tasks, setTasks] = useState([])
   const [attendance, setAttendance] = useState([])
   const [income, setIncome] = useState([])

@@ -46,11 +46,35 @@ function shortLabel(label) {
   return base.length > 10 ? base.slice(0, 9) + '…' : base
 }
 
-function BottomTabBar({ items, theme, signOut }) {
+function getInitials(profile) {
+  const name = profile?.displayName || profile?.email || ''
+  if (!name) return '?'
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return name.slice(0, 2).toUpperCase()
+}
+
+function BottomTabBar({ items, theme, signOut, userProfile }) {
   const isDay = theme !== 'night'
   const { pathname } = useLocation()
   const tabRefs = useRef([])
   const [pillStyle, setPillStyle] = useState(null)
+  const [showMenu, setShowMenu] = useState(false)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    if (!showMenu) return
+    const close = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('touchstart', close)
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('touchstart', close) }
+  }, [showMenu])
+
+  const initials = getInitials(userProfile)
+  const displayName = userProfile?.displayName || userProfile?.email || 'User'
+  const roleLabel = userProfile?.globalRole === 'FOUNDER' ? 'Senior Pastor' : (userProfile?.role || '')
 
   const activeIndex = useMemo(() => {
     for (let i = 0; i < items.length; i++) {
@@ -146,19 +170,59 @@ function BottomTabBar({ items, theme, signOut }) {
 
           </div>
 
-          {/* Sign out — always visible at right edge */}
-          <button
-            type="button"
-            onClick={signOut}
-            className="flex flex-col items-center justify-center py-2.5 px-3.5 flex-shrink-0 transition-opacity active:opacity-60"
-            style={{
-              borderLeft: isDay ? '1px solid rgba(0,0,0,0.07)' : '1px solid rgba(255,255,255,0.07)',
-              color: '#f43f5e',
-            }}
+          {/* Avatar with sign-out popover */}
+          <div
+            ref={menuRef}
+            className="relative flex-shrink-0 flex items-center"
+            style={{ borderLeft: isDay ? '1px solid rgba(0,0,0,0.07)' : '1px solid rgba(255,255,255,0.07)' }}
           >
-            <LogOut size={20} strokeWidth={1.5} />
-            <span className="text-[10px] font-semibold leading-none mt-0.5">Sign out</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setShowMenu((v) => !v)}
+              className="flex items-center justify-center px-3 h-full active:opacity-70"
+              aria-label="Account menu"
+            >
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white select-none"
+                style={{
+                  background: showMenu
+                    ? 'linear-gradient(135deg, #4f46e5, #2563eb)'
+                    : 'linear-gradient(135deg, #6366f1, #3b82f6)',
+                  boxShadow: showMenu ? '0 0 0 2px #6366f1' : 'none',
+                  transition: 'box-shadow 0.15s',
+                }}
+              >
+                {initials}
+              </div>
+            </button>
+
+            {showMenu && (
+              <div
+                className="absolute bottom-full right-0 mb-2 rounded-xl overflow-hidden"
+                style={{
+                  minWidth: '172px',
+                  background: isDay ? 'rgba(255,255,255,0.97)' : 'rgba(15,23,42,0.97)',
+                  backdropFilter: 'blur(24px)',
+                  WebkitBackdropFilter: 'blur(24px)',
+                  border: isDay ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+                }}
+              >
+                <div className={`px-3.5 py-2.5 border-b ${isDay ? 'border-slate-100' : 'border-slate-700/60'}`}>
+                  <p className={`text-xs font-semibold truncate ${isDay ? 'text-slate-800' : 'text-slate-200'}`}>{displayName}</p>
+                  {roleLabel && <p className="text-[10px] text-slate-400 mt-0.5">{roleLabel}</p>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowMenu(false); signOut() }}
+                  className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium transition-colors ${isDay ? 'text-rose-600 hover:bg-rose-50' : 'text-rose-400 hover:bg-rose-500/10'}`}
+                >
+                  <LogOut size={14} strokeWidth={2} />
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
 
         </div>
       </div>
@@ -435,7 +499,7 @@ export default function Sidebar() {
             <button onClick={signOut} className={actionBtnClass}>Sign out</button>
           </div>
         </aside>
-        <BottomTabBar items={scopedItems} theme={theme} signOut={signOut} />
+        <BottomTabBar items={scopedItems} theme={theme} signOut={signOut} userProfile={userProfile} />
       </>
     )
   }
@@ -517,7 +581,7 @@ export default function Sidebar() {
           <button onClick={signOut} className={actionBtnClass}>Sign out</button>
         </div>
       </aside>
-      <BottomTabBar items={visibleWithMyDept} theme={theme} signOut={signOut} />
+      <BottomTabBar items={visibleWithMyDept} theme={theme} signOut={signOut} userProfile={userProfile} />
     </>
   )
 }

@@ -112,27 +112,34 @@ function WorshipPlanSummary({ selectedDate }) {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-semibold text-slate-800 text-sm">{a.memberName}</span>
-                      {a.key && (
-                        <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">{a.key}</span>
-                      )}
+                      <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide">{role.replace('-', ' ')}</span>
+                      {a.songName && <span className="text-slate-300 text-xs">|</span>}
+                      {a.songName && <span className="text-xs text-slate-700 font-medium truncate">{a.songName}</span>}
+                      {a.key && <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-bold flex-shrink-0">{a.key}</span>}
                     </div>
-                    {a.songName && (
-                      <p className="text-xs text-slate-500 mt-0.5 italic truncate">{a.songName}</p>
-                    )}
+                    <p className="text-sm font-semibold text-slate-800 mt-0.5 truncate">{a.memberName}</p>
                   </div>
-                  <span className={`text-amber-400 text-sm flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''} ${!hasStructure ? 'opacity-30' : ''}`}>
-                    ▾
-                  </span>
+                  <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                    {hasStructure && (
+                      <span className="text-[9px] font-semibold text-amber-600 uppercase tracking-wide leading-none">📄 structure</span>
+                    )}
+                    <span className={`text-amber-400 text-sm transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>▾</span>
+                  </div>
                 </button>
-                {isExpanded && hasStructure && (
+                {isExpanded && (
                   <div className="border-t border-amber-100 px-3 py-2.5 bg-white/80">
-                    <p className="text-xs font-semibold text-amber-700 mb-1.5 uppercase tracking-wide">
-                      {structure.fileName || 'Song Structure'}
-                    </p>
-                    <pre className="text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
-                      {structure.text}
-                    </pre>
+                    {hasStructure ? (
+                      <>
+                        <p className="text-xs font-semibold text-amber-700 mb-1.5 uppercase tracking-wide">
+                          {structure.fileName || 'Song Structure'}
+                        </p>
+                        <pre className="text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
+                          {structure.text}
+                        </pre>
+                      </>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">No structure uploaded for this song.</p>
+                    )}
                   </div>
                 )}
               </div>
