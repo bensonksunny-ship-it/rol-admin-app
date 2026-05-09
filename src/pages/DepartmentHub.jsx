@@ -76,6 +76,7 @@ import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import CellOperationsToggle from './cell/CellOperationsToggle'
 import SundayOperationsToggle from './sunday/SundayOperationsToggle'
+import MediaOperationsToggle from './media/MediaOperationsToggle'
 import SundayPlanning from './SundayPlanning'
 import SecCoreSummary from './seccore/SecCoreSummary'
 
@@ -446,7 +447,7 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (!department || slug === 'cell' || slug === 'd-light') return
     const wantsSubOrTeam = activeTab === 'team' || activeTab === 'subDepartment' ||
-      (slug === 'sunday-ministry' && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment'))
+      ((slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment'))
     if (!wantsSubOrTeam) return
     setSubDeptLoading(true)
     getDepartmentSubDepartments(department.name)
@@ -587,7 +588,7 @@ export default function DepartmentHub() {
 
   useEffect(() => {
     const wantsFinancial = activeTab === 'financial' ||
-      ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'financial')
+      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'financial')
     if (department && wantsFinancial) {
       setLoadingBudget(true)
       getFinanceBudgetItemsByDepartment(department.name)
@@ -607,7 +608,7 @@ export default function DepartmentHub() {
 
   useEffect(() => {
     const wantsPlanning = activeTab === 'planning' ||
-      ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'planning')
+      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'planning')
     if (!department || !wantsPlanning) return
     setLoadingDepartmentUpdates(true)
     getDepartmentUpdates(department.name)
@@ -1548,7 +1549,11 @@ export default function DepartmentHub() {
             <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
           )}
 
-          {(activeTab === 'planning' || ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'planning')) && (
+          {activeTab === 'operations' && slug === 'media' && (
+            <MediaOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
+          {(activeTab === 'planning' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'planning')) && (
             <div className="space-y-6">
               {slug === 'cell' && (
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -1897,7 +1902,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || (slug === 'sunday-ministry' && activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
+          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || ((slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-200 flex justify-end items-center">
                 {canEdit && (
@@ -2200,7 +2205,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {(activeTab === 'team' || ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'team')) && (
+          {(activeTab === 'team' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'team')) && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-6">
               <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-slate-800">Team</h2>
@@ -3378,7 +3383,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {(activeTab === 'financial' || ((slug === 'cell' || slug === 'sunday-ministry') && activeTab === 'operations' && opsSubTab === 'financial')) && (
+          {(activeTab === 'financial' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'financial')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <h2 className="font-semibold text-slate-800 p-5 pb-0">Budget & Spending</h2>
               <p className="text-sm text-slate-500 px-5 pt-1">Budget items for this department (₹).</p>
