@@ -77,6 +77,7 @@ import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import CellOperationsToggle from './cell/CellOperationsToggle'
 import SundayOperationsToggle from './sunday/SundayOperationsToggle'
 import MediaOperationsToggle from './media/MediaOperationsToggle'
+import RiverKidsOperationsToggle from './river-kids/RiverKidsOperationsToggle'
 import SundayPlanning from './SundayPlanning'
 import SecCoreSummary from './seccore/SecCoreSummary'
 
@@ -251,6 +252,8 @@ export default function DepartmentHub() {
   const [loadingDelightAssignments, setLoadingDelightAssignments] = useState(false)
   const [savingDelightAssignments, setSavingDelightAssignments] = useState(false)
   const [delightAssignmentsBefore, setDelightAssignmentsBefore] = useState(null)
+  const [mediaAssignments, setMediaAssignments] = useState({})
+  const [savingMediaAssign, setSavingMediaAssign] = useState(false)
   const [updateModalOpen, setUpdateModalOpen] = useState(false)
   const [editingUpdateId, setEditingUpdateId] = useState(null)
   const [updateForm, setUpdateForm] = useState({
@@ -447,7 +450,8 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (!department || slug === 'cell' || slug === 'd-light') return
     const wantsSubOrTeam = activeTab === 'team' || activeTab === 'subDepartment' ||
-      ((slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment'))
+      ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids') && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment')) ||
+      (slug === 'media' && activeTab === 'summary')
     if (!wantsSubOrTeam) return
     setSubDeptLoading(true)
     getDepartmentSubDepartments(department.name)
@@ -588,7 +592,7 @@ export default function DepartmentHub() {
 
   useEffect(() => {
     const wantsFinancial = activeTab === 'financial' ||
-      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'financial')
+      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids') && activeTab === 'operations' && opsSubTab === 'financial')
     if (department && wantsFinancial) {
       setLoadingBudget(true)
       getFinanceBudgetItemsByDepartment(department.name)
@@ -608,7 +612,7 @@ export default function DepartmentHub() {
 
   useEffect(() => {
     const wantsPlanning = activeTab === 'planning' ||
-      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'planning')
+      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids') && activeTab === 'operations' && opsSubTab === 'planning')
     if (!department || !wantsPlanning) return
     setLoadingDepartmentUpdates(true)
     getDepartmentUpdates(department.name)
@@ -664,6 +668,13 @@ export default function DepartmentHub() {
         .catch(() => setDelightVisitors([]))
         .finally(() => setLoadingDelightVisitors(false))
     }
+  }, [slug, activeTab])
+
+  useEffect(() => {
+    if (slug !== 'media' || activeTab !== 'summary') return
+    getDepartmentAssignments('media').then((doc) => {
+      if (doc?.assignments && typeof doc.assignments === 'object') setMediaAssignments(doc.assignments)
+    }).catch(() => {})
   }, [slug, activeTab])
 
   useEffect(() => {
@@ -847,6 +858,23 @@ export default function DepartmentHub() {
   const pending = tasks.filter((t) => t.status !== 'Completed')
   const completed = tasks.filter((t) => t.status === 'Completed')
 
+  async function saveMediaAssign() {
+    setSavingMediaAssign(true)
+    try {
+      await setDepartmentAssignments('media', {
+        department: 'Media',
+        assignments: mediaAssignments,
+        updatedAt: new Date(),
+        updatedBy: userProfile?.email || userProfile?.displayName || 'unknown',
+      })
+    } catch (e) {
+      console.error(e)
+      alert('Failed to save assignments.')
+    } finally {
+      setSavingMediaAssign(false)
+    }
+  }
+
   function formatTeamSubDepartmentCell(m) {
     const names =
       Array.isArray(m.subDepartments) && m.subDepartments.length
@@ -939,6 +967,58 @@ export default function DepartmentHub() {
                 <SundayPlanning />
               ) : slug === 'sec-core' ? (
                 <SecCoreSummary />
+              ) : slug === 'media' ? (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="font-semibold text-slate-800">Media Team Assignment</h2>
+                      <p className="text-xs text-slate-500 mt-0.5">Assign team members to each sub-department role</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={saveMediaAssign}
+                      disabled={savingMediaAssign}
+                      className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 shadow-sm"
+                    >
+                      {savingMediaAssign ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                  {subDeptLoading ? (
+                    <div className="p-8 text-center text-slate-500 text-sm">Loading...</div>
+                  ) : subDepartments.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500 text-sm">
+                      No sub-departments yet. Add them in <button type="button" onClick={() => { setActiveTab('operations'); setOpsSubTab('subDepartment'); setSearchParams({ tab: 'operations' }, { replace: true }) }} className="text-indigo-600 hover:underline">Operations → Sub Department</button>.
+                    </div>
+                  ) : (
+                    <table className="w-full">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide w-1/2">Role (Sub Department)</th>
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Assigned Member</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {subDepartments.map((sd) => (
+                          <tr key={sd.id} className="hover:bg-slate-50/50">
+                            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{sd.name}</td>
+                            <td className="px-3 py-2">
+                              <select
+                                value={mediaAssignments[sd.name] || ''}
+                                onChange={(e) => setMediaAssignments((prev) => ({ ...prev, [sd.name]: e.target.value }))}
+                                className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
+                              >
+                                <option value="">— Not assigned</option>
+                                {team.filter((m) => !m.isFormer && m.status !== 'former').map((m) => (
+                                  <option key={m.id} value={m.id}>{m.name}</option>
+                                ))}
+                              </select>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
               ) : (
                 <>
                   <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -1553,7 +1633,11 @@ export default function DepartmentHub() {
             <MediaOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
           )}
 
-          {(activeTab === 'planning' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'planning')) && (
+          {activeTab === 'operations' && slug === 'river-kids' && (
+            <RiverKidsOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
+          {(activeTab === 'planning' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids') && activeTab === 'operations' && opsSubTab === 'planning')) && (
             <div className="space-y-6">
               {slug === 'cell' && (
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -1902,7 +1986,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || ((slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
+          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids') && activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-200 flex justify-end items-center">
                 {canEdit && (
@@ -2205,7 +2289,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {(activeTab === 'team' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media') && activeTab === 'operations' && opsSubTab === 'team')) && (
+          {(activeTab === 'team' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids') && activeTab === 'operations' && opsSubTab === 'team')) && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-6">
               <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-slate-800">Team</h2>
@@ -2244,7 +2328,7 @@ export default function DepartmentHub() {
                       <tr>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium w-10">SL</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Name</th>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Sub Department</th>
+                        {slug === 'd-light' && <th className="text-left px-4 py-2 text-slate-600 font-medium">Sub Department</th>}
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Status</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Member since</th>
                         {canEdit && (
@@ -2262,7 +2346,7 @@ export default function DepartmentHub() {
                         <tr key={m.id} className="hover:bg-slate-50">
                           <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
                           <td className="px-4 py-2 text-slate-800">{m.name}</td>
-                          <td className="px-4 py-2 text-slate-600">{formatTeamSubDepartmentCell(m)}</td>
+                          {slug === 'd-light' && <td className="px-4 py-2 text-slate-600">{formatTeamSubDepartmentCell(m)}</td>}
                           <td className="px-4 py-2 text-slate-600 capitalize">{m.status || 'active'}</td>
                           <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
                           {canEdit && (
@@ -2370,6 +2454,7 @@ export default function DepartmentHub() {
                         className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
                       />
                     </div>
+                    {slug === 'd-light' && (
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1">
                         Sub Department
@@ -2394,6 +2479,7 @@ export default function DepartmentHub() {
                         ))}
                       </select>
                     </div>
+                    )}
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1">
                         Status
