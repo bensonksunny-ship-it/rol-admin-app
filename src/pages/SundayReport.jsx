@@ -64,6 +64,15 @@ function migrateLegacyCellAttendance(report, cellGroups) {
   return sca
 }
 
+function formatElapsed(secs) {
+  if (secs < 0) secs = 0
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  const s = secs % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
 function NameListSection({ title, names, canEdit, onAdd, onEdit, onRemove, className = '' }) {
   return (
     <div className={`rounded-xl border p-4 shadow-sm ${className || 'bg-white border-slate-200'}`}>
@@ -148,6 +157,7 @@ export default function SundayReport() {
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [programLogs, setProgramLogs] = useState([])
   const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [elapsedSecs, setElapsedSecs] = useState(0)
   /** Local-only: which attendance sections are marked done (no Firestore) */
   const [completedSections, setCompletedSections] = useState({})
 
@@ -257,6 +267,22 @@ export default function SundayReport() {
   useEffect(() => {
     getSundayProgramLogsByDate(selectedDate).then(setProgramLogs).catch(() => setProgramLogs([]))
   }, [selectedDate])
+
+  useEffect(() => {
+    const programListLen = report?.programList?.length ?? 0
+    const hasRunning = programLogs.length > 0 && programLogs.length < programListLen
+    if (!hasRunning) { setElapsedSecs(0); return }
+    const lastLog = programLogs[programLogs.length - 1]
+    let startMs = 0
+    if (lastLog?.startTime instanceof Date) startMs = lastLog.startTime.getTime()
+    else if (typeof lastLog?.startTime?.toDate === 'function') startMs = lastLog.startTime.toDate().getTime()
+    else if (lastLog?.startTime) startMs = new Date(lastLog.startTime).getTime()
+    if (!startMs) return
+    const tick = () => setElapsedSecs(Math.floor((Date.now() - startMs) / 1000))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [programLogs, report?.programList?.length])
 
   useEffect(() => {
     setLoading(true)
@@ -455,6 +481,82 @@ export default function SundayReport() {
           <div className="py-12 text-center text-slate-500">Loading report…</div>
         ) : (
           <>
+            {/* Program Live Control — shown at top when a program has been pushed */}
+            {sortedProgram.length > 0 && (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-slate-100">
+                  <h3 className="font-semibold text-slate-800">Program Live Control</h3>
+                  <Link to="/department/sunday-ministry/sunday-program" className="text-xs text-indigo-600 hover:underline">
+                    Edit →
+                  </Link>
+                </div>
+
+                {/* Elapsed timer — ticks while a segment is running */}
+                {programLogs.length > 0 && currentProgramItem && (
+                  <div className="bg-indigo-50/70 border-b border-indigo-100 px-4 py-3 text-center">
+                    <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-widest">Running</p>
+                    <p className="text-sm font-semibold text-indigo-700 mt-0.5">
+                      {sortedProgram[programLogs.length - 1]?.programName}
+                    </p>
+                    <p className="text-4xl font-mono font-bold text-indigo-800 tabular-nums mt-1 tracking-tight">
+                      {formatElapsed(elapsedSecs)}
+                    </p>
+                  </div>
+                )}
+
+                {/* Program list with logged times */}
+                <ul className="text-sm divide-y divide-slate-100">
+                  {sortedProgram.map((item, idx) => {
+                    const log = logAtIndex(idx)
+                    const isRunning = idx === programLogs.length - 1 && !!currentProgramItem
+                    return (
+                      <li
+                        key={`${item.programName}-${idx}`}
+                        className={`flex items-center justify-between gap-4 px-4 py-2.5 ${isRunning ? 'bg-indigo-50/50' : ''}`}
+                      >
+                        <span className={`font-medium ${isRunning ? 'text-indigo-700' : 'text-slate-800'}`}>
+                          {idx + 1}. {item.programName}
+                        </span>
+                        <span className="text-slate-500 tabular-nums text-xs font-medium shrink-0">
+                          {log?.startTime
+                            ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'h:mm a')
+                            : '—'}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+
+                {/* START button */}
+                {canEditEffective && currentProgramItem && (
+                  <div className="flex flex-col items-center py-6 bg-slate-50/60 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={handleProgramStart}
+                      className="rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-white shadow-lg border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer transition px-12 py-8"
+                    >
+                      <span className="text-3xl font-bold tracking-wide">START</span>
+                      <span className="text-sm text-white/90 mt-2 font-medium">{currentProgramItem.programName}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* All done */}
+                {canEditEffective && !currentProgramItem && (
+                  <div className="flex flex-col items-center gap-3 py-5 bg-emerald-50/60 border-t border-emerald-100">
+                    <p className="text-sm text-emerald-700 font-semibold">All start times recorded.</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowCompleteModal(true)}
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow transition"
+                    >
+                      View Service Summary →
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Attendance — cell tiles */}
             <AttendanceSectionShell
               sectionRef={cellsSectionRef}
@@ -569,56 +671,6 @@ export default function SundayReport() {
                 )
               })}
             </div>
-
-            {sortedProgram.length > 0 && (
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-semibold text-slate-800">Program</h3>
-                  <Link to="/department/sunday-ministry/sunday-program" className="text-sm text-indigo-600 hover:underline">
-                    Edit program list →
-                  </Link>
-                </div>
-                <ul className="text-sm divide-y divide-slate-100 border border-slate-100 rounded-lg">
-                  {sortedProgram.map((item, idx) => {
-                    const log = logAtIndex(idx)
-                    return (
-                      <li key={`${item.programName}-${idx}`} className="flex justify-between gap-4 px-3 py-2">
-                        <span className="font-medium text-slate-800">{item.programName}</span>
-                        <span className="text-slate-600 tabular-nums">
-                          {log?.startTime
-                            ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
-                            : '—'}
-                        </span>
-                      </li>
-                    )
-                  })}
-                </ul>
-                {canEditEffective && currentProgramItem && (
-                  <div className="flex flex-col items-center pt-2">
-                    <button
-                      type="button"
-                      onClick={handleProgramStart}
-                      className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition px-8 py-6"
-                    >
-                      <span className="text-2xl font-bold tracking-wide">START</span>
-                      <span className="text-sm text-white/95 mt-2 font-medium">{currentProgramItem.programName}</span>
-                    </button>
-                  </div>
-                )}
-                {canEditEffective && !currentProgramItem && (
-                  <div className="flex flex-col items-center gap-2 pt-1">
-                    <p className="text-sm text-emerald-700 font-medium">All program start times recorded.</p>
-                    <button
-                      type="button"
-                      onClick={() => setShowCompleteModal(true)}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow transition"
-                    >
-                      View Service Summary →
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
 
           </>
         )}
