@@ -15,6 +15,7 @@ const EMPTY_FORM = {
   date: format(new Date(), 'yyyy-MM-dd'),
   category: INCOME_TYPES[0],
   amount: '',
+  giverName: '',
 }
 
 export default function IncomePage() {
@@ -28,6 +29,10 @@ export default function IncomePage() {
   const [formError, setFormError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+  const [xlsxRows, setXlsxRows] = useState(null)
+  const [xlsxError, setXlsxError] = useState('')
+  const [importingXlsx, setImportingXlsx] = useState(false)
+  const [xlsxResult, setXlsxResult] = useState(null)
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
@@ -75,6 +80,7 @@ export default function IncomePage() {
         date: form.date,
         category: form.category,
         amount: Number(form.amount),
+        giverName: form.giverName.trim(),
       }
       if (editingId) {
         await updateFinanceIncome(editingId, payload)
@@ -100,6 +106,7 @@ export default function IncomePage() {
         : format(new Date(entry.date), 'yyyy-MM-dd'),
       category: entry.category || INCOME_TYPES[0],
       amount: String(entry.amount ?? ''),
+      giverName: entry.giverName || '',
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -120,6 +127,73 @@ export default function IncomePage() {
       setTimeout(() => setSaveError(''), 4000)
     }
   }
+
+  async function handleXlsxFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setXlsxError('')
+    setXlsxRows(null)
+    setXlsxResult(null)
+    try {
+      const XLSX = await import('xlsx')
+      const data = await file.arrayBuffer()
+      const wb = XLSX.read(data, { type: 'array', cellDates: true })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
+      if (!raw.length) { setXlsxError('No data found in the file.'); return }
+
+      const norm = (key) => String(key).toLowerCase().replace(/[\s_\-]/g, '')
+      const rows = raw.map((row, i) => {
+        const r = {}
+        for (const [k, v] of Object.entries(row)) r[norm(k)] = v
+        const rawDate = r['date'] ?? r['entrydate'] ?? ''
+        const category = String(r['category'] ?? r['type'] ?? r['incometype'] ?? r['income'] ?? INCOME_TYPES[0]).trim()
+        const giverName = String(r['givenby'] ?? r['giver'] ?? r['donorname'] ?? r['name'] ?? '').trim()
+        const amount = Number(r['amount'] ?? r['amountrs'] ?? r['rs'] ?? 0) || 0
+
+        let date = ''
+        if (rawDate instanceof Date) date = format(rawDate, 'yyyy-MM-dd')
+        else if (rawDate) { const d = new Date(rawDate); if (!isNaN(d)) date = format(d, 'yyyy-MM-dd') }
+
+        const error = !date ? 'Missing date' : amount <= 0 ? 'Invalid amount' : ''
+        return { _row: i + 2, date, category, giverName, amount, _valid: !error, _error: error }
+      })
+
+      if (rows.every(r => !r._valid)) {
+        setXlsxError('Could not parse rows. Make sure columns are: Date, Category, Amount')
+        return
+      }
+      setXlsxRows(rows)
+    } catch (err) {
+      console.error(err)
+      setXlsxError('Failed to read file. Make sure it is a valid .xlsx or .xls file.')
+    }
+  }
+
+  async function handleImportAll() {
+    const valid = (xlsxRows || []).filter(r => r._valid)
+    if (!valid.length) return
+    setImportingXlsx(true)
+    let imported = 0, failed = 0
+    for (const row of valid) {
+      try {
+        await createFinanceIncome({ date: row.date, category: row.category, giverName: row.giverName, amount: row.amount })
+        imported++
+      } catch { failed++ }
+    }
+    setImportingXlsx(false)
+    setXlsxRows(null)
+    setXlsxResult({ imported, failed, skipped: (xlsxRows || []).filter(r => !r._valid).length })
+    await load()
+  }
+
+  const xlsxByCategory = xlsxRows
+    ? [...new Set(xlsxRows.map(r => r.category || '(No type)'))].map(cat => ({
+        cat,
+        rows: xlsxRows.filter(r => (r.category || '(No type)') === cat),
+      }))
+    : []
 
   return (
     <div className="space-y-5 pb-12">
@@ -155,16 +229,35 @@ export default function IncomePage() {
         </p>
       </div>
 
+      {/* Excel upload result toast */}
+      {xlsxResult && (
+        <div className="flex items-center justify-between gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+          <p className="text-sm text-emerald-800 font-medium">
+            Imported {xlsxResult.imported} {xlsxResult.imported === 1 ? 'entry' : 'entries'}
+            {xlsxResult.skipped > 0 && ` · ${xlsxResult.skipped} skipped`}
+            {xlsxResult.failed > 0 && ` · ${xlsxResult.failed} failed`}
+          </p>
+          <button type="button" onClick={() => setXlsxResult(null)} className="text-emerald-600 hover:text-emerald-800 text-lg leading-none">×</button>
+        </div>
+      )}
+
       {/* Entry form */}
       <form
         onSubmit={handleSave}
         className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4"
       >
-        <h3 className="text-sm font-semibold text-slate-700">
-          {editingId ? 'Edit Income Entry' : 'Add Income Entry'}
-        </h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-slate-700">
+            {editingId ? 'Edit Income Entry' : 'Add Income Entry'}
+          </h3>
+          <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
+            <span>📊</span> Upload Excel
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
+          </label>
+        </div>
+        {xlsxError && <p className="text-xs font-medium text-red-600">{xlsxError}</p>}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-slate-600">Date</label>
             <input
@@ -193,6 +286,16 @@ export default function IncomePage() {
               value={form.amount}
               onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
               placeholder="0"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-600">Given By <span className="text-slate-400 font-normal">(optional)</span></label>
+            <input
+              type="text"
+              value={form.giverName}
+              onChange={e => setForm(f => ({ ...f, giverName: e.target.value }))}
+              placeholder="Name of giver"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -241,6 +344,7 @@ export default function IncomePage() {
                 <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Income Type</th>
+                  <th className="px-4 py-3">Given By</th>
                   <th className="px-4 py-3 text-right">Amount</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -254,6 +358,7 @@ export default function IncomePage() {
                         : format(new Date(entry.date), 'dd/MM/yyyy')}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{entry.category}</td>
+                    <td className="px-4 py-3 text-slate-600">{entry.giverName || '—'}</td>
                     <td className="px-4 py-3 text-right font-medium text-slate-800">
                       ₹{Number(entry.amount).toLocaleString('en-IN')}
                     </td>
@@ -304,6 +409,77 @@ export default function IncomePage() {
           </div>
         )}
       </div>
+
+      {/* Excel preview modal */}
+      {xlsxRows && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+          <div className="bg-white w-full sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col sm:max-w-2xl">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+              <div>
+                <h2 className="font-semibold text-slate-800">Excel Preview</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {xlsxRows.filter(r => r._valid).length} valid · {xlsxRows.filter(r => !r._valid).length} skipped
+                </p>
+              </div>
+              <button type="button" onClick={() => setXlsxRows(null)} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+            </div>
+            <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
+              {xlsxByCategory.map(({ cat, rows }) => (
+                <div key={cat}>
+                  <div className="px-5 py-2 bg-slate-50 flex items-center gap-2 sticky top-0">
+                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">{cat}</span>
+                    <span className="text-xs text-slate-400">{rows.filter(r => r._valid).length} valid</span>
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-slate-500 border-b border-slate-100">
+                        <th className="px-4 py-2 font-medium">Date</th>
+                        <th className="px-4 py-2 font-medium">Given By</th>
+                        <th className="px-4 py-2 font-medium text-right">Amount</th>
+                        <th className="px-4 py-2 font-medium"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {rows.map((row) => (
+                        <tr key={row._row} className={row._valid ? '' : 'bg-red-50/60'}>
+                          <td className="px-4 py-2 text-slate-700">{row.date || '—'}</td>
+                          <td className="px-4 py-2 text-slate-600">{row.giverName || '—'}</td>
+                          <td className="px-4 py-2 text-right font-medium text-slate-800">
+                            {row._valid ? `₹${row.amount.toLocaleString('en-IN')}` : '—'}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            {row._valid
+                              ? <span className="text-emerald-600">✓</span>
+                              : <span className="text-red-500 text-[10px]">{row._error}</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+              <p className="text-xs text-slate-500">
+                Hint: columns — <span className="font-mono">Date, Category, Given By, Amount</span>
+              </p>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setXlsxRows(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportAll}
+                  disabled={importingXlsx || !xlsxRows.some(r => r._valid)}
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50 transition"
+                >
+                  {importingXlsx ? 'Importing…' : `Import ${xlsxRows.filter(r => r._valid).length} rows`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

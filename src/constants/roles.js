@@ -222,11 +222,9 @@ export const DEPARTMENTS = [
 ]
 
 export const INCOME_TYPES = [
-  'Offering 1',
-  'Offering 2',
-  'Offering 3',
-  'Offering 4',
-  'Offering 5',
+  'Online Offering',
+  'English Offering',
+  'Tamil Offering',
   'Tithe',
   'Contribution',
   'Missions',
