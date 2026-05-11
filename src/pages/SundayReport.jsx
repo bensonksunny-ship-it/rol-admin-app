@@ -136,10 +136,18 @@ function AttendanceSectionShell({
   )
 }
 
+function upcomingSunday() {
+  const today = new Date()
+  const daysUntil = today.getDay() === 0 ? 0 : 7 - today.getDay()
+  const d = new Date(today)
+  d.setDate(today.getDate() + daysUntil)
+  return format(d, 'yyyy-MM-dd')
+}
+
 export default function SundayReport() {
-  const { userProfile, canManageDepartment } = useAuth()
+  const { userProfile, canManageDepartment, isDepartmentHead, isCellDirector } = useAuth()
   const [searchParams] = useSearchParams()
-  const [selectedDate, setSelectedDate] = useState(() => searchParams.get('date') || format(new Date(), 'yyyy-MM-dd'))
+  const [selectedDate, setSelectedDate] = useState(() => searchParams.get('date') || upcomingSunday())
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -151,6 +159,9 @@ export default function SundayReport() {
   const [showCompleteModal, setShowCompleteModal] = useState(false)
   const [editingLogIdx, setEditingLogIdx] = useState(null)
   const [editingLogTime, setEditingLogTime] = useState('')
+  const [editingProgramIdx, setEditingProgramIdx] = useState(null)
+  const [editingProgramName, setEditingProgramName] = useState('')
+  const [newProgramName, setNewProgramName] = useState('')
   /** Local-only: which attendance sections are marked done (no Firestore) */
   const [completedSections, setCompletedSections] = useState({})
 
@@ -173,7 +184,7 @@ export default function SundayReport() {
     []
   )
 
-  const canEdit = canManageDepartment('Sunday Ministry')
+  const canEdit = isDepartmentHead('Sunday Ministry') || isCellDirector
   const canEditEffective = canEdit
 
   const summaryComputed = useMemo(() => {
@@ -210,6 +221,13 @@ export default function SundayReport() {
   const attendanceProgressPct = attendanceProgressTotal
     ? Math.round((attendanceProgressDone / attendanceProgressTotal) * 100)
     : 0
+
+  useEffect(() => {
+    const dateFromUrl = searchParams.get('date')
+    if (dateFromUrl && dateFromUrl !== selectedDate) {
+      setSelectedDate(dateFromUrl)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     setCompletedSections({})
@@ -349,13 +367,13 @@ export default function SundayReport() {
           ...report,
           summary: computedSummary,
           cellBreakdown,
-          programList: [],
+          programList: report?.programList || [],
           programTimings: timings,
           sundayMinistryTeam: [],
         },
         userProfile?.email || 'unknown'
       )
-      setReport((prev) => (prev ? { ...prev, summary: computedSummary, programList: [] } : prev))
+      setReport((prev) => (prev ? { ...prev, summary: computedSummary } : prev))
       requestAnimationFrame(() => window.scrollTo(0, scrollY))
     } catch (err) {
       console.error(err)
@@ -387,9 +405,40 @@ export default function SundayReport() {
   const updateSummary = (key, value) => updateReport({ summary: { ...(report?.summary || {}), [key]: value } })
 
   const sortedProgram = [...(report?.programList || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-  const logAtIndex = (idx) => programLogs[idx] || null
-  const nextProgramIndex = programLogs.length
-  const currentProgramItem = sortedProgram[nextProgramIndex] || null
+
+  const logByName = useMemo(() => {
+    const map = {}
+    for (const log of programLogs) {
+      const key = String(log.programName || '').trim().toLowerCase()
+      if (key && !map[key]) map[key] = log
+    }
+    return map
+  }, [programLogs])
+
+  const logForItem = (item) => logByName[String(item?.programName || '').trim().toLowerCase()] || null
+  const currentProgramItem = sortedProgram.find((item) => !logForItem(item)) || null
+  const allProgramsTimed = sortedProgram.length > 0 && !currentProgramItem
+
+  const updateProgramItemName = (idx, name) => {
+    const updated = sortedProgram.map((item, i) => i === idx ? { ...item, programName: name } : item)
+    updateReport({ programList: updated })
+  }
+
+  const removeProgramItem = (idx) => {
+    const updated = sortedProgram
+      .filter((_, i) => i !== idx)
+      .map((item, i) => ({ ...item, order: i }))
+    updateReport({ programList: updated })
+  }
+
+  const addProgramItem = () => {
+    const name = newProgramName.trim()
+    if (!name) return
+    const current = report?.programList || []
+    const maxOrder = current.length ? Math.max(...current.map((x) => x.order ?? 0)) : -1
+    updateReport({ programList: [...current, { programName: name, order: maxOrder + 1 }] })
+    setNewProgramName('')
+  }
 
   const handleProgramStart = async () => {
     if (!canEditEffective || !currentProgramItem) return
@@ -421,8 +470,8 @@ export default function SundayReport() {
 
     if (sortedProgram.length > 0) {
       rows.push(['Program', 'Start Time'])
-      sortedProgram.forEach((item, idx) => {
-        const log = programLogs[idx]
+      sortedProgram.forEach((item) => {
+        const log = logForItem(item)
         const t = log?.startTime ? (log.startTime instanceof Date ? log.startTime : new Date(log.startTime)) : null
         rows.push([item.programName, t ? format(t, 'h:mm a') : '—'])
       })
@@ -471,23 +520,32 @@ export default function SundayReport() {
   }
 
   const handleUpdateLog = async (idx) => {
-    const log = programLogs[idx]
-    if (!log?.id || !editingLogTime) return
+    if (!editingLogTime) return
+    const item = sortedProgram[idx]
+    const log = logForItem(item)
     try {
       const [h, m] = editingLogTime.split(':').map(Number)
       const d = new Date(`${selectedDate}T00:00:00`)
       d.setHours(h, m, 0, 0)
-      await updateSundayProgramLog(log.id, d)
+      if (log?.id) {
+        await updateSundayProgramLog(log.id, d)
+      } else {
+        await addSundayProgramLog({
+          programName: item?.programName || '',
+          startTime: d,
+          reportDate: selectedDate,
+        })
+      }
       const logs = await getSundayProgramLogsByDate(selectedDate)
       setProgramLogs(logs)
       setEditingLogIdx(null)
     } catch (e) {
       console.error(e)
-      alert(e?.message || 'Failed to update time')
+      alert(e?.message || 'Failed to save time')
     }
   }
 
-  if (!canManageDepartment('Sunday Ministry')) {
+  if (!isDepartmentHead('Sunday Ministry') && !isCellDirector) {
     return (
       <div className="p-8 text-slate-600">
         <Link to="/department/sunday-ministry" className="text-blue-600 hover:underline">
@@ -577,63 +635,114 @@ export default function SundayReport() {
           <div className="py-12 text-center text-slate-500">Loading report…</div>
         ) : (
           <>
-            {sortedProgram.length > 0 && (
+            {(sortedProgram.length > 0 || canEditEffective) && (
               <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-semibold text-slate-800">Program</h3>
                   <Link to="/department/sunday-ministry/sunday-program" className="text-sm text-indigo-600 hover:underline">
-                    Edit program list →
+                    Manage program →
                   </Link>
                 </div>
-                <ul className="text-sm divide-y divide-slate-100 border border-slate-100 rounded-lg">
-                  {sortedProgram.map((item, idx) => {
-                    const log = logAtIndex(idx)
-                    const logTime = log?.startTime
-                      ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
-                      : null
-                    const isEditing = editingLogIdx === idx
-                    return (
-                      <li key={`${item.programName}-${idx}`} className="flex justify-between items-center gap-4 px-3 py-2">
-                        <span className="font-medium text-slate-800">{item.programName}</span>
-                        {logTime && canEditEffective ? (
-                          isEditing ? (
-                            <span className="flex items-center gap-1">
+
+                {sortedProgram.length === 0 ? (
+                  <p className="text-sm text-slate-400">No programs yet. Add one below or push from Sunday Program page.</p>
+                ) : (
+                  <ul className="text-sm divide-y divide-slate-100 border border-slate-100 rounded-lg">
+                    {sortedProgram.map((item, idx) => {
+                      const log = logForItem(item)
+                      const logTime = log?.startTime
+                        ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
+                        : null
+                      const isEditingTime = editingLogIdx === idx
+                      const isEditingName = editingProgramIdx === idx
+                      const canEditName = canEditEffective && !log
+                      return (
+                        <li key={`${item.programName}-${idx}`} className="flex items-center gap-2 px-3 py-2">
+                          {/* Program name */}
+                          {isEditingName ? (
+                            <>
                               <input
-                                type="time"
-                                value={editingLogTime}
-                                onChange={(e) => setEditingLogTime(e.target.value)}
-                                className="px-2 py-1 rounded border border-slate-300 text-sm tabular-nums"
+                                type="text"
+                                value={editingProgramName}
+                                onChange={(e) => setEditingProgramName(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { updateProgramItemName(idx, editingProgramName); setEditingProgramIdx(null) } if (e.key === 'Escape') setEditingProgramIdx(null) }}
+                                className="flex-1 px-2 py-1 rounded border border-slate-300 text-sm font-medium"
+                                autoFocus
                               />
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateLog(idx)}
-                                className="text-emerald-600 hover:text-emerald-700 font-bold text-base px-1"
-                                title="Save"
-                              >✓</button>
-                              <button
-                                type="button"
-                                onClick={() => setEditingLogIdx(null)}
-                                className="text-red-500 hover:text-red-600 font-bold text-base px-1"
-                                title="Cancel"
-                              >✕</button>
-                            </span>
+                              <button type="button" onClick={() => { updateProgramItemName(idx, editingProgramName); setEditingProgramIdx(null) }} className="text-emerald-600 font-bold text-base px-1">✓</button>
+                              <button type="button" onClick={() => setEditingProgramIdx(null)} className="text-red-500 font-bold text-base px-1">✕</button>
+                            </>
                           ) : (
+                            <span className="flex items-center gap-1.5 flex-1 min-w-0">
+                              <span className="font-medium text-slate-800 truncate">{item.programName}</span>
+                              {canEditName && (
+                                <button
+                                  type="button"
+                                  onClick={() => { setEditingProgramIdx(idx); setEditingProgramName(item.programName) }}
+                                  className="text-slate-300 hover:text-slate-500 text-xs flex-shrink-0"
+                                  title="Edit name"
+                                >✎</button>
+                              )}
+                            </span>
+                          )}
+
+                          {/* Program time */}
+                          {!isEditingName && (
+                            isEditingTime ? (
+                              <span className="flex items-center gap-1 flex-shrink-0">
+                                <input
+                                  type="time"
+                                  value={editingLogTime}
+                                  onChange={(e) => setEditingLogTime(e.target.value)}
+                                  className="px-2 py-1 rounded border border-slate-300 text-sm tabular-nums"
+                                />
+                                <button type="button" onClick={() => handleUpdateLog(idx)} className="text-emerald-600 hover:text-emerald-700 font-bold text-base px-1">✓</button>
+                                <button type="button" onClick={() => setEditingLogIdx(null)} className="text-red-500 hover:text-red-600 font-bold text-base px-1">✕</button>
+                              </span>
+                            ) : canEditEffective ? (
+                              <button
+                                type="button"
+                                onClick={() => { setEditingLogIdx(idx); setEditingLogTime(logTime || format(new Date(), 'HH:mm')) }}
+                                className={`tabular-nums text-sm flex-shrink-0 min-w-[44px] text-right ${logTime ? 'text-slate-600 hover:text-indigo-600 hover:underline' : 'text-slate-300 hover:text-indigo-500'}`}
+                                title={logTime ? 'Edit time' : 'Set time'}
+                              >
+                                {logTime || '—'}
+                              </button>
+                            ) : (
+                              <span className="text-slate-600 tabular-nums text-sm flex-shrink-0">{logTime ?? '—'}</span>
+                            )
+                          )}
+
+                          {/* Remove */}
+                          {canEditEffective && !isEditingName && !isEditingTime && (
                             <button
                               type="button"
-                              onClick={() => { setEditingLogIdx(idx); setEditingLogTime(logTime) }}
-                              className="text-slate-600 tabular-nums hover:text-indigo-600 hover:underline text-sm"
-                              title="Edit time"
-                            >
-                              {logTime}
-                            </button>
-                          )
-                        ) : (
-                          <span className="text-slate-600 tabular-nums text-sm">{logTime ?? '—'}</span>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
+                              onClick={() => removeProgramItem(idx)}
+                              className="text-slate-200 hover:text-red-500 text-sm px-1 flex-shrink-0"
+                              title="Remove program"
+                            >✕</button>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+
+                {/* Add program */}
+                {canEditEffective && (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newProgramName}
+                      onChange={(e) => setNewProgramName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addProgramItem()}
+                      placeholder="Add program item…"
+                      className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                    />
+                    <button type="button" onClick={addProgramItem} className="px-3 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800">+ Add</button>
+                  </div>
+                )}
+
                 {canEditEffective && currentProgramItem && (
                   <div className="flex flex-col items-center pt-2">
                     <button
@@ -646,7 +755,7 @@ export default function SundayReport() {
                     </button>
                   </div>
                 )}
-                {canEditEffective && !currentProgramItem && (
+                {canEditEffective && allProgramsTimed && (
                   <div className="flex flex-col items-center gap-2 pt-1">
                     <p className="text-sm text-emerald-700 font-medium">All program start times recorded.</p>
                     <button

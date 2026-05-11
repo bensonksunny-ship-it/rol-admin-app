@@ -5,7 +5,7 @@ import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Sparkles } from 'lucide-react'
 
 export default function Departments() {
-  const { userProfile, canSeeAllDepartments } = useAuth()
+  const { userProfile, canSeeAllDepartments, isCellDirector } = useAuth()
 
   const displayDeptName = (deptName) => {
     if (deptName === 'Event M') return 'Event Management'
@@ -21,7 +21,8 @@ export default function Departments() {
       ? userProfile.departments.filter(Boolean)
       : []
     const fromPrimary = userProfile?.department ? [userProfile.department] : []
-    return Array.from(new Set([...fromPositions, ...fromDepartments, ...fromPrimary]))
+    const extra = isCellDirector ? ['Sunday Ministry'] : []
+    return Array.from(new Set([...fromPositions, ...fromDepartments, ...fromPrimary, ...extra]))
   })()
 
   const list = canSeeAllDepartments

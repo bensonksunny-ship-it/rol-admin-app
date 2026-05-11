@@ -136,12 +136,12 @@ service cloud.firestore {
 
     match /sunday_program/{docId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector());
     }
 
     match /sunday_program_log/{docId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector());
     }
 
     match /cell_groups/{cellId} {
@@ -268,7 +268,7 @@ service cloud.firestore {
 
     match /sunday_reports/{docId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn() && (isFullAccess() || userDepartment() == 'Sunday Ministry');
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector());
     }
 
     // Mid-week Ministry: prayer points per cell per date

@@ -118,7 +118,7 @@ export default function DepartmentHub() {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder } = useAuth()
+  const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder, isCellDirector } = useAuth()
   const department = getDepartmentBySlug(slug)
 
   // Cell access helper must be defined BEFORE any effects that reference it (avoid TDZ crashes)
@@ -781,7 +781,7 @@ export default function DepartmentHub() {
   // Exception: Accounts entry users (Weekly Expense Manager / Weekly Entry role) must pass through
   // to reach the nested EntryPage even though they aren't department heads.
   const isAccountsEntryPassthrough = slug === 'accounts' && canAccessAccountsEntry(userProfile, hasPermission, isFounder)
-  if (!hasAccess(userProfile, department.name) && !isAccountsEntryPassthrough) {
+  if (!hasAccess(userProfile, department.name) && !isAccountsEntryPassthrough && !(isCellDirector && slug === 'sunday-ministry')) {
     return (
       <div className="p-6 text-slate-600">
         <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>

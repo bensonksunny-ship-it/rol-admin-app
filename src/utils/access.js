@@ -17,8 +17,8 @@ export function displayGlobalRole(user) {
 // Legacy schema: { department, position: 'Director' | 'Coordinator' | 'Cell Leader' | 'Associate' }
 export function getDepartmentRole(user, departmentName) {
   const positions = Array.isArray(user?.positions) ? user.positions : []
-  const targetDept = String(departmentName || '').trim().toLowerCase()
-  const p = positions.find((x) => x && String(x.department || '').trim().toLowerCase() === targetDept)
+  const targetDept = String(departmentName || '').trim().toLowerCase().replace(/-/g, ' ')
+  const p = positions.find((x) => x && String(x.department || '').trim().toLowerCase().replace(/-/g, ' ') === targetDept)
   if (!p) return null
 
   const roleField = p.role != null ? String(p.role).trim() : ''

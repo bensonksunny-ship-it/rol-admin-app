@@ -53,6 +53,14 @@ const CELL_REPORT_TABS_VIEW_ONLY = [
   { key: 'meetingReport', label: 'Meeting Report' },
 ]
 
+/** Cell Director viewing own-department cell: can see timer + attendance (read-only) but not member names. */
+const CELL_REPORT_TABS_DIRECTOR = [
+  { key: 'attendance', label: 'Attendance' },
+  { key: 'timer', label: 'Timer' },
+  { key: 'backToBible', label: 'Back to Bible' },
+  { key: 'meetingReport', label: 'Meeting Report' },
+]
+
 /** Cell Director viewing a cell they cannot edit: summary only (no member names). */
 const CELL_REPORT_TABS_DIRECTOR_SUMMARY = [
   { key: 'summary', label: 'Report summary' },
@@ -265,6 +273,8 @@ export default function CellReport() {
 
   const canEditCurrentReport = Boolean(effectiveCellId && canEditReportForCell(effectiveCellId) && !isDirectorReadOnly)
   const canEditSelectedCellReport = Boolean(selectedCellId && canEditReportForCell(selectedCellId) && !isDirectorReadOnly)
+  // Directors can record/edit program timers even though they can't edit attendance.
+  const canEditTimer = canEditCurrentReport || isDirectorReadOnly
   const meetingLocked = Boolean(report?.meetingFinalizedAt || report?.meetingFinalized)
 
   const cell = useMemo(() => cellGroups.find((g) => g.id === effectiveCellId) || null, [cellGroups, effectiveCellId])
@@ -362,10 +372,7 @@ export default function CellReport() {
   }, [effectiveCellId, reportDate, userProfile, cellGroups])
 
   useEffect(() => {
-    if (!effectiveCellId) return
-    const dirSummaryOtherCell =
-      isDirectorView && selectedCellId && !canEditReportForCell(selectedCellId)
-    if (dirSummaryOtherCell) {
+    if (!effectiveCellId) {
       setCellMembers([])
       setLoadingCellMembers(false)
       return
@@ -375,7 +382,7 @@ export default function CellReport() {
       .then(setCellMembers)
       .catch(() => setCellMembers([]))
       .finally(() => setLoadingCellMembers(false))
-  }, [effectiveCellId, isDirectorView, selectedCellId, canEditReportForCell])
+  }, [effectiveCellId])
 
   useEffect(() => {
     if (!isDirectorView) {
@@ -455,9 +462,11 @@ export default function CellReport() {
 
   useEffect(() => {
     if (!isLeaderView || canEditCurrentReport) return
-    const allowed = new Set(['attendance', 'backToBible', 'meetingReport'])
+    const allowed = new Set(isDirectorReadOnly
+      ? ['attendance', 'timer', 'backToBible', 'meetingReport']
+      : ['attendance', 'backToBible', 'meetingReport'])
     if (!allowed.has(leaderTab)) setLeaderTab('attendance')
-  }, [isLeaderView, canEditCurrentReport, leaderTab])
+  }, [isLeaderView, canEditCurrentReport, isDirectorReadOnly, leaderTab])
 
   useEffect(() => {
     if (!cell?.cellName || !reportDate) { setProgramLogs([]); return }
@@ -1120,6 +1129,83 @@ export default function CellReport() {
                                             Members: {attendees.length} · Visitors: {(report.visitorsList || []).length} · Children: {(report.childrenList || []).length}
                                           </p>
                                         </div>
+
+                                        {/* ── Program Timer (Director / Founder view) ── */}
+                                        {programItems.length > 0 && (() => {
+                                          const sorted = [...programItems].sort((a, b) => a.order - b.order)
+                                          const currentItem = sorted[programLogs.length] || null
+                                          const sortedLogs = sortProgramLogsByStart(programLogs)
+                                          return (
+                                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+                                                <span className="font-semibold text-slate-800 text-sm">Program Timer</span>
+                                                {canEditTimer && !currentItem && (
+                                                  <button type="button" onClick={() => { const now = new Date(); setManualTimeModal({ mode: 'add', logId: null, programName: '', timeStr: format(now, 'HH:mm'), reportDate: reportDate || format(new Date(), 'yyyy-MM-dd') }) }} className="text-xs text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1 hover:bg-indigo-50">
+                                                    + Add missed entry
+                                                  </button>
+                                                )}
+                                              </div>
+                                              {sortedLogs.length > 0 && (
+                                                <ul className="divide-y divide-slate-100 text-sm">
+                                                  {sortedLogs.map((log, i) => {
+                                                    const segMin = segmentDurationMinutesForSortedLog(sortedLogs, i)
+                                                    const timeStr = log.startTime ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm') : '—'
+                                                    return (
+                                                      <li key={log.id} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                                                        <span className="font-medium text-slate-800 truncate">{log.programName || '—'}</span>
+                                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                                          <span className="text-slate-500 tabular-nums text-xs">{timeStr}{segMin != null ? ` · ${formatDurationMinutes(segMin)}` : ''}</span>
+                                                          {canEditTimer && (
+                                                            <>
+                                                              <button type="button" onClick={() => { const t = log.startTime instanceof Date ? log.startTime : new Date(log.startTime); setManualTimeModal({ mode: 'edit', logId: log.id, programName: log.programName, timeStr: format(t, 'HH:mm'), reportDate: reportDate || format(new Date(), 'yyyy-MM-dd') }) }} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                                                              <button type="button" onClick={async () => { if (!window.confirm(`Delete "${log.programName}"?`)) return; try { await deleteProgramLog(log.id); const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', reportDate || format(new Date(), 'yyyy-MM-dd')); setProgramLogs(logs) } catch (e) { alert(e?.message || 'Failed') } }} className="text-xs text-red-500 hover:underline">Delete</button>
+                                                            </>
+                                                          )}
+                                                        </div>
+                                                      </li>
+                                                    )
+                                                  })}
+                                                </ul>
+                                              )}
+                                              {!currentItem && sortedLogs.length === 0 && (
+                                                <p className="px-4 py-4 text-sm text-slate-500">No times recorded yet.</p>
+                                              )}
+                                              {!currentItem && sortedLogs.length > 0 && (
+                                                <div className="px-4 py-3 border-t border-slate-100 flex items-center gap-3">
+                                                  <span className="text-sm font-medium text-emerald-700">✓ All programs recorded</span>
+                                                  {canEditTimer && (
+                                                    <button type="button" onClick={async () => { if (!report) return; try { setSaving(true); await updateCellReport(report.id, { meetingFinalized: true, membersAttended: attendees.length, visitors: (report.visitorsList || []).length, children: (report.childrenList || []).length }); await refreshReportAndAttendees(); setCellReportUpdatedMsg('Cell report is updated'); window.setTimeout(() => setCellReportUpdatedMsg(''), 2500) } catch (e) { alert('Failed to end meeting') } finally { setSaving(false) } }} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700">End Cell Meeting</button>
+                                                  )}
+                                                </div>
+                                              )}
+                                              {currentItem && (
+                                                <div className="p-4 flex flex-col items-center gap-3">
+                                                  <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                      if (!canEditTimer) return
+                                                      try {
+                                                        await addProgramLog({ cellName: cell?.cellName || '', programName: currentItem.programName, startTime: new Date(), reportDate: reportDate || format(new Date(), 'yyyy-MM-dd') })
+                                                        const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', reportDate || format(new Date(), 'yyyy-MM-dd'))
+                                                        setProgramLogs(logs)
+                                                      } catch (e) { alert(e?.message || e?.code || 'Failed to record') }
+                                                    }}
+                                                    className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition"
+                                                    style={{ width: '3in', minWidth: '3in', height: '3.8in', minHeight: '3.8in' }}
+                                                  >
+                                                    <span className="text-3xl md:text-4xl font-bold tracking-wide">START</span>
+                                                    <span className="text-sm md:text-base text-white/95 mt-3 font-medium">{currentItem.programName || '—'}</span>
+                                                  </button>
+                                                  {canEditTimer && (
+                                                    <button type="button" onClick={() => { const now = new Date(); setManualTimeModal({ mode: 'add', logId: null, programName: currentItem.programName, timeStr: format(now, 'HH:mm'), reportDate: reportDate || format(new Date(), 'yyyy-MM-dd') }) }} className="text-sm text-indigo-500 hover:text-indigo-700 underline-offset-2 hover:underline">
+                                                      Missed the tap? Enter time manually
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )
+                                        })()}
                                       </div>
                                     )}
                                   </div>
@@ -1198,7 +1284,7 @@ export default function CellReport() {
             </div>
           </div>
           <div className="flex border-b border-slate-200 overflow-x-auto">
-            {(canEditCurrentReport ? CELL_REPORT_TABS_ALL : CELL_REPORT_TABS_VIEW_ONLY).map(({ key, label }) => (
+            {(canEditCurrentReport ? CELL_REPORT_TABS_ALL : isDirectorReadOnly ? CELL_REPORT_TABS_DIRECTOR : CELL_REPORT_TABS_VIEW_ONLY).map(({ key, label }) => (
               <button
                 key={key}
                 type="button"
@@ -1535,7 +1621,7 @@ export default function CellReport() {
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
                             <span className="font-semibold text-emerald-700 text-sm">✓ All programs recorded</span>
-                            {canEditCurrentReport && !meetingLocked && (
+                            {canEditTimer && !meetingLocked && (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1570,7 +1656,7 @@ export default function CellReport() {
                                       <span className="text-slate-500 tabular-nums text-xs">
                                         {timeStr}{segMin != null ? ` · ${formatDurationMinutes(segMin)}` : ''}
                                       </span>
-                                      {canEditCurrentReport && (
+                                      {canEditTimer && (
                                         <>
                                           <button
                                             type="button"
@@ -1615,7 +1701,7 @@ export default function CellReport() {
                         </div>
 
                         {/* End meeting */}
-                        {canEditCurrentReport && !meetingLocked ? (
+                        {canEditTimer && !meetingLocked ? (
                           <button
                             type="button"
                             onClick={async () => {
@@ -1671,7 +1757,7 @@ export default function CellReport() {
                                     <span className="text-slate-500 tabular-nums text-xs">
                                       {timeStr}{segMin != null ? ` · ${formatDurationMinutes(segMin)}` : ''}
                                     </span>
-                                    {canEditCurrentReport && (
+                                    {canEditTimer && (
                                       <>
                                         <button
                                           type="button"
@@ -1718,7 +1804,7 @@ export default function CellReport() {
                         <button
                           type="button"
                           onClick={async () => {
-                            if (!canEditCurrentReport || meetingLocked) return
+                            if (!canEditTimer || meetingLocked) return
                             try {
                               await addProgramLog({ cellName: cell?.cellName || '', programName: currentItem.programName, startTime: new Date(), reportDate: reportDate || format(new Date(), 'yyyy-MM-dd') })
                               const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', reportDate || format(new Date(), 'yyyy-MM-dd'))
@@ -1735,7 +1821,7 @@ export default function CellReport() {
                           <span className="text-3xl md:text-4xl font-bold tracking-wide">START</span>
                           <span className="text-sm md:text-base text-white/95 mt-3 font-medium">{currentItem.programName || '—'}</span>
                         </button>
-                        {canEditCurrentReport && !meetingLocked && (
+                        {canEditTimer && !meetingLocked && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1758,80 +1844,6 @@ export default function CellReport() {
                   )
                 })()}
 
-                {/* ── Manual time entry / edit modal ── */}
-                {manualTimeModal && (
-                  <div
-                    className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-                    onClick={() => setManualTimeModal(null)}
-                  >
-                    <div
-                      className="bg-white rounded-xl shadow-xl w-full max-w-xs p-5"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <h3 className="font-semibold text-slate-800 mb-4">
-                        {manualTimeModal.mode === 'edit' ? 'Edit recorded time' : 'Add missed entry'}
-                      </h3>
-                      {manualTimeModal.mode === 'edit' ? (
-                        <p className="text-sm text-slate-500 mb-3">{manualTimeModal.programName}</p>
-                      ) : (
-                        <div className="mb-3">
-                          <label className="block text-sm font-medium text-slate-700 mb-1">Program name</label>
-                          <input
-                            type="text"
-                            value={manualTimeModal.programName}
-                            onChange={(e) => setManualTimeModal((m) => ({ ...m, programName: e.target.value }))}
-                            placeholder="e.g. Worship"
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                          />
-                        </div>
-                      )}
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Start time</label>
-                      <input
-                        type="time"
-                        value={manualTimeModal.timeStr}
-                        onChange={(e) => setManualTimeModal((m) => ({ ...m, timeStr: e.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-lg font-mono mb-5"
-                      />
-                      <div className="flex gap-3">
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const [hh, mm] = (manualTimeModal.timeStr || '00:00').split(':').map(Number)
-                            const dt = new Date(manualTimeModal.reportDate + 'T00:00:00')
-                            dt.setHours(hh, mm, 0, 0)
-                            try {
-                              if (manualTimeModal.mode === 'edit') {
-                                await updateProgramLog(manualTimeModal.logId, { startTime: dt })
-                              } else {
-                                await addProgramLog({
-                                  cellName: cell?.cellName || '',
-                                  programName: manualTimeModal.programName,
-                                  startTime: dt,
-                                  reportDate: manualTimeModal.reportDate,
-                                })
-                              }
-                              const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', manualTimeModal.reportDate)
-                              setProgramLogs(logs)
-                              setManualTimeModal(null)
-                            } catch (e) {
-                              alert(e?.message || 'Failed to save')
-                            }
-                          }}
-                          className="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setManualTimeModal(null)}
-                          className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -2218,6 +2230,81 @@ export default function CellReport() {
         </div>
       )}
       </div>
-    </div>
+
+    {/* ── Manual time entry / edit modal (shared by leader + director views) ── */}
+    {manualTimeModal && (
+      <div
+        className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+        onClick={() => setManualTimeModal(null)}
+      >
+        <div
+          className="bg-white rounded-xl shadow-xl w-full max-w-xs p-5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="font-semibold text-slate-800 mb-4">
+            {manualTimeModal.mode === 'edit' ? 'Edit recorded time' : 'Add missed entry'}
+          </h3>
+          {manualTimeModal.mode === 'edit' ? (
+            <p className="text-sm text-slate-500 mb-3">{manualTimeModal.programName}</p>
+          ) : (
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Program name</label>
+              <input
+                type="text"
+                value={manualTimeModal.programName}
+                onChange={(e) => setManualTimeModal((m) => ({ ...m, programName: e.target.value }))}
+                placeholder="e.g. Worship"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+              />
+            </div>
+          )}
+          <label className="block text-sm font-medium text-slate-700 mb-1">Start time</label>
+          <input
+            type="time"
+            value={manualTimeModal.timeStr}
+            onChange={(e) => setManualTimeModal((m) => ({ ...m, timeStr: e.target.value }))}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-lg font-mono mb-5"
+          />
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={async () => {
+                const [hh, mm] = (manualTimeModal.timeStr || '00:00').split(':').map(Number)
+                const dt = new Date(manualTimeModal.reportDate + 'T00:00:00')
+                dt.setHours(hh, mm, 0, 0)
+                try {
+                  if (manualTimeModal.mode === 'edit') {
+                    await updateProgramLog(manualTimeModal.logId, { startTime: dt })
+                  } else {
+                    await addProgramLog({
+                      cellName: cell?.cellName || '',
+                      programName: manualTimeModal.programName,
+                      startTime: dt,
+                      reportDate: manualTimeModal.reportDate,
+                    })
+                  }
+                  const logs = await getProgramLogsByCellAndDate(cell?.cellName || '', manualTimeModal.reportDate)
+                  setProgramLogs(logs)
+                  setManualTimeModal(null)
+                } catch (e) {
+                  alert(e?.message || 'Failed to save')
+                }
+              }}
+              className="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => setManualTimeModal(null)}
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
   )
 }

@@ -671,12 +671,12 @@ function CrewTab({ canEdit, userProfile }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SundayProgram() {
-  const { userProfile, canManageDepartment } = useAuth()
+  const { userProfile, canManageDepartment, isCellDirector } = useAuth()
   const navigate = useNavigate()
-  const canEdit = canManageDepartment('Sunday Ministry')
+  const canEdit = canManageDepartment('Sunday Ministry') || isCellDirector
   const [subTab, setSubTab] = useState('default')
 
-  if (!canManageDepartment('Sunday Ministry')) {
+  if (!canManageDepartment('Sunday Ministry') && !isCellDirector) {
     return (
       <div className="p-8 text-slate-600">
         <Link to="/department/sunday-ministry" className="text-blue-600 hover:underline">← Sunday Ministry</Link>

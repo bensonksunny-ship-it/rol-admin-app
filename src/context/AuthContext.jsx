@@ -130,6 +130,7 @@ export function AuthProvider({ children }) {
   const isFounder = isFounderGlobal(userProfile) || userProfile?.role === ROLES.FOUNDER
   const isSeniorPastor = userProfile?.role === ROLES.SENIOR_PASTOR
   const isAdmin = userProfile?.role === ROLES.ADMIN
+  const isCellDirector = getDepartmentRole(userProfile, 'Cell') === 'DIRECTOR'
 
   const isDepartmentHead = (departmentName) => {
     if (!departmentName || !userProfile) return false
@@ -171,6 +172,7 @@ export function AuthProvider({ children }) {
     isFounder,
     isSeniorPastor,
     isAdmin,
+    isCellDirector,
     isDepartmentHead,
     canManageDepartment,
     canAccessDepartment,
