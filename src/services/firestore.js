@@ -2215,6 +2215,61 @@ export async function setSundayPreServiceEntry(dateStr, { speakers, topics }, up
   )
 }
 
+// Sunday Ministry – crew roster + weekly entries
+const SUNDAY_CREW_ROSTER_DOC_ID = 'crew_roster'
+const SUNDAY_CREW_ENTRIES_COLLECTION = 'sunday_crew_entries'
+
+export async function getSundayCrewRoster() {
+  if (!db) return []
+  const snap = await getDoc(doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_CREW_ROSTER_DOC_ID))
+  if (!snap.exists()) return []
+  const data = snap.data()
+  return Array.isArray(data.members)
+    ? data.members.map((m) => ({ name: String(m.name || '').trim(), role: String(m.role || '').trim() })).filter((m) => m.name)
+    : []
+}
+
+export async function setSundayCrewRoster(members, updatedBy) {
+  if (!db) return
+  const clean = (Array.isArray(members) ? members : [])
+    .map((m) => ({ name: String(m.name || '').trim(), role: String(m.role || '').trim() }))
+    .filter((m) => m.name)
+  await setDoc(
+    doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_CREW_ROSTER_DOC_ID),
+    { members: clean, updatedBy: String(updatedBy || ''), updatedAt: Timestamp.now() },
+    { merge: true }
+  )
+}
+
+export async function getSundayCrewEntry(dateStr) {
+  if (!db || !dateStr) return null
+  const id = String(dateStr).slice(0, 10)
+  const snap = await getDoc(doc(db, SUNDAY_CREW_ENTRIES_COLLECTION, id))
+  if (!snap.exists()) return null
+  const data = snap.data()
+  return {
+    date: id,
+    serving: Array.isArray(data.serving) ? data.serving.map((n) => String(n).trim()).filter(Boolean) : [],
+    notes: String(data.notes || ''),
+  }
+}
+
+export async function setSundayCrewEntry(dateStr, { serving, notes }, updatedBy) {
+  if (!db || !dateStr) return
+  const id = String(dateStr).slice(0, 10)
+  await setDoc(
+    doc(db, SUNDAY_CREW_ENTRIES_COLLECTION, id),
+    {
+      date: id,
+      serving: (Array.isArray(serving) ? serving : []).map((n) => String(n).trim()).filter(Boolean),
+      notes: String(notes || ''),
+      updatedBy: String(updatedBy || ''),
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true }
+  )
+}
+
 // Sunday program timing (sunday_program_log)
 const SUNDAY_PROGRAM_LOG_COLLECTION = 'sunday_program_log'
 
@@ -2246,6 +2301,14 @@ export async function getSundayProgramLogsByDate(reportDate) {
       startTime: toDate(data.startTime),
       reportDate: data.reportDate || '',
     }
+  })
+}
+
+export async function updateSundayProgramLog(id, startTime) {
+  if (!db || !id) return
+  const start = startTime instanceof Date ? startTime : new Date(startTime)
+  await updateDoc(doc(db, SUNDAY_PROGRAM_LOG_COLLECTION, id), {
+    startTime: Timestamp.fromDate(start),
   })
 }
 

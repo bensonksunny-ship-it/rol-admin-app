@@ -512,7 +512,47 @@ function Td({ value }) {
   )
 }
 
-function KebabMenu({ onEdit, onDelete, canEdit, canDelete, deleting }) {
+function downloadSingleReport(row, cellCols) {
+  const wb = XLSX.utils.book_new()
+
+  // Sheet 1: Summary
+  const summaryRows = []
+  summaryRows.push([`Sunday Report — ${row.date}`])
+  summaryRows.push([])
+
+  if (row.programTimings?.length > 0) {
+    summaryRows.push(['Program', 'Start Time'])
+    row.programTimings.forEach((t) => summaryRows.push([t.programName, formatTime(t.startTime)]))
+    summaryRows.push([])
+  }
+
+  const sca = row.sundayCellAttendance || {}
+  summaryRows.push(['Attendance', 'Count'])
+  cellCols.forEach((c) => {
+    const count = (sca[c.id] || []).filter(Boolean).length
+    summaryRows.push([c.name, count || 0])
+  })
+  FIXED_COLS.forEach((c) => summaryRows.push([c.label, row[c.key] || 0]))
+
+  const ws1 = XLSX.utils.aoa_to_sheet(summaryRows)
+  ws1['!cols'] = [{ wch: 30 }, { wch: 14 }]
+  XLSX.utils.book_append_sheet(wb, ws1, 'Summary')
+
+  // Sheet 2: Cell Attendance (individual names)
+  const detailRows = [['Cell', 'Member']]
+  cellCols.forEach((c) => {
+    ;(sca[c.id] || []).filter(Boolean).forEach((name) => detailRows.push([c.name, name]))
+  })
+  if (detailRows.length > 1) {
+    const ws2 = XLSX.utils.aoa_to_sheet(detailRows)
+    ws2['!cols'] = [{ wch: 28 }, { wch: 28 }]
+    XLSX.utils.book_append_sheet(wb, ws2, 'Cell Attendance')
+  }
+
+  XLSX.writeFile(wb, `sunday-report-${row.date}.xlsx`)
+}
+
+function KebabMenu({ onEdit, onDelete, onDownload, canEdit, canDelete, deleting }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -541,7 +581,7 @@ function KebabMenu({ onEdit, onDelete, canEdit, canDelete, deleting }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 min-w-[120px] bg-white rounded-xl shadow-lg border border-slate-200 py-1 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 z-30 min-w-[130px] bg-white rounded-xl shadow-lg border border-slate-200 py-1 overflow-hidden">
           {canEdit && (
             <button
               type="button"
@@ -551,6 +591,13 @@ function KebabMenu({ onEdit, onDelete, canEdit, canDelete, deleting }) {
               Edit
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onDownload() }}
+            className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition"
+          >
+            Download
+          </button>
           {canDelete && (
             <button
               type="button"
@@ -675,16 +722,14 @@ export default function SundayReportsHistory() {
                     </th>
                   ))}
                   <th className="px-3 py-3 font-medium whitespace-nowrap text-center">Timing</th>
-                  {(canEdit || canDelete) && (
-                    <th className="px-3 py-3 font-medium whitespace-nowrap text-center w-12"></th>
-                  )}
+                  <th className="px-3 py-3 font-medium whitespace-nowrap text-center w-12"></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => {
                   const isExpanded = expandedDate === row.date
                   const hasTimings = row.programTimings.length > 0
-                  const totalCols  = cellCols.length + FIXED_COLS.length + 2 + (canEdit || canDelete ? 1 : 0)
+                  const totalCols  = cellCols.length + FIXED_COLS.length + 3
                   const sca        = row.sundayCellAttendance || {}
                   return (
                     <>
@@ -714,17 +759,16 @@ export default function SundayReportsHistory() {
                             <span className="text-slate-400 text-xs">—</span>
                           )}
                         </td>
-                        {(canEdit || canDelete) && (
-                          <td className="px-2 py-2 text-center">
-                            <KebabMenu
-                              canEdit={canEdit}
-                              canDelete={canDelete}
-                              deleting={deletingDate === row.date}
-                              onEdit={() => navigate(`/department/sunday-ministry/sunday-report?date=${row.date}`)}
-                              onDelete={() => handleDelete(row.date)}
-                            />
-                          </td>
-                        )}
+                        <td className="px-2 py-2 text-center">
+                          <KebabMenu
+                            canEdit={canEdit}
+                            canDelete={canDelete}
+                            deleting={deletingDate === row.date}
+                            onEdit={() => navigate(`/department/sunday-ministry/sunday-report?date=${row.date}`)}
+                            onDelete={() => handleDelete(row.date)}
+                            onDownload={() => downloadSingleReport(row, cellCols)}
+                          />
+                        </td>
                       </tr>
                       {isExpanded && (
                         <tr key={`${row.date}-timing`} className="bg-indigo-50/30 border-b border-slate-100">
