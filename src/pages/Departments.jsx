@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { DEPARTMENT_LIST, getDepartmentPath } from '../constants/departments'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
-import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Sparkles } from 'lucide-react'
+import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Settings, Sparkles } from 'lucide-react'
 
 export default function Departments() {
   const { userProfile, canSeeAllDepartments, isCellDirector } = useAuth()
@@ -43,6 +43,7 @@ export default function Departments() {
     if (n === 'media') return Video
     if (n === 'accounts') return Wallet
     if (n === 'building care') return Building2
+    if (n === 'administration') return Settings
     return Sparkles
   }
 

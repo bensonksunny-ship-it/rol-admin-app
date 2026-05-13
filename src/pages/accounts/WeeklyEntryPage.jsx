@@ -11,6 +11,7 @@ import {
   deleteFinanceExpense,
   approveFinanceWeeklyEntry,
   approveAllFinanceWeeklyEntries,
+  getExpenseDepartments,
 } from '../../services/firestore'
 
 const WEEK_START = { weekStartsOn: 1 }
@@ -44,6 +45,15 @@ export default function WeeklyEntryPage() {
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
   const weeklyOnly = canAccessWeeklyEntryOnly(userProfile)
   const minWeekStart = startOfWeek(subMonths(new Date(), 3), WEEK_START)
+  const [deptOptions, setDeptOptions] = useState(EXPENSE_CATEGORIES)
+
+  useEffect(() => {
+    getExpenseDepartments().then(dynamic => {
+      if (!dynamic.length) return
+      const extra = dynamic.map(d => d.name).filter(n => !EXPENSE_CATEGORIES.includes(n))
+      if (extra.length) setDeptOptions([...EXPENSE_CATEGORIES, ...extra])
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!canAccess) return
@@ -290,7 +300,7 @@ export default function WeeklyEntryPage() {
           className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <option value="all">All Departments</option>
-          {EXPENSE_CATEGORIES.map(d => <option key={d} value={d}>{d}</option>)}
+          {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
       </div>
 

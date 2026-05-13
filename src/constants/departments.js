@@ -21,6 +21,7 @@ export const DEPARTMENT_LIST = [
   { name: 'Thunderstorm', slug: 'thunderstorm', customPage: null },
   { name: 'SP Office', slug: 'sp-office', customPage: null },
   { name: 'Sec-Core', slug: 'sec-core', customPage: null },
+  { name: 'Administration', slug: 'administration', customPage: null },
 ]
 
 export function getDepartmentBySlug(slug) {

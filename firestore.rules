@@ -238,6 +238,10 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    match /expense_departments/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
     match /attendance/{docId} {
       allow read, write: if isSignedIn();
     }

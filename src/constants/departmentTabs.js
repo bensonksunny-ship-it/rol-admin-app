@@ -20,7 +20,9 @@ export function getDepartmentHubTabs(slug) {
     case 'river-kids':
       return ['summary', 'attendance', 'operations']
     case 'accounts':
-      return ['summary', 'entry', 'subDepartment', 'team', 'planning', 'financial']
+      return ['summary', 'entry', 'operations']
+    case 'administration':
+      return ['summary', 'operations']
     default:
       return ['summary', 'subDepartment', 'team', 'planning', 'financial']
   }

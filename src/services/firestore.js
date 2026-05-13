@@ -3181,3 +3181,26 @@ export async function deleteSecCoreSundayLeaderEntry(dateStr) {
   await deleteDoc(doc(db, SEC_CORE_SUNDAY_LEADER, dateStr))
 }
 
+// Expense department options (Accounts → Operations → Add Departments)
+const EXPENSE_DEPARTMENTS_COLLECTION = 'expense_departments'
+
+export async function getExpenseDepartments() {
+  if (!db) return []
+  const snap = await getDocs(query(collection(db, EXPENSE_DEPARTMENTS_COLLECTION), orderBy('name')))
+  return snap.docs.map((d) => ({ id: d.id, name: String(d.data().name || '') }))
+}
+
+export async function addExpenseDepartment(name) {
+  if (!db || !name) return null
+  const ref = await addDoc(collection(db, EXPENSE_DEPARTMENTS_COLLECTION), {
+    name: String(name).trim(),
+    createdAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function deleteExpenseDepartment(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, EXPENSE_DEPARTMENTS_COLLECTION, id))
+}
+
