@@ -12,6 +12,28 @@ import {
   deleteAllFinanceIncomeForMonth,
 } from '../../services/firestore'
 
+// Pure integer Excel serial → yyyy-MM-dd. Zero JS Date usage — no timezone involved.
+// Excel serial 1 = Jan 1 1900. Serial 60 is Excel's fake Feb 29 1900 (off-by-1 bug).
+// After correcting for that bug, we map to a Unix day count and apply Hinnant's
+// civil_from_days algorithm (pure Gregorian arithmetic).
+function excelSerialToISO(serial) {
+  if (!serial || serial <= 0) return ''
+  let n = Math.floor(serial)
+  if (n >= 60) n-- // skip Excel's phantom Feb 29 1900
+  // Unix day 0 = Jan 1 1970. Excel serial 25569 (corrected: 25568) = Jan 1 1970.
+  const z = n - 25568 + 719468 // shift to days-since-Mar-1-year-0 epoch
+  const era = Math.floor((z >= 0 ? z : z - 146096) / 146097)
+  const doe = z - era * 146097
+  const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365)
+  const y = yoe + era * 400
+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100))
+  const mp = Math.floor((5 * doy + 2) / 153)
+  const d = doy - Math.floor((153 * mp + 2) / 5) + 1
+  const m = mp < 10 ? mp + 3 : mp - 9
+  const year = m <= 2 ? y + 1 : y
+  return `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
 const EMPTY_FORM = {
   date: format(new Date(), 'yyyy-MM-dd'),
   category: INCOME_TYPES[0],
@@ -34,8 +56,9 @@ export default function IncomePage() {
   const [removingAll, setRemovingAll] = useState(false)
   const [xlsxRows, setXlsxRows] = useState(null)
   const [xlsxError, setXlsxError] = useState('')
-  const [importingXlsx, setImportingXlsx] = useState(false)
   const [xlsxResult, setXlsxResult] = useState(null)
+  const [pendingImports, setPendingImports] = useState([])
+  const [savingImports, setSavingImports] = useState(false)
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
@@ -155,10 +178,8 @@ export default function IncomePage() {
     try {
       const XLSX = await import('xlsx')
       const data = await file.arrayBuffer()
-      // No cellDates — keep numeric serials so we can convert without any JS Date / timezone
       const wb = XLSX.read(data, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
-      // raw:true preserves numeric Excel serials for date cells
       const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true })
       if (!raw.length) { setXlsxError('No data found in the file.'); return }
 
@@ -173,14 +194,10 @@ export default function IncomePage() {
 
         let date = ''
         if (typeof rawDate === 'number' && rawDate > 0) {
-          // Excel serial — pure date math, no JS Date, no timezone shift
-          const info = XLSX.SSF.parse_date_code(rawDate)
-          if (info && info.y) {
-            date = `${info.y}-${String(info.m).padStart(2, '0')}-${String(info.d).padStart(2, '0')}`
-          }
+          date = excelSerialToISO(rawDate)
         } else if (rawDate) {
           const s = String(rawDate).trim()
-          // DD/MM/YYYY or D/M/YYYY — Indian format
+          // DD/MM/YYYY (Indian format)
           const ddmm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
           if (ddmm) {
             const [, dd, mm, yyyy] = ddmm
@@ -212,20 +229,26 @@ export default function IncomePage() {
     }
   }
 
-  async function handleImportAll() {
+  function handleLoadPending() {
     const valid = (xlsxRows || []).filter(r => r._valid)
     if (!valid.length) return
-    setImportingXlsx(true)
+    setPendingImports(valid)
+    setXlsxRows(null)
+  }
+
+  async function handleSavePending() {
+    if (!pendingImports.length) return
+    setSavingImports(true)
     let imported = 0, failed = 0
-    for (const row of valid) {
+    for (const row of pendingImports) {
       try {
         await createFinanceIncome({ date: row.date, category: row.category, giverName: row.giverName, amount: row.amount })
         imported++
       } catch { failed++ }
     }
-    setImportingXlsx(false)
-    setXlsxRows(null)
-    setXlsxResult({ imported, failed, skipped: (xlsxRows || []).filter(r => !r._valid).length })
+    setSavingImports(false)
+    setPendingImports([])
+    setXlsxResult({ imported, failed, skipped: 0 })
     await load()
   }
 
@@ -362,6 +385,59 @@ export default function IncomePage() {
           <p className="text-xs font-medium text-red-600">{saveError}</p>
         )}
       </form>
+
+      {/* Pending imports */}
+      {pendingImports.length > 0 && (
+        <div className="bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 border-b border-amber-100">
+            <div>
+              <span className="text-sm font-semibold text-amber-900">Pending Import</span>
+              <span className="text-xs text-amber-700 ml-2">{pendingImports.length} {pendingImports.length === 1 ? 'entry' : 'entries'} — not saved yet</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingImports([])}
+                className="text-xs text-amber-700 hover:underline"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePending}
+                disabled={savingImports}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold disabled:opacity-50 transition"
+              >
+                {savingImports ? 'Saving…' : `Save ${pendingImports.length} ${pendingImports.length === 1 ? 'entry' : 'entries'}`}
+              </button>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-amber-50/40 text-left text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                  <th className="px-4 py-2 text-center w-10">No.</th>
+                  <th className="px-4 py-2">Date</th>
+                  <th className="px-4 py-2">Income Type</th>
+                  <th className="px-4 py-2">Given By</th>
+                  <th className="px-4 py-2 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-50">
+                {pendingImports.map((row, idx) => (
+                  <tr key={idx} className="bg-amber-50/20">
+                    <td className="px-4 py-2.5 text-center text-xs text-amber-400 font-medium">{idx + 1}</td>
+                    <td className="px-4 py-2.5 text-slate-700">{row.date.split('-').reverse().join('/')}</td>
+                    <td className="px-4 py-2.5 text-slate-700">{row.category}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{row.giverName || '—'}</td>
+                    <td className="px-4 py-2.5 text-right font-medium text-slate-800">₹{Number(row.amount).toLocaleString('en-IN')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Income list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -529,11 +605,11 @@ export default function IncomePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleImportAll}
-                  disabled={importingXlsx || !xlsxRows.some(r => r._valid)}
+                  onClick={handleLoadPending}
+                  disabled={!xlsxRows.some(r => r._valid)}
                   className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50 transition"
                 >
-                  {importingXlsx ? 'Importing…' : `Import ${xlsxRows.filter(r => r._valid).length} rows`}
+                  Load to table →
                 </button>
               </div>
             </div>
