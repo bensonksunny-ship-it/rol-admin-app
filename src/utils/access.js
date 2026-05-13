@@ -19,37 +19,38 @@ export function getDepartmentRole(user, departmentName) {
   const positions = Array.isArray(user?.positions) ? user.positions : []
   const targetDept = String(departmentName || '').trim().toLowerCase().replace(/-/g, ' ')
   const p = positions.find((x) => x && String(x.department || '').trim().toLowerCase().replace(/-/g, ' ') === targetDept)
-  if (!p) {
-    // Legacy fallback: top-level `role` + `department` fields (no positions array)
-    const userDeptNorm = String(user?.department || '').trim().toLowerCase().replace(/-/g, ' ')
-    if (userDeptNorm && userDeptNorm === targetDept) {
-      const r = String(user?.role || '').trim().toLowerCase()
-      if (r === 'director') return 'DIRECTOR'
-      if (r === 'coordinator') return 'COORDINATOR'
+
+  if (p) {
+    const roleField = p.role != null ? String(p.role).trim() : ''
+    const positionField = p.position != null ? String(p.position).trim() : ''
+
+    // New schema: role is stored as uppercase tokens like DIRECTOR/COORDINATOR.
+    if (roleField) {
+      const upper = roleField.toUpperCase()
+      if (upper === 'DIRECTOR') return 'DIRECTOR'
+      if (upper === 'COORDINATOR') return 'COORDINATOR'
+      if (upper === 'LEADER') return 'COORDINATOR'
     }
-    return null
+
+    // Legacy schema: position is stored as labels like "Director", "Coordinator", "Cell Leader".
+    if (positionField) {
+      const pos = positionField.toLowerCase()
+      if (pos === 'director') return 'DIRECTOR'
+      if (pos === 'coordinator' || pos === 'cell leader') return 'COORDINATOR'
+      // A named non-head position (e.g. "Associate") — not a department head.
+      return null
+    }
+    // p found but both role and position are empty — fall through to top-level legacy check.
   }
 
-  const roleField = p.role != null ? String(p.role).trim() : ''
-  const positionField = p.position != null ? String(p.position).trim() : ''
-
-  // New schema: role is stored as uppercase tokens like DIRECTOR/COORDINATOR.
-  if (roleField) {
-    const upper = roleField.toUpperCase()
-    if (upper === 'DIRECTOR') return 'DIRECTOR'
-    if (upper === 'COORDINATOR') return 'COORDINATOR'
-    if (upper === 'LEADER') return 'COORDINATOR' // e.g. "LEADER"
+  // Legacy fallback: top-level `role` + `department` fields.
+  // Covers: no positions array, empty positions array, or positions entry with no role/position.
+  const userDeptNorm = String(user?.department || '').trim().toLowerCase().replace(/-/g, ' ')
+  if (userDeptNorm && userDeptNorm === targetDept) {
+    const r = String(user?.role || '').trim().toLowerCase()
+    if (r === 'director') return 'DIRECTOR'
+    if (r === 'coordinator') return 'COORDINATOR'
   }
-
-  // Legacy schema: position is stored as labels like "Director", "Coordinator", "Cell Leader".
-  if (positionField) {
-    const pos = positionField.toLowerCase()
-    if (pos === 'director') return 'DIRECTOR'
-    if (pos === 'coordinator' || pos === 'cell leader') return 'COORDINATOR'
-    // Associate (or anything else) is not a department head.
-    return null
-  }
-
   return null
 }
 

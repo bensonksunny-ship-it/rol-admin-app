@@ -145,15 +145,14 @@ service cloud.firestore {
     }
 
     match /cell_groups/{cellId} {
-      // Some legacy docs may not have a consistent `department` field.
-      // If a user has access to the Cell department, allow access to cell groups.
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      // Sunday Ministry needs read access to show cell-based attendance in Sunday Report.
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry'));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
     }
 
     match /cell_groups/{cellId}/members/{memberId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry'));
       // Write is restricted: Founder/Admin full access; Cell Director can write any cell;
       // Cell Leader can only write members within their own linked cell.
       allow create, update, delete: if isSignedIn() && (
