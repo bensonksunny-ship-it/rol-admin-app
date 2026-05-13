@@ -155,9 +155,11 @@ export default function IncomePage() {
     try {
       const XLSX = await import('xlsx')
       const data = await file.arrayBuffer()
-      const wb = XLSX.read(data, { type: 'array', cellDates: true })
+      // No cellDates — keep numeric serials so we can convert without any JS Date / timezone
+      const wb = XLSX.read(data, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
-      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
+      // raw:true preserves numeric Excel serials for date cells
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true })
       if (!raw.length) { setXlsxError('No data found in the file.'); return }
 
       const norm = (key) => String(key).toLowerCase().replace(/[\s_\-]/g, '')
@@ -170,15 +172,37 @@ export default function IncomePage() {
         const amount = Number(r['amount'] ?? r['amountrs'] ?? r['rs'] ?? 0) || 0
 
         let date = ''
-        if (rawDate instanceof Date) date = format(rawDate, 'yyyy-MM-dd')
-        else if (rawDate) { const d = new Date(rawDate); if (!isNaN(d)) date = format(d, 'yyyy-MM-dd') }
+        if (typeof rawDate === 'number' && rawDate > 0) {
+          // Excel serial — pure date math, no JS Date, no timezone shift
+          const info = XLSX.SSF.parse_date_code(rawDate)
+          if (info && info.y) {
+            date = `${info.y}-${String(info.m).padStart(2, '0')}-${String(info.d).padStart(2, '0')}`
+          }
+        } else if (rawDate) {
+          const s = String(rawDate).trim()
+          // DD/MM/YYYY or D/M/YYYY — Indian format
+          const ddmm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+          if (ddmm) {
+            const [, dd, mm, yyyy] = ddmm
+            date = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
+          } else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+            date = s
+          } else {
+            // DD-MM-YYYY
+            const ddmmDash = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+            if (ddmmDash) {
+              const [, dd, mm, yyyy] = ddmmDash
+              date = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
+            }
+          }
+        }
 
         const error = !date ? 'Missing date' : amount <= 0 ? 'Invalid amount' : ''
         return { _row: i + 2, date, category, giverName, amount, _valid: !error, _error: error }
       })
 
       if (rows.every(r => !r._valid)) {
-        setXlsxError('Could not parse rows. Make sure columns are: Date, Category, Amount')
+        setXlsxError('Could not parse rows. Make sure columns are: Date, Income Type, Given By, Amount')
         return
       }
       setXlsxRows(rows)
@@ -477,7 +501,9 @@ export default function IncomePage() {
                 <tbody className="divide-y divide-slate-50">
                   {xlsxRows.map((row) => (
                     <tr key={row._row} className={row._valid ? '' : 'bg-red-50/60'}>
-                      <td className="px-4 py-2 text-slate-700">{row.date || '—'}</td>
+                      <td className="px-4 py-2 text-slate-700">
+                        {row.date ? row.date.split('-').reverse().join('/') : '—'}
+                      </td>
                       <td className="px-4 py-2 text-slate-700">{row.category || '—'}</td>
                       <td className="px-4 py-2 text-slate-600">{row.giverName || '—'}</td>
                       <td className="px-4 py-2 text-right font-medium text-slate-800">

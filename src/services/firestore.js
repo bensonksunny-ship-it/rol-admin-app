@@ -836,8 +836,8 @@ export async function getFinanceIncome(filters = {}) {
     constraints.push(where('date', '>=', Timestamp.fromDate(start)))
     constraints.push(where('date', '<=', Timestamp.fromDate(end)))
   }
-  if (constraints.length) q = query(q, ...constraints, orderBy('date', 'desc'))
-  else q = query(q, orderBy('date', 'desc'), limit(200))
+  if (constraints.length) q = query(q, ...constraints, orderBy('date', 'asc'))
+  else q = query(q, orderBy('date', 'asc'), limit(200))
   const snap = await getDocs(q)
   return snap.docs.map((d) => {
     const data = d.data()
@@ -846,9 +846,10 @@ export async function getFinanceIncome(filters = {}) {
 }
 
 export async function createFinanceIncome(data) {
+  const [y, m, d] = String(data.date).split('-').map(Number)
   const ref = await addDoc(collection(db, 'finance_income'), {
     ...data,
-    date: Timestamp.fromDate(new Date(data.date)),
+    date: Timestamp.fromDate(new Date(y, m - 1, d)),
     amount: Number(data.amount) || 0,
     createdAt: Timestamp.now(),
   })
@@ -856,8 +857,9 @@ export async function createFinanceIncome(data) {
 }
 
 export async function updateFinanceIncome(id, data) {
+  const [y, m, d] = String(data.date).split('-').map(Number)
   await updateDoc(doc(db, 'finance_income', id), {
-    date: Timestamp.fromDate(new Date(data.date)),
+    date: Timestamp.fromDate(new Date(y, m - 1, d)),
     category: data.category,
     amount: Number(data.amount) || 0,
     updatedAt: Timestamp.now(),
