@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2 } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Send, Download } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -109,6 +109,14 @@ const DEMO_TEAM = [
   { name: 'Chelsea', memberSince: '2024-01-15' },
   { name: 'Shimona', memberSince: '2020-12-03' },
   { name: 'Surya', memberSince: '2019-11-03' },
+]
+
+const SERVICE_FLOW = [
+  { segment: 'Pre-service', item: 'Welcome & Setup', duration: '10 min' },
+  { segment: 'Opening', item: 'Praise & Worship (3–4 songs)', duration: '25 min' },
+  { segment: 'Sermon', item: 'Pastoral Message', duration: '35 min' },
+  { segment: 'Response', item: 'Response Worship / Altar Call', duration: '10 min' },
+  { segment: 'Closing', item: 'Final Song & Benediction', duration: '5 min' },
 ]
 
 function WorshipStamp({ stamp, isOpen, onToggle, onEdit }) {
@@ -304,7 +312,7 @@ export default function DepartmentWorship() {
   }, [])
 
   useEffect(() => {
-    if (activeTab === 'assign' && selectedDate) loadScheduleForDate(selectedDate)
+    if ((activeTab === 'assign' || activeTab === 'summary') && selectedDate) loadScheduleForDate(selectedDate)
   }, [activeTab, selectedDate])
 
   async function loadSubDepartments() {
@@ -442,31 +450,271 @@ export default function DepartmentWorship() {
     )
   }
 
+  const savedAssignments = scheduleForDate.assignments || []
+  const setlistSongs = savedAssignments
+    .filter(a => a.songName)
+    .map((a, i) => ({
+      no: i + 1,
+      title: a.songName,
+      key: a.key || '—',
+      singer: a.memberName || '—',
+      hasStructure: !!a.structure,
+      _assignment: a,
+    }))
+
   return (
     <div>
       <DepartmentTabBar slug="worship" activeTab={activeTab} setActiveTab={setActiveTab} />
       <div className="space-y-4 p-4">
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
-          {/* Budget 2026 - compact, colourful */}
-          <div className="bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 rounded-xl shadow-md p-4 text-white max-w-3xl">
-            <h2 className="text-sm font-semibold uppercase tracking-wider opacity-95">Budget 2026 (Worship)</h2>
-            <div className="mt-2 flex flex-wrap items-end gap-6">
-              <div>
-                <p className="text-sm uppercase tracking-wider opacity-90">Planned</p>
-                <p className="text-2xl md:text-3xl font-bold leading-tight">RM {budget2026.planned.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-              </div>
-              <div>
-                <p className="text-sm uppercase tracking-wider opacity-90">Spent</p>
-                <p className="text-2xl md:text-3xl font-bold leading-tight">RM {budget2026.spent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-              </div>
-              <div>
-                <p className="text-sm uppercase tracking-wider opacity-90">Balance</p>
-                <p className="text-xl md:text-2xl font-semibold leading-tight">RM {(budget2026.planned - budget2026.spent).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-              </div>
+
+          {/* Header strip: Coming Sundays + Distribute button */}
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-400 shrink-0">Coming Sundays</span>
+              {upcomingSundays(5).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setSelectedDate(d)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                    selectedDate === d
+                      ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                      : 'bg-white text-slate-600 border-slate-300 hover:border-violet-400 hover:text-violet-700'
+                  }`}
+                >
+                  {format(new Date(d), 'd MMM')}
+                </button>
+              ))}
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
+              />
             </div>
-            <p className="mt-2 text-sm opacity-90">All Worship budget entries, period 2026.</p>
+            <button
+              type="button"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-sm transition"
+            >
+              <Send size={14} />
+              Distribute Plan to Team
+            </button>
           </div>
+
+          {loadingSchedule ? (
+            <div className="py-12 text-center text-slate-400 text-sm">Loading plan…</div>
+          ) : (
+            <>
+              {/* Row 1: Period Summary + Service Flow */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+                {/* Period Summary card */}
+                <div className="lg:col-span-2 relative bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md overflow-hidden p-5">
+                  {/* Official Plan watermark */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-[0.035] -rotate-12">
+                    <span className="text-slate-900 font-black text-6xl tracking-widest uppercase whitespace-nowrap">Official Plan</span>
+                  </div>
+                  <div className="relative z-10">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Weekly Worship Plan Summary</p>
+                        <h2 className="text-xl font-bold text-slate-800 mt-0.5">
+                          {selectedDate ? format(new Date(selectedDate + 'T12:00:00'), 'EEEE, d MMMM yyyy') : '—'}
+                        </h2>
+                        <p className="text-sm text-slate-400 mt-0.5">Worship Department</p>
+                      </div>
+                      <span className={`shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold ${
+                        savedAssignments.filter(a => a.memberId).length > 0
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-50 border-slate-200 text-slate-500'
+                      }`}>
+                        <CheckCircle2 size={12} />
+                        {savedAssignments.filter(a => a.memberId).length > 0 ? 'Plan Ready' : 'Not Set'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-violet-50/70 rounded-xl p-3">
+                        <p className="text-xs font-semibold text-violet-500">Assigned</p>
+                        <p className="text-2xl font-bold text-violet-700 mt-0.5">{savedAssignments.filter(a => a.memberId).length}</p>
+                        <p className="text-[10px] text-violet-400">of {ASSIGNMENT_ROLES.length} roles</p>
+                      </div>
+                      <div className="bg-sky-50/70 rounded-xl p-3">
+                        <p className="text-xs font-semibold text-sky-500">Songs</p>
+                        <p className="text-2xl font-bold text-sky-700 mt-0.5">{setlistSongs.length}</p>
+                        <p className="text-[10px] text-sky-400">in setlist</p>
+                      </div>
+                      <div className="bg-amber-50/70 rounded-xl p-3">
+                        <p className="text-xs font-semibold text-amber-500">Structures</p>
+                        <p className="text-2xl font-bold text-amber-700 mt-0.5">{setlistSongs.filter(s => s.hasStructure).length}</p>
+                        <p className="text-[10px] text-amber-400">docs uploaded</p>
+                      </div>
+                      <div className="bg-emerald-50/70 rounded-xl p-3">
+                        <p className="text-xs font-semibold text-emerald-500">Team Pool</p>
+                        <p className="text-2xl font-bold text-emerald-700 mt-0.5">{teamMembers.length}</p>
+                        <p className="text-[10px] text-emerald-400">active members</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Service Flow card */}
+                <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4">Full Plan Overview</p>
+                  <div className="space-y-3">
+                    {SERVICE_FLOW.map((item, i) => (
+                      <div key={i} className="flex items-start gap-3">
+                        <div className="w-5 h-5 rounded-full bg-violet-100 flex items-center justify-center text-[10px] font-bold text-violet-600 shrink-0 mt-0.5">{i + 1}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-700">{item.segment}</p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">{item.item}</p>
+                        </div>
+                        <span className="text-[10px] text-slate-400 shrink-0 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">{item.duration}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2: Full Team Roster */}
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Full Team Roster</p>
+                  <span className="text-xs text-slate-400">{savedAssignments.filter(a => a.memberId).length} confirmed</span>
+                </div>
+                {savedAssignments.filter(a => a.memberId).length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-6">No team assigned for this date. Set up in the Assign tab.</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+                    {savedAssignments.filter(a => a.memberId).map((a) => (
+                      <div key={a.role} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-50/80 border border-slate-100">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          {a.memberName?.charAt(0)?.toUpperCase() || '?'}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-slate-800 truncate">{a.memberName}</p>
+                          <p className="text-[10px] text-slate-500 truncate">{a.role}</p>
+                        </div>
+                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Row 3: Setlist + Files & Contacts */}
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+                {/* Music Setlist */}
+                <div className="lg:col-span-3 bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Music Setlist</p>
+                  {setlistSongs.length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-6">No songs in setlist. Add song names in the Assign tab.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                            <th className="pb-2 pr-3 w-8">#</th>
+                            <th className="pb-2 pr-3">Song Title</th>
+                            <th className="pb-2 pr-3 w-16">Key</th>
+                            <th className="pb-2 pr-3">Singer</th>
+                            <th className="pb-2 w-20 text-center">Structure</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {setlistSongs.map((song) => (
+                            <tr key={song.no} className="hover:bg-slate-50/60 transition">
+                              <td className="py-2.5 pr-3 text-slate-400 text-xs font-medium">{song.no}</td>
+                              <td className="py-2.5 pr-3 font-semibold text-slate-800">{song.title}</td>
+                              <td className="py-2.5 pr-3">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-violet-50 border border-violet-100 text-xs font-bold text-violet-700">
+                                  {song.key}
+                                </span>
+                              </td>
+                              <td className="py-2.5 pr-3 text-slate-500 text-xs">{song.singer}</td>
+                              <td className="py-2.5 text-center">
+                                {song.hasStructure ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const a = song._assignment
+                                      if (a?.structure) setStructureModal({ role: a.role, ...a.structure })
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
+                                  >
+                                    <Download size={11} />
+                                    View
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-slate-300">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Files & Contacts column */}
+                <div className="lg:col-span-2 flex flex-col gap-4">
+
+                  {/* Quick Files */}
+                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Quick Files</p>
+                    <div className="space-y-2">
+                      {[
+                        { label: 'Worship Plan PDF', icon: '📄', cls: 'text-red-600 bg-red-50 border-red-100 hover:bg-red-100' },
+                        { label: 'Presentation Slides', icon: '🎞️', cls: 'text-blue-600 bg-blue-50 border-blue-100 hover:bg-blue-100' },
+                        { label: 'Song Sheets', icon: '🎵', cls: 'text-violet-600 bg-violet-50 border-violet-100 hover:bg-violet-100' },
+                      ].map((f) => (
+                        <button
+                          key={f.label}
+                          type="button"
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border text-xs font-semibold transition ${f.cls}`}
+                        >
+                          <span>{f.icon}</span>
+                          <span className="flex-1 text-left">{f.label}</span>
+                          <Download size={12} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Key Contacts */}
+                  <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-4 flex-1">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Key Contacts</p>
+                    <div className="space-y-3">
+                      {(() => {
+                        const contacts = []
+                        const director = teamMembers.find(m => m.isWorshipDirector)
+                        if (director) contacts.push({ name: director.name, role: 'Worship Director' })
+                        const leadVocal = savedAssignments.find(a => a.role === 'Lead Vocal-1' && a.memberName)
+                        if (leadVocal) contacts.push({ name: leadVocal.memberName, role: 'Lead Vocal' })
+                        const soundEng = savedAssignments.find(a => a.role === 'Sound Engineer' && a.memberName)
+                        if (soundEng) contacts.push({ name: soundEng.memberName, role: 'Sound Engineer' })
+                        if (!contacts.length) return <p className="text-xs text-slate-400">No contacts assigned yet.</p>
+                        return contacts.map((c, i) => (
+                          <div key={i} className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                              {c.name?.charAt(0)?.toUpperCase() || '?'}
+                            </div>
+                            <div>
+                              <p className="text-xs font-semibold text-slate-800">{c.name}</p>
+                              <p className="text-[10px] text-slate-500">{c.role}</p>
+                            </div>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

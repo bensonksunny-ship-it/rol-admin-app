@@ -278,14 +278,6 @@ export default function IncomePage() {
         </button>
       </div>
 
-      {/* Summary card */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center justify-between">
-        <p className="text-sm font-medium text-slate-500">Total Income</p>
-        <p className="text-2xl font-bold text-indigo-700">
-          ₹{totalIncome.toLocaleString('en-IN')}
-        </p>
-      </div>
-
       {/* Excel upload result toast */}
       {xlsxResult && (
         <div className="flex items-center justify-between gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
@@ -298,93 +290,110 @@ export default function IncomePage() {
         </div>
       )}
 
-      {/* Entry form */}
-      <form
-        onSubmit={handleSave}
-        className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-slate-700">
-            {editingId ? 'Edit Income Entry' : 'Add Income Entry'}
-          </h3>
-          <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
-            <span>📊</span> Upload Excel
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
-          </label>
-        </div>
-        {xlsxError && <p className="text-xs font-medium text-red-600">{xlsxError}</p>}
+      {/* Bento grid: stats card + entry form */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Date</label>
-            <input
-              type="date"
-              value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Income Type</label>
-            <select
-              value={form.category}
-              onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {INCOME_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Given By <span className="text-slate-400 font-normal">(optional)</span></label>
-            <input
-              type="text"
-              value={form.giverName}
-              onChange={e => setForm(f => ({ ...f, giverName: e.target.value }))}
-              placeholder="Name of giver"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Amount (₹)</label>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={form.amount}
-              onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-              placeholder="0"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+        {/* Stats card — compact, square-ish */}
+        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl shadow-lg p-5 text-white flex flex-col justify-between min-h-[148px]">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-100">Total Income</p>
+          <div>
+            <p className="text-2xl font-bold leading-tight mt-1">
+              ₹{totalIncome.toLocaleString('en-IN')}
+            </p>
+            <p className="text-xs text-emerald-200 mt-1.5">
+              {entries.length} {entries.length === 1 ? 'entry' : 'entries'} · {format(activeMonth, 'MMM yyyy')}
+            </p>
           </div>
         </div>
 
-        {formError && (
-          <p className="text-red-600 text-xs font-medium">{formError}</p>
-        )}
+        {/* Entry form — glassmorphism card */}
+        <form
+          onSubmit={handleSave}
+          className="sm:col-span-2 bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_4px_24px_rgba(99,102,241,0.08)] ring-1 ring-inset ring-slate-100 p-5 space-y-4"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-slate-700">
+              {editingId ? 'Edit Income Entry' : 'Add Income Entry'}
+            </h3>
+            <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors shadow-sm">
+              <span>📊</span> Upload Excel
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
+            </label>
+          </div>
+          {xlsxError && <p className="text-xs font-medium text-red-600">{xlsxError}</p>}
 
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50 transition"
-          >
-            {saving ? 'Saving…' : editingId ? 'Update' : 'Save'}
-          </button>
-          {editingId && (
-            <button
-              type="button"
-              onClick={handleCancelEdit}
-              className="text-sm text-slate-500 hover:text-slate-700 hover:underline"
-            >
-              Cancel
-            </button>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">Date</label>
+              <input
+                type="date"
+                value={form.date}
+                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">Income Type</label>
+              <select
+                value={form.category}
+                onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              >
+                {INCOME_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">Given By <span className="text-slate-400 font-normal">(opt.)</span></label>
+              <input
+                type="text"
+                value={form.giverName}
+                onChange={e => setForm(f => ({ ...f, giverName: e.target.value }))}
+                placeholder="Name of giver"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">Amount (₹)</label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={form.amount}
+                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                placeholder="0"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              />
+            </div>
+          </div>
+
+          {formError && (
+            <p className="text-red-600 text-xs font-medium">{formError}</p>
           )}
-        </div>
 
-        {saveError && (
-          <p className="text-xs font-medium text-red-600">{saveError}</p>
-        )}
-      </form>
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold disabled:opacity-50 transition shadow-sm"
+            >
+              {saving ? 'Saving…' : editingId ? 'Update' : 'Save'}
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="text-sm text-slate-400 hover:text-slate-600 hover:underline"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+
+          {saveError && (
+            <p className="text-xs font-medium text-red-600">{saveError}</p>
+          )}
+        </form>
+      </div>
 
       {/* Pending imports */}
       {pendingImports.length > 0 && (

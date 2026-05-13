@@ -311,7 +311,7 @@ export default function ExpensePage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Bill No</label>
+            <label className="text-xs font-medium text-slate-600">Bill No <span className="text-slate-400 font-normal">(optional)</span></label>
             <input
               type="text"
               value={form.billNo}
