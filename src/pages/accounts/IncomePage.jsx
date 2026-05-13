@@ -9,6 +9,7 @@ import {
   createFinanceIncome,
   updateFinanceIncome,
   deleteFinanceIncome,
+  deleteAllFinanceIncomeForMonth,
 } from '../../services/firestore'
 
 const EMPTY_FORM = {
@@ -29,6 +30,8 @@ export default function IncomePage() {
   const [formError, setFormError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+  const [confirmRemoveAll, setConfirmRemoveAll] = useState(false)
+  const [removingAll, setRemovingAll] = useState(false)
   const [xlsxRows, setXlsxRows] = useState(null)
   const [xlsxError, setXlsxError] = useState('')
   const [importingXlsx, setImportingXlsx] = useState(false)
@@ -128,6 +131,20 @@ export default function IncomePage() {
     }
   }
 
+  async function handleRemoveAll() {
+    setRemovingAll(true)
+    try {
+      await deleteAllFinanceIncomeForMonth(activeMonth.getFullYear(), activeMonth.getMonth())
+      setEntries([])
+    } catch {
+      setSaveError('Failed to remove all. Please try again.')
+      setTimeout(() => setSaveError(''), 4000)
+    } finally {
+      setRemovingAll(false)
+      setConfirmRemoveAll(false)
+    }
+  }
+
   async function handleXlsxFile(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -187,13 +204,6 @@ export default function IncomePage() {
     setXlsxResult({ imported, failed, skipped: (xlsxRows || []).filter(r => !r._valid).length })
     await load()
   }
-
-  const xlsxByCategory = xlsxRows
-    ? [...new Set(xlsxRows.map(r => r.category || '(No type)'))].map(cat => ({
-        cat,
-        rows: xlsxRows.filter(r => (r.category || '(No type)') === cat),
-      }))
-    : []
 
   return (
     <div className="space-y-5 pb-12">
@@ -278,6 +288,16 @@ export default function IncomePage() {
             </select>
           </div>
           <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-600">Given By <span className="text-slate-400 font-normal">(optional)</span></label>
+            <input
+              type="text"
+              value={form.giverName}
+              onChange={e => setForm(f => ({ ...f, giverName: e.target.value }))}
+              placeholder="Name of giver"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-slate-600">Amount (₹)</label>
             <input
               type="number"
@@ -286,16 +306,6 @@ export default function IncomePage() {
               value={form.amount}
               onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
               placeholder="0"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Given By <span className="text-slate-400 font-normal">(optional)</span></label>
-            <input
-              type="text"
-              value={form.giverName}
-              onChange={e => setForm(f => ({ ...f, giverName: e.target.value }))}
-              placeholder="Name of giver"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -339,9 +349,38 @@ export default function IncomePage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
+            {/* Remove All bar */}
+            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60">
+              <span className="text-xs text-slate-500">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</span>
+              {confirmRemoveAll ? (
+                <span className="flex items-center gap-2 text-xs text-slate-600">
+                  <span>Remove all {entries.length} entries?</span>
+                  <button
+                    type="button"
+                    onClick={handleRemoveAll}
+                    disabled={removingAll}
+                    className="text-red-600 font-semibold hover:underline disabled:opacity-50"
+                  >
+                    {removingAll ? 'Removing…' : 'Yes, Remove All'}
+                  </button>
+                  <button type="button" onClick={() => setConfirmRemoveAll(false)} className="text-slate-500 hover:underline">
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemoveAll(true)}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline"
+                >
+                  Remove All
+                </button>
+              )}
+            </div>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  <th className="px-4 py-3 text-center w-10">No.</th>
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Income Type</th>
                   <th className="px-4 py-3">Given By</th>
@@ -350,8 +389,9 @@ export default function IncomePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {entries.map(entry => (
+                {entries.map((entry, idx) => (
                   <tr key={entry.id} className="hover:bg-slate-50 transition">
+                    <td className="px-4 py-3 text-center text-xs text-slate-400 font-medium">{idx + 1}</td>
                     <td className="px-4 py-3 text-slate-700">
                       {entry.date instanceof Date
                         ? format(entry.date, 'dd/MM/yyyy')
@@ -423,45 +463,39 @@ export default function IncomePage() {
               </div>
               <button type="button" onClick={() => setXlsxRows(null)} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
             </div>
-            <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
-              {xlsxByCategory.map(({ cat, rows }) => (
-                <div key={cat}>
-                  <div className="px-5 py-2 bg-slate-50 flex items-center gap-2 sticky top-0">
-                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">{cat}</span>
-                    <span className="text-xs text-slate-400">{rows.filter(r => r._valid).length} valid</span>
-                  </div>
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-left text-slate-500 border-b border-slate-100">
-                        <th className="px-4 py-2 font-medium">Date</th>
-                        <th className="px-4 py-2 font-medium">Given By</th>
-                        <th className="px-4 py-2 font-medium text-right">Amount</th>
-                        <th className="px-4 py-2 font-medium"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {rows.map((row) => (
-                        <tr key={row._row} className={row._valid ? '' : 'bg-red-50/60'}>
-                          <td className="px-4 py-2 text-slate-700">{row.date || '—'}</td>
-                          <td className="px-4 py-2 text-slate-600">{row.giverName || '—'}</td>
-                          <td className="px-4 py-2 text-right font-medium text-slate-800">
-                            {row._valid ? `₹${row.amount.toLocaleString('en-IN')}` : '—'}
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            {row._valid
-                              ? <span className="text-emerald-600">✓</span>
-                              : <span className="text-red-500 text-[10px]">{row._error}</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
+            <div className="overflow-y-auto flex-1">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white border-b border-slate-100">
+                  <tr className="text-left text-slate-500">
+                    <th className="px-4 py-2 font-medium">Date</th>
+                    <th className="px-4 py-2 font-medium">Income Type</th>
+                    <th className="px-4 py-2 font-medium">Given By</th>
+                    <th className="px-4 py-2 font-medium text-right">Amount</th>
+                    <th className="px-4 py-2 font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {xlsxRows.map((row) => (
+                    <tr key={row._row} className={row._valid ? '' : 'bg-red-50/60'}>
+                      <td className="px-4 py-2 text-slate-700">{row.date || '—'}</td>
+                      <td className="px-4 py-2 text-slate-700">{row.category || '—'}</td>
+                      <td className="px-4 py-2 text-slate-600">{row.giverName || '—'}</td>
+                      <td className="px-4 py-2 text-right font-medium text-slate-800">
+                        {row._valid ? `₹${row.amount.toLocaleString('en-IN')}` : '—'}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {row._valid
+                          ? <span className="text-emerald-600">✓</span>
+                          : <span className="text-red-500 text-[10px]">{row._error}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
             <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
               <p className="text-xs text-slate-500">
-                Hint: columns — <span className="font-mono">Date, Category, Given By, Amount</span>
+                Hint: columns — <span className="font-mono">Date, Income Type, Given By, Amount</span>
               </p>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => setXlsxRows(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50">

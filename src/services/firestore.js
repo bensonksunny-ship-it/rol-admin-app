@@ -868,6 +868,21 @@ export async function deleteFinanceIncome(id) {
   await deleteDoc(doc(db, 'finance_income', id))
 }
 
+export async function deleteAllFinanceIncomeForMonth(year, month) {
+  if (!db) return
+  const start = new Date(year, month, 1)
+  const end = new Date(year, month + 1, 0, 23, 59, 59)
+  const q = query(
+    collection(db, 'finance_income'),
+    where('date', '>=', Timestamp.fromDate(start)),
+    where('date', '<=', Timestamp.fromDate(end))
+  )
+  const snap = await getDocs(q)
+  const batch = writeBatch(db)
+  snap.docs.forEach((d) => batch.delete(d.ref))
+  await batch.commit()
+}
+
 // Finance Expense
 export async function getFinanceExpense(filters = {}) {
   let q = collection(db, 'finance_expense')
@@ -888,8 +903,8 @@ export async function getFinanceExpense(filters = {}) {
     constraints.push(where('date', '>=', Timestamp.fromDate(start)))
     constraints.push(where('date', '<=', Timestamp.fromDate(end)))
   }
-  if (constraints.length) q = query(q, ...constraints, orderBy('date', 'desc'))
-  else q = query(q, orderBy('date', 'desc'), limit(200))
+  if (constraints.length) q = query(q, ...constraints, orderBy('date', 'asc'))
+  else q = query(q, orderBy('date', 'asc'), limit(200))
   const snap = await getDocs(q)
   return snap.docs.map((d) => {
     const data = d.data()

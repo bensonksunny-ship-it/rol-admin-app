@@ -448,14 +448,14 @@ export default function WeeklyEntryPage() {
           <>
             {/* Mobile cards */}
             <div className="sm:hidden divide-y divide-slate-100">
-              {visibleEntries.map(entry => {
+              {visibleEntries.map((entry, idx) => {
                 const isApproved = entry.status === 'approved'
                 return (
                   <div key={entry.id} className={`p-4 space-y-2 ${isApproved ? 'bg-emerald-50/40' : ''}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="font-semibold text-slate-800 text-sm">
-                          ₹{Number(entry.amount).toLocaleString('en-IN')}
+                          #{idx + 1} ₹{Number(entry.amount).toLocaleString('en-IN')}
                         </p>
                         <p className="text-xs text-slate-500 mt-0.5">
                           {entry.date instanceof Date
@@ -502,6 +502,7 @@ export default function WeeklyEntryPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    <th className="px-4 py-3 text-center w-10">No.</th>
                     <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3">Department</th>
                     <th className="px-4 py-3">Item</th>
@@ -511,10 +512,11 @@ export default function WeeklyEntryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {visibleEntries.map(entry => {
+                  {visibleEntries.map((entry, idx) => {
                     const isApproved = entry.status === 'approved'
                     return (
                       <tr key={entry.id} className={`transition ${isApproved ? 'bg-emerald-50/40' : 'hover:bg-slate-50'}`}>
+                        <td className="px-4 py-3 text-center text-xs text-slate-400 font-medium">{idx + 1}</td>
                         <td className="px-4 py-3 text-slate-700">
                           {entry.date instanceof Date
                             ? format(entry.date, 'dd/MM/yyyy')
