@@ -19,7 +19,16 @@ export function getDepartmentRole(user, departmentName) {
   const positions = Array.isArray(user?.positions) ? user.positions : []
   const targetDept = String(departmentName || '').trim().toLowerCase().replace(/-/g, ' ')
   const p = positions.find((x) => x && String(x.department || '').trim().toLowerCase().replace(/-/g, ' ') === targetDept)
-  if (!p) return null
+  if (!p) {
+    // Legacy fallback: top-level `role` + `department` fields (no positions array)
+    const userDeptNorm = String(user?.department || '').trim().toLowerCase().replace(/-/g, ' ')
+    if (userDeptNorm && userDeptNorm === targetDept) {
+      const r = String(user?.role || '').trim().toLowerCase()
+      if (r === 'director') return 'DIRECTOR'
+      if (r === 'coordinator') return 'COORDINATOR'
+    }
+    return null
+  }
 
   const roleField = p.role != null ? String(p.role).trim() : ''
   const positionField = p.position != null ? String(p.position).trim() : ''

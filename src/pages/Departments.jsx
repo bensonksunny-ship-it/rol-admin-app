@@ -12,7 +12,9 @@ export default function Departments() {
     return deptName
   }
 
-  const allowedNames = (() => {
+  const normDept = (s) => String(s || '').trim().toLowerCase().replace(/-/g, ' ')
+
+  const allowedNorms = (() => {
     if (canSeeAllDepartments) return null
     const fromPositions = Array.isArray(userProfile?.positions)
       ? userProfile.positions.map((p) => p?.department).filter(Boolean)
@@ -22,12 +24,12 @@ export default function Departments() {
       : []
     const fromPrimary = userProfile?.department ? [userProfile.department] : []
     const extra = isCellDirector ? ['Sunday Ministry'] : []
-    return Array.from(new Set([...fromPositions, ...fromDepartments, ...fromPrimary, ...extra]))
+    return new Set([...fromPositions, ...fromDepartments, ...fromPrimary, ...extra].map(normDept))
   })()
 
   const list = canSeeAllDepartments
     ? DEPARTMENT_LIST
-    : DEPARTMENT_LIST.filter((d) => allowedNames.includes(d.name))
+    : DEPARTMENT_LIST.filter((d) => allowedNorms.has(normDept(d.name)))
 
   const getIcon = (deptName) => {
     const n = String(deptName || '').trim().toLowerCase()
