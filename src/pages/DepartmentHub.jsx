@@ -624,7 +624,7 @@ export default function DepartmentHub() {
   }, [department, slug, activeTab, opsSubTab])
 
   useEffect(() => {
-    if (department && slug === 'cell' && activeTab === 'cellGroups') {
+    if (department && slug === 'cell' && (activeTab === 'cellGroups' || activeTab === 'summary')) {
       setLoadingCellGroups(true)
       Promise.all([getCellGroups(department.name), getLatestCellAttendance(department.name)])
         .then(([groups, attendance]) => {

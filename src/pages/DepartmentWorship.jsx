@@ -22,7 +22,7 @@ import {
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
-import { format, subMonths, differenceInDays } from 'date-fns'
+import { format, subMonths, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 
@@ -451,6 +451,21 @@ export default function DepartmentWorship() {
   }
 
   const savedAssignments = scheduleForDate.assignments || []
+
+  const anniversaryAlerts = teamMembers.flatMap(m => {
+    if (!m.memberSince) return []
+    const since = new Date(m.memberSince)
+    const today = new Date()
+    for (let i = 0; i <= 5; i++) {
+      const check = new Date(today)
+      check.setDate(today.getDate() + i)
+      if (check.getMonth() === since.getMonth() && check.getDate() === since.getDate()) {
+        const years = differenceInYears(check, since)
+        if (years >= 1) return [{ ...m, daysAway: i, years }]
+      }
+    }
+    return []
+  })
   const setlistSongs = savedAssignments
     .filter(a => a.songName)
     .map((a, i) => ({
@@ -503,15 +518,37 @@ export default function DepartmentWorship() {
             </button>
           </div>
 
+          {/* Anniversary alerts */}
+          {anniversaryAlerts.length > 0 && (
+            <div className="bg-amber-50/80 backdrop-blur-sm rounded-2xl border border-amber-200 shadow-sm p-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-2.5">🎉 Year Milestones This Week</p>
+              <div className="flex flex-wrap gap-2">
+                {anniversaryAlerts.map(m => (
+                  <div key={m.id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-amber-200 shadow-sm">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                      {m.name?.charAt(0)?.toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">{m.name}</p>
+                      <p className="text-[11px] text-amber-700 font-medium">
+                        {m.years} {m.years === 1 ? 'year' : 'years'} · {m.daysAway === 0 ? 'Today!' : `in ${m.daysAway} day${m.daysAway > 1 ? 's' : ''}`}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loadingSchedule ? (
             <div className="py-12 text-center text-slate-400 text-sm">Loading plan…</div>
           ) : (
             <>
-              {/* Row 1: Period Summary + Service Flow */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Row 1: Period Summary */}
+              <div>
 
                 {/* Period Summary card */}
-                <div className="lg:col-span-2 relative bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md overflow-hidden p-5">
+                <div className="relative bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md overflow-hidden p-5">
                   {/* Official Plan watermark */}
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-[0.035] -rotate-12">
                     <span className="text-slate-900 font-black text-6xl tracking-widest uppercase whitespace-nowrap">Official Plan</span>
@@ -559,22 +596,6 @@ export default function DepartmentWorship() {
                   </div>
                 </div>
 
-                {/* Service Flow card */}
-                <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-5">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4">Full Plan Overview</p>
-                  <div className="space-y-3">
-                    {SERVICE_FLOW.map((item, i) => (
-                      <div key={i} className="flex items-start gap-3">
-                        <div className="w-5 h-5 rounded-full bg-violet-100 flex items-center justify-center text-[10px] font-bold text-violet-600 shrink-0 mt-0.5">{i + 1}</div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-slate-700">{item.segment}</p>
-                          <p className="text-[11px] text-slate-500 mt-0.5">{item.item}</p>
-                        </div>
-                        <span className="text-[10px] text-slate-400 shrink-0 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">{item.duration}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               {/* Row 2: Full Team Roster */}
@@ -1150,7 +1171,8 @@ export default function DepartmentWorship() {
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration & positions</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Positions</th>
                       {canManageWorship && <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Action</th>}
                     </tr>
                   </thead>
@@ -1175,13 +1197,28 @@ export default function DepartmentWorship() {
                           )}
                         </td>
                         <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
+                        <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
+                          {(() => {
+                            const since = new Date(m.memberSince)
+                            const now = new Date()
+                            const yrs = differenceInYears(now, since)
+                            const mos = differenceInMonths(now, addYears(since, yrs))
+                            const dys = differenceInDays(now, addMonths(addYears(since, yrs), mos))
+                            return (
+                              <span className="flex items-center gap-1 flex-wrap">
+                                <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
+                                <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
+                                <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
+                              </span>
+                            )
+                          })()}
+                        </td>
                         <td className="px-4 py-2 text-slate-600">
-                          {differenceInDays(new Date(), new Date(m.memberSince))} days
                           {m.positions?.length ? (
-                            <span className="block text-xs text-slate-500 mt-1">
-                              Positions: {m.positions.join(', ')}
+                            <span className="text-xs text-slate-500">
+                              {m.positions.join(', ')}
                             </span>
-                          ) : null}
+                          ) : <span className="text-xs text-slate-300">—</span>}
                         </td>
                         {canManageWorship && (
                           <td className="px-4 py-2">
@@ -1209,18 +1246,36 @@ export default function DepartmentWorship() {
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Till</th>
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Total days</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {formerMembers.map((m, i) => (
+                    {formerMembers.map((m, i) => {
+                      const since = new Date(m.memberSince)
+                      const till = m.formerSince ? new Date(m.formerSince) : new Date()
+                      const yrs = differenceInYears(till, since)
+                      const mos = differenceInMonths(till, addYears(since, yrs))
+                      const dys = differenceInDays(till, addMonths(addYears(since, yrs), mos))
+                      const totalDays = differenceInDays(till, since)
+                      return (
                       <tr key={m.id} className="hover:bg-slate-50">
                         <td className="px-4 py-2 text-slate-600">{i + 1}</td>
                         <td className="px-4 py-2 font-medium text-slate-800">{m.name}</td>
                         <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
-                        <td className="px-4 py-2 text-slate-600">{differenceInDays(new Date(), new Date(m.memberSince))} days</td>
+                        <td className="px-4 py-2 text-slate-500 text-sm">{m.formerSince ? formatDMY(m.formerSince) : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
+                          <span className="flex items-center gap-1">
+                            <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
+                            <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
+                            <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-slate-500 text-sm font-medium">{totalDays.toLocaleString()} days</td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1854,7 +1909,7 @@ export default function DepartmentWorship() {
                 type="button"
                 onClick={async () => {
                   try {
-                    await updateWorshipTeamMember(editMember.id, { isFormer: true })
+                    await updateWorshipTeamMember(editMember.id, { isFormer: true, formerSince: new Date().toISOString().slice(0, 10) })
                     await loadTeam()
                     setEditMember(null)
                   } catch (e) {
