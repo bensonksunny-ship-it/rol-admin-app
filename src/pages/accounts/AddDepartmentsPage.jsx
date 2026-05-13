@@ -48,8 +48,9 @@ export default function AddDepartmentsPage() {
       await addExpenseDepartment(trimmed)
       setNewName('')
       await load()
-    } catch {
-      setError('Failed to add. Please try again.')
+    } catch (err) {
+      console.error('addExpenseDepartment error:', err)
+      setError(err?.message || err?.code || 'Failed to add. Please try again.')
     } finally {
       setSaving(false)
     }
