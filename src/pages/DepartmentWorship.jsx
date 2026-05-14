@@ -1927,13 +1927,8 @@ export default function DepartmentWorship() {
                       positions: editMember.positions || [],
                       ...(editMember.isFormer && { formerSince: editMember.formerSince || '' }),
                     })
-                    const updated = { ...editMember }
-                    if (editMember.isFormer) {
-                      setFormerMembers(prev => prev.map(m => m.id === updated.id ? updated : m))
-                    } else {
-                      setTeamMembers(prev => prev.map(m => m.id === updated.id ? updated : m))
-                    }
                     setEditMember(null)
+                    await loadTeam()
                   } catch (e) {
                     console.error(e)
                     alert('Failed to update')
