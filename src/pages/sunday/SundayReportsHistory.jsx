@@ -774,14 +774,22 @@ export default function SundayReportsHistory() {
                         <tr key={`${row.date}-timing`} className="bg-indigo-50/30 border-b border-slate-100">
                           <td colSpan={totalCols} className="px-6 py-3">
                             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Program Timing</p>
-                            <div className="flex flex-wrap gap-x-6 gap-y-1">
-                              {row.programTimings.map((t, i) => (
-                                <div key={i} className="text-sm text-slate-700">
-                                  <span className="font-medium">{t.programName}</span>
-                                  <span className="text-slate-500 ml-1.5">{formatTime(t.startTime)}</span>
-                                </div>
-                              ))}
-                            </div>
+                            <table className="text-sm">
+                              <thead>
+                                <tr className="text-xs text-slate-400 uppercase tracking-wide">
+                                  <th className="text-left font-medium pb-1 pr-10">Program</th>
+                                  <th className="text-left font-medium pb-1">Start Time</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100/60">
+                                {row.programTimings.map((t, i) => (
+                                  <tr key={i}>
+                                    <td className="py-1 pr-10 font-medium text-slate-800">{t.programName}</td>
+                                    <td className="py-1 text-slate-500 tabular-nums">{formatTime(t.startTime)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </td>
                         </tr>
                       )}

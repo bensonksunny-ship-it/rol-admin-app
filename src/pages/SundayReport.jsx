@@ -953,7 +953,7 @@ function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sun
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">⏱ Program Timings</p>
             <div className="space-y-1.5">
               {sortedProgram.map((item, idx) => {
-                const log = programLogs[idx]
+                const log = logForItem(item)
                 const t = log?.startTime instanceof Date ? log.startTime : (log?.startTime ? new Date(log.startTime) : null)
                 return (
                   <div key={idx} className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50">

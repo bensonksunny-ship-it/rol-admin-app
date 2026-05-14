@@ -257,14 +257,24 @@ export default function DepartmentWorship() {
       .finally(() => setLoading(false))
   }, [])
 
+  function dedupeByName(members) {
+    const seen = new Set()
+    return members.filter(m => {
+      const key = (m.name || '').trim().toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+
   async function loadTeam() {
     setLoadingTeam(true)
     setTeamError(null)
     try {
       const current = await getWorshipTeamMembers(DEPARTMENT, { former: false })
       const former = await getWorshipTeamMembers(DEPARTMENT, { former: true })
-      setTeamMembers(current)
-      setFormerMembers(former)
+      setTeamMembers(dedupeByName(current))
+      setFormerMembers(dedupeByName(former))
     } catch (e) {
       console.error('Worship team load failed:', e)
       setTeamError(e?.message || 'Could not load team. Check Firestore rules and indexes for worship_team_members.')
