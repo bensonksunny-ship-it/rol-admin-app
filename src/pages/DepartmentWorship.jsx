@@ -1214,11 +1214,15 @@ export default function DepartmentWorship() {
                             const yrs = differenceInYears(now, since)
                             const mos = differenceInMonths(now, addYears(since, yrs))
                             const dys = differenceInDays(now, addMonths(addYears(since, yrs), mos))
+                            const total = differenceInDays(now, since)
                             return (
-                              <span className="flex items-center gap-1 flex-wrap">
-                                <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
-                                <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
-                                <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
+                              <span className="flex flex-col gap-0.5">
+                                <span className="flex items-center gap-1">
+                                  <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
+                                  <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
+                                  <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
+                                </span>
+                                <span className="text-xs text-slate-400">{total.toLocaleString()} days total</span>
                               </span>
                             )
                           })()}
@@ -1259,6 +1263,7 @@ export default function DepartmentWorship() {
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Till</th>
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Total days</th>
+                      {canManageWorship && <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Action</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -1283,6 +1288,11 @@ export default function DepartmentWorship() {
                           </span>
                         </td>
                         <td className="px-4 py-2 text-slate-500 text-sm font-medium">{totalDays.toLocaleString()} days</td>
+                        {canManageWorship && (
+                          <td className="px-4 py-2">
+                            <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
+                          </td>
+                        )}
                       </tr>
                       )
                     })}
@@ -1863,6 +1873,17 @@ export default function DepartmentWorship() {
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"
                 />
               </div>
+              {editMember.isFormer && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Former since</label>
+                  <input
+                    type="date"
+                    value={editMember.formerSince || ''}
+                    onChange={(e) => setEditMember((m) => ({ ...m, formerSince: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+              )}
               <div className="flex flex-wrap gap-3 text-sm text-slate-600">
                 <label className="flex items-center gap-2">
                   <input
@@ -1903,6 +1924,7 @@ export default function DepartmentWorship() {
                       memberSince: editMember.memberSince,
                       isWorshipDirector: !!editMember.isWorshipDirector,
                       positions: editMember.positions || [],
+                      ...(editMember.isFormer && { formerSince: editMember.formerSince || '' }),
                     })
                     await loadTeam()
                     setEditMember(null)
@@ -1915,29 +1937,54 @@ export default function DepartmentWorship() {
               >
                 Save
               </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await updateWorshipTeamMember(editMember.id, { isFormer: true, formerSince: new Date().toISOString().slice(0, 10) })
-                    await loadTeam()
-                    setEditMember(null)
-                  } catch (e) {
-                    console.error(e)
-                    alert('Failed to update')
-                  }
-                }}
-                className="px-4 py-2 rounded-lg bg-slate-200 text-slate-700 font-medium hover:bg-slate-300"
-              >
-                Make former
-              </button>
+              {editMember.isFormer ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await updateWorshipTeamMember(editMember.id, { isFormer: false, formerSince: '' })
+                      const updated = { ...editMember, isFormer: false, formerSince: '' }
+                      setFormerMembers(prev => prev.filter(m => m.id !== editMember.id))
+                      setTeamMembers(prev => dedupeByName([...prev, updated].sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))))
+                      setEditMember(null)
+                    } catch (e) {
+                      console.error(e)
+                      alert('Failed to update')
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg bg-emerald-100 text-emerald-700 font-medium hover:bg-emerald-200"
+                >
+                  Make active
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const formerSince = new Date().toISOString().slice(0, 10)
+                    try {
+                      await updateWorshipTeamMember(editMember.id, { isFormer: true, formerSince })
+                      const updated = { ...editMember, isFormer: true, formerSince }
+                      setTeamMembers(prev => prev.filter(m => m.id !== editMember.id))
+                      setFormerMembers(prev => dedupeByName([...prev, updated].sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))))
+                      setEditMember(null)
+                    } catch (e) {
+                      console.error(e)
+                      alert('Failed to update')
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg bg-slate-200 text-slate-700 font-medium hover:bg-slate-300"
+                >
+                  Make former
+                </button>
+              )}
               <button
                 type="button"
                 onClick={async () => {
                   if (!confirm('Delete this member permanently?')) return
                   try {
                     await deleteWorshipTeamMember(editMember.id)
-                    await loadTeam()
+                    setTeamMembers(prev => prev.filter(m => m.id !== editMember.id))
+                    setFormerMembers(prev => prev.filter(m => m.id !== editMember.id))
                     setEditMember(null)
                   } catch (e) {
                     console.error(e)
