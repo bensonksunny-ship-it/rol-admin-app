@@ -212,8 +212,21 @@ export default function DepartmentWorship() {
   const [subDeptForm, setSubDeptForm] = useState({ name: '' })
   const [editingSubDept, setEditingSubDept] = useState(null)
   const [subDeptModalOpen, setSubDeptModalOpen] = useState(false)
-  const [teamMembers, setTeamMembers] = useState([])
-  const [formerMembers, setFormerMembers] = useState([])
+  const [allMembers, setAllMembers] = useState([])
+
+  const activeMembers = useMemo(
+    () => allMembers
+      .filter(m => m.isFormer !== true)
+      .sort((a, b) => (b.isWorshipDirector === true) - (a.isWorshipDirector === true)),
+    [allMembers]
+  )
+
+  const formerMembers = useMemo(
+    () => allMembers
+      .filter(m => m.isFormer === true)
+      .sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || '')),
+    [allMembers]
+  )
   const [loadingTeam, setLoadingTeam] = useState(true)
   const [teamError, setTeamError] = useState(null)
   const [newMember, setNewMember] = useState({
@@ -271,15 +284,12 @@ export default function DepartmentWorship() {
     setLoadingTeam(true)
     setTeamError(null)
     try {
-      const current = await getWorshipTeamMembers(DEPARTMENT, { former: false })
-      const former = await getWorshipTeamMembers(DEPARTMENT, { former: true })
-      setTeamMembers(dedupeByName(current))
-      setFormerMembers(dedupeByName(former))
+      const all = await getWorshipTeamMembers(DEPARTMENT)
+      setAllMembers(dedupeByName(all))
     } catch (e) {
       console.error('Worship team load failed:', e)
       setTeamError(e?.message || 'Could not load team. Check Firestore rules and indexes for worship_team_members.')
-      setTeamMembers([])
-      setFormerMembers([])
+      setAllMembers([])
     } finally {
       setLoadingTeam(false)
     }
@@ -462,7 +472,7 @@ export default function DepartmentWorship() {
 
   const savedAssignments = scheduleForDate.assignments || []
 
-  const anniversaryAlerts = teamMembers.flatMap(m => {
+  const anniversaryAlerts = activeMembers.flatMap(m => {
     if (!m.memberSince) return []
     const since = new Date(m.memberSince)
     const today = new Date()
@@ -599,7 +609,7 @@ export default function DepartmentWorship() {
                       </div>
                       <div className="bg-emerald-50/70 rounded-xl p-3">
                         <p className="text-xs font-semibold text-emerald-500">Team Pool</p>
-                        <p className="text-2xl font-bold text-emerald-700 mt-0.5">{teamMembers.length}</p>
+                        <p className="text-2xl font-bold text-emerald-700 mt-0.5">{activeMembers.length}</p>
                         <p className="text-[10px] text-emerald-400">active members</p>
                       </div>
                     </div>
@@ -721,7 +731,7 @@ export default function DepartmentWorship() {
                     <div className="space-y-3">
                       {(() => {
                         const contacts = []
-                        const director = teamMembers.find(m => m.isWorshipDirector)
+                        const director = activeMembers.find(m => m.isWorshipDirector)
                         if (director) contacts.push({ name: director.name, role: 'Worship Director' })
                         const leadVocal = savedAssignments.find(a => a.role === 'Lead Vocal-1' && a.memberName)
                         if (leadVocal) contacts.push({ name: leadVocal.memberName, role: 'Lead Vocal' })
@@ -802,7 +812,7 @@ export default function DepartmentWorship() {
               </div>
               {loadingSchedule ? (
                 <div className="p-8 text-center text-slate-500">Loading...</div>
-              ) : teamMembers.length === 0 ? (
+              ) : activeMembers.length === 0 ? (
                 <div className="p-8 text-center text-slate-500">Add team members in the Team tab first.</div>
               ) : (
                 <table key={selectedDate} className="w-full">
@@ -826,7 +836,7 @@ export default function DepartmentWorship() {
                             value={getLocalField(role, 'memberId')}
                             onChange={(e) => {
                               const val = e.target.value
-                              const member = teamMembers.find((m) => m.id === val)
+                              const member = activeMembers.find((m) => m.id === val)
                               updateLocal(role, { memberId: val || '', memberName: member?.name || '' })
                             }}
                             className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
@@ -835,8 +845,8 @@ export default function DepartmentWorship() {
                             {(() => {
                               const posKey = positionKeyForRole(role)
                               const eligible = posKey
-                                ? teamMembers.filter((m) => m.positions?.includes(posKey))
-                                : teamMembers
+                                ? activeMembers.filter((m) => m.positions?.includes(posKey))
+                                : activeMembers
                               return eligible.map((m) => (
                                 <option key={m.id} value={m.id}>{m.name}</option>
                               ))
@@ -1160,7 +1170,7 @@ export default function DepartmentWorship() {
                 </div>
                 <button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 text-white font-medium hover:bg-slate-900">Add</button>
               </form>
-              {teamMembers.length === 0 && (
+              {activeMembers.length === 0 && (
                 <button type="button" onClick={seedDemoTeam} className="mt-3 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
                   Add demo team (15 members)
                 </button>
@@ -1171,8 +1181,8 @@ export default function DepartmentWorship() {
             <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Team members</h2>
             {loadingTeam ? (
               <div className="p-8 text-center text-slate-500">Loading...</div>
-            ) : teamMembers.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">No team members yet. Add above or use “Add demo team”.</div>
+            ) : activeMembers.length === 0 ? (
+              <div className=”p-8 text-center text-slate-500”>No team members yet. Add above or use “Add demo team”.</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -1187,10 +1197,7 @@ export default function DepartmentWorship() {
                     </tr>
                   </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {[...teamMembers]
-                        .filter(m => m.isFormer !== true)
-                        .sort((a, b) => (b.isWorshipDirector === true) - (a.isWorshipDirector === true))
-                        .map((m, i) => (
+                      {activeMembers.map((m, i) => (
                       <tr
                         key={m.id}
                         className={
@@ -1919,16 +1926,17 @@ export default function DepartmentWorship() {
               <button
                 type="button"
                 onClick={async () => {
+                  const patch = {
+                    name: editMember.name,
+                    memberSince: editMember.memberSince,
+                    isWorshipDirector: !!editMember.isWorshipDirector,
+                    positions: editMember.positions || [],
+                    ...(editMember.isFormer && { formerSince: editMember.formerSince || '' }),
+                  }
                   try {
-                    await updateWorshipTeamMember(editMember.id, {
-                      name: editMember.name,
-                      memberSince: editMember.memberSince,
-                      isWorshipDirector: !!editMember.isWorshipDirector,
-                      positions: editMember.positions || [],
-                      ...(editMember.isFormer && { formerSince: editMember.formerSince || '' }),
-                    })
+                    await updateWorshipTeamMember(editMember.id, patch)
+                    setAllMembers(prev => prev.map(m => m.id === editMember.id ? { ...m, ...patch } : m))
                     setEditMember(null)
-                    await loadTeam()
                   } catch (e) {
                     console.error(e)
                     alert('Failed to update')
@@ -1944,9 +1952,7 @@ export default function DepartmentWorship() {
                   onClick={async () => {
                     try {
                       await updateWorshipTeamMember(editMember.id, { isFormer: false, formerSince: '' })
-                      const updated = { ...editMember, isFormer: false, formerSince: '' }
-                      setFormerMembers(prev => prev.filter(m => m.id !== editMember.id))
-                      setTeamMembers(prev => dedupeByName([...prev, updated].sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))))
+                      setAllMembers(prev => prev.map(m => m.id === editMember.id ? { ...m, isFormer: false, formerSince: '' } : m))
                       setEditMember(null)
                     } catch (e) {
                       console.error(e)
@@ -1964,9 +1970,7 @@ export default function DepartmentWorship() {
                     const formerSince = new Date().toISOString().slice(0, 10)
                     try {
                       await updateWorshipTeamMember(editMember.id, { isFormer: true, formerSince })
-                      const updated = { ...editMember, isFormer: true, formerSince }
-                      setTeamMembers(prev => prev.filter(m => m.id !== editMember.id))
-                      setFormerMembers(prev => dedupeByName([...prev, updated].sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))))
+                      setAllMembers(prev => prev.map(m => m.id === editMember.id ? { ...m, isFormer: true, formerSince } : m))
                       setEditMember(null)
                     } catch (e) {
                       console.error(e)
@@ -1984,8 +1988,7 @@ export default function DepartmentWorship() {
                   if (!confirm('Delete this member permanently?')) return
                   try {
                     await deleteWorshipTeamMember(editMember.id)
-                    setTeamMembers(prev => prev.filter(m => m.id !== editMember.id))
-                    setFormerMembers(prev => prev.filter(m => m.id !== editMember.id))
+                    setAllMembers(prev => prev.filter(m => m.id !== editMember.id))
                     setEditMember(null)
                   } catch (e) {
                     console.error(e)
