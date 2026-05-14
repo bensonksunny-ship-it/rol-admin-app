@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Send, Download } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -182,6 +182,16 @@ function WorshipStamp({ stamp, isOpen, onToggle, onEdit }) {
   )
 }
 
+function dedupeByName(members) {
+  const seen = new Set()
+  return members.filter(m => {
+    const key = (m.name || '').trim().toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export default function DepartmentWorship() {
   const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
   if (!hasAccess(userProfile, DEPARTMENT)) {
@@ -256,16 +266,6 @@ export default function DepartmentWorship() {
       .catch(() => setEntries([]))
       .finally(() => setLoading(false))
   }, [])
-
-  function dedupeByName(members) {
-    const seen = new Set()
-    return members.filter(m => {
-      const key = (m.name || '').trim().toLowerCase()
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-  }
 
   async function loadTeam() {
     setLoadingTeam(true)
