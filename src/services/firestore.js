@@ -383,8 +383,8 @@ export async function getWorshipTeamMembers(department, options = {}) {
     return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
   })
   list.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
-  if (options.former === true) list = list.filter((m) => m.isFormer)
-  if (options.former === false) list = list.filter((m) => !m.isFormer)
+  if (options.former === true) list = list.filter((m) => m.isFormer === true)
+  if (options.former === false) list = list.filter((m) => m.isFormer !== true)
   return list
 }
 

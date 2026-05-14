@@ -1188,6 +1188,7 @@ export default function DepartmentWorship() {
                   </thead>
                     <tbody className="divide-y divide-slate-200">
                       {[...teamMembers]
+                        .filter(m => m.isFormer !== true)
                         .sort((a, b) => (b.isWorshipDirector === true) - (a.isWorshipDirector === true))
                         .map((m, i) => (
                       <tr
@@ -1926,7 +1927,12 @@ export default function DepartmentWorship() {
                       positions: editMember.positions || [],
                       ...(editMember.isFormer && { formerSince: editMember.formerSince || '' }),
                     })
-                    await loadTeam()
+                    const updated = { ...editMember }
+                    if (editMember.isFormer) {
+                      setFormerMembers(prev => prev.map(m => m.id === updated.id ? updated : m))
+                    } else {
+                      setTeamMembers(prev => prev.map(m => m.id === updated.id ? updated : m))
+                    }
                     setEditMember(null)
                   } catch (e) {
                     console.error(e)
