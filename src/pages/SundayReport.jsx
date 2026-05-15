@@ -915,6 +915,12 @@ export default function SundayReport() {
 
 function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sundaySchoolValue, onSundaySchoolChange, saving, onSave, onClose }) {
   const { cellRows, othersCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
+  const logByName = {}
+  for (const log of programLogs) {
+    const key = String(log.programName || '').trim().toLowerCase()
+    if (key && !logByName[key]) logByName[key] = log
+  }
+  const logForItem = (item) => logByName[String(item?.programName || '').trim().toLowerCase()] || null
 
   return (
     <>
