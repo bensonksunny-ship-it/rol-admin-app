@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+﻿import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Send, Download } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -1182,7 +1182,7 @@ export default function DepartmentWorship() {
             {loadingTeam ? (
               <div className="p-8 text-center text-slate-500">Loading...</div>
             ) : activeMembers.length === 0 ? (
-              <div className=”p-8 text-center text-slate-500”>No team members yet. Add above or use “Add demo team”.</div>
+              <div className="p-8 text-center text-slate-500">No team members yet. Add above or use "Add demo team".</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
