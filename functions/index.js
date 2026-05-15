@@ -151,6 +151,118 @@ exports.adminCreateUser = onCall(async (request) => {
   return { uid }
 })
 
+/**
+ * Admin-only user update.
+ * - Syncs Firebase Auth (password, email, displayName, disabled) when relevant fields change
+ * - Updates matching Firestore profile at users/{uid}
+ */
+exports.adminUpdateUser = onCall(async (request) => {
+  const callerUid = request.auth?.uid
+  if (!callerUid) throw new HttpsError('unauthenticated', 'Must be signed in')
+
+  const db = admin.firestore()
+  const callerSnap = await db.collection('users').doc(callerUid).get()
+  const caller = callerSnap.exists ? callerSnap.data() : null
+  const callerGlobalRole = caller?.globalRole
+  const callerRole = caller?.role
+
+  if (callerGlobalRole !== 'FOUNDER' && callerRole !== 'Founder' && request.auth?.token?.globalRole !== 'FOUNDER') {
+    throw new HttpsError('permission-denied', 'Only Founder can update users')
+  }
+
+  const {
+    uid,
+    name,
+    email,
+    phone,
+    membershipNumber,
+    role,
+    department,
+    departments,
+    positions,
+    cellGroup,
+    cellId,
+    status,
+  } = request.data || {}
+
+  const targetUid = String(uid || '').trim()
+  if (!targetUid) throw new HttpsError('invalid-argument', 'uid is required')
+
+  const targetSnap = await db.collection('users').doc(targetUid).get()
+  if (!targetSnap.exists) throw new HttpsError('not-found', 'User not found')
+  const current = targetSnap.data()
+
+  const cleanEmail = email !== undefined ? String(email || '').trim().toLowerCase() : undefined
+  const cleanMembershipNumber = membershipNumber !== undefined ? String(membershipNumber || '').trim() : undefined
+
+  // Uniqueness checks (only when values actually change)
+  if (cleanEmail !== undefined && cleanEmail !== current.email) {
+    const emailSnap = await db.collection('users').where('email', '==', cleanEmail).limit(1).get()
+    if (!emailSnap.empty && emailSnap.docs[0].id !== targetUid) {
+      throw new HttpsError('already-exists', 'Email already in use by another user')
+    }
+  }
+  if (cleanMembershipNumber !== undefined && cleanMembershipNumber !== String(current.membershipNumber || '')) {
+    const memSnap = await db.collection('users').where('membershipNumber', '==', cleanMembershipNumber).limit(1).get()
+    if (!memSnap.empty && memSnap.docs[0].id !== targetUid) {
+      throw new HttpsError('already-exists', 'Membership Number already in use by another user')
+    }
+  }
+
+  // Sync Firebase Auth — password, email, displayName, disabled
+  const authUpdate = {}
+  if (name !== undefined) authUpdate.displayName = String(name || '')
+  if (cleanEmail !== undefined && cleanEmail !== current.email) authUpdate.email = cleanEmail
+  if (cleanMembershipNumber !== undefined && cleanMembershipNumber !== String(current.membershipNumber || '')) {
+    authUpdate.password = cleanMembershipNumber
+  }
+  if (status !== undefined && status !== current.status) {
+    authUpdate.disabled = status === 'inactive'
+  }
+  if (Object.keys(authUpdate).length) {
+    await admin.auth().updateUser(targetUid, authUpdate)
+  }
+
+  // Build Firestore payload (only include defined fields)
+  const firestorePayload = {}
+  if (name !== undefined) firestorePayload.name = String(name || '')
+  if (cleanEmail !== undefined) firestorePayload.email = cleanEmail
+  if (phone !== undefined) firestorePayload.phone = String(phone || '')
+  if (cleanMembershipNumber !== undefined) firestorePayload.membershipNumber = cleanMembershipNumber
+  if (role !== undefined) firestorePayload.role = String(role)
+  if (department !== undefined) firestorePayload.department = department
+  if (departments !== undefined) firestorePayload.departments = Array.isArray(departments) ? departments : []
+  if (positions !== undefined) {
+    firestorePayload.positions = Array.isArray(positions)
+      ? positions.filter((p) => p && (p.department || p.position || p.role)).slice(0, 10)
+      : []
+  }
+  if (cellGroup !== undefined) firestorePayload.cellGroup = String(cellGroup || '')
+  if (cellId !== undefined) firestorePayload.cellId = String(cellId || '')
+  if (status !== undefined) firestorePayload.status = String(status)
+
+  if (Object.keys(firestorePayload).length) {
+    await db.collection('users').doc(targetUid).update(firestorePayload)
+  }
+
+  try {
+    await db.collection('audit_logs').add({
+      action: 'UPDATE_USER',
+      performedBy: callerUid,
+      performedByName: caller?.name || caller?.email || '',
+      targetId: targetUid,
+      targetType: 'USER',
+      department: firestorePayload.department || current.department || null,
+      details: firestorePayload,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    })
+  } catch (err) {
+    console.warn('Audit log failed (UPDATE_USER):', err)
+  }
+
+  return { uid: targetUid }
+})
+
 // Founder-only: assign/remove globalRole=FOUNDER and set matching Auth custom claim
 exports.setGlobalRole = onCall(async (request) => {
   const callerUid = request.auth?.uid

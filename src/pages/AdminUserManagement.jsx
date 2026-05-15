@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { DEPARTMENT_LIST } from '../constants/departments'
 import { ROLES, POSITION_OPTIONS, deriveRoleFromPositions, deriveDepartmentsFromPositions } from '../constants/roles'
-import { getAllUsers, createUserByAdmin, updateUserByAdmin, setUserStatus } from '../services/firestore'
+import { getAllUsers } from '../services/firestore'
 import { auth, functions, httpsCallable } from '../lib/firebase'
 import { logAction } from '../utils/auditLog'
 
@@ -161,7 +161,14 @@ export default function AdminUserManagement() {
       }
       if (editingId) {
         const beforeUser = users.find((x) => x.id === editingId) || null
-        await updateUserByAdmin(editingId, payload)
+        if (!auth?.currentUser) {
+          setError('You are not signed in. Please refresh and sign in again.')
+          setSaving(false)
+          return
+        }
+        await auth.currentUser.getIdToken(true)
+        const updateUser = httpsCallable(functions, 'adminUpdateUser')
+        await updateUser({ uid: editingId, ...payload })
         setUsers((prev) =>
           prev.map((u) =>
             u.id === editingId ? { ...u, ...payload } : u
@@ -189,19 +196,6 @@ export default function AdminUserManagement() {
           console.warn('Audit log failed (ASSIGN_DIRECTOR):', logErr)
         }
 
-        // User update audit (must not fail save)
-        try {
-          await logAction({
-            action: 'UPDATE_USER',
-            user,
-            targetId: editingId,
-            targetType: 'USER',
-            department: null,
-            details: { before: beforeUser, after: payload },
-          })
-        } catch (logErr) {
-          console.warn('Audit log failed (UPDATE_USER):', logErr)
-        }
         setModalOpen(false)
         setEditingId(null)
 
@@ -296,7 +290,9 @@ export default function AdminUserManagement() {
   const handleDeactivate = async (u) => {
     if (!window.confirm(`Deactivate ${u.name || u.email}?`)) return
     try {
-      await setUserStatus(u.id, 'inactive')
+      await auth.currentUser.getIdToken(true)
+      const updateUser = httpsCallable(functions, 'adminUpdateUser')
+      await updateUser({ uid: u.id, status: 'inactive' })
       setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, status: 'inactive' } : x)))
     } catch (err) {
       console.error(err)
