@@ -24,6 +24,7 @@ import CellUserManagement from './pages/CellUserManagement'
 import SundayMinistryPastor from './pages/SundayMinistryPastor'
 import SeniorPastorHub from './pages/SeniorPastorHub'
 import EntryPage from './pages/accounts/EntryPage'
+import DLightMembers from './pages/DLightMembers'
 import OfflineBanner from './components/OfflineBanner'
 
 function App() {
@@ -61,6 +62,7 @@ function App() {
               <Route path="department/cell/midweek" element={<Navigate to="/department/cell?tab=leaderEntry" replace />} />
               <Route path="department/junior-c" element={<Navigate to="/department/river-kids" replace />} />
               <Route path="department/build-c" element={<Navigate to="/department/building-care" replace />} />
+              <Route path="department/d-light/members" element={<DLightMembers />} />
               <Route path="department/:slug" element={<DepartmentHub />}>
                 <Route path="entry/*" element={<EntryPage />} />
               </Route>

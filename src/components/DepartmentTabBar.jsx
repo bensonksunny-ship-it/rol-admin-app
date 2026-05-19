@@ -30,6 +30,8 @@ function getTabLabel(tab) {
       return 'Operations'
     case 'members':
       return 'Members'
+    case 'dataBackup':
+      return 'Data Backup'
     case 'sundayReport':
       return 'Live Control'
     case 'sundayReportsHistory':
@@ -127,6 +129,17 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab, userPr
               key={tab}
               to="/department/sunday-ministry/sunday-program"
               className={`${baseClass} ${activeTab === 'sundayProgram' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
+            >
+              {label}
+            </Link>
+          )
+        }
+        if (tab === 'dataBackup' && slug === 'd-light') {
+          return (
+            <Link
+              key={tab}
+              to="/department/d-light/members"
+              className={`${baseClass} ${activeTab === 'dataBackup' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
             >
               {label}
             </Link>

@@ -504,6 +504,19 @@ function formatTime(isoString) {
   try { return format(parseISO(isoString), 'h:mm a') } catch { return isoString }
 }
 
+function formatDuration(isoA, isoB) {
+  try {
+    const ms = parseISO(isoB) - parseISO(isoA)
+    if (ms <= 0) return null
+    const totalMins = Math.round(ms / 60000)
+    const h = Math.floor(totalMins / 60)
+    const m = totalMins % 60
+    if (h > 0 && m > 0) return `${h}h ${m}m`
+    if (h > 0) return `${h}h`
+    return `${m}m`
+  } catch { return null }
+}
+
 function Td({ value }) {
   return (
     <td className="px-3 py-3 text-right tabular-nums text-slate-700 whitespace-nowrap">
@@ -521,8 +534,11 @@ function downloadSingleReport(row, cellCols) {
   summaryRows.push([])
 
   if (row.programTimings?.length > 0) {
-    summaryRows.push(['Program', 'Start Time'])
-    row.programTimings.forEach((t) => summaryRows.push([t.programName, formatTime(t.startTime)]))
+    summaryRows.push(['Program', 'Start Time', 'Duration'])
+    row.programTimings.forEach((t, i) => {
+      const duration = formatDuration(t.startTime, row.programTimings[i + 1]?.startTime) || '—'
+      summaryRows.push([t.programName, formatTime(t.startTime), duration])
+    })
     summaryRows.push([])
   }
 
@@ -669,29 +685,8 @@ export default function SundayReportsHistory() {
       <div className="p-5 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-slate-800">Sunday Reports</h2>
-          {canEdit && (
-            <button
-              type="button"
-              onClick={() => setShowImport((v) => !v)}
-              className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M8 2v8M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M2 12h12" strokeLinecap="round"/>
-              </svg>
-              Import Excel
-            </button>
-          )}
         </div>
 
-        {showImport && (
-          <ImportPanel
-            onClose={() => setShowImport(false)}
-            onImported={loadRows}
-            importedBy={userProfile?.displayName || userProfile?.email || 'unknown'}
-            cellGroups={cellGroups}
-          />
-        )}
 
         {loading ? (
           <p className="text-sm text-slate-500">Loading…</p>
@@ -783,12 +778,20 @@ export default function SundayReportsHistory() {
                         </button>
                         {isExpanded && (
                           <div className="mt-2 border-t border-slate-100 pt-2 space-y-1">
-                            {row.programTimings.map((t, i) => (
-                              <div key={i} className="flex items-center justify-between text-xs">
-                                <span className="text-slate-700 font-medium">{t.programName}</span>
-                                <span className="text-slate-400 tabular-nums">{formatTime(t.startTime)}</span>
-                              </div>
-                            ))}
+                            {row.programTimings.map((t, i) => {
+                              const duration = formatDuration(t.startTime, row.programTimings[i + 1]?.startTime)
+                              return (
+                                <div key={i} className="flex items-center gap-2 text-xs">
+                                  <span className="text-slate-700 font-medium flex-1 min-w-0 truncate">{t.programName}</span>
+                                  <span className="text-slate-400 tabular-nums flex-shrink-0">{formatTime(t.startTime)}</span>
+                                  {duration && (
+                                    <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 tabular-nums font-medium">
+                                      {duration}
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            })}
                           </div>
                         )}
                       </div>

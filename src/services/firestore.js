@@ -3221,3 +3221,94 @@ export async function deleteExpenseDepartment(id) {
   await deleteDoc(doc(db, EXPENSE_DEPARTMENTS_COLLECTION, id))
 }
 
+// D Light – master member database (dlight_members)
+const DLIGHT_MEMBERS_COLLECTION = 'dlight_members'
+
+export async function getDlightMembers() {
+  if (!db) return []
+  const q = query(collection(db, DLIGHT_MEMBERS_COLLECTION), orderBy('createdAt', 'asc'))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      name: data.name || '',
+      dob: data.dob || '',
+      phone: data.phone || '',
+      email: data.email || '',
+      nativity: data.nativity || '',
+      currentPlace: data.currentPlace || '',
+      serviceAttended: data.serviceAttended || '',
+      attendedDate: data.attendedDate || '',
+      howKnown: data.howKnown || '',
+      createdAt: toDate(data.createdAt),
+    }
+  })
+}
+
+export async function addDlightMember(data, createdBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, DLIGHT_MEMBERS_COLLECTION), {
+    name: String(data.name || '').trim(),
+    dob: data.dob ? String(data.dob).slice(0, 10) : '',
+    phone: String(data.phone || '').trim(),
+    email: String(data.email || '').trim(),
+    nativity: String(data.nativity || '').trim(),
+    currentPlace: String(data.currentPlace || '').trim(),
+    serviceAttended: String(data.serviceAttended || '').trim(),
+    attendedDate: data.attendedDate ? String(data.attendedDate).slice(0, 10) : '',
+    howKnown: String(data.howKnown || '').trim(),
+    createdAt: serverTimestamp(),
+    createdBy: createdBy || 'unknown',
+  })
+  return ref.id
+}
+
+export async function updateDlightMember(id, data) {
+  if (!db || !id) return
+  const payload = {
+    name: data.name !== undefined ? String(data.name).trim() : undefined,
+    dob: data.dob !== undefined ? String(data.dob).slice(0, 10) : undefined,
+    phone: data.phone !== undefined ? String(data.phone).trim() : undefined,
+    email: data.email !== undefined ? String(data.email).trim() : undefined,
+    nativity: data.nativity !== undefined ? String(data.nativity).trim() : undefined,
+    currentPlace: data.currentPlace !== undefined ? String(data.currentPlace).trim() : undefined,
+    serviceAttended: data.serviceAttended !== undefined ? String(data.serviceAttended).trim() : undefined,
+    attendedDate: data.attendedDate !== undefined ? String(data.attendedDate).slice(0, 10) : undefined,
+    howKnown: data.howKnown !== undefined ? String(data.howKnown).trim() : undefined,
+  }
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
+  if (Object.keys(clean).length) await updateDoc(doc(db, DLIGHT_MEMBERS_COLLECTION, id), clean)
+}
+
+export async function deleteDlightMember(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, DLIGHT_MEMBERS_COLLECTION, id))
+}
+
+export async function bulkAddDlightMembers(rows, createdBy) {
+  if (!db || !rows?.length) return { imported: 0, failed: 0 }
+  let imported = 0
+  let failed = 0
+  for (const row of rows) {
+    try {
+      await addDoc(collection(db, DLIGHT_MEMBERS_COLLECTION), {
+        name: String(row.name || '').trim(),
+        dob: row.dob ? String(row.dob).slice(0, 10) : '',
+        phone: String(row.phone || '').trim(),
+        email: String(row.email || '').trim(),
+        nativity: String(row.nativity || '').trim(),
+        currentPlace: String(row.currentPlace || '').trim(),
+        serviceAttended: String(row.serviceAttended || '').trim(),
+        attendedDate: row.attendedDate ? String(row.attendedDate).slice(0, 10) : '',
+        howKnown: String(row.howKnown || '').trim(),
+        createdAt: serverTimestamp(),
+        createdBy: createdBy || 'unknown',
+      })
+      imported++
+    } catch {
+      failed++
+    }
+  }
+  return { imported, failed }
+}

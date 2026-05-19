@@ -676,6 +676,14 @@ export default function SundayReport() {
                       const logTime = log?.startTime
                         ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
                         : null
+                      const nextLog = logForItem(sortedProgram[idx + 1])
+                      const durationMs = log?.startTime && nextLog?.startTime
+                        ? (nextLog.startTime instanceof Date ? nextLog.startTime : new Date(nextLog.startTime)) -
+                          (log.startTime instanceof Date ? log.startTime : new Date(log.startTime))
+                        : null
+                      const durationLabel = durationMs > 0
+                        ? (() => { const m = Math.round(durationMs / 60000); return m >= 60 ? `${Math.floor(m/60)}h${m%60?` ${m%60}m`:''}` : `${m}m` })()
+                        : null
                       const isEditingTime = editingLogIdx === idx
                       const isEditingName = editingProgramIdx === idx
                       const canEditName = canEditEffective && !log
@@ -734,6 +742,13 @@ export default function SundayReport() {
                             ) : (
                               <span className="text-slate-600 tabular-nums text-sm flex-shrink-0">{logTime ?? '—'}</span>
                             )
+                          )}
+
+                          {/* Duration badge */}
+                          {durationLabel && !isEditingTime && !isEditingName && (
+                            <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs tabular-nums font-medium">
+                              {durationLabel}
+                            </span>
                           )}
 
                           {/* Remove */}
