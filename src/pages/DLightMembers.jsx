@@ -64,15 +64,25 @@ function formatDateDisplay(iso) {
 
 function normalizeExcelDate(val) {
   if (!val) return ''
+  // Excel serial number → convert via UTC to avoid timezone shifts
   if (typeof val === 'number') {
-    const d = new Date(Math.round((val - 25569) * 86400 * 1000))
+    const ms = Math.round((val - 25569) * 86400 * 1000)
+    const d = new Date(ms)
     if (isNaN(d.getTime())) return ''
     return d.toISOString().slice(0, 10)
   }
-  if (val instanceof Date) return val.toISOString().slice(0, 10)
+  // JS Date object (from cellDates:true) → use local parts, not UTC
+  if (val instanceof Date) {
+    const y = val.getFullYear()
+    const m = String(val.getMonth() + 1).padStart(2, '0')
+    const d = String(val.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
   const s = String(val).trim()
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
   const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/)
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`
+  // YYYY-MM-DD already
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
   return s
 }
@@ -202,7 +212,7 @@ export default function DLightMembers() {
     try {
       const XLSX = await import('xlsx')
       const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+      const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
       if (!raw.length) { setImportError('No rows found in the file.'); return }
