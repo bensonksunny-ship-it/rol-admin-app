@@ -8,6 +8,7 @@ import {
   updateDlightMember,
   deleteDlightMember,
   bulkAddDlightMembers,
+  deleteAllDlightMembersByYear,
 } from '../services/firestore'
 
 const SLUG = 'd-light'
@@ -106,6 +107,9 @@ export default function DLightMembers() {
   const [deleteId, setDeleteId] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
+
   const [importRows, setImportRows] = useState(null)
   const [importError, setImportError] = useState('')
   const [importResult, setImportResult] = useState(null)
@@ -202,6 +206,19 @@ export default function DLightMembers() {
     }
   }
 
+  async function handleDeleteAll() {
+    setDeletingAll(true)
+    try {
+      await deleteAllDlightMembersByYear(selectedYear)
+      setMembers([])
+      setDeleteAllOpen(false)
+    } catch {
+      // ignore
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
   async function handleXlsxFile(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -289,12 +306,20 @@ export default function DLightMembers() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {members.length > 0 && (
-              <button
-                onClick={handleExport}
-                className="px-3 py-1.5 text-sm font-medium rounded border border-slate-300 hover:bg-slate-50 transition text-slate-700"
-              >
-                Export Excel
-              </button>
+              <>
+                <button
+                  onClick={handleExport}
+                  className="px-3 py-1.5 text-sm font-medium rounded border border-slate-300 hover:bg-slate-50 transition text-slate-700"
+                >
+                  Export Excel
+                </button>
+                <button
+                  onClick={() => setDeleteAllOpen(true)}
+                  className="px-3 py-1.5 text-sm font-medium rounded border border-red-200 hover:bg-red-50 transition text-red-600"
+                >
+                  Delete All
+                </button>
+              </>
             )}
             <label className="px-3 py-1.5 text-sm font-medium rounded border border-slate-300 hover:bg-slate-50 transition text-slate-700 cursor-pointer">
               Import Excel
@@ -530,6 +555,31 @@ export default function DLightMembers() {
                 className="px-4 py-2 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium transition"
               >
                 {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All confirm */}
+      {deleteAllOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setDeleteAllOpen(false)} />
+          <div className="relative bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h2 className="font-semibold text-slate-800 mb-2">Delete all {selectedYear} records?</h2>
+            <p className="text-sm text-slate-500 mb-5">
+              This will permanently delete all {members.length} record{members.length !== 1 ? 's' : ''} for {selectedYear}. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteAllOpen(false)} className="px-4 py-2 text-sm rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAll}
+                disabled={deletingAll}
+                className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium transition"
+              >
+                {deletingAll ? 'Deleting…' : `Delete All ${members.length}`}
               </button>
             </div>
           </div>

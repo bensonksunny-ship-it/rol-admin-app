@@ -3293,6 +3293,16 @@ export async function deleteDlightMember(id) {
   await deleteDoc(doc(db, DLIGHT_MEMBERS_COLLECTION, id))
 }
 
+export async function deleteAllDlightMembersByYear(year) {
+  if (!db || !year) return 0
+  const q = query(collection(db, DLIGHT_MEMBERS_COLLECTION), where('year', '==', Number(year)))
+  const snap = await getDocs(q)
+  const batch = writeBatch(db)
+  snap.docs.forEach((d) => batch.delete(d.ref))
+  await batch.commit()
+  return snap.docs.length
+}
+
 export async function bulkAddDlightMembers(rows, createdBy) {
   if (!db || !rows?.length) return { imported: 0, failed: 0 }
   let imported = 0
