@@ -3224,9 +3224,11 @@ export async function deleteExpenseDepartment(id) {
 // D Light – master member database (dlight_members)
 const DLIGHT_MEMBERS_COLLECTION = 'dlight_members'
 
-export async function getDlightMembers() {
+export async function getDlightMembers(year) {
   if (!db) return []
-  const q = query(collection(db, DLIGHT_MEMBERS_COLLECTION), orderBy('createdAt', 'asc'))
+  const constraints = [orderBy('createdAt', 'asc')]
+  if (year) constraints.unshift(where('year', '==', Number(year)))
+  const q = query(collection(db, DLIGHT_MEMBERS_COLLECTION), ...constraints)
   const snap = await getDocs(q)
   return snap.docs.map((d) => {
     const data = d.data()
@@ -3241,6 +3243,7 @@ export async function getDlightMembers() {
       serviceAttended: data.serviceAttended || '',
       attendedDate: data.attendedDate || '',
       howKnown: data.howKnown || '',
+      year: data.year || null,
       createdAt: toDate(data.createdAt),
     }
   })
@@ -3258,6 +3261,7 @@ export async function addDlightMember(data, createdBy) {
     serviceAttended: String(data.serviceAttended || '').trim(),
     attendedDate: data.attendedDate ? String(data.attendedDate).slice(0, 10) : '',
     howKnown: String(data.howKnown || '').trim(),
+    year: data.year ? Number(data.year) : null,
     createdAt: serverTimestamp(),
     createdBy: createdBy || 'unknown',
   })
@@ -3276,6 +3280,7 @@ export async function updateDlightMember(id, data) {
     serviceAttended: data.serviceAttended !== undefined ? String(data.serviceAttended).trim() : undefined,
     attendedDate: data.attendedDate !== undefined ? String(data.attendedDate).slice(0, 10) : undefined,
     howKnown: data.howKnown !== undefined ? String(data.howKnown).trim() : undefined,
+    year: data.year !== undefined ? (data.year ? Number(data.year) : null) : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, DLIGHT_MEMBERS_COLLECTION, id), clean)
@@ -3302,6 +3307,7 @@ export async function bulkAddDlightMembers(rows, createdBy) {
         serviceAttended: String(row.serviceAttended || '').trim(),
         attendedDate: row.attendedDate ? String(row.attendedDate).slice(0, 10) : '',
         howKnown: String(row.howKnown || '').trim(),
+        year: row.year ? Number(row.year) : null,
         createdAt: serverTimestamp(),
         createdBy: createdBy || 'unknown',
       })

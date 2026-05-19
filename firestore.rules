@@ -134,6 +134,10 @@ service cloud.firestore {
       allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
     }
 
+    match /dlight_members/{docId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || getUserRole() == 'Admin');
+    }
+
     match /sunday_program/{docId} {
       allow read: if isSignedIn();
       allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector());

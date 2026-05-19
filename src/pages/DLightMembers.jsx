@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -11,6 +11,9 @@ import {
 } from '../services/firestore'
 
 const SLUG = 'd-light'
+const START_YEAR = 2014
+const CURRENT_YEAR = new Date().getFullYear()
+const YEARS = Array.from({ length: CURRENT_YEAR - START_YEAR + 1 }, (_, i) => START_YEAR + i)
 
 const EMPTY_FORM = {
   name: '',
@@ -36,28 +39,18 @@ const FIELDS = [
   { key: 'howKnown', label: 'How They Know Church', type: 'text' },
 ]
 
-// Excel column header → field key mapping
 const EXCEL_HEADER_MAP = {
-  'name': 'name',
-  'full name': 'name',
-  'dob': 'dob',
-  'date of birth': 'dob',
-  'ph. number': 'phone',
-  'ph number': 'phone',
-  'phone': 'phone',
-  'phone number': 'phone',
-  'mobile': 'phone',
+  'name': 'name', 'full name': 'name',
+  'dob': 'dob', 'date of birth': 'dob',
+  'ph. number': 'phone', 'ph number': 'phone', 'phone': 'phone',
+  'phone number': 'phone', 'mobile': 'phone',
   'email': 'email',
   'nativity': 'nativity',
-  'current place': 'currentPlace',
-  'current location': 'currentPlace',
-  'service attended': 'serviceAttended',
-  'service': 'serviceAttended',
-  'date of attending': 'attendedDate',
-  'attending date': 'attendedDate',
-  'how they know church': 'howKnown',
-  'how known': 'howKnown',
-  'how do they know': 'howKnown',
+  'current place': 'currentPlace', 'current location': 'currentPlace',
+  'service attended': 'serviceAttended', 'service': 'serviceAttended',
+  'date of attending': 'attendedDate', 'attending date': 'attendedDate',
+  'how they know church': 'howKnown', 'how known': 'howKnown', 'how do they know': 'howKnown',
+  'year': 'year',
 }
 
 function formatDateDisplay(iso) {
@@ -72,24 +65,23 @@ function formatDateDisplay(iso) {
 function normalizeExcelDate(val) {
   if (!val) return ''
   if (typeof val === 'number') {
-    // Excel serial date → JS date
     const d = new Date(Math.round((val - 25569) * 86400 * 1000))
     if (isNaN(d.getTime())) return ''
     return d.toISOString().slice(0, 10)
   }
   if (val instanceof Date) return val.toISOString().slice(0, 10)
   const s = String(val).trim()
-  // Try DD/MM/YYYY
   const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/)
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`
-  // Try YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
   return s
 }
 
 export default function DLightMembers() {
   const { userProfile, isAdmin, isFounder } = useAuth()
-  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const selectedYear = Number(searchParams.get('year')) || CURRENT_YEAR
 
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -115,11 +107,13 @@ export default function DLightMembers() {
   useEffect(() => {
     if (!canAccess) return
     setLoading(true)
-    getDlightMembers()
+    setError('')
+    setMembers([])
+    getDlightMembers(selectedYear)
       .then(setMembers)
-      .catch(() => setError('Failed to load members.'))
+      .catch(() => setError('Failed to load. Check your connection and try again.'))
       .finally(() => setLoading(false))
-  }, [canAccess])
+  }, [canAccess, selectedYear])
 
   if (!canAccess) {
     return (
@@ -130,6 +124,13 @@ export default function DLightMembers() {
         </div>
       </div>
     )
+  }
+
+  function setYear(y) {
+    setSearchParams({ year: y }, { replace: true })
+    setImportRows(null)
+    setImportResult(null)
+    setImportError('')
   }
 
   function openAdd() {
@@ -161,12 +162,13 @@ export default function DLightMembers() {
     setSaving(true)
     setFormError('')
     try {
+      const payload = { ...form, year: selectedYear }
       if (editingId) {
-        await updateDlightMember(editingId, form)
-        setMembers((prev) => prev.map((m) => m.id === editingId ? { ...m, ...form } : m))
+        await updateDlightMember(editingId, payload)
+        setMembers((prev) => prev.map((m) => m.id === editingId ? { ...m, ...payload } : m))
       } else {
-        const id = await addDlightMember(form, userProfile?.email || 'unknown')
-        setMembers((prev) => [...prev, { id, ...form, createdAt: new Date() }])
+        const id = await addDlightMember(payload, userProfile?.email || 'unknown')
+        setMembers((prev) => [...prev, { id, ...payload, createdAt: new Date() }])
       }
       setModalOpen(false)
     } catch {
@@ -214,7 +216,7 @@ export default function DLightMembers() {
         const normalized = Object.fromEntries(
           Object.entries(mapped).map(([k, v]) => [k, isDateField(k) ? normalizeExcelDate(v) : String(v ?? '').trim()])
         )
-        return { ...EMPTY_FORM, ...normalized, _valid: Boolean(normalized.name) }
+        return { ...EMPTY_FORM, year: selectedYear, ...normalized, _valid: Boolean(normalized.name) }
       })
       setImportRows(parsed)
     } catch {
@@ -232,7 +234,7 @@ export default function DLightMembers() {
         userProfile?.email || 'unknown'
       )
       setImportResult(result)
-      const fresh = await getDlightMembers()
+      const fresh = await getDlightMembers(selectedYear)
       setMembers(fresh)
       setImportRows(null)
     } catch {
@@ -258,8 +260,8 @@ export default function DLightMembers() {
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'D Light Members')
-    XLSX.writeFile(wb, 'DLight_Members.xlsx')
+    XLSX.utils.book_append_sheet(wb, ws, `Members ${selectedYear}`)
+    XLSX.writeFile(wb, `Church_DataBackup_${selectedYear}.xlsx`)
   }
 
   return (
@@ -267,11 +269,13 @@ export default function DLightMembers() {
       <DepartmentTabBar slug={SLUG} activeTab="dataBackup" />
 
       <div className="p-4 lg:p-6 max-w-7xl mx-auto">
-        {/* Header */}
+        {/* Page header */}
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <div>
-            <h1 className="text-xl font-semibold text-slate-800">D Light Members</h1>
-            <p className="text-sm text-slate-500 mt-0.5">{members.length} member{members.length !== 1 ? 's' : ''}</p>
+            <h1 className="text-xl font-semibold text-slate-800">Church Data Backup</h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              {selectedYear} · {members.length} record{members.length !== 1 ? 's' : ''}
+            </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {members.length > 0 && (
@@ -290,9 +294,26 @@ export default function DLightMembers() {
               onClick={openAdd}
               className="px-3 py-1.5 text-sm font-medium rounded bg-indigo-600 hover:bg-indigo-700 transition text-white"
             >
-              + Add Member
+              + Add
             </button>
           </div>
+        </div>
+
+        {/* Year tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide mb-5 pb-1">
+          {YEARS.map((y) => (
+            <button
+              key={y}
+              onClick={() => setYear(y)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-full whitespace-nowrap flex-shrink-0 transition border ${
+                y === selectedYear
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {y}
+            </button>
+          ))}
         </div>
 
         {/* Import feedback */}
@@ -301,7 +322,7 @@ export default function DLightMembers() {
         )}
         {importResult && (
           <div className="mb-3 px-3 py-2 rounded bg-green-50 border border-green-200 text-sm text-green-700">
-            Imported {importResult.imported} member{importResult.imported !== 1 ? 's' : ''}
+            Imported {importResult.imported} record{importResult.imported !== 1 ? 's' : ''}
             {importResult.failed > 0 && ` · ${importResult.failed} failed`}
           </div>
         )}
@@ -309,9 +330,9 @@ export default function DLightMembers() {
         {/* Import preview */}
         {importRows && (
           <div className="mb-4 rounded-xl border border-slate-200 bg-white overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
               <p className="text-sm font-medium text-slate-700">
-                Preview: {importRows.filter((r) => r._valid).length} valid · {importRows.filter((r) => !r._valid).length} skipped (no name)
+                Preview — {importRows.filter((r) => r._valid).length} valid · {importRows.filter((r) => !r._valid).length} skipped (no name)
               </p>
               <div className="flex items-center gap-2">
                 <button onClick={() => setImportRows(null)} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
@@ -351,13 +372,26 @@ export default function DLightMembers() {
         )}
 
         {/* Error / loading */}
-        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
-        {loading && <p className="text-sm text-slate-500">Loading…</p>}
+        {error && (
+          <div className="flex items-center gap-3 py-8 justify-center">
+            <p className="text-sm text-red-600">{error}</p>
+            <button
+              onClick={() => {
+                setError('')
+                setLoading(true)
+                getDlightMembers(selectedYear).then(setMembers).catch(() => setError('Failed to load. Check your connection and try again.')).finally(() => setLoading(false))
+              }}
+              className="text-xs text-indigo-600 underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {loading && <p className="text-sm text-slate-500 py-8 text-center">Loading…</p>}
 
-        {/* Members table – desktop */}
-        {!loading && members.length > 0 && (
+        {/* Desktop table */}
+        {!loading && !error && members.length > 0 && (
           <>
-            {/* Desktop table */}
             <div className="hidden lg:block rounded-xl border border-slate-200 bg-white overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -426,7 +460,7 @@ export default function DLightMembers() {
                       ['Service', m.serviceAttended],
                       ['Date Attended', formatDateDisplay(m.attendedDate)],
                       ['How Known', m.howKnown],
-                    ].map(([label, val]) => val ? (
+                    ].map(([label, val]) => val && val !== '—' ? (
                       <div key={label}>
                         <span className="text-xs text-slate-400">{label}</span>
                         <p className="text-slate-700 text-sm leading-snug">{val}</p>
@@ -439,9 +473,9 @@ export default function DLightMembers() {
           </>
         )}
 
-        {!loading && members.length === 0 && !error && (
+        {!loading && !error && members.length === 0 && (
           <div className="text-center py-16 text-slate-400">
-            <p className="text-sm">No members yet. Add one or import from Excel.</p>
+            <p className="text-sm">No records for {selectedYear}. Add one or import from Excel.</p>
           </div>
         )}
       </div>
@@ -452,7 +486,10 @@ export default function DLightMembers() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setModalOpen(false)} />
           <div className="relative bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[90vh] flex flex-col">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="font-semibold text-slate-800">{editingId ? 'Edit Member' : 'Add Member'}</h2>
+              <div>
+                <h2 className="font-semibold text-slate-800">{editingId ? 'Edit Record' : 'Add Record'}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Year: {selectedYear}</p>
+              </div>
               <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
             </div>
             <div className="overflow-y-auto flex-1 px-5 py-4">
@@ -494,7 +531,7 @@ export default function DLightMembers() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setDeleteId(null)} />
           <div className="relative bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
-            <h2 className="font-semibold text-slate-800 mb-2">Delete member?</h2>
+            <h2 className="font-semibold text-slate-800 mb-2">Delete record?</h2>
             <p className="text-sm text-slate-500 mb-5">This cannot be undone.</p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeleteId(null)} className="px-4 py-2 text-sm rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
