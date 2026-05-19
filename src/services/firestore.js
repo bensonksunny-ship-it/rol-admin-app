@@ -3226,11 +3226,11 @@ const DLIGHT_MEMBERS_COLLECTION = 'dlight_members'
 
 export async function getDlightMembers(year) {
   if (!db) return []
-  const constraints = [orderBy('createdAt', 'asc')]
-  if (year) constraints.unshift(where('year', '==', Number(year)))
+  // Filter by year server-side; sort client-side to avoid needing a composite index.
+  const constraints = year ? [where('year', '==', Number(year))] : [orderBy('createdAt', 'asc')]
   const q = query(collection(db, DLIGHT_MEMBERS_COLLECTION), ...constraints)
   const snap = await getDocs(q)
-  return snap.docs.map((d) => {
+  const rows = snap.docs.map((d) => {
     const data = d.data()
     return {
       id: d.id,
@@ -3247,6 +3247,8 @@ export async function getDlightMembers(year) {
       createdAt: toDate(data.createdAt),
     }
   })
+  if (year) rows.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+  return rows
 }
 
 export async function addDlightMember(data, createdBy) {
