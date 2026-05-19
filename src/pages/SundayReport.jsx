@@ -252,16 +252,6 @@ export default function SundayReport() {
     setCompletedSections((prev) => ({ ...prev, [sectionId]: false }))
   }, [])
 
-  const loadCellGroups = useCallback(() => {
-    getCellGroups('Cell')
-      .then((groups) => setCellGroups((groups || []).filter((g) => g.status !== 'inactive')))
-      .catch(() => setCellGroups([]))
-  }, [])
-
-  useEffect(() => {
-    loadCellGroups()
-  }, [loadCellGroups, selectedDate])
-
   useEffect(() => {
     if (!expandedCellId) {
       setMembersForCell([])
@@ -274,61 +264,71 @@ export default function SundayReport() {
       .finally(() => setLoadingMembers(false))
   }, [expandedCellId])
 
-
-  useEffect(() => {
-    getSundayProgramLogsByDate(selectedDate).then(setProgramLogs).catch(() => setProgramLogs([]))
-  }, [selectedDate])
-
+  // Single master load — clears stale data immediately so previous date never bleeds through
   useEffect(() => {
     setLoading(true)
-    Promise.all([getSundayReport(selectedDate), getCellGroups('Cell')])
-      .then(([r, groups]) => {
+    setReport(null)
+    setProgramLogs([])
+    Promise.all([
+      getSundayReport(selectedDate),
+      getCellGroups('Cell'),
+      getSundayProgramLogsByDate(selectedDate),
+    ])
+      .then(([r, groups, logs]) => {
         const active = (groups || []).filter((g) => g.status !== 'inactive')
+        setCellGroups(active)
         let next = r || null
         if (next) {
           const hasSca =
             next.sundayCellAttendance &&
             typeof next.sundayCellAttendance === 'object' &&
             Object.keys(next.sundayCellAttendance).length > 0
-          const migrated = hasSca ? next.sundayCellAttendance : migrateLegacyCellAttendance(next, active)
           next = {
             ...next,
-            sundayCellAttendance: migrated,
+            sundayCellAttendance: hasSca ? next.sundayCellAttendance : migrateLegacyCellAttendance(next, active),
             sundayMinistryTeam: [],
           }
         }
         setReport(next)
+        setProgramLogs(logs || [])
       })
-      .catch(() => setReport(null))
+      .catch(() => { setReport(null); setProgramLogs([]) })
       .finally(() => setLoading(false))
   }, [selectedDate])
 
   const refreshAll = useCallback(() => {
     setLoading(true)
     setCompletedSections({})
-    Promise.all([getSundayReport(selectedDate), getCellGroups('Cell')])
-      .then(([r, groups]) => {
+    Promise.all([
+      getSundayReport(selectedDate),
+      getCellGroups('Cell'),
+      getSundayProgramLogsByDate(selectedDate),
+    ])
+      .then(([r, groups, logs]) => {
         const active = (groups || []).filter((g) => g.status !== 'inactive')
+        setCellGroups(active)
         let next = r || null
         if (next) {
           const hasSca = next.sundayCellAttendance && typeof next.sundayCellAttendance === 'object' && Object.keys(next.sundayCellAttendance).length > 0
           next = { ...next, sundayCellAttendance: hasSca ? next.sundayCellAttendance : migrateLegacyCellAttendance(next, active), sundayMinistryTeam: [] }
         }
         setReport(next)
+        setProgramLogs(logs || [])
       })
-      .catch(() => setReport(null))
+      .catch(() => { setReport(null); setProgramLogs([]) })
       .finally(() => setLoading(false))
-    getSundayProgramLogsByDate(selectedDate).then(setProgramLogs).catch(() => setProgramLogs([]))
   }, [selectedDate])
 
-  // Auto-refresh when the user switches back to this tab (e.g. after pushing a program)
+  // On tab focus: only refresh program logs (not the full report — that would wipe unsaved attendance edits)
   useEffect(() => {
     const handleVisible = () => {
-      if (document.visibilityState === 'visible') refreshAll()
+      if (document.visibilityState === 'visible') {
+        getSundayProgramLogsByDate(selectedDate).then(setProgramLogs).catch(() => {})
+      }
     }
     document.addEventListener('visibilitychange', handleVisible)
     return () => document.removeEventListener('visibilitychange', handleVisible)
-  }, [refreshAll])
+  }, [selectedDate])
 
   const updateReport = (patch) => setReport((prev) => (prev ? { ...prev, ...patch } : { ...patch }))
 
@@ -353,7 +353,13 @@ export default function SundayReport() {
         totalAttendance: total,
       }
 
+      // Only include logs for items currently in programList — orphaned logs
+      // (from items removed via ✕) must not pollute the saved programTimings.
+      const activeNames = new Set(
+        (report?.programList || []).map((item) => String(item.programName || '').trim().toLowerCase())
+      )
       const timings = programLogs
+        .filter((log) => activeNames.has(String(log.programName || '').trim().toLowerCase()))
         .map((log) => {
           const t = log.startTime instanceof Date ? log.startTime : log.startTime?.toDate?.() ?? null
           return { programName: log.programName, startTime: t ? t.toISOString() : null }
@@ -404,8 +410,6 @@ export default function SundayReport() {
 
   const updateSummary = (key, value) => updateReport({ summary: { ...(report?.summary || {}), [key]: value } })
 
-  const sortedProgram = [...(report?.programList || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-
   const logByName = useMemo(() => {
     const map = {}
     for (const log of programLogs) {
@@ -416,6 +420,25 @@ export default function SundayReport() {
   }, [programLogs])
 
   const logForItem = (item) => logByName[String(item?.programName || '').trim().toLowerCase()] || null
+
+  // Sort by actual startTime when logged (reflects real service order),
+  // fall back to the configured `order` field for items not yet started.
+  const sortedProgram = useMemo(() => {
+    const toMs = (log) => {
+      if (!log?.startTime) return null
+      const d = log.startTime instanceof Date ? log.startTime : new Date(log.startTime)
+      return isNaN(d.getTime()) ? null : d.getTime()
+    }
+    return [...(report?.programList || [])].sort((a, b) => {
+      const ta = toMs(logByName[String(a.programName || '').trim().toLowerCase()])
+      const tb = toMs(logByName[String(b.programName || '').trim().toLowerCase()])
+      if (ta !== null && tb !== null) return ta - tb
+      if (ta !== null) return -1   // timed items float before untimed
+      if (tb !== null) return 1
+      return (a.order ?? 0) - (b.order ?? 0)
+    })
+  }, [report?.programList, logByName])
+
   const currentProgramItem = sortedProgram.find((item) => !logForItem(item)) || null
   const allProgramsTimed = sortedProgram.length > 0 && !currentProgramItem
 

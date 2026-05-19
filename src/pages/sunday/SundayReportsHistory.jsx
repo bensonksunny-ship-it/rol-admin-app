@@ -706,98 +706,97 @@ export default function SundayReportsHistory() {
             </Link>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
-                  <th className="px-3 py-3 font-medium whitespace-nowrap text-left sticky left-0 bg-slate-50">Date</th>
-                  {cellCols.map((c) => (
-                    <th key={c.id} className="px-3 py-3 font-medium whitespace-nowrap text-right text-indigo-700">
-                      {c.name}
-                    </th>
-                  ))}
-                  {FIXED_COLS.map((c) => (
-                    <th key={c.key} className="px-3 py-3 font-medium whitespace-nowrap text-right">
-                      {c.label}
-                    </th>
-                  ))}
-                  <th className="px-3 py-3 font-medium whitespace-nowrap text-center">Timing</th>
-                  <th className="px-3 py-3 font-medium whitespace-nowrap text-center w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const isExpanded = expandedDate === row.date
-                  const hasTimings = row.programTimings.length > 0
-                  const totalCols  = cellCols.length + FIXED_COLS.length + 3
-                  const sca        = row.sundayCellAttendance || {}
-                  return (
-                    <>
-                      <tr
-                        key={row.date}
-                        className={`border-b border-slate-100 ${isExpanded ? 'bg-indigo-50/40' : 'hover:bg-slate-50'}`}
-                      >
-                        <td className="px-3 py-3 font-medium text-slate-800 whitespace-nowrap tabular-nums sticky left-0 bg-inherit">
-                          {formatDisplayDate(row.date)}
-                        </td>
-                        {cellCols.map((c) => (
-                          <Td key={c.id} value={(sca[c.id] || []).length || ''} />
-                        ))}
-                        {FIXED_COLS.map((c) => (
-                          <Td key={c.key} value={row[c.key]} />
-                        ))}
-                        <td className="px-3 py-3 text-center">
-                          {hasTimings ? (
-                            <button
-                              type="button"
-                              className="text-xs text-indigo-600 hover:underline font-medium"
-                              onClick={() => setExpanded(isExpanded ? null : row.date)}
-                            >
-                              {isExpanded ? 'Hide' : `${row.programTimings.length} items`}
-                            </button>
-                          ) : (
-                            <span className="text-slate-400 text-xs">—</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-2 text-center">
-                          <KebabMenu
-                            canEdit={canEdit}
-                            canDelete={canDelete}
-                            deleting={deletingDate === row.date}
-                            onEdit={() => navigate(`/department/sunday-ministry/sunday-report?date=${row.date}`)}
-                            onDelete={() => handleDelete(row.date)}
-                            onDownload={() => downloadSingleReport(row, cellCols)}
-                          />
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr key={`${row.date}-timing`} className="bg-indigo-50/30 border-b border-slate-100">
-                          <td colSpan={totalCols} className="px-6 py-3">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Program Timing</p>
-                            <table className="text-sm">
-                              <thead>
-                                <tr className="text-xs text-slate-400 uppercase tracking-wide">
-                                  <th className="text-left font-medium pb-1 pr-10">Program</th>
-                                  <th className="text-left font-medium pb-1">Start Time</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100/60">
-                                {row.programTimings.map((t, i) => (
-                                  <tr key={i}>
-                                    <td className="py-1 pr-10 font-medium text-slate-800">{t.programName}</td>
-                                    <td className="py-1 text-slate-500 tabular-nums">{formatTime(t.startTime)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  )
-                })}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {rows.map((row) => {
+              const isExpanded = expandedDate === row.date
+              const hasTimings = row.programTimings.length > 0
+              const sca        = row.sundayCellAttendance || {}
+              return (
+                <div
+                  key={row.date}
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"
+                >
+                  {/* Card header */}
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                    <span className="font-semibold text-slate-800 text-sm">{formatDisplayDate(row.date)}</span>
+                    <KebabMenu
+                      canEdit={canEdit}
+                      canDelete={canDelete}
+                      deleting={deletingDate === row.date}
+                      onEdit={() => navigate(`/department/sunday-ministry/sunday-report?date=${row.date}`)}
+                      onDelete={() => handleDelete(row.date)}
+                      onDownload={() => downloadSingleReport(row, cellCols)}
+                    />
+                  </div>
+
+                  <div className="px-4 py-3 space-y-3">
+                    {/* Total attendance highlight */}
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-2xl font-bold text-indigo-600 tabular-nums">
+                        {row.totalAttendance || 0}
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium">total attendance</span>
+                    </div>
+
+                    {/* Fixed stats grid */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {FIXED_COLS.filter((c) => c.key !== 'totalAttendance').map((c) => (
+                        <div key={c.key} className="bg-slate-50 rounded-lg px-2 py-1.5 text-center">
+                          <p className="text-xs text-slate-400 leading-none mb-0.5 truncate">{c.label}</p>
+                          <p className="text-sm font-semibold text-slate-700 tabular-nums">
+                            {row[c.key] || 0}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Cell attendance */}
+                    {cellCols.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Cell Groups</p>
+                        <div className="grid grid-cols-2 gap-1">
+                          {cellCols.map((c) => {
+                            const count = (sca[c.id] || []).length
+                            return (
+                              <div key={c.id} className="flex items-center justify-between px-2 py-1 rounded-md bg-indigo-50/60">
+                                <span className="text-xs text-slate-600 truncate mr-1">{c.name}</span>
+                                <span className="text-xs font-semibold text-indigo-700 tabular-nums flex-shrink-0">{count || 0}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Program timings toggle */}
+                    {hasTimings && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setExpanded(isExpanded ? null : row.date)}
+                          className="text-xs text-indigo-600 hover:underline font-medium flex items-center gap-1"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                            <path d="M2 4l4 4 4-4" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          {isExpanded ? 'Hide timings' : `${row.programTimings.length} program items`}
+                        </button>
+                        {isExpanded && (
+                          <div className="mt-2 border-t border-slate-100 pt-2 space-y-1">
+                            {row.programTimings.map((t, i) => (
+                              <div key={i} className="flex items-center justify-between text-xs">
+                                <span className="text-slate-700 font-medium">{t.programName}</span>
+                                <span className="text-slate-400 tabular-nums">{formatTime(t.startTime)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

@@ -54,7 +54,7 @@ function getInitials(profile) {
   return name.slice(0, 2).toUpperCase()
 }
 
-function BottomTabBar({ items, theme, signOut, userProfile }) {
+function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen }) {
   const isDay = theme !== 'night'
   const { pathname } = useLocation()
   const tabRefs = useRef([])
@@ -75,6 +75,9 @@ function BottomTabBar({ items, theme, signOut, userProfile }) {
   const initials = getInitials(userProfile)
   const displayName = userProfile?.displayName || userProfile?.email || 'User'
   const roleLabel = userProfile?.globalRole === 'FOUNDER' ? 'Senior Pastor' : (userProfile?.role || '')
+  const email = userProfile?.email || user?.email || ''
+  const membershipNumber = userProfile?.membershipNumber || ''
+  const photoURL = user?.photoURL || null
 
   const activeIndex = useMemo(() => {
     for (let i = 0; i < items.length; i++) {
@@ -113,8 +116,14 @@ function BottomTabBar({ items, theme, signOut, userProfile }) {
 
   return (
     <nav
-      className="lg:hidden fixed z-50"
-      style={isDay ? { bottom: '14px', left: '12px', right: '12px' } : { bottom: 0, left: 0, right: 0 }}
+      className="lg:hidden fixed"
+      style={{
+        zIndex: sidebarOpen ? 39 : 50,
+        filter: sidebarOpen ? 'blur(3px)' : 'none',
+        transition: 'filter 0.2s ease',
+        pointerEvents: sidebarOpen ? 'none' : 'auto',
+        ...(isDay ? { bottom: '14px', left: '12px', right: '12px' } : { bottom: 0, left: 0, right: 0 }),
+      }}
     >
       <div style={dockStyle}>
         <div className="flex items-stretch">
@@ -170,7 +179,7 @@ function BottomTabBar({ items, theme, signOut, userProfile }) {
 
           </div>
 
-          {/* Avatar with sign-out popover */}
+          {/* Avatar with profile card */}
           <div
             ref={menuRef}
             className="relative flex-shrink-0 flex items-center"
@@ -182,44 +191,71 @@ function BottomTabBar({ items, theme, signOut, userProfile }) {
               className="flex items-center justify-center px-3 h-full active:opacity-70"
               aria-label="Account menu"
             >
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white select-none"
-                style={{
-                  background: showMenu
-                    ? 'linear-gradient(135deg, #4f46e5, #2563eb)'
-                    : 'linear-gradient(135deg, #6366f1, #3b82f6)',
-                  boxShadow: showMenu ? '0 0 0 2px #6366f1' : 'none',
-                  transition: 'box-shadow 0.15s',
-                }}
-              >
-                {initials}
-              </div>
+              {photoURL ? (
+                <img
+                  src={photoURL}
+                  alt=""
+                  className="w-8 h-8 rounded-full object-cover"
+                  style={{ boxShadow: showMenu ? '0 0 0 2px #6366f1' : 'none', transition: 'box-shadow 0.15s' }}
+                />
+              ) : (
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white select-none"
+                  style={{
+                    background: showMenu
+                      ? 'linear-gradient(135deg, #4f46e5, #2563eb)'
+                      : 'linear-gradient(135deg, #6366f1, #3b82f6)',
+                    boxShadow: showMenu ? '0 0 0 2px #6366f1' : 'none',
+                    transition: 'box-shadow 0.15s',
+                  }}
+                >
+                  {initials}
+                </div>
+              )}
             </button>
 
             {showMenu && (
               <div
-                className="absolute bottom-full right-0 mb-2 rounded-xl overflow-hidden"
+                className="absolute bottom-full right-0 mb-3 rounded-2xl overflow-hidden"
                 style={{
-                  minWidth: '172px',
+                  width: '220px',
                   background: isDay ? 'rgba(255,255,255,0.97)' : 'rgba(15,23,42,0.97)',
-                  backdropFilter: 'blur(24px)',
-                  WebkitBackdropFilter: 'blur(24px)',
+                  backdropFilter: 'blur(28px)',
+                  WebkitBackdropFilter: 'blur(28px)',
                   border: isDay ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)',
-                  boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+                  boxShadow: '0 16px 48px rgba(0,0,0,0.22)',
                 }}
               >
-                <div className={`px-3.5 py-2.5 border-b ${isDay ? 'border-slate-100' : 'border-slate-700/60'}`}>
-                  <p className={`text-xs font-semibold truncate ${isDay ? 'text-slate-800' : 'text-slate-200'}`}>{displayName}</p>
-                  {roleLabel && <p className="text-[10px] text-slate-400 mt-0.5">{roleLabel}</p>}
+                {/* Profile row */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  {photoURL ? (
+                    <img src={photoURL} alt="" className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
+                  ) : (
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 select-none"
+                      style={{ background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)' }}
+                    >
+                      {initials}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className={`text-sm font-semibold truncate ${isDay ? 'text-slate-800' : 'text-slate-100'}`}>{displayName}</p>
+                    {roleLabel && <p className={`text-xs truncate ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>{roleLabel}</p>}
+                    {email && <p className={`text-xs truncate ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>{email}</p>}
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => { setShowMenu(false); signOut() }}
-                  className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium transition-colors ${isDay ? 'text-rose-600 hover:bg-rose-50' : 'text-rose-400 hover:bg-rose-500/10'}`}
-                >
-                  <LogOut size={14} strokeWidth={2} />
-                  Sign out
-                </button>
+
+                {/* Sign out */}
+                <div className={`border-t px-3 py-2 ${isDay ? 'border-slate-100' : 'border-slate-700/60'}`}>
+                  <button
+                    type="button"
+                    onClick={() => { setShowMenu(false); signOut() }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-xl transition-colors ${isDay ? 'text-rose-600 hover:bg-rose-50' : 'text-rose-400 hover:bg-rose-500/10'}`}
+                  >
+                    <LogOut size={14} strokeWidth={2} />
+                    Sign out
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -231,7 +267,7 @@ function BottomTabBar({ items, theme, signOut, userProfile }) {
 }
 
 export default function Sidebar() {
-  const { userProfile, signOut, hasPermission, isFounder, isDepartmentHead } = useAuth()
+  const { user, userProfile, signOut, hasPermission, isFounder, isDepartmentHead } = useAuth()
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
 
@@ -296,7 +332,7 @@ export default function Sidebar() {
 
   // ── Brand header (shared) ───────────────────────────────────────────────────
   const BrandHeader = () => (
-    <div className={`p-4 border-b ${headerBorderClass}`}>
+    <div className={`px-4 pt-20 pb-4 border-b ${headerBorderClass}`}>
       <div className="flex items-center gap-3">
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -341,9 +377,12 @@ export default function Sidebar() {
   // ── Mobile header bar (shared) ─────────────────────────────────────────────
   const MobileHeader = () => (
     <div
-      className="lg:hidden fixed top-0 left-0 right-0 h-14 flex items-center justify-between px-3"
+      className="lg:hidden fixed top-0 left-0 right-0 flex items-center justify-between px-3"
       style={{
         zIndex: 40,
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+        minHeight: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
+        height: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
         ...(isDay ? {
           background: 'rgba(255,255,255,0.88)',
           backdropFilter: 'blur(20px) saturate(200%)',
@@ -466,7 +505,7 @@ export default function Sidebar() {
         )}
         <aside
           className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
-          style={{ ...sidebarStyle, zIndex: 45 }}
+          style={{ ...sidebarStyle, zIndex: 45, paddingTop: 'env(safe-area-inset-top, 0px)' }}
         >
           <BrandHeader />
           <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
@@ -499,7 +538,7 @@ export default function Sidebar() {
             <button onClick={signOut} className={actionBtnClass}>Sign out</button>
           </div>
         </aside>
-        <BottomTabBar items={scopedItems} theme={theme} signOut={signOut} userProfile={userProfile} />
+        <BottomTabBar items={scopedItems} theme={theme} signOut={signOut} userProfile={userProfile} user={user} sidebarOpen={open} />
       </>
     )
   }
@@ -581,7 +620,7 @@ export default function Sidebar() {
           <button onClick={signOut} className={actionBtnClass}>Sign out</button>
         </div>
       </aside>
-      <BottomTabBar items={visibleWithMyDept} theme={theme} signOut={signOut} userProfile={userProfile} />
+      <BottomTabBar items={visibleWithMyDept} theme={theme} signOut={signOut} userProfile={userProfile} user={user} sidebarOpen={open} />
     </>
   )
 }
