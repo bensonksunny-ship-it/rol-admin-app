@@ -24,6 +24,7 @@ import CellUserManagement from './pages/CellUserManagement'
 import SundayMinistryPastor from './pages/SundayMinistryPastor'
 import SeniorPastorHub from './pages/SeniorPastorHub'
 import EntryPage from './pages/accounts/EntryPage'
+import OfflineBanner from './components/OfflineBanner'
 
 function App() {
   return (
@@ -70,6 +71,7 @@ function App() {
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          <OfflineBanner />
         </ErrorBoundary>
       </AuthProvider>
     </BrowserRouter>
