@@ -194,6 +194,33 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
   const [prayerPoints, setPrayerPoints]   = useState([])
   const [loadingPrayer, setLoadingPrayer] = useState(false)
 
+  // Persist in-progress attendance so navigating away doesn't lose it.
+  // Cleared only on save or manual reset.
+  const _lsKeyRef = useRef(null)
+  useEffect(() => {
+    if (!selectedCellId) return
+    const key = `rol_live_${selectedCellId}_${today}`
+    if (_lsKeyRef.current !== key) {
+      _lsKeyRef.current = key
+      try {
+        const saved = JSON.parse(localStorage.getItem(key) || 'null')
+        if (saved) {
+          if (saved.presentIds)              setPresentIds(new Set(saved.presentIds))
+          if (saved.visitors)                setVisitors(saved.visitors)
+          if (saved.visitorInput !== undefined) setVisitorInput(saved.visitorInput)
+        }
+      } catch {}
+      return
+    }
+    try {
+      localStorage.setItem(key, JSON.stringify({
+        presentIds: [...presentIds],
+        visitors,
+        visitorInput,
+      }))
+    } catch {}
+  }, [selectedCellId, today, presentIds, visitors, visitorInput])
+
   // Load cell groups
   useEffect(() => {
     getCellGroups('Cell').then(setCellGroups).finally(() => setLoadingGroups(false))
@@ -256,9 +283,12 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
       // Reset everything
       setSegmentIdx(-1)
       setPresentIds(new Set())
+      setVisitors([])
+      setVisitorInput('')
       segmentStartTime.current  = null
       segmentTimingsRef.current = []
       setPendingTimings([])
+      if (selectedCellId) localStorage.removeItem(`rol_live_${selectedCellId}_${today}`)
       return
     }
 
@@ -312,6 +342,8 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
       const updatedBy = userProfile?.name || userProfile?.email || 'unknown'
       const cellName = cellGroups.find((g) => g.id === selectedCellId)?.cellName || ''
       const presentMembers = members.filter((m) => ids.has(m.id))
+
+      localStorage.removeItem(`rol_live_${selectedCellId}_${today}`)
 
       saveMidweekSessionSummary(selectedCellId, today, {
         segmentTimings: timingsToSave,
