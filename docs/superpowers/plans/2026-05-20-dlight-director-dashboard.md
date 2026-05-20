@@ -1,0 +1,609 @@
+# D Light Director Dashboard Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Replace the D Light summary tab placeholder with a rich director dashboard showing visitor trends, team composition, task status, and recent visitors — visible only to the D Light director, ministry leaders, and admins.
+
+**Architecture:** One new component `DLightDirectorDashboard.jsx` contains all chart and stat logic. `DepartmentHub.jsx` gets two small changes: extend the visitor data load effect to fire on the summary tab, and replace the D Light placeholder with the new component. All data is client-side computed from existing Firestore queries.
+
+**Tech Stack:** React, Recharts (BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell), Tailwind CSS, date-fns (format), already in project.
+
+---
+
+### Task 1: Create component skeleton with KPI tiles
+
+**Files:**
+- Create: `src/components/DLightDirectorDashboard.jsx`
+
+- [ ] **Step 1: Create the file with KPI tile section only**
+
+```jsx
+import { useMemo } from 'react'
+import { format } from 'date-fns'
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+function KpiTile({ label, value, sub, valueColor = 'text-slate-800' }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">{label}</p>
+      <p className={`text-3xl font-extrabold leading-none ${valueColor}`}>{value}</p>
+      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+    </div>
+  )
+}
+
+export default function DLightDirectorDashboard({ visitors = [], team = [], subDepartments = [], tasks = [], loading = false, currentYear }) {
+  const now = new Date()
+  const currentMonth = now.getMonth() // 0-indexed
+
+  // KPI: visitors this year
+  const visitorsThisYear = useMemo(
+    () => visitors.filter((v) => (v.year || currentYear) === currentYear),
+    [visitors, currentYear]
+  )
+
+  // KPI: visitors previous year
+  const visitorsLastYear = useMemo(
+    () => visitors.filter((v) => (v.year || currentYear) === currentYear - 1),
+    [visitors, currentYear]
+  )
+
+  // KPI: visitors this month
+  const visitorsThisMonth = useMemo(
+    () => visitorsThisYear.filter((v) => {
+      if (!v.attendedDate) return false
+      return new Date(v.attendedDate).getMonth() === currentMonth
+    }),
+    [visitorsThisYear, currentMonth]
+  )
+
+  // KPI: active team
+  const activeTeam = useMemo(
+    () => team.filter((m) => m.status !== 'former'),
+    [team]
+  )
+
+  // KPI: tasks
+  const completedTasks = useMemo(() => tasks.filter((t) => t.status === 'Completed'), [tasks])
+  const openTasks = useMemo(() => tasks.filter((t) => t.status !== 'Completed'), [tasks])
+
+  const yoyDelta = visitorsThisYear.length - visitorsLastYear.length
+  const yoyLabel = yoyDelta === 0
+    ? 'same as last year'
+    : yoyDelta > 0
+      ? `↑ ${yoyDelta} more than ${currentYear - 1}`
+      : `↓ ${Math.abs(yoyDelta)} fewer than ${currentYear - 1}`
+
+  if (loading) {
+    return <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 shadow-sm">Loading dashboard…</div>
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KpiTile
+          label="Visitors This Year"
+          value={visitorsThisYear.length}
+          sub={yoyLabel}
+          valueColor={yoyDelta >= 0 ? 'text-indigo-600' : 'text-slate-800'}
+        />
+        <KpiTile
+          label="Team Members"
+          value={activeTeam.length}
+          sub={`Across ${subDepartments.length} sub-dept${subDepartments.length !== 1 ? 's' : ''}`}
+        />
+        <KpiTile
+          label="Open Tasks"
+          value={openTasks.length}
+          sub={`${completedTasks.length} completed`}
+          valueColor={openTasks.length > 0 ? 'text-amber-500' : 'text-emerald-600'}
+        />
+        <KpiTile
+          label={`This Month`}
+          value={visitorsThisMonth.length}
+          sub={`Visitors in ${MONTHS[currentMonth]} ${currentYear}`}
+          valueColor="text-emerald-600"
+        />
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: Verify build passes**
+
+```bash
+npx vite build --mode development 2>&1 | tail -5
+```
+
+Expected: `✓ built in` with no errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/components/DLightDirectorDashboard.jsx
+git commit -m "feat: add DLightDirectorDashboard skeleton with KPI tiles"
+```
+
+---
+
+### Task 2: Add visitor trend and year-on-year charts
+
+**Files:**
+- Modify: `src/components/DLightDirectorDashboard.jsx`
+
+- [ ] **Step 1: Add monthly trend and YoY data derivations inside the component (before the return statement), then add the chart section after the KPI row**
+
+Add these `useMemo` blocks after the existing ones:
+
+```jsx
+  // Monthly trend: 12 months for currentYear
+  const monthlyData = useMemo(() => {
+    const counts = Array(12).fill(0)
+    visitorsThisYear.forEach((v) => {
+      const d = v.attendedDate ? new Date(v.attendedDate) : null
+      if (d && !isNaN(d)) counts[d.getMonth()]++
+    })
+    return MONTHS.map((m, i) => ({ month: m, count: counts[i], future: i > currentMonth }))
+  }, [visitorsThisYear, currentMonth])
+
+  // YoY: jan–currentMonth comparison
+  const yoyData = useMemo(() => {
+    const curr = Array(currentMonth + 1).fill(0)
+    const prev = Array(currentMonth + 1).fill(0)
+    visitorsThisYear.forEach((v) => {
+      const d = v.attendedDate ? new Date(v.attendedDate) : null
+      if (d && !isNaN(d) && d.getMonth() <= currentMonth) curr[d.getMonth()]++
+    })
+    visitorsLastYear.forEach((v) => {
+      const d = v.attendedDate ? new Date(v.attendedDate) : null
+      if (d && !isNaN(d) && d.getMonth() <= currentMonth) prev[d.getMonth()]++
+    })
+    return MONTHS.slice(0, currentMonth + 1).map((m, i) => ({
+      month: m,
+      [currentYear]: curr[i],
+      [currentYear - 1]: prev[i],
+    }))
+  }, [visitorsThisYear, visitorsLastYear, currentMonth, currentYear])
+```
+
+Add the Recharts import at the top of the file:
+
+```jsx
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+```
+
+Replace the `{/* KPI Row */}` closing `</div>` section's sibling area — add this block after the KPI grid div and before the final closing `</div>` of the return:
+
+```jsx
+      {/* Charts Row 1: Monthly Trend + YoY */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        {/* Monthly trend — 2/3 width */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <p className="text-sm font-semibold text-slate-800 mb-3">Monthly Visitor Trend — {currentYear}</p>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={monthlyData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+              <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip
+                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                cursor={{ fill: '#f1f5f9' }}
+              />
+              <Bar dataKey="count" radius={[3, 3, 0, 0]} maxBarSize={32}>
+                {monthlyData.map((entry, i) => (
+                  <Cell key={i} fill={entry.future ? '#e2e8f0' : '#6366f1'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* YoY comparison — 1/3 width */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <p className="text-sm font-semibold text-slate-800 mb-1">Year-on-Year</p>
+          <p className="text-xs text-slate-400 mb-3">Jan – {MONTHS[currentMonth]}</p>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={yoyData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+              <XAxis dataKey="month" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip
+                contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                cursor={{ fill: '#f1f5f9' }}
+              />
+              <Bar dataKey={currentYear - 1} fill="#a5b4fc" radius={[3, 3, 0, 0]} maxBarSize={16} />
+              <Bar dataKey={currentYear} fill="#6366f1" radius={[3, 3, 0, 0]} maxBarSize={16} />
+            </BarChart>
+          </ResponsiveContainer>
+          {/* Legend */}
+          <div className="flex gap-3 mt-1 justify-center">
+            <span className="flex items-center gap-1 text-xs text-slate-500">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-indigo-300"></span>{currentYear - 1}
+            </span>
+            <span className="flex items-center gap-1 text-xs text-slate-500">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-indigo-600"></span>{currentYear}
+            </span>
+          </div>
+        </div>
+      </div>
+```
+
+- [ ] **Step 2: Verify build passes**
+
+```bash
+npx vite build --mode development 2>&1 | tail -5
+```
+
+Expected: `✓ built in` with no errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/components/DLightDirectorDashboard.jsx
+git commit -m "feat: add monthly trend and YoY visitor charts to dashboard"
+```
+
+---
+
+### Task 3: Add breakdown charts (source, service, tasks, team by sub-dept)
+
+**Files:**
+- Modify: `src/components/DLightDirectorDashboard.jsx`
+
+- [ ] **Step 1: Add a reusable `LegendBars` sub-component and four data derivations**
+
+Add this component above `KpiTile` (before the `export default` line):
+
+```jsx
+function LegendBars({ items, color = '#6366f1' }) {
+  const max = Math.max(...items.map((x) => x.count), 1)
+  return (
+    <div className="space-y-2">
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="text-xs text-slate-500 w-24 shrink-0 truncate" title={item.label}>{item.label}</span>
+          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${(item.count / max) * 100}%`, background: item.color || color }}
+            />
+          </div>
+          <span className="text-xs font-semibold text-slate-700 w-8 text-right">{item.pct}%</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+```
+
+Add a helper function above the component export (after `MONTHS`):
+
+```jsx
+function topGroups(items, keyFn, colors, maxItems = 4) {
+  const counts = {}
+  items.forEach((item) => {
+    const key = keyFn(item) || 'Unknown'
+    counts[key] = (counts[key] || 0) + 1
+  })
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  const top = sorted.slice(0, maxItems)
+  const otherCount = sorted.slice(maxItems).reduce((s, [, c]) => s + c, 0)
+  if (otherCount > 0) top.push(['Other', otherCount])
+  const total = Object.values(counts).reduce((s, c) => s + c, 0) || 1
+  return top.map(([label, count], i) => ({
+    label,
+    count,
+    pct: Math.round((count / total) * 100),
+    color: colors[i] || colors[colors.length - 1],
+  }))
+}
+```
+
+Add these four `useMemo` derivations inside the component body (after the existing ones):
+
+```jsx
+  const INDIGO_SHADES = ['#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#e0e7ff']
+  const GREEN_SHADES  = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0']
+  const AMBER_SHADES  = ['#f59e0b', '#fbbf24', '#fcd34d', '#fde68a']
+
+  const sourceData = useMemo(
+    () => topGroups(visitorsThisYear, (v) => v.source || v.howKnown, INDIGO_SHADES),
+    [visitorsThisYear]
+  )
+
+  const serviceData = useMemo(
+    () => topGroups(visitorsThisYear, (v) => v.serviceAttended, GREEN_SHADES),
+    [visitorsThisYear]
+  )
+
+  const taskData = useMemo(() => {
+    const total = tasks.length || 1
+    const comp = completedTasks.length
+    const open = openTasks.length
+    return [
+      { label: 'Completed', count: comp, pct: Math.round((comp / total) * 100), color: '#10b981' },
+      { label: 'Open',      count: open, pct: Math.round((open / total) * 100), color: '#f59e0b' },
+    ]
+  }, [tasks, completedTasks, openTasks])
+
+  const teamBySubDept = useMemo(
+    () => topGroups(
+      activeTeam,
+      (m) => {
+        if (Array.isArray(m.subDepartments) && m.subDepartments.length) return m.subDepartments[0]
+        return m.subDepartment || null
+      },
+      AMBER_SHADES
+    ),
+    [activeTeam]
+  )
+```
+
+Add the breakdown row to the JSX, after the charts row 1 block and before the closing `</div>` of the return:
+
+```jsx
+      {/* Charts Row 2: Source | Service | Tasks + Team */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <p className="text-sm font-semibold text-slate-800 mb-3">Visitor Source</p>
+          {sourceData.length === 0
+            ? <p className="text-xs text-slate-400">No data yet</p>
+            : <LegendBars items={sourceData} />}
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <p className="text-sm font-semibold text-slate-800 mb-3">Service Attended</p>
+          {serviceData.length === 0
+            ? <p className="text-xs text-slate-400">No data yet</p>
+            : <LegendBars items={serviceData} color="#10b981" />}
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4">
+          <div>
+            <p className="text-sm font-semibold text-slate-800 mb-3">Planning Tasks</p>
+            {tasks.length === 0
+              ? <p className="text-xs text-slate-400">No tasks</p>
+              : <LegendBars items={taskData} />}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-800 mb-3">Team by Sub-dept</p>
+            {teamBySubDept.length === 0
+              ? <p className="text-xs text-slate-400">No team data</p>
+              : <LegendBars items={teamBySubDept} color="#f59e0b" />}
+          </div>
+        </div>
+      </div>
+```
+
+- [ ] **Step 2: Verify build passes**
+
+```bash
+npx vite build --mode development 2>&1 | tail -5
+```
+
+Expected: `✓ built in` with no errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/components/DLightDirectorDashboard.jsx
+git commit -m "feat: add source, service, task, and team breakdown charts to dashboard"
+```
+
+---
+
+### Task 4: Add recent visitors table
+
+**Files:**
+- Modify: `src/components/DLightDirectorDashboard.jsx`
+
+- [ ] **Step 1: Add the recent visitors table at the bottom of the JSX return, after charts row 2 and before the closing `</div>`**
+
+```jsx
+      {/* Recent Visitors */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100">
+          <p className="text-sm font-semibold text-slate-800">Recent Visitors</p>
+        </div>
+        {visitorsThisYear.length === 0 ? (
+          <p className="px-4 py-6 text-xs text-slate-400 text-center">No visitors recorded for {currentYear} yet.</p>
+        ) : (
+          <>
+            {/* Mobile */}
+            <div className="sm:hidden divide-y divide-slate-100">
+              {visitorsThisYear.slice(0, 8).map((v) => (
+                <div key={v.id} className="px-4 py-3 space-y-0.5">
+                  <p className="text-sm font-semibold text-slate-800">{v.name || '—'}</p>
+                  <p className="text-xs text-slate-500">{[v.phone, v.serviceAttended].filter(Boolean).join(' · ')}</p>
+                  {v.attendedDate && (
+                    <p className="text-xs text-slate-400">
+                      {(() => { try { return format(new Date(v.attendedDate), 'd MMM yyyy') } catch { return v.attendedDate } })()}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            {/* Desktop */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    {['Name','Phone','Nativity','Service','How They Heard','Date'].map((h) => (
+                      <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {visitorsThisYear.slice(0, 8).map((v) => (
+                    <tr key={v.id} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2.5 font-medium text-slate-800">{v.name || '—'}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{v.phone || '—'}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{v.nativity || '—'}</td>
+                      <td className="px-4 py-2.5">
+                        {v.serviceAttended
+                          ? <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">{v.serviceAttended}</span>
+                          : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-600">{v.source || v.howKnown || '—'}</td>
+                      <td className="px-4 py-2.5 text-slate-500">
+                        {v.attendedDate
+                          ? (() => { try { return format(new Date(v.attendedDate), 'd MMM yyyy') } catch { return v.attendedDate } })()
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+```
+
+- [ ] **Step 2: Verify build passes**
+
+```bash
+npx vite build --mode development 2>&1 | tail -5
+```
+
+Expected: `✓ built in` with no errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/components/DLightDirectorDashboard.jsx
+git commit -m "feat: add recent visitors table to dashboard"
+```
+
+---
+
+### Task 5: Wire dashboard into DepartmentHub
+
+**Files:**
+- Modify: `src/pages/DepartmentHub.jsx`
+
+- [ ] **Step 1: Add import at the top of DepartmentHub.jsx, near the other component imports**
+
+Find this line (around line 73):
+
+```jsx
+import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
+```
+
+Add immediately after it:
+
+```jsx
+import DLightDirectorDashboard from '../components/DLightDirectorDashboard'
+```
+
+- [ ] **Step 2: Extend the visitor data load effect to also fire on the summary tab**
+
+Find this effect (around line 670):
+
+```jsx
+    if (slug === 'd-light' && activeTab === 'visitorEntry') {
+```
+
+Replace with:
+
+```jsx
+    if (slug === 'd-light' && (activeTab === 'visitorEntry' || (activeTab === 'summary' && canEditDelightVisitors))) {
+```
+
+- [ ] **Step 3: Extend the dlightSubDepts load effect to also fire on the summary tab**
+
+`dlightSubDepts` currently only loads when `activeTab === 'subDepartment'`. The Team by Sub-dept chart needs it on the summary tab too.
+
+Find this line (around line 711):
+
+```jsx
+    if (slug !== 'd-light' || activeTab !== 'subDepartment') return
+```
+
+Replace with:
+
+```jsx
+    if (slug !== 'd-light' || (activeTab !== 'subDepartment' && !(activeTab === 'summary' && canEditDelightVisitors))) return
+```
+
+- [ ] **Step 4: Replace the D Light placeholder with the dashboard component**
+
+Find this block:
+
+```jsx
+              ) : slug === 'd-light' ? (
+                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                  <h2 className="font-semibold text-slate-800 mb-2">D Light</h2>
+                  <p className="text-sm text-slate-600">
+                    Use the tabs above for Visitor Entry, Assign, Sub Department, Team, Planning, and Budget.
+                  </p>
+                </div>
+```
+
+Replace with:
+
+```jsx
+              ) : slug === 'd-light' ? (
+                canEditDelightVisitors ? (
+                  <DLightDirectorDashboard
+                    visitors={delightVisitors}
+                    team={team}
+                    subDepartments={dlightSubDepts}
+                    tasks={tasks}
+                    loading={loadingDelightVisitors}
+                    currentYear={VISITOR_CURRENT_YEAR}
+                  />
+                ) : (
+                  <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                    <h2 className="font-semibold text-slate-800 mb-2">D Light</h2>
+                    <p className="text-sm text-slate-600">
+                      Use the tabs above for Visitor Entry, Assign, Sub Department, Team, Planning, and Budget.
+                    </p>
+                  </div>
+                )
+```
+
+- [ ] **Step 5: Verify build passes**
+
+```bash
+npx vite build --mode development 2>&1 | tail -5
+```
+
+Expected: `✓ built in` with no errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/pages/DepartmentHub.jsx
+git commit -m "feat: wire DLightDirectorDashboard into summary tab"
+```
+
+---
+
+### Task 6: Visual verification
+
+**Files:** none
+
+- [ ] **Step 1: Start the dev server**
+
+```bash
+npx vite --port 5177
+```
+
+- [ ] **Step 2: Open the app and navigate to D Light → Summary tab**
+
+Log in as a user with the D Light director role. Confirm:
+- 4 KPI tiles render at the top
+- Monthly bar chart shows 12 months with future months greyed out
+- YoY grouped bar chart shows current vs previous year
+- Visitor source, service attended, task, and team breakdowns show legend bars
+- Recent visitors table shows up to 8 rows
+- Non-director user sees the original placeholder text, not the dashboard
+
+- [ ] **Step 3: Commit any visual fixes if needed, then final commit**
+
+```bash
+git add -p
+git commit -m "fix: visual polish on DLight director dashboard"
+```
