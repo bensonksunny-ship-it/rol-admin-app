@@ -134,17 +134,6 @@ export default function DepartmentTabBar({ slug, activeTab, setActiveTab, userPr
             </Link>
           )
         }
-        if (tab === 'dataBackup' && slug === 'd-light') {
-          return (
-            <Link
-              key={tab}
-              to="/department/d-light/members"
-              className={`${baseClass} ${activeTab === 'dataBackup' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'hover:bg-slate-100 hover:text-indigo-700'}`}
-            >
-              {label}
-            </Link>
-          )
-        }
         if (setActiveTab) {
           return (
             <button

@@ -14,7 +14,7 @@ export function getDepartmentHubTabs(slug) {
     case 'media':
       return ['summary', 'operations']
     case 'd-light':
-      return ['summary', 'visitorEntry', 'assign', 'subDepartment', 'team', 'planning', 'financial', 'dataBackup']
+      return ['summary', 'visitorEntry', 'assign', 'subDepartment', 'team', 'planning', 'financial']
     case 'event-m':
       return ['summary', 'events', 'liveControl', 'subDepartment', 'team', 'planning', 'financial']
     case 'river-kids':

@@ -2057,6 +2057,7 @@ export async function getDelightVisitors() {
       attendedDate: data.attendedDate || '',
       howKnown: data.howKnown || '',
       source: data.source || '',
+      year: data.year ? Number(data.year) : null,
       createdAt: toDate(data.createdAt),
       createdBy: data.createdBy || '',
     }
@@ -2076,6 +2077,7 @@ export async function addDelightVisitor(data) {
     attendedDate: data.attendedDate ? String(data.attendedDate).slice(0, 10) : '',
     howKnown: data.howKnown || '',
     source: data.source || '',
+    year: data.year || new Date().getFullYear(),
     createdAt: Timestamp.now(),
     createdBy: data.createdBy || 'unknown',
   })

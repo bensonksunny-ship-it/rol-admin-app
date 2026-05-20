@@ -116,6 +116,9 @@ async function mergeTasksEntriesTeam(canonicalName) {
   return { tasks, entries, team }
 }
 
+const VISITOR_START_YEAR = 2014
+const VISITOR_CURRENT_YEAR = new Date().getFullYear()
+
 export default function DepartmentHub() {
   const { slug } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -227,6 +230,8 @@ export default function DepartmentHub() {
   const [editingDelightVisitorId, setEditingDelightVisitorId] = useState(null)
   const [importingVisitors, setImportingVisitors] = useState(false)
   const [importVisitorResult, setImportVisitorResult] = useState(null)
+  const [visitorSubPage, setVisitorSubPage] = useState('current')
+  const [visitorPrevYear, setVisitorPrevYear] = useState(VISITOR_CURRENT_YEAR - 1)
   const [delightVisitorForm, setDelightVisitorForm] = useState({
     name: '',
     dob: '',
@@ -238,6 +243,7 @@ export default function DepartmentHub() {
     attendedDate: '',
     howKnown: '',
     source: '',
+    year: VISITOR_CURRENT_YEAR,
   })
   const [dlightSubDepts, setDlightSubDepts] = useState([])
   const [loadingDlightSubDepts, setLoadingDlightSubDepts] = useState(false)
@@ -817,6 +823,15 @@ export default function DepartmentHub() {
     (userProfile?.role === ROLES.ADMIN ||
       userProfile?.role === ROLES.MINISTRY_LEADER ||
       isDepartmentHead('D Light'))
+
+  const getVisitorYear = (v) =>
+    v.year || (v.attendedDate ? new Date(v.attendedDate).getFullYear() : VISITOR_CURRENT_YEAR)
+
+  const filteredDelightVisitors = delightVisitors.filter((v) =>
+    visitorSubPage === 'current'
+      ? getVisitorYear(v) === VISITOR_CURRENT_YEAR
+      : getVisitorYear(v) === visitorPrevYear
+  )
   const headLabel = userProfile?.department === department.name && isDepartmentHead(department.name)
     ? (userProfile?.role === ROLES.DIRECTOR ? 'Director' : 'Coordinator')
     : null
@@ -1185,6 +1200,34 @@ export default function DepartmentHub() {
                       {importVisitorResult.message}
                     </p>
                   )}
+                  {/* Year sub-nav */}
+                  <div className="flex items-center gap-1 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setVisitorSubPage('current')}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${visitorSubPage === 'current' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {VISITOR_CURRENT_YEAR}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisitorSubPage('previous')}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${visitorSubPage === 'previous' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      Previous Years
+                    </button>
+                    {visitorSubPage === 'previous' && (
+                      <select
+                        value={visitorPrevYear}
+                        onChange={(e) => setVisitorPrevYear(Number(e.target.value))}
+                        className="ml-2 text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-700 bg-white"
+                      >
+                        {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR }, (_, i) => VISITOR_CURRENT_YEAR - 1 - i).map((yr) => (
+                          <option key={yr} value={yr}>{yr}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 </div>
                 {canEditDelightVisitors && (
                   <div className="flex items-center gap-2">
@@ -1261,6 +1304,7 @@ export default function DepartmentHub() {
                                 attendedDate: get(row, dateIdx),
                                 howKnown: get(row, sourceIdx),
                                 source: get(row, sourceIdx),
+                                year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear,
                                 createdBy: userProfile?.email || 'import',
                               })
                               added++
@@ -1284,7 +1328,7 @@ export default function DepartmentHub() {
                       type="button"
                       onClick={() => {
                         setEditingDelightVisitorId(null)
-                        setDelightVisitorForm({ name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '', source: '' })
+                        setDelightVisitorForm({ name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '', source: '', year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear })
                         setDelightVisitorModalOpen(true)
                       }}
                       className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
@@ -1296,13 +1340,13 @@ export default function DepartmentHub() {
               </div>
               {loadingDelightVisitors ? (
                 <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
-              ) : delightVisitors.length === 0 ? (
+              ) : filteredDelightVisitors.length === 0 ? (
                 <div className="px-5 py-8 text-center text-slate-500">No visitor entries yet.</div>
               ) : (
                 <>
                   {/* Mobile cards */}
                   <div className="sm:hidden divide-y divide-slate-100">
-                    {delightVisitors.map((v) => (
+                    {filteredDelightVisitors.map((v) => (
                       <div key={v.id} className="p-4 space-y-1.5">
                         <div className="flex items-start justify-between gap-2">
                           <p className="font-semibold text-slate-800">{v.name || '—'}</p>
@@ -1318,7 +1362,7 @@ export default function DepartmentHub() {
                         {(v.source || v.howKnown) && <p className="text-xs text-slate-400">How: {v.source || v.howKnown}</p>}
                         {canEditDelightVisitors && (
                           <div className="flex gap-3 pt-1">
-                            <button type="button" onClick={() => { setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '' }); setDelightVisitorModalOpen(true) }} className="text-sm text-blue-600 font-medium hover:underline">Edit</button>
+                            <button type="button" onClick={() => { setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '', year: getVisitorYear(v) }); setDelightVisitorModalOpen(true) }} className="text-sm text-blue-600 font-medium hover:underline">Edit</button>
                             <button type="button" onClick={async () => { if (!window.confirm('Delete this visitor entry?')) return; try { await deleteDelightVisitor(v.id); setDelightVisitors((prev) => prev.filter((x) => x.id !== v.id)) } catch (err) { console.error(err); alert('Failed to delete') } }} className="text-sm text-red-500 hover:underline">Delete</button>
                           </div>
                         )}
@@ -1342,7 +1386,7 @@ export default function DepartmentHub() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {delightVisitors.map((v) => (
+                        {filteredDelightVisitors.map((v) => (
                           <tr key={v.id}>
                             <td className="px-4 py-3 text-slate-800">{v.name || '—'}</td>
                             <td className="px-4 py-3 text-slate-600">{v.phone || '—'}</td>
@@ -1354,7 +1398,7 @@ export default function DepartmentHub() {
                             <td className="px-4 py-3 text-slate-600">{v.source || v.howKnown || '—'}</td>
                             {canEditDelightVisitors && (
                               <td className="px-4 py-3 space-x-2">
-                                <button type="button" onClick={() => { setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '' }); setDelightVisitorModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
+                                <button type="button" onClick={() => { setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '', year: getVisitorYear(v) }); setDelightVisitorModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
                                 <button type="button" onClick={async () => { if (!window.confirm('Delete this visitor entry?')) return; try { await deleteDelightVisitor(v.id); setDelightVisitors((prev) => prev.filter((x) => x.id !== v.id)) } catch (err) { console.error(err); alert('Failed to delete') } }} className="text-red-600 hover:underline">Delete</button>
                               </td>
                             )}
