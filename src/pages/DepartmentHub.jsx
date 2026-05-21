@@ -71,6 +71,7 @@ import { formatDMY, formatDMYTime, parseDateToYYYYMMDD, formatDisplayDate } from
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
+import DLightDirectorDashboard from '../components/DLightDirectorDashboard'
 import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
 import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
@@ -670,7 +671,7 @@ export default function DepartmentHub() {
   }, [slug, activeTab, opsSubTab])
 
   useEffect(() => {
-    if (slug === 'd-light' && activeTab === 'visitorEntry') {
+    if (slug === 'd-light' && (activeTab === 'visitorEntry' || (activeTab === 'summary' && canEditDelightVisitors))) {
       setLoadingDelightVisitors(true)
       getDelightVisitors()
         .then(setDelightVisitors)
@@ -708,7 +709,7 @@ export default function DepartmentHub() {
   }, [slug, activeTab])
 
   useEffect(() => {
-    if (slug !== 'd-light' || activeTab !== 'subDepartment') return
+    if (slug !== 'd-light' || (activeTab !== 'subDepartment' && !(activeTab === 'summary' && canEditDelightVisitors))) return
     setLoadingDlightSubDepts(true)
     getDlightSubDepartments()
       .then(setDlightSubDepts)
@@ -975,12 +976,23 @@ export default function DepartmentHub() {
                   onChangeResolved={handleCellChangeResolved}
                 />
               ) : slug === 'd-light' ? (
-                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                  <h2 className="font-semibold text-slate-800 mb-2">D Light</h2>
-                  <p className="text-sm text-slate-600">
-                    Use the tabs above for Visitor Entry, Assign, Sub Department, Team, Planning, and Budget.
-                  </p>
-                </div>
+                canEditDelightVisitors ? (
+                  <DLightDirectorDashboard
+                    visitors={delightVisitors}
+                    team={team}
+                    subDepartments={dlightSubDepts}
+                    tasks={tasks}
+                    loading={loadingDelightVisitors}
+                    currentYear={VISITOR_CURRENT_YEAR}
+                  />
+                ) : (
+                  <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                    <h2 className="font-semibold text-slate-800 mb-2">D Light</h2>
+                    <p className="text-sm text-slate-600">
+                      Use the tabs above for Visitor Entry, Assign, Sub Department, Team, Planning, and Budget.
+                    </p>
+                  </div>
+                )
               ) : slug === 'sunday-ministry' ? (
                 <SundayPlanning />
               ) : slug === 'sec-core' ? (
