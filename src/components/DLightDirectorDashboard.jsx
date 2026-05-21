@@ -4,6 +4,42 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
+function topGroups(items, keyFn, colors, maxItems = 4) {
+  const counts = {}
+  items.forEach((item) => {
+    const key = keyFn(item) || 'Unknown'
+    counts[key] = (counts[key] || 0) + 1
+  })
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  const top = sorted.slice(0, maxItems)
+  const otherCount = sorted.slice(maxItems).reduce((s, [, c]) => s + c, 0)
+  if (otherCount > 0) top.push(['Other', otherCount])
+  const total = Object.values(counts).reduce((s, c) => s + c, 0) || 1
+  return top.map(([label, count], i) => ({
+    label,
+    count,
+    pct: Math.round((count / total) * 100),
+    color: colors[i] || colors[colors.length - 1],
+  }))
+}
+
+function LegendBars({ items }) {
+  const max = Math.max(...items.map((x) => x.count), 1)
+  return (
+    <div className="space-y-2">
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="text-xs text-slate-500 w-24 shrink-0 truncate" title={item.label}>{item.label}</span>
+          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${(item.count / max) * 100}%`, background: item.color }} />
+          </div>
+          <span className="text-xs font-semibold text-slate-700 w-8 text-right">{item.pct}%</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function KpiTile({ label, value, sub, valueColor = 'text-slate-800' }) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
@@ -70,6 +106,42 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
       [currentYear - 1]: prev[i],
     }))
   }, [visitorsThisYear, visitorsLastYear, currentMonth, currentYear])
+
+  const INDIGO_SHADES = ['#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#e0e7ff']
+  const GREEN_SHADES  = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0']
+  const AMBER_SHADES  = ['#f59e0b', '#fbbf24', '#fcd34d', '#fde68a']
+
+  const sourceData = useMemo(
+    () => topGroups(visitorsThisYear, (v) => v.source || v.howKnown, INDIGO_SHADES),
+    [visitorsThisYear]
+  )
+
+  const serviceData = useMemo(
+    () => topGroups(visitorsThisYear, (v) => v.serviceAttended, GREEN_SHADES),
+    [visitorsThisYear]
+  )
+
+  const taskData = useMemo(() => {
+    const total = tasks.length || 1
+    const comp = completedTasks.length
+    const open = openTasks.length
+    return [
+      { label: 'Completed', count: comp, pct: Math.round((comp / total) * 100), color: '#10b981' },
+      { label: 'Open',      count: open, pct: Math.round((open / total) * 100), color: '#f59e0b' },
+    ]
+  }, [tasks, completedTasks, openTasks])
+
+  const teamBySubDept = useMemo(
+    () => topGroups(
+      activeTeam,
+      (m) => {
+        if (Array.isArray(m.subDepartments) && m.subDepartments.length) return m.subDepartments[0]
+        return m.subDepartment || null
+      },
+      AMBER_SHADES
+    ),
+    [activeTeam]
+  )
 
   const yoyDelta = visitorsThisYear.length - visitorsLastYear.length
   const yoyLabel = yoyDelta === 0
@@ -148,6 +220,38 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
             <span className="flex items-center gap-1 text-xs text-slate-500">
               <span className="inline-block w-2.5 h-2.5 rounded-sm bg-indigo-600"></span>{currentYear}
             </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Row 2: Source | Service | Tasks + Team */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <p className="text-sm font-semibold text-slate-800 mb-3">Visitor Source</p>
+          {sourceData.length === 0
+            ? <p className="text-xs text-slate-400">No data yet</p>
+            : <LegendBars items={sourceData} />}
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <p className="text-sm font-semibold text-slate-800 mb-3">Service Attended</p>
+          {serviceData.length === 0
+            ? <p className="text-xs text-slate-400">No data yet</p>
+            : <LegendBars items={serviceData} />}
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4">
+          <div>
+            <p className="text-sm font-semibold text-slate-800 mb-3">Planning Tasks</p>
+            {tasks.length === 0
+              ? <p className="text-xs text-slate-400">No tasks</p>
+              : <LegendBars items={taskData} />}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-800 mb-3">Team by Sub-dept</p>
+            {teamBySubDept.length === 0
+              ? <p className="text-xs text-slate-400">No team data</p>
+              : <LegendBars items={teamBySubDept} />}
           </div>
         </div>
       </div>
