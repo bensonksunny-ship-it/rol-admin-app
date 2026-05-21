@@ -255,6 +255,65 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
           </div>
         </div>
       </div>
+
+      {/* Recent Visitors */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100">
+          <p className="text-sm font-semibold text-slate-800">Recent Visitors</p>
+        </div>
+        {visitorsThisYear.length === 0 ? (
+          <p className="px-4 py-6 text-xs text-slate-400 text-center">No visitors recorded for {currentYear} yet.</p>
+        ) : (
+          <>
+            {/* Mobile */}
+            <div className="sm:hidden divide-y divide-slate-100">
+              {visitorsThisYear.slice(0, 8).map((v) => (
+                <div key={v.id} className="px-4 py-3 space-y-0.5">
+                  <p className="text-sm font-semibold text-slate-800">{v.name || '—'}</p>
+                  <p className="text-xs text-slate-500">{[v.phone, v.serviceAttended].filter(Boolean).join(' · ')}</p>
+                  {v.attendedDate && (
+                    <p className="text-xs text-slate-400">
+                      {(() => { try { return format(new Date(v.attendedDate), 'd MMM yyyy') } catch { return v.attendedDate } })()}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            {/* Desktop */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    {['Name','Phone','Nativity','Service','How They Heard','Date'].map((h) => (
+                      <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {visitorsThisYear.slice(0, 8).map((v) => (
+                    <tr key={v.id} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2.5 font-medium text-slate-800">{v.name || '—'}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{v.phone || '—'}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{v.nativity || '—'}</td>
+                      <td className="px-4 py-2.5">
+                        {v.serviceAttended
+                          ? <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">{v.serviceAttended}</span>
+                          : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-600">{v.source || v.howKnown || '—'}</td>
+                      <td className="px-4 py-2.5 text-slate-500">
+                        {v.attendedDate
+                          ? (() => { try { return format(new Date(v.attendedDate), 'd MMM yyyy') } catch { return v.attendedDate } })()
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
