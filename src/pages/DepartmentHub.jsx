@@ -1336,6 +1336,25 @@ export default function DepartmentHub() {
                       />
                     </label>
 
+                    {filteredDelightVisitors.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const year = visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear
+                          if (!window.confirm(`Delete all ${filteredDelightVisitors.length} visitor entries for ${year}? This cannot be undone.`)) return
+                          try {
+                            await Promise.all(filteredDelightVisitors.map((v) => deleteDelightVisitor(v.id)))
+                            setDelightVisitors((prev) => prev.filter((v) => !filteredDelightVisitors.some((f) => f.id === v.id)))
+                          } catch (err) {
+                            console.error(err)
+                            alert('Failed to delete all visitors')
+                          }
+                        }}
+                        className="px-4 py-2 rounded-lg bg-red-50 text-red-600 border border-red-200 text-sm font-medium hover:bg-red-100"
+                      >
+                        Delete All
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {

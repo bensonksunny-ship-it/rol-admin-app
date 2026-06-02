@@ -8,7 +8,13 @@ import {
   getWorshipTeamMembers,
   addWorshipTeamMember,
   getWorshipScheduleByDate,
+  getAllWorshipSchedules,
+  updateWorshipScheduleById,
   setWorshipScheduleByDate,
+  getWorshipRehearsals,
+  addWorshipRehearsal,
+  updateWorshipRehearsal,
+  deleteWorshipRehearsal,
   updateWorshipTeamMember,
   deleteWorshipTeamMember,
   getWorshipBudgetItems,
@@ -22,7 +28,7 @@ import {
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
-import { format, subMonths, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
+import { format, subMonths, subDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 
@@ -182,6 +188,101 @@ function WorshipStamp({ stamp, isOpen, onToggle, onEdit }) {
   )
 }
 
+function ArchiveStamp({ stamp, isOpen, onToggle }) {
+  const assignedRoles = (stamp.assignments || []).filter((a) => a.memberId)
+  let formattedDate = stamp.date
+  try { formattedDate = format(new Date(stamp.date + 'T12:00:00'), 'EEE d MMM yyyy') } catch {}
+  let savedAt = ''
+  try {
+    const ts = stamp.updatedAt?.toDate ? stamp.updatedAt.toDate() : stamp.updatedAt ? new Date(stamp.updatedAt) : null
+    if (ts) savedAt = format(ts, 'd MMM yyyy, h:mm a')
+  } catch {}
+
+  const vocalAssignments = assignedRoles.filter((a) => a.role?.startsWith('Lead Vocal'))
+  const otherAssignments = assignedRoles.filter((a) => !a.role?.startsWith('Lead Vocal'))
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <CheckCircle2 size={17} className="text-emerald-500 flex-shrink-0" />
+          <span className="font-semibold text-slate-800 text-sm">{formattedDate}</span>
+          <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2 py-0.5 flex-shrink-0">Published</span>
+          {savedAt && <span className="text-xs text-slate-400 hidden sm:inline truncate">Saved {savedAt}</span>}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-xs text-slate-400">{assignedRoles.length} assigned</span>
+          <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
+            <ChevronDown size={16} className="text-slate-400" />
+          </motion.div>
+        </div>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            key="archive-body"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-5 pt-1 border-t border-slate-100">
+              {assignedRoles.length === 0 ? (
+                <p className="text-sm text-slate-400 italic py-3">No members assigned for this date.</p>
+              ) : (
+                <div className="space-y-4">
+                  {vocalAssignments.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Songs / Vocals</p>
+                      <div className="space-y-2">
+                        {vocalAssignments.map((a) => (
+                          <div key={a.role} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+                            <span className="text-slate-400 text-xs w-28 flex-shrink-0">{a.role}</span>
+                            <span className="font-medium text-slate-800">{a.memberName}</span>
+                            {a.songName && (
+                              <>
+                                <span className="text-slate-300">·</span>
+                                <span className="text-slate-600 italic">{a.songName}</span>
+                                {a.key && <span className="text-xs bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 font-medium">{a.key}</span>}
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {otherAssignments.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Team</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {otherAssignments.map((a) => (
+                          <div key={a.role} className="flex items-center gap-2 text-sm">
+                            <span className="text-slate-400 text-xs w-36 flex-shrink-0 truncate">{a.role}</span>
+                            <span className="font-medium text-slate-800">{a.memberName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {stamp.updatedBy && (
+                    <p className="text-xs text-slate-400">Saved by {stamp.updatedBy}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 function dedupeByName(members) {
   const seen = new Set()
   return members.filter(m => {
@@ -205,7 +306,7 @@ export default function DepartmentWorship() {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
-  const [operationsSubTab, setOperationsSubTab] = useState('subDepartment')
+  const [operationsSubTab, setOperationsSubTab] = useState('team')
   const [subDepartments, setSubDepartments] = useState([])
   const [subDeptLoading, setSubDeptLoading] = useState(false)
   const [subDeptError, setSubDeptError] = useState(null)
@@ -262,6 +363,19 @@ export default function DepartmentWorship() {
   const [savingAssign, setSavingAssign] = useState(false)
   const [assignStamp, setAssignStamp] = useState(null)
   const [stampOpen, setStampOpen] = useState(false)
+  const [archiveSchedules, setArchiveSchedules] = useState([])
+  const [loadingArchives, setLoadingArchives] = useState(false)
+  const [openArchiveIds, setOpenArchiveIds] = useState({})
+  const [rehearsals, setRehearsals] = useState([])
+  const [loadingRehearsals, setLoadingRehearsals] = useState(false)
+  const [rehearsalModalOpen, setRehearsalModalOpen] = useState(false)
+  const [editingRehearsal, setEditingRehearsal] = useState(null)
+  const [rehearsalForm, setRehearsalForm] = useState({ date: '', time: '', location: '', notes: '' })
+  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false)
+  const [openAttendanceId, setOpenAttendanceId] = useState(null)
+  const [attendanceDraft, setAttendanceDraft] = useState({})
+  const [weekBoxSchedules, setWeekBoxSchedules] = useState([])
+  const [loadingWeekBoxes, setLoadingWeekBoxes] = useState(false)
   const [budgetItemForm, setBudgetItemForm] = useState({
     category: '',
     subCategory: '',
@@ -356,6 +470,46 @@ export default function DepartmentWorship() {
   useEffect(() => {
     setLocalAssignments(scheduleForDate.assignments || [])
   }, [scheduleForDate])
+
+  useEffect(() => {
+    if (activeTab !== 'practiceRehearsal') return
+    setLoadingRehearsals(true)
+    getWorshipRehearsals(DEPARTMENT)
+      .then((list) => setRehearsals(list.sort((a, b) => (a.date || '').localeCompare(b.date || ''))))
+      .catch(() => setRehearsals([]))
+      .finally(() => setLoadingRehearsals(false))
+
+    setLoadingWeekBoxes(true)
+    getAllWorshipSchedules(DEPARTMENT)
+      .then((all) => {
+        const sundays = upcomingSundays(3)
+        const boxes = sundays.map((sundayDate) => {
+          const sundayObj = new Date(sundayDate + 'T12:00:00')
+          const fridayDate = format(subDays(sundayObj, 2), 'yyyy-MM-dd')
+          const saturdayDate = format(subDays(sundayObj, 1), 'yyyy-MM-dd')
+          const schedule = all.find((s) => s.date === sundayDate) || null
+          return { sundayDate, fridayDate, saturdayDate, schedule }
+        })
+        setWeekBoxSchedules(boxes)
+      })
+      .catch(() => setWeekBoxSchedules([]))
+      .finally(() => setLoadingWeekBoxes(false))
+  }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'archives') return
+    setLoadingArchives(true)
+    getAllWorshipSchedules(DEPARTMENT)
+      .then((all) => {
+        const today = format(new Date(), 'yyyy-MM-dd')
+        const past = all
+          .filter((s) => s.date && s.date < today && (s.assignments || []).some((a) => a.memberId))
+          .sort((a, b) => b.date.localeCompare(a.date))
+        setArchiveSchedules(past)
+      })
+      .catch(() => setArchiveSchedules([]))
+      .finally(() => setLoadingArchives(false))
+  }, [activeTab])
 
   function getLocalField(role, field) {
     const a = localAssignments.find((x) => x.role === role)
@@ -508,7 +662,7 @@ export default function DepartmentWorship() {
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-widest text-slate-400 shrink-0">Coming Sundays</span>
-              {upcomingSundays(5).map((d) => (
+              {upcomingSundays(2).map((d) => (
                 <button
                   key={d}
                   type="button"
@@ -562,14 +716,16 @@ export default function DepartmentWorship() {
 
           {loadingSchedule ? (
             <div className="py-12 text-center text-slate-400 text-sm">Loading plan…</div>
+          ) : savedAssignments.filter(a => a.memberId).length === 0 ? (
+            <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm px-6 py-10 text-center text-slate-400">
+              <p className="text-sm">No plan saved for this date yet.</p>
+              <p className="text-xs mt-1">Go to the <strong>Assign</strong> tab to set up and save a plan.</p>
+            </div>
           ) : (
             <>
               {/* Row 1: Period Summary */}
               <div>
-
-                {/* Period Summary card */}
                 <div className="relative bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md overflow-hidden p-5">
-                  {/* Official Plan watermark */}
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none opacity-[0.035] -rotate-12">
                     <span className="text-slate-900 font-black text-6xl tracking-widest uppercase whitespace-nowrap">Official Plan</span>
                   </div>
@@ -582,32 +738,32 @@ export default function DepartmentWorship() {
                         </h2>
                         <p className="text-sm text-slate-400 mt-0.5">Worship Department</p>
                       </div>
-                      <span className={`shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold ${
-                        savedAssignments.filter(a => a.memberId).length > 0
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                          : 'bg-slate-50 border-slate-200 text-slate-500'
-                      }`}>
+                      <span className="shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold bg-emerald-50 border-emerald-200 text-emerald-700">
                         <CheckCircle2 size={12} />
-                        {savedAssignments.filter(a => a.memberId).length > 0 ? 'Plan Ready' : 'Not Set'}
+                        Plan Ready
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-violet-50/70 rounded-xl p-3">
+                    <div className="flex flex-wrap gap-3">
+                      <div className="bg-violet-50/70 rounded-xl p-3 min-w-[100px]">
                         <p className="text-xs font-semibold text-violet-500">Assigned</p>
                         <p className="text-2xl font-bold text-violet-700 mt-0.5">{savedAssignments.filter(a => a.memberId).length}</p>
                         <p className="text-[10px] text-violet-400">of {ASSIGNMENT_ROLES.length} roles</p>
                       </div>
-                      <div className="bg-sky-50/70 rounded-xl p-3">
-                        <p className="text-xs font-semibold text-sky-500">Songs</p>
-                        <p className="text-2xl font-bold text-sky-700 mt-0.5">{setlistSongs.length}</p>
-                        <p className="text-[10px] text-sky-400">in setlist</p>
-                      </div>
-                      <div className="bg-amber-50/70 rounded-xl p-3">
-                        <p className="text-xs font-semibold text-amber-500">Structures</p>
-                        <p className="text-2xl font-bold text-amber-700 mt-0.5">{setlistSongs.filter(s => s.hasStructure).length}</p>
-                        <p className="text-[10px] text-amber-400">docs uploaded</p>
-                      </div>
-                      <div className="bg-emerald-50/70 rounded-xl p-3">
+                      {setlistSongs.length > 0 && (
+                        <div className="bg-sky-50/70 rounded-xl p-3 min-w-[100px]">
+                          <p className="text-xs font-semibold text-sky-500">Songs</p>
+                          <p className="text-2xl font-bold text-sky-700 mt-0.5">{setlistSongs.length}</p>
+                          <p className="text-[10px] text-sky-400">in setlist</p>
+                        </div>
+                      )}
+                      {setlistSongs.filter(s => s.hasStructure).length > 0 && (
+                        <div className="bg-amber-50/70 rounded-xl p-3 min-w-[100px]">
+                          <p className="text-xs font-semibold text-amber-500">Structures</p>
+                          <p className="text-2xl font-bold text-amber-700 mt-0.5">{setlistSongs.filter(s => s.hasStructure).length}</p>
+                          <p className="text-[10px] text-amber-400">docs uploaded</p>
+                        </div>
+                      )}
+                      <div className="bg-emerald-50/70 rounded-xl p-3 min-w-[100px]">
                         <p className="text-xs font-semibold text-emerald-500">Team Pool</p>
                         <p className="text-2xl font-bold text-emerald-700 mt-0.5">{activeMembers.length}</p>
                         <p className="text-[10px] text-emerald-400">active members</p>
@@ -615,7 +771,6 @@ export default function DepartmentWorship() {
                     </div>
                   </div>
                 </div>
-
               </div>
 
               {/* Row 2: Full Team Roster */}
@@ -624,81 +779,85 @@ export default function DepartmentWorship() {
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Full Team Roster</p>
                   <span className="text-xs text-slate-400">{savedAssignments.filter(a => a.memberId).length} confirmed</span>
                 </div>
-                {savedAssignments.filter(a => a.memberId).length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-6">No team assigned for this date. Set up in the Assign tab.</p>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-                    {savedAssignments.filter(a => a.memberId).map((a) => (
-                      <div key={a.role} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-50/80 border border-slate-100">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                          {a.memberName?.charAt(0)?.toUpperCase() || '?'}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-slate-800 truncate">{a.memberName}</p>
-                          <p className="text-[10px] text-slate-500 truncate">{a.role}</p>
-                        </div>
-                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+                  {savedAssignments.filter(a => a.memberId).map((a) => (
+                    <div key={a.role} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-50/80 border border-slate-100">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                        {a.memberName?.charAt(0)?.toUpperCase() || '?'}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-slate-800 truncate">{a.memberName}</p>
+                        <p className="text-[10px] text-slate-500 truncate">{a.role}</p>
+                      </div>
+                      <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Row 3: Setlist + Files & Contacts */}
               <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
-                {/* Music Setlist */}
-                <div className="lg:col-span-3 bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-5">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Music Setlist</p>
-                  {setlistSongs.length === 0 ? (
-                    <p className="text-sm text-slate-400 text-center py-6">No songs in setlist. Add song names in the Assign tab.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-slate-100 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                            <th className="pb-2 pr-3 w-8">#</th>
-                            <th className="pb-2 pr-3">Song Title</th>
-                            <th className="pb-2 pr-3 w-16">Key</th>
-                            <th className="pb-2 pr-3">Singer</th>
-                            <th className="pb-2 w-20 text-center">Structure</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {setlistSongs.map((song) => (
-                            <tr key={song.no} className="hover:bg-slate-50/60 transition">
-                              <td className="py-2.5 pr-3 text-slate-400 text-xs font-medium">{song.no}</td>
-                              <td className="py-2.5 pr-3 font-semibold text-slate-800">{song.title}</td>
-                              <td className="py-2.5 pr-3">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-violet-50 border border-violet-100 text-xs font-bold text-violet-700">
-                                  {song.key}
-                                </span>
-                              </td>
-                              <td className="py-2.5 pr-3 text-slate-500 text-xs">{song.singer}</td>
-                              <td className="py-2.5 text-center">
-                                {song.hasStructure ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const a = song._assignment
-                                      if (a?.structure) setStructureModal({ role: a.role, ...a.structure })
-                                    }}
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
-                                  >
-                                    <Download size={11} />
-                                    View
-                                  </button>
-                                ) : (
-                                  <span className="text-xs text-slate-300">—</span>
-                                )}
-                              </td>
+                {/* Music Setlist — only shown when there are songs */}
+                {setlistSongs.length > 0 && (() => {
+                  const hasKeys = setlistSongs.some(s => s.key && s.key !== '—')
+                  const hasStructures = setlistSongs.some(s => s.hasStructure)
+                  return (
+                    <div className="lg:col-span-3 bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-5">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Music Setlist</p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-100 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                              <th className="pb-2 pr-3 w-8">#</th>
+                              <th className="pb-2 pr-3">Song Title</th>
+                              {hasKeys && <th className="pb-2 pr-3 w-16">Key</th>}
+                              <th className="pb-2 pr-3">Singer</th>
+                              {hasStructures && <th className="pb-2 w-20 text-center">Structure</th>}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {setlistSongs.map((song) => (
+                              <tr key={song.no} className="hover:bg-slate-50/60 transition">
+                                <td className="py-2.5 pr-3 text-slate-400 text-xs font-medium">{song.no}</td>
+                                <td className="py-2.5 pr-3 font-semibold text-slate-800">{song.title}</td>
+                                {hasKeys && (
+                                  <td className="py-2.5 pr-3">
+                                    {song.key && song.key !== '—' ? (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-violet-50 border border-violet-100 text-xs font-bold text-violet-700">
+                                        {song.key}
+                                      </span>
+                                    ) : <span className="text-xs text-slate-300">—</span>}
+                                  </td>
+                                )}
+                                <td className="py-2.5 pr-3 text-slate-500 text-xs">{song.singer}</td>
+                                {hasStructures && (
+                                  <td className="py-2.5 text-center">
+                                    {song.hasStructure ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const a = song._assignment
+                                          if (a?.structure) setStructureModal({ role: a.role, ...a.structure })
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
+                                      >
+                                        <Download size={11} />
+                                        View
+                                      </button>
+                                    ) : (
+                                      <span className="text-xs text-slate-300">—</span>
+                                    )}
+                                  </td>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  )}
-                </div>
+                  )
+                })()}
 
                 {/* Files & Contacts column */}
                 <div className="lg:col-span-2 flex flex-col gap-4">
@@ -968,217 +1127,65 @@ export default function DepartmentWorship() {
 
       {activeTab === 'operations' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
-
-          <div className="flex overflow-x-auto scrollbar-hide border-b border-slate-200 gap-1">
-            {[
-              { key: 'subDepartment', label: 'Sub Department' },
-              { key: 'team', label: 'Team' },
-              { key: 'planning', label: 'Planning' },
-              { key: 'budget', label: 'Budget & Spending' },
-            ].map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setOperationsSubTab(key)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-                  operationsSubTab === key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-600 hover:text-indigo-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {operationsSubTab === 'subDepartment' && (
-            <div className="space-y-4">
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-semibold text-slate-800">Sub Departments</h2>
-                  {canManageWorship && (
-                    <button
-                      type="button"
-                      onClick={() => { setEditingSubDept(null); setSubDeptForm({ name: '' }); setSubDeptModalOpen(true) }}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
-                    >
-                      + Add
-                    </button>
-                  )}
-                </div>
-                {subDeptLoading ? (
-                  <div className="py-6 text-center text-slate-500">Loading...</div>
-                ) : subDeptError ? (
-                  <div className="py-6 text-center text-red-600">{subDeptError}</div>
-                ) : subDepartments.length === 0 ? (
-                  <div className="py-6 text-center text-slate-500">No sub departments yet.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {subDepartments.map((sd) => (
-                      <div key={sd.id} className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-slate-50 border border-slate-200">
-                        <span className="font-medium text-slate-800">{sd.name}</span>
-                        {canManageWorship && (
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => { setEditingSubDept(sd); setSubDeptForm({ name: sd.name || '' }); setSubDeptModalOpen(true) }}
-                              className="text-sm text-blue-600 hover:underline"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (!window.confirm('Delete this sub department?')) return
-                                try {
-                                  await deleteDepartmentSubDepartment(sd.id)
-                                  await loadSubDepartments()
-                                } catch (e) {
-                                  alert(e?.message || 'Failed to delete')
-                                }
-                              }}
-                              className="text-sm text-red-600 hover:underline"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+          {false && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-slate-800">Team members</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const XLSX = await import('xlsx')
+                    const rows = activeMembers.map((m, i) => {
+                      const since = m.memberSince ? new Date(m.memberSince) : null
+                      const now = new Date()
+                      const yrs = since ? differenceInYears(now, since) : ''
+                      const mos = since ? differenceInMonths(now, addYears(since, differenceInYears(now, since))) : ''
+                      const totalDays = since ? differenceInDays(now, since) : ''
+                      return {
+                        'SL': i + 1,
+                        'Name': m.name || '',
+                        'Member Since': m.memberSince || '',
+                        'Years': yrs,
+                        'Months': mos,
+                        'Total Days': totalDays,
+                        'Positions': (m.positions || []).join(', '),
+                        'Worship Director': m.isWorshipDirector ? 'Yes' : 'No',
+                      }
+                    })
+                    const ws = XLSX.utils.json_to_sheet(rows)
+                    const wb = XLSX.utils.book_new()
+                    XLSX.utils.book_append_sheet(wb, ws, 'Team Members')
+                    XLSX.writeFile(wb, `Worship_Team_Members_${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-medium hover:bg-emerald-100 transition-colors"
+                >
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" className="flex-shrink-0">
+                    <rect x="2" y="2" width="12" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                    <path d="M5 7h6M5 10h6M5 13h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+                    <path d="M15 11v5m-2-2l2 2 2-2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Export Excel
+                </button>
+                {canManageWorship && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewMember({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
+                      setAddMemberModalOpen(true)
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
+                  >
+                    <span className="text-lg leading-none">+</span>
+                    Add New Team Member
+                  </button>
                 )}
               </div>
-
-              {subDeptModalOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSubDeptModalOpen(false)}>
-                  <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
-                    <h3 className="font-semibold text-slate-800 mb-4">
-                      {editingSubDept ? 'Edit sub department' : 'Add sub department'}
-                    </h3>
-                    <form
-                      onSubmit={async (e) => {
-                        e.preventDefault()
-                        try {
-                          if (editingSubDept) {
-                            await updateDepartmentSubDepartment(editingSubDept.id, { name: subDeptForm.name.trim() })
-                          } else {
-                            await addDepartmentSubDepartment(DEPARTMENT, { name: subDeptForm.name.trim() }, userProfile?.email)
-                          }
-                          setSubDeptModalOpen(false)
-                          await loadSubDepartments()
-                        } catch (err) {
-                          alert(err?.message || 'Failed to save')
-                        }
-                      }}
-                      className="space-y-3"
-                    >
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
-                        <input
-                          type="text"
-                          value={subDeptForm.name}
-                          onChange={(e) => setSubDeptForm((f) => ({ ...f, name: e.target.value }))}
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                          required
-                        />
-                      </div>
-                      <div className="flex gap-3 pt-1">
-                        <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">
-                          {editingSubDept ? 'Save' : 'Add'}
-                        </button>
-                        <button type="button" onClick={() => setSubDeptModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100">Cancel</button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
             </div>
-          )}
-
-          {operationsSubTab === 'team' && (
-        <div className="space-y-6">
-          {canManageWorship && (
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <h3 className="font-semibold text-slate-800 mb-3">Add team member</h3>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault()
-                  if (!newMember.name.trim()) return
-                  try {
-                    await addWorshipTeamMember(
-                      DEPARTMENT,
-                      {
-                        name: newMember.name.trim(),
-                        memberSince: newMember.memberSince,
-                        isFormer: newMember.isFormer,
-                        positions: newMember.positions,
-                        isWorshipDirector: newMember.isWorshipDirector,
-                      },
-                      userProfile?.email
-                    )
-                    setNewMember({
-                      name: '',
-                      memberSince: new Date().toISOString().slice(0, 10),
-                      isFormer: false,
-                      positions: [],
-                      isWorshipDirector: false,
-                    })
-                    await loadTeam()
-                  } catch (err) {
-                    console.error(err)
-                    alert('Failed to add member')
-                  }
-                }}
-                className="flex flex-wrap gap-3 items-end"
-              >
-                <input type="text" placeholder="Name" value={newMember.name} onChange={(e) => setNewMember((m) => ({ ...m, name: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300 w-40" />
-                <input type="date" value={newMember.memberSince} onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300" />
-                <div className="flex flex-wrap gap-3 items-center text-sm text-slate-600">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={newMember.isFormer}
-                      onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))}
-                    />
-                    Former
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={newMember.isWorshipDirector}
-                      onChange={(e) => setNewMember((m) => ({ ...m, isWorshipDirector: e.target.checked }))}
-                    />
-                    Set as worship director
-                  </label>
-                </div>
-                <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-                  {MEMBER_POSITIONS.map((pos) => (
-                    <label key={pos} className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-50 border border-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={newMember.positions.includes(pos)}
-                        onChange={(e) =>
-                          setNewMember((m) => ({
-                            ...m,
-                            positions: e.target.checked
-                              ? [...m.positions, pos]
-                              : m.positions.filter((p) => p !== pos),
-                          }))
-                        }
-                      />
-                      <span>{pos}</span>
-                    </label>
-                  ))}
-                </div>
-                <button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 text-white font-medium hover:bg-slate-900">Add</button>
-              </form>
-              {activeMembers.length === 0 && (
-                <button type="button" onClick={seedDemoTeam} className="mt-3 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
-                  Add demo team (15 members)
-                </button>
-              )}
-            </div>
-          )}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Team members</h2>
             {loadingTeam ? (
               <div className="p-8 text-center text-slate-500">Loading...</div>
             ) : activeMembers.length === 0 ? (
@@ -1312,175 +1319,120 @@ export default function DepartmentWorship() {
         </div>
           )}
 
-          {operationsSubTab === 'planning' && (
-            <div className="space-y-6">
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-            <h2 className="font-semibold text-slate-800 mb-4">Add entry</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
-                <select
-                  value={form.type}
-                  onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                >
-                  <option value="team">Team planning</option>
-                  <option value="budget">Budget / money spent</option>
-                  <option value="participation">Participation (number of people)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Period (month)</label>
-                <input
-                  type="month"
-                  value={form.period}
-                  onChange={(e) => setForm((f) => ({ ...f, period: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                />
-              </div>
-              {form.type === 'team' && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Team / assignments notes</label>
-                  <textarea
-                    value={form.teamNotes}
-                    onChange={(e) => setForm((f) => ({ ...f, teamNotes: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                    rows={3}
-                    placeholder="e.g. Lead: John, Keys: Mary, Drums: ..."
-                  />
+
+          {false && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setAddMemberModalOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-lg font-semibold text-slate-800">Add New Team Member</h3>
+                  <button type="button" onClick={() => setAddMemberModalOpen(false)} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
                 </div>
-              )}
-              {form.type === 'budget' && (
-                <>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    if (!newMember.name.trim()) return
+                    try {
+                      await addWorshipTeamMember(
+                        DEPARTMENT,
+                        {
+                          name: newMember.name.trim(),
+                          memberSince: newMember.memberSince,
+                          isFormer: newMember.isFormer,
+                          positions: newMember.positions,
+                          isWorshipDirector: newMember.isWorshipDirector,
+                        },
+                        userProfile?.email
+                      )
+                      setNewMember({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
+                      setAddMemberModalOpen(false)
+                      await loadTeam()
+                    } catch (err) {
+                      console.error(err)
+                      alert('Failed to add member')
+                    }
+                  }}
+                  className="space-y-4"
+                >
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Planned budget (RM)</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Name <span className="text-red-400">*</span></label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.plannedBudget}
-                      onChange={(e) => setForm((f) => ({ ...f, plannedBudget: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      type="text"
+                      required
+                      placeholder="Full name"
+                      value={newMember.name}
+                      onChange={(e) => setNewMember((m) => ({ ...m, name: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Money spent (RM)</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Member since</label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.spent}
-                      onChange={(e) => setForm((f) => ({ ...f, spent: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                    />
-                  </div>
-                </>
-              )}
-              {form.type === 'participation' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Number of people participating</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={form.participantsCount}
-                      onChange={(e) => setForm((f) => ({ ...f, participantsCount: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      type="date"
+                      value={newMember.memberSince}
+                      onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Activity notes (optional)</label>
-                    <textarea
-                      value={form.activityNotes}
-                      onChange={(e) => setForm((f) => ({ ...f, activityNotes: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                      rows={2}
-                    />
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Positions</label>
+                    <div className="flex flex-wrap gap-2">
+                      {MEMBER_POSITIONS.map((pos) => (
+                        <label
+                          key={pos}
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs border cursor-pointer transition-colors ${
+                            newMember.positions.includes(pos)
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="hidden"
+                            checked={newMember.positions.includes(pos)}
+                            onChange={(e) =>
+                              setNewMember((m) => ({
+                                ...m,
+                                positions: e.target.checked
+                                  ? [...m.positions, pos]
+                                  : m.positions.filter((p) => p !== pos),
+                              }))
+                            }
+                          />
+                          {pos}
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </>
-              )}
-              <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700">
-                Save entry
-              </button>
-            </form>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Recent entries (your data → pastor sees this)</h2>
-            {loading ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
-            ) : entries.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">No entries yet.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Type</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Details</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {entries.slice(0, 20).map((e) => (
-                      <tr key={e.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-2 text-slate-800">{e.period}</td>
-                        <td className="px-4 py-2 text-slate-600 capitalize">{e.type}</td>
-                        <td className="px-4 py-2 text-slate-600">
-                          {e.type === 'team' && (e.data?.notes || '—')}
-                          {e.type === 'budget' && `Planned: ${e.data?.planned ?? 0} RM, Spent: ${e.data?.spent ?? 0} RM`}
-                          {e.type === 'participation' && `${e.data?.count ?? 0} people`}
-                        </td>
-                        <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newMember.isWorshipDirector}
+                        onChange={(e) => setNewMember((m) => ({ ...m, isWorshipDirector: e.target.checked }))}
+                        className="rounded"
+                      />
+                      Set as Worship Director
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newMember.isFormer}
+                        onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))}
+                        className="rounded"
+                      />
+                      Mark as Former Member
+                    </label>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button type="submit" className="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700">Add Member</button>
+                    <button type="button" onClick={() => setAddMemberModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50">Cancel</button>
+                  </div>
+                </form>
               </div>
-            )}
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">History (director entries)</h2>
-          {loading ? (
-            <div className="p-8 text-center text-slate-500">Loading...</div>
-          ) : entries.length === 0 ? (
-            <div className="p-8 text-center text-slate-500">No entries yet from the director.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
-                    <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Type</th>
-                    <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Details</th>
-                    <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {entries.map((e) => (
-                    <tr key={e.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-2 text-slate-800">{e.period}</td>
-                      <td className="px-4 py-2 text-slate-600 capitalize">{e.type}</td>
-                      <td className="px-4 py-2 text-slate-600">
-                        {e.type === 'team' && (e.data?.notes || '—')}
-                        {e.type === 'budget' && `Planned: ${e.data?.planned ?? 0} RM, Spent: ${e.data?.spent ?? 0} RM`}
-                        {e.type === 'participation' && `${e.data?.count ?? 0} people`}
-                      </td>
-                      <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
             </div>
           )}
 
-          {operationsSubTab === 'budget' && (
-        <div className="space-y-6">
+          <div className="space-y-6">
           {/* Detailed worship budget table (spreadsheet-style) */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4 gap-3">
@@ -1853,7 +1805,6 @@ export default function DepartmentWorship() {
             )}
           </div>
         </div>
-          )}
 
         </div>
       )}
@@ -1987,8 +1938,8 @@ export default function DepartmentWorship() {
                 onClick={async () => {
                   if (!confirm('Delete this member permanently?')) return
                   try {
-                    await deleteWorshipTeamMember(editMember.id)
-                    setAllMembers(prev => prev.filter(m => m.id !== editMember.id))
+                    await deleteWorshipTeamMember(editMember.id, { department: DEPARTMENT, name: editMember.name })
+                    setAllMembers(prev => prev.filter(m => m.name !== editMember.name))
                     setEditMember(null)
                   } catch (e) {
                     console.error(e)
@@ -2007,6 +1958,702 @@ export default function DepartmentWorship() {
         </div>
       )}
 
+
+      {/* ── The Team tab ── */}
+      {activeTab === 'theTeam' && (
+        <div className="space-y-6">
+
+          {/* Active members */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-slate-800">The Team</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const XLSX = await import('xlsx')
+                    const rows = activeMembers.map((m, i) => {
+                      const since = m.memberSince ? new Date(m.memberSince) : null
+                      const now = new Date()
+                      const yrs = since ? differenceInYears(now, since) : ''
+                      const mos = since ? differenceInMonths(now, addYears(since, differenceInYears(now, since))) : ''
+                      const totalDays = since ? differenceInDays(now, since) : ''
+                      return {
+                        'SL': i + 1, 'Name': m.name || '',
+                        'Member Since': m.memberSince || '',
+                        'Years': yrs, 'Months': mos, 'Total Days': totalDays,
+                        'Positions': (m.positions || []).join(', '),
+                        'Worship Director': m.isWorshipDirector ? 'Yes' : 'No',
+                      }
+                    })
+                    const ws = XLSX.utils.json_to_sheet(rows)
+                    const wb = XLSX.utils.book_new()
+                    XLSX.utils.book_append_sheet(wb, ws, 'The Team')
+                    XLSX.writeFile(wb, `Worship_Team_${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-medium hover:bg-emerald-100 transition-colors"
+                >
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" className="flex-shrink-0">
+                    <rect x="2" y="2" width="12" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                    <path d="M5 7h6M5 10h6M5 13h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+                    <path d="M15 11v5m-2-2l2 2 2-2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Export Excel
+                </button>
+                {canManageWorship && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewMember({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
+                      setAddMemberModalOpen(true)
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
+                  >
+                    <span className="text-lg leading-none">+</span>
+                    Add New Team Member
+                  </button>
+                )}
+              </div>
+            </div>
+            {loadingTeam ? (
+              <div className="p-8 text-center text-slate-500">Loading...</div>
+            ) : activeMembers.length === 0 ? (
+              <div className="p-8 text-center text-slate-500">No team members yet.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Positions</th>
+                      {canManageWorship && <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Action</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {activeMembers.map((m, i) => (
+                      <tr key={m.id} className={`hover:bg-slate-50 ${m.isWorshipDirector ? 'bg-amber-50/60' : ''}`}>
+                        <td className="px-4 py-2 text-slate-600">{i + 1}</td>
+                        <td className="px-4 py-2 font-medium text-slate-800">
+                          {m.name}
+                          {m.isWorshipDirector && (
+                            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] uppercase tracking-wide">Director</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
+                        <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
+                          {(() => {
+                            const since = new Date(m.memberSince)
+                            const now = new Date()
+                            const yrs = differenceInYears(now, since)
+                            const mos = differenceInMonths(now, addYears(since, yrs))
+                            const dys = differenceInDays(now, addMonths(addYears(since, yrs), mos))
+                            const total = differenceInDays(now, since)
+                            return (
+                              <span className="flex flex-col gap-0.5">
+                                <span className="flex items-center gap-1">
+                                  <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
+                                  <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
+                                  <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
+                                </span>
+                                <span className="text-xs text-slate-400">{total.toLocaleString()} days total</span>
+                              </span>
+                            )
+                          })()}
+                        </td>
+                        <td className="px-4 py-2 text-slate-600">
+                          {m.positions?.length
+                            ? <span className="text-xs text-slate-500">{m.positions.join(', ')}</span>
+                            : <span className="text-xs text-slate-300">—</span>}
+                        </td>
+                        {canManageWorship && (
+                          <td className="px-4 py-2">
+                            <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Former members */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Former members</h2>
+            {loadingTeam ? (
+              <div className="p-8 text-center text-slate-500">Loading...</div>
+            ) : formerMembers.length === 0 ? (
+              <div className="p-8 text-center text-slate-500">No former members.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Till</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Total days</th>
+                      {canManageWorship && <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Action</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {formerMembers.map((m, i) => {
+                      const since = new Date(m.memberSince)
+                      const till = m.formerSince ? new Date(m.formerSince) : new Date()
+                      const yrs = differenceInYears(till, since)
+                      const mos = differenceInMonths(till, addYears(since, yrs))
+                      const dys = differenceInDays(till, addMonths(addYears(since, yrs), mos))
+                      const totalDays = differenceInDays(till, since)
+                      return (
+                        <tr key={m.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-2 text-slate-600">{i + 1}</td>
+                          <td className="px-4 py-2 font-medium text-slate-800">{m.name}</td>
+                          <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
+                          <td className="px-4 py-2 text-slate-500 text-sm">{m.formerSince ? formatDMY(m.formerSince) : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
+                            <span className="flex items-center gap-1">
+                              <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
+                              <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
+                              <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-slate-500 text-sm font-medium">{totalDays.toLocaleString()} days</td>
+                          {canManageWorship && (
+                            <td className="px-4 py-2">
+                              <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
+                            </td>
+                          )}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Add member modal */}
+          {addMemberModalOpen && canManageWorship && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setAddMemberModalOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-lg font-semibold text-slate-800">Add New Team Member</h3>
+                  <button type="button" onClick={() => setAddMemberModalOpen(false)} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+                </div>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    if (!newMember.name.trim()) return
+                    try {
+                      await addWorshipTeamMember(DEPARTMENT, {
+                        name: newMember.name.trim(), memberSince: newMember.memberSince,
+                        isFormer: newMember.isFormer, positions: newMember.positions,
+                        isWorshipDirector: newMember.isWorshipDirector,
+                      }, userProfile?.email)
+                      setNewMember({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
+                      setAddMemberModalOpen(false)
+                      await loadTeam()
+                    } catch (err) { console.error(err); alert('Failed to add member') }
+                  }}
+                  className="space-y-4"
+                >
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Name <span className="text-red-400">*</span></label>
+                    <input type="text" required placeholder="Full name" value={newMember.name}
+                      onChange={(e) => setNewMember((m) => ({ ...m, name: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Member since</label>
+                    <input type="date" value={newMember.memberSince}
+                      onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Positions</label>
+                    <div className="flex flex-wrap gap-2">
+                      {MEMBER_POSITIONS.map((pos) => (
+                        <label key={pos} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs border cursor-pointer transition-colors ${newMember.positions.includes(pos) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
+                          <input type="checkbox" className="hidden" checked={newMember.positions.includes(pos)}
+                            onChange={(e) => setNewMember((m) => ({ ...m, positions: e.target.checked ? [...m.positions, pos] : m.positions.filter((p) => p !== pos) }))} />
+                          {pos}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                      <input type="checkbox" checked={newMember.isWorshipDirector} onChange={(e) => setNewMember((m) => ({ ...m, isWorshipDirector: e.target.checked }))} className="rounded" />
+                      Set as Worship Director
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                      <input type="checkbox" checked={newMember.isFormer} onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))} className="rounded" />
+                      Mark as Former Member
+                    </label>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button type="submit" className="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700">Add Member</button>
+                    <button type="button" onClick={() => setAddMemberModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* ── Practice & Rehearsals tab ── */}
+      {activeTab === 'practiceRehearsal' && (
+        <div className="space-y-6">
+          {/* ── 3-Sunday week boxes ── */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="font-semibold text-slate-800 text-base">Practice & Rehearsals</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Track Friday & Saturday attendance for each upcoming Sunday's team</p>
+              </div>
+              {canManageWorship && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingRehearsal(null)
+                    setRehearsalForm({ date: '', time: '', location: '', notes: '' })
+                    setRehearsalModalOpen(true)
+                  }}
+                  className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700"
+                >
+                  + Add Session
+                </button>
+              )}
+            </div>
+
+            {loadingWeekBoxes ? (
+              <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {weekBoxSchedules.map(({ sundayDate, fridayDate, saturdayDate, schedule }) => {
+                  const assignments = (schedule?.assignments || []).filter(a => a.memberId)
+                  const practiceAtt = schedule?.practiceAttendance || {}
+
+                  let fmtSunday = sundayDate
+                  try { fmtSunday = format(new Date(sundayDate + 'T12:00:00'), 'd MMM yyyy') } catch {}
+                  let fmtFriday = fridayDate
+                  try { fmtFriday = format(new Date(fridayDate + 'T12:00:00'), 'EEE d MMM') } catch {}
+                  let fmtSaturday = saturdayDate
+                  try { fmtSaturday = format(new Date(saturdayDate + 'T12:00:00'), 'EEE d MMM') } catch {}
+
+                  const arriveCount = (day) =>
+                    Object.values(practiceAtt[day] || {}).filter(v => v.arrivedAt).length
+
+                  const markArrived = async (day, a) => {
+                    const arrivedAt = format(new Date(), 'HH:mm')
+                    const updated = {
+                      ...practiceAtt,
+                      [day]: {
+                        ...(practiceAtt[day] || {}),
+                        [a.memberId]: { arrivedAt, memberName: a.memberName },
+                      },
+                    }
+                    await updateWorshipScheduleById(schedule.id, { practiceAttendance: updated })
+                    setWeekBoxSchedules(prev =>
+                      prev.map(w =>
+                        w.sundayDate === sundayDate
+                          ? { ...w, schedule: { ...w.schedule, practiceAttendance: updated } }
+                          : w
+                      )
+                    )
+                  }
+
+                  const renderDay = (day, fmtLabel) => {
+                    const dayAtt = practiceAtt[day] || {}
+                    return (
+                      <div className="px-4 py-3 border-t border-slate-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-slate-500">{fmtLabel}</p>
+                          {assignments.length > 0 && (
+                            <span className="text-xs text-violet-600 font-medium">
+                              {arriveCount(day)}/{assignments.length}
+                            </span>
+                          )}
+                        </div>
+                        {assignments.length === 0 ? (
+                          <p className="text-xs text-slate-300 italic">No team assigned</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {assignments.map(a => {
+                              const rec = dayAtt[a.memberId]
+                              return (
+                                <div key={a.memberId} className="flex items-center justify-between gap-2">
+                                  <span className={`text-xs truncate ${rec?.arrivedAt ? 'text-slate-800 font-medium' : 'text-slate-500'}`}>
+                                    {a.memberName}
+                                  </span>
+                                  {rec?.arrivedAt ? (
+                                    <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5 flex-shrink-0">
+                                      {rec.arrivedAt}
+                                    </span>
+                                  ) : canManageWorship ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => markArrived(day, a)}
+                                      className="text-xs text-violet-600 border border-violet-200 rounded-full px-2 py-0.5 hover:bg-violet-50 flex-shrink-0 transition-colors"
+                                    >
+                                      Arrived
+                                    </button>
+                                  ) : null}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div key={sundayDate} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                      <div className="bg-gradient-to-br from-violet-600 to-indigo-600 px-4 py-3">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Sunday Service</p>
+                        <p className="text-base font-bold text-white mt-0.5">{fmtSunday}</p>
+                        <p className="text-xs text-violet-200 mt-0.5">
+                          {assignments.length > 0 ? `${assignments.length} members assigned` : 'No team assigned yet'}
+                        </p>
+                      </div>
+                      <div className="flex-1">
+                        {renderDay('friday', fmtFriday)}
+                        {renderDay('saturday', fmtSaturday)}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ── Additional / custom sessions ── */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Custom Sessions</p>
+
+          {loadingRehearsals ? (
+            <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
+          ) : rehearsals.length === 0 ? (
+            <div className="py-10 text-center text-slate-400 text-sm">No rehearsals scheduled yet.</div>
+          ) : (() => {
+            const today = format(new Date(), 'yyyy-MM-dd')
+            const upcoming = rehearsals.filter(r => (r.date || '') >= today)
+            const past = rehearsals.filter(r => (r.date || '') < today)
+
+            const openAttendance = (r) => {
+              const draft = {}
+              activeMembers.forEach(m => {
+                const saved = r.attendance?.[m.id] || {}
+                draft[m.id] = { present: saved.present ?? false, arrivedAt: saved.arrivedAt ?? '', memberName: m.name }
+              })
+              setAttendanceDraft(draft)
+              setOpenAttendanceId(r.id)
+            }
+
+            const saveAttendance = async (rid) => {
+              await updateWorshipRehearsal(rid, { attendance: attendanceDraft })
+              setRehearsals(prev => prev.map(x => x.id === rid ? { ...x, attendance: { ...attendanceDraft } } : x))
+              setOpenAttendanceId(null)
+            }
+
+            const AttendancePanel = ({ r }) => {
+              const presentCount = Object.values(attendanceDraft).filter(v => v.present).length
+              return (
+                <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Attendance · {presentCount} of {activeMembers.length} present</p>
+                    <button type="button" onClick={() => setOpenAttendanceId(null)} className="text-xs text-slate-400 hover:text-slate-600">✕ Close</button>
+                  </div>
+                  <div className="space-y-2">
+                    {activeMembers.map(m => {
+                      const entry = attendanceDraft[m.id] || { present: false, arrivedAt: '' }
+                      return (
+                        <div key={m.id} className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            id={`att-${r.id}-${m.id}`}
+                            checked={entry.present}
+                            onChange={e => setAttendanceDraft(d => ({ ...d, [m.id]: { ...d[m.id], present: e.target.checked, memberName: m.name } }))}
+                            className="w-4 h-4 rounded accent-violet-600 flex-shrink-0"
+                          />
+                          <label htmlFor={`att-${r.id}-${m.id}`} className={`text-sm flex-1 cursor-pointer ${entry.present ? 'font-medium text-slate-800' : 'text-slate-500'}`}>
+                            {m.name}
+                            {m.isWorshipDirector && <span className="ml-1.5 text-[10px] text-amber-600 font-semibold">Director</span>}
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-slate-400">Arrived</span>
+                            <input
+                              type="time"
+                              value={entry.arrivedAt}
+                              disabled={!entry.present}
+                              onChange={e => setAttendanceDraft(d => ({ ...d, [m.id]: { ...d[m.id], arrivedAt: e.target.value } }))}
+                              className="px-2 py-1 text-xs rounded border border-slate-300 disabled:opacity-30 disabled:cursor-not-allowed w-24"
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {canManageWorship && (
+                    <button
+                      type="button"
+                      onClick={() => saveAttendance(r.id)}
+                      className="w-full py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700"
+                    >
+                      Save Attendance
+                    </button>
+                  )}
+                </div>
+              )
+            }
+
+            const attendanceSummary = (r) => {
+              if (!r.attendance) return null
+              const present = Object.values(r.attendance).filter(v => v.present).length
+              const total = Object.keys(r.attendance).length
+              if (!total) return null
+              return <span className="text-xs bg-violet-50 text-violet-700 border border-violet-100 rounded-full px-2 py-0.5">{present}/{total} present</span>
+            }
+
+            return (
+              <div className="space-y-6">
+                {upcoming.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Upcoming</p>
+                    <div className="space-y-3">
+                      {upcoming.map((r) => {
+                        let fmtDate = r.date
+                        try { fmtDate = format(new Date(r.date + 'T12:00:00'), 'EEE, d MMM yyyy') } catch {}
+                        const isAttendanceOpen = openAttendanceId === r.id
+                        return (
+                          <div key={r.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                            <div className="flex flex-wrap items-start gap-4">
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-slate-800">{fmtDate}</span>
+                                  {r.time && <span className="text-xs bg-violet-50 text-violet-700 border border-violet-100 rounded-full px-2 py-0.5 font-medium">{r.time}</span>}
+                                  {r.done && <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2 py-0.5 font-medium">Done</span>}
+                                  {attendanceSummary(r)}
+                                </div>
+                                {r.location && <p className="text-xs text-slate-500">📍 {r.location}</p>}
+                                {r.notes && <p className="text-sm text-slate-600 mt-1">{r.notes}</p>}
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => isAttendanceOpen ? setOpenAttendanceId(null) : openAttendance(r)}
+                                  className={`text-xs border rounded-lg px-2 py-1 transition-colors ${isAttendanceOpen ? 'bg-violet-600 text-white border-violet-600' : 'text-violet-600 border-violet-200 hover:bg-violet-50'}`}
+                                >
+                                  {isAttendanceOpen ? 'Close' : 'Attendance'}
+                                </button>
+                                {canManageWorship && (
+                                  <>
+                                    {!r.done && (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          await updateWorshipRehearsal(r.id, { done: true })
+                                          setRehearsals(prev => prev.map(x => x.id === r.id ? { ...x, done: true } : x))
+                                        }}
+                                        className="text-xs text-emerald-600 border border-emerald-200 rounded-lg px-2 py-1 hover:bg-emerald-50"
+                                      >
+                                        Mark done
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingRehearsal(r)
+                                        setRehearsalForm({ date: r.date || '', time: r.time || '', location: r.location || '', notes: r.notes || '' })
+                                        setRehearsalModalOpen(true)
+                                      }}
+                                      className="text-xs text-slate-500 border border-slate-200 rounded-lg px-2 py-1 hover:bg-slate-50"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (!window.confirm('Delete this rehearsal?')) return
+                                        await deleteWorshipRehearsal(r.id)
+                                        setRehearsals(prev => prev.filter(x => x.id !== r.id))
+                                      }}
+                                      className="text-xs text-red-500 border border-red-100 rounded-lg px-2 py-1 hover:bg-red-50"
+                                    >
+                                      Delete
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            {isAttendanceOpen && <AttendancePanel r={r} />}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {past.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Past Sessions</p>
+                    <div className="space-y-2">
+                      {[...past].reverse().map((r) => {
+                        let fmtDate = r.date
+                        try { fmtDate = format(new Date(r.date + 'T12:00:00'), 'EEE, d MMM yyyy') } catch {}
+                        const isAttendanceOpen = openAttendanceId === r.id
+                        return (
+                          <div key={r.id} className="bg-slate-50 rounded-xl border border-slate-100 px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-sm font-medium text-slate-600">{fmtDate}</span>
+                                  {r.time && <span className="text-xs text-slate-400">{r.time}</span>}
+                                  {r.location && <span className="text-xs text-slate-400">· {r.location}</span>}
+                                  {r.done && <span className="text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-2 py-0.5">Done</span>}
+                                  {attendanceSummary(r)}
+                                </div>
+                                {r.notes && <p className="text-xs text-slate-400 mt-0.5 truncate">{r.notes}</p>}
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => isAttendanceOpen ? setOpenAttendanceId(null) : openAttendance(r)}
+                                  className={`text-xs border rounded-lg px-2 py-1 transition-colors ${isAttendanceOpen ? 'bg-violet-600 text-white border-violet-600' : 'text-violet-600 border-violet-200 hover:bg-violet-50'}`}
+                                >
+                                  {isAttendanceOpen ? 'Close' : 'Attendance'}
+                                </button>
+                                {canManageWorship && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!window.confirm('Delete this rehearsal?')) return
+                                      await deleteWorshipRehearsal(r.id)
+                                      setRehearsals(prev => prev.filter(x => x.id !== r.id))
+                                    }}
+                                    className="text-xs text-red-400 hover:text-red-600"
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {isAttendanceOpen && <AttendancePanel r={r} />}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {rehearsalModalOpen && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setRehearsalModalOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
+                <h3 className="font-semibold text-slate-800 mb-4">{editingRehearsal ? 'Edit Session' : 'Add Practice Session'}</h3>
+                <form
+                  className="space-y-3"
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    try {
+                      if (editingRehearsal) {
+                        await updateWorshipRehearsal(editingRehearsal.id, rehearsalForm)
+                        setRehearsals(prev => prev.map(x => x.id === editingRehearsal.id ? { ...x, ...rehearsalForm } : x).sort((a, b) => (a.date || '').localeCompare(b.date || '')))
+                      } else {
+                        const id = await addWorshipRehearsal(DEPARTMENT, rehearsalForm, userProfile?.email)
+                        setRehearsals(prev => [...prev, { id, department: DEPARTMENT, ...rehearsalForm }].sort((a, b) => (a.date || '').localeCompare(b.date || '')))
+                      }
+                      setRehearsalModalOpen(false)
+                    } catch (err) {
+                      console.error(err)
+                      alert('Failed to save')
+                    }
+                  }}
+                >
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Date <span className="text-red-400">*</span></label>
+                    <input type="date" required value={rehearsalForm.date} onChange={e => setRehearsalForm(f => ({ ...f, date: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Time</label>
+                    <input type="time" value={rehearsalForm.time} onChange={e => setRehearsalForm(f => ({ ...f, time: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Location</label>
+                    <input type="text" placeholder="e.g. Main Hall" value={rehearsalForm.location} onChange={e => setRehearsalForm(f => ({ ...f, location: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
+                    <textarea rows={3} placeholder="What to focus on, songs to practice…" value={rehearsalForm.notes} onChange={e => setRehearsalForm(f => ({ ...f, notes: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button type="submit" className="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700">{editingRehearsal ? 'Save' : 'Add'}</button>
+                    <button type="button" onClick={() => setRehearsalModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+          </div>{/* end Custom Sessions */}
+        </div>
+      )}
+
+      {/* ── Archives tab ── */}
+      {activeTab === 'archives' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold text-slate-800 text-base">Worship Archives</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Past published team stamps, newest first</p>
+            </div>
+            {!loadingArchives && archiveSchedules.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const allOpen = archiveSchedules.every((s) => openArchiveIds[s.id])
+                  const next = {}
+                  if (!allOpen) archiveSchedules.forEach((s) => { next[s.id] = true })
+                  setOpenArchiveIds(next)
+                }}
+                className="text-xs text-slate-500 hover:text-indigo-600 underline"
+              >
+                {archiveSchedules.every((s) => openArchiveIds[s.id]) ? 'Collapse all' : 'Expand all'}
+              </button>
+            )}
+          </div>
+
+          {loadingArchives ? (
+            <div className="py-10 text-center text-slate-400 text-sm">Loading archives…</div>
+          ) : archiveSchedules.length === 0 ? (
+            <div className="py-10 text-center text-slate-400 text-sm">No published worship stamps found for past weeks.</div>
+          ) : (
+            <div className="space-y-2">
+              {archiveSchedules.map((stamp) => (
+                <ArchiveStamp
+                  key={stamp.id}
+                  stamp={stamp}
+                  isOpen={!!openArchiveIds[stamp.id]}
+                  onToggle={() => setOpenArchiveIds((prev) => ({ ...prev, [stamp.id]: !prev[stamp.id] }))}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       </div>
     </div>

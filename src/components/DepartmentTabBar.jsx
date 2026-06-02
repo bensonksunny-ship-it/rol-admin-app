@@ -42,6 +42,12 @@ function getTabLabel(tab) {
       return 'Sub Department'
     case 'assign':
       return 'Assign'
+    case 'theTeam':
+      return 'The Team'
+    case 'practiceRehearsal':
+      return 'Practice & Rehearsals'
+    case 'archives':
+      return 'Archives'
     case 'budget':
       return 'Budget & Spending'
     case 'history':

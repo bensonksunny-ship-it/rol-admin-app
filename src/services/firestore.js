@@ -408,9 +408,22 @@ export async function updateWorshipTeamMember(id, data) {
   await updateDoc(doc(db, 'worship_team_members', id), data)
 }
 
-export async function deleteWorshipTeamMember(id) {
+export async function deleteWorshipTeamMember(id, { department, name } = {}) {
   if (!db) return
-  await deleteDoc(doc(db, 'worship_team_members', id))
+  if (department && name) {
+    // Batch-delete all docs with this name to eliminate silent duplicates
+    const q = query(
+      collection(db, 'worship_team_members'),
+      where('department', '==', department),
+      where('name', '==', name)
+    )
+    const snap = await getDocs(q)
+    const batch = writeBatch(db)
+    snap.docs.forEach(d => batch.delete(d.ref))
+    await batch.commit()
+  } else {
+    await deleteDoc(doc(db, 'worship_team_members', id))
+  }
 }
 
 // Generic department team members (for all other departments)
@@ -692,6 +705,18 @@ export async function deleteDepartmentEvent(id) {
 }
 
 // Worship schedule by date: one doc per date, assignments = [{ role, memberId, memberName }]
+export async function updateWorshipScheduleById(id, data) {
+  if (!db || !id) return
+  await updateDoc(doc(db, 'worship_schedule', id), data)
+}
+
+export async function getAllWorshipSchedules(department) {
+  if (!db) return []
+  const q = query(collection(db, 'worship_schedule'), where('department', '==', department))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
 export async function getWorshipScheduleByDate(department, date) {
   if (!db) return { date, assignments: [] }
   const q = query(
@@ -701,6 +726,34 @@ export async function getWorshipScheduleByDate(department, date) {
   const snap = await getDocs(q)
   const d = snap.docs.find((doc) => doc.data().date === date)
   return d ? { id: d.id, ...d.data() } : { date, assignments: [], songs: [] }
+}
+
+// Worship rehearsals
+const WORSHIP_REHEARSALS_COLLECTION = 'worship_rehearsals'
+
+export async function getWorshipRehearsals(department) {
+  if (!db) return []
+  const q = query(collection(db, WORSHIP_REHEARSALS_COLLECTION), where('department', '==', department))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+export async function addWorshipRehearsal(department, data, createdBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, WORSHIP_REHEARSALS_COLLECTION), {
+    department, ...data, createdBy, createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateWorshipRehearsal(id, data) {
+  if (!db || !id) return
+  await updateDoc(doc(db, WORSHIP_REHEARSALS_COLLECTION, id), data)
+}
+
+export async function deleteWorshipRehearsal(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, WORSHIP_REHEARSALS_COLLECTION, id))
 }
 
 export async function setWorshipScheduleByDate(department, date, assignments, updatedBy, extra = {}) {

@@ -165,7 +165,7 @@ export default function Dashboard() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1e293b', letterSpacing: '-0.02em' }}>
-          Dashboard
+          Eden Garden
         </h1>
         <p className="text-sm mt-0.5" style={{ color: '#64748b' }}>Church operations at a glance</p>
       </div>
