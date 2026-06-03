@@ -828,11 +828,17 @@ export default function DepartmentHub() {
   const getVisitorYear = (v) =>
     v.year || (v.attendedDate ? new Date(v.attendedDate).getFullYear() : VISITOR_CURRENT_YEAR)
 
-  const filteredDelightVisitors = delightVisitors.filter((v) =>
-    visitorSubPage === 'current'
-      ? getVisitorYear(v) === VISITOR_CURRENT_YEAR
-      : getVisitorYear(v) === visitorPrevYear
-  )
+  const filteredDelightVisitors = delightVisitors
+    .filter((v) =>
+      visitorSubPage === 'current'
+        ? getVisitorYear(v) === VISITOR_CURRENT_YEAR
+        : getVisitorYear(v) === visitorPrevYear
+    )
+    .sort((a, b) => {
+      const da = a.attendedDate ? new Date(a.attendedDate).getTime() : 0
+      const db = b.attendedDate ? new Date(b.attendedDate).getTime() : 0
+      return da - db
+    })
   const headLabel = userProfile?.department === department.name && isDepartmentHead(department.name)
     ? (userProfile?.role === ROLES.DIRECTOR ? 'Director' : 'Coordinator')
     : null
@@ -1290,23 +1296,44 @@ export default function DepartmentHub() {
                               const wb = XLSX.read(data, { type: 'array', cellDates: true })
                               rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 })
                             }
-                            const headers = (rows[0] || []).map((h) => String(h || '').toLowerCase().trim())
-                            const col = (keywords) => headers.findIndex((h) => keywords.some((k) => h.includes(k)))
-                            const nameIdx    = col(['name'])
-                            const dobIdx     = col(['date of birth', 'dob', 'birth'])
-                            const phoneIdx   = col(['phone', 'mobile', 'contact', 'ph'])
-                            const emailIdx   = col(['email'])
-                            const natIdx     = col(['nativity', 'nativ', 'native'])
-                            const placeIdx   = col(['current place', 'place', 'location', 'address'])
-                            const serviceIdx = col(['service attended', 'service'])
-                            const dateIdx    = col(['date of attend', 'attended date', 'attending'])
-                            const sourceIdx  = col(['how', 'source', 'known'])
-                            const get = (row, idx) => idx >= 0 ? String(row[idx] ?? '').trim() : ''
+                            const firstRowCells = (rows[0] || []).map((h) => String(h || '').toLowerCase().trim())
+                            const HEADER_KEYWORDS = ['name', 'email', 'phone', 'dob', 'nativity', 'service', 'date', 'birth', 'mobile']
+                            const looksLikeHeader = firstRowCells.some((h) => HEADER_KEYWORDS.some((k) => h.includes(k)))
+                            let nameIdx, dobIdx, phoneIdx, emailIdx, natIdx, placeIdx, serviceIdx, dateIdx, sourceIdx, startRow
+                            if (looksLikeHeader) {
+                              const col = (keywords) => firstRowCells.findIndex((h) => keywords.some((k) => h.includes(k)))
+                              nameIdx    = col(['name'])
+                              dobIdx     = col(['date of birth', 'dob', 'birth'])
+                              phoneIdx   = col(['phone', 'mobile', 'contact', 'ph'])
+                              emailIdx   = col(['email'])
+                              natIdx     = col(['nativity', 'nativ', 'native', 'state'])
+                              placeIdx   = col(['current place', 'place', 'location', 'address'])
+                              serviceIdx = col(['service attended', 'service'])
+                              dateIdx    = col(['date of attend', 'attended date', 'attending'])
+                              sourceIdx  = col(['how', 'source', 'known'])
+                              startRow   = 1
+                            } else {
+                              // Positional: detect optional leading serial-number column
+                              const firstDataCell = String((rows[0] || [])[0] ?? '').trim()
+                              const off = /^\d+$/.test(firstDataCell) ? 1 : 0
+                              nameIdx    = 0 + off
+                              dobIdx     = 1 + off
+                              phoneIdx   = 2 + off
+                              emailIdx   = 3 + off
+                              natIdx     = 4 + off
+                              placeIdx   = 5 + off
+                              serviceIdx = 6 + off
+                              dateIdx    = 7 + off
+                              sourceIdx  = 8 + off
+                              startRow   = 0
+                            }
+                            const na = (v) => (!v || /^na$/i.test(v.trim()) || v.trim() === 'N/A') ? '' : v.trim()
+                            const get = (row, idx) => na(String(row[idx] ?? ''))
                             const getDate = (row, idx) => idx >= 0 ? parseDateToYYYYMMDD(row[idx]) : ''
                             let added = 0, skipped = 0
-                            for (let i = 1; i < rows.length; i++) {
+                            for (let i = startRow; i < rows.length; i++) {
                               const row = rows[i] || []
-                              const name = nameIdx >= 0 ? get(row, nameIdx) : String(row[0] ?? '').trim()
+                              const name = na(String(row[nameIdx] ?? ''))
                               if (!name) { skipped++; continue }
                               await addDelightVisitor({
                                 name,

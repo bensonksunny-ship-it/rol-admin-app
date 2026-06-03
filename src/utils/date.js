@@ -24,8 +24,16 @@ export function parseDateToYYYYMMDD(value) {
     return isValid(d) ? format(d, 'yyyy-MM-dd') : ''
   }
   const s = String(value).trim()
-  if (!s) return ''
-  const d = new Date(s)
+  if (!s || /^na$/i.test(s)) return ''
+  // Normalise spaces around separators: "27/ 05/ 1989" → "27/05/1989"
+  const norm = s.replace(/\s*([\/\-])\s*/g, '$1')
+  // DD-MM-YYYY or DD/MM/YYYY (common Indian format)
+  const dmy = norm.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  if (dmy) {
+    const d = new Date(`${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`)
+    if (isValid(d)) return format(d, 'yyyy-MM-dd')
+  }
+  const d = new Date(norm)
   return isValid(d) ? format(d, 'yyyy-MM-dd') : ''
 }
 
