@@ -1293,14 +1293,16 @@ export default function DepartmentHub() {
                             const headers = (rows[0] || []).map((h) => String(h || '').toLowerCase().trim())
                             const col = (keywords) => headers.findIndex((h) => keywords.some((k) => h.includes(k)))
                             const nameIdx    = col(['name'])
-                            const phoneIdx   = col(['phone', 'mobile', 'contact'])
+                            const dobIdx     = col(['date of birth', 'dob', 'birth'])
+                            const phoneIdx   = col(['phone', 'mobile', 'contact', 'ph'])
                             const emailIdx   = col(['email'])
                             const natIdx     = col(['nativity', 'nativ', 'native'])
                             const placeIdx   = col(['current place', 'place', 'location', 'address'])
                             const serviceIdx = col(['service attended', 'service'])
-                            const dateIdx    = col(['date of attend', 'attended date', 'date'])
+                            const dateIdx    = col(['date of attend', 'attended date', 'attending'])
                             const sourceIdx  = col(['how', 'source', 'known'])
                             const get = (row, idx) => idx >= 0 ? String(row[idx] ?? '').trim() : ''
+                            const getDate = (row, idx) => idx >= 0 ? parseDateToYYYYMMDD(row[idx]) : ''
                             let added = 0, skipped = 0
                             for (let i = 1; i < rows.length; i++) {
                               const row = rows[i] || []
@@ -1308,12 +1310,13 @@ export default function DepartmentHub() {
                               if (!name) { skipped++; continue }
                               await addDelightVisitor({
                                 name,
+                                dob: getDate(row, dobIdx),
                                 phone: get(row, phoneIdx),
                                 email: get(row, emailIdx),
                                 nativity: get(row, natIdx),
                                 currentPlace: get(row, placeIdx),
                                 serviceAttended: get(row, serviceIdx),
-                                attendedDate: get(row, dateIdx),
+                                attendedDate: getDate(row, dateIdx),
                                 howKnown: get(row, sourceIdx),
                                 source: get(row, sourceIdx),
                                 year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear,
@@ -1383,6 +1386,7 @@ export default function DepartmentHub() {
                           <p className="font-semibold text-slate-800">{v.name || '—'}</p>
                           {v.attendedDate && <span className="text-xs text-slate-500 shrink-0">{formatDMY(v.attendedDate)}</span>}
                         </div>
+                        {v.dob && <p className="text-sm text-slate-500">DOB: {formatDMY(v.dob)}</p>}
                         {(v.phone || v.email) && (
                           <p className="text-sm text-slate-600">{[v.phone, v.email].filter(Boolean).join(' · ')}</p>
                         )}
@@ -1406,6 +1410,7 @@ export default function DepartmentHub() {
                       <thead className="bg-slate-50">
                         <tr>
                           <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
+                          <th className="text-left px-4 py-3 font-medium text-slate-600">Date of Birth</th>
                           <th className="text-left px-4 py-3 font-medium text-slate-600">Ph. Number</th>
                           <th className="text-left px-4 py-3 font-medium text-slate-600">Email</th>
                           <th className="text-left px-4 py-3 font-medium text-slate-600">Nativity</th>
@@ -1420,6 +1425,7 @@ export default function DepartmentHub() {
                         {filteredDelightVisitors.map((v) => (
                           <tr key={v.id}>
                             <td className="px-4 py-3 text-slate-800">{v.name || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{v.dob ? formatDMY(v.dob) : '—'}</td>
                             <td className="px-4 py-3 text-slate-600">{v.phone || '—'}</td>
                             <td className="px-4 py-3 text-slate-600">{v.email || '—'}</td>
                             <td className="px-4 py-3 text-slate-600">{v.nativity || '—'}</td>

@@ -6,7 +6,10 @@
       "Bash(npx vite *)",
       "Bash(npm run *)",
       "Bash(Start-Process *)",
-      "PowerShell(Start-Process \"http://localhost:5173\")"
+      "PowerShell(Start-Process \"http://localhost:5173\")",
+      "Bash(Start-Sleep -Seconds 3)",
+      "Bash(Get-Content \"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-User-Documents-ROL-Admin-app\\\\561c825e-ab3a-4cb5-928a-49b071ee9594\\\\tasks\\\\b52p4bd96.output\" -Tail 20)",
+      "PowerShell(Start-Process \"http://localhost:5174\")"
     ]
   }
 }

@@ -376,6 +376,9 @@ export default function DepartmentWorship() {
   const [attendanceDraft, setAttendanceDraft] = useState({})
   const [weekBoxSchedules, setWeekBoxSchedules] = useState([])
   const [loadingWeekBoxes, setLoadingWeekBoxes] = useState(false)
+  const [practiceSubPage, setPracticeSubPage] = useState('schedule')
+  const [recordsSchedules, setRecordsSchedules] = useState([])
+  const [loadingRecords, setLoadingRecords] = useState(false)
   const [budgetItemForm, setBudgetItemForm] = useState({
     category: '',
     subCategory: '',
@@ -495,6 +498,23 @@ export default function DepartmentWorship() {
       .catch(() => setWeekBoxSchedules([]))
       .finally(() => setLoadingWeekBoxes(false))
   }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'practiceRehearsal' || practiceSubPage !== 'records') return
+    setLoadingRecords(true)
+    getAllWorshipSchedules(DEPARTMENT)
+      .then(all => {
+        const complete = all
+          .filter(s => {
+            const pa = s.practiceAttendance || {}
+            return !!(pa.fridaySession?.endOfPractice && pa.saturdaySession?.endOfPractice && pa.saturdaySession?.beginRehearsal && pa.saturdaySession?.endRehearsal)
+          })
+          .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        setRecordsSchedules(complete)
+      })
+      .catch(() => setRecordsSchedules([]))
+      .finally(() => setLoadingRecords(false))
+  }, [activeTab, practiceSubPage])
 
   useEffect(() => {
     if (activeTab !== 'archives') return
@@ -2214,132 +2234,201 @@ export default function DepartmentWorship() {
 
       {/* ── Practice & Rehearsals tab ── */}
       {activeTab === 'practiceRehearsal' && (
-        <div className="space-y-6">
-          {/* ── 3-Sunday week boxes ── */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="font-semibold text-slate-800 text-base">Practice & Rehearsals</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Track Friday & Saturday attendance for each upcoming Sunday's team</p>
-              </div>
-              {canManageWorship && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingRehearsal(null)
-                    setRehearsalForm({ date: '', time: '', location: '', notes: '' })
-                    setRehearsalModalOpen(true)
-                  }}
-                  className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700"
-                >
-                  + Add Session
-                </button>
-              )}
-            </div>
+        <div className="space-y-5">
 
-            {loadingWeekBoxes ? (
-              <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {weekBoxSchedules.map(({ sundayDate, fridayDate, saturdayDate, schedule }) => {
-                  const assignments = (schedule?.assignments || []).filter(a => a.memberId)
-                  const practiceAtt = schedule?.practiceAttendance || {}
-
-                  let fmtSunday = sundayDate
-                  try { fmtSunday = format(new Date(sundayDate + 'T12:00:00'), 'd MMM yyyy') } catch {}
-                  let fmtFriday = fridayDate
-                  try { fmtFriday = format(new Date(fridayDate + 'T12:00:00'), 'EEE d MMM') } catch {}
-                  let fmtSaturday = saturdayDate
-                  try { fmtSaturday = format(new Date(saturdayDate + 'T12:00:00'), 'EEE d MMM') } catch {}
-
-                  const arriveCount = (day) =>
-                    Object.values(practiceAtt[day] || {}).filter(v => v.arrivedAt).length
-
-                  const markArrived = async (day, a) => {
-                    const arrivedAt = format(new Date(), 'HH:mm')
-                    const updated = {
-                      ...practiceAtt,
-                      [day]: {
-                        ...(practiceAtt[day] || {}),
-                        [a.memberId]: { arrivedAt, memberName: a.memberName },
-                      },
-                    }
-                    await updateWorshipScheduleById(schedule.id, { practiceAttendance: updated })
-                    setWeekBoxSchedules(prev =>
-                      prev.map(w =>
-                        w.sundayDate === sundayDate
-                          ? { ...w, schedule: { ...w.schedule, practiceAttendance: updated } }
-                          : w
-                      )
-                    )
-                  }
-
-                  const renderDay = (day, fmtLabel) => {
-                    const dayAtt = practiceAtt[day] || {}
-                    return (
-                      <div className="px-4 py-3 border-t border-slate-100">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold text-slate-500">{fmtLabel}</p>
-                          {assignments.length > 0 && (
-                            <span className="text-xs text-violet-600 font-medium">
-                              {arriveCount(day)}/{assignments.length}
-                            </span>
-                          )}
-                        </div>
-                        {assignments.length === 0 ? (
-                          <p className="text-xs text-slate-300 italic">No team assigned</p>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {assignments.map(a => {
-                              const rec = dayAtt[a.memberId]
-                              return (
-                                <div key={a.memberId} className="flex items-center justify-between gap-2">
-                                  <span className={`text-xs truncate ${rec?.arrivedAt ? 'text-slate-800 font-medium' : 'text-slate-500'}`}>
-                                    {a.memberName}
-                                  </span>
-                                  {rec?.arrivedAt ? (
-                                    <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5 flex-shrink-0">
-                                      {rec.arrivedAt}
-                                    </span>
-                                  ) : canManageWorship ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => markArrived(day, a)}
-                                      className="text-xs text-violet-600 border border-violet-200 rounded-full px-2 py-0.5 hover:bg-violet-50 flex-shrink-0 transition-colors"
-                                    >
-                                      Arrived
-                                    </button>
-                                  ) : null}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  }
-
-                  return (
-                    <div key={sundayDate} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                      <div className="bg-gradient-to-br from-violet-600 to-indigo-600 px-4 py-3">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Sunday Service</p>
-                        <p className="text-base font-bold text-white mt-0.5">{fmtSunday}</p>
-                        <p className="text-xs text-violet-200 mt-0.5">
-                          {assignments.length > 0 ? `${assignments.length} members assigned` : 'No team assigned yet'}
-                        </p>
-                      </div>
-                      <div className="flex-1">
-                        {renderDay('friday', fmtFriday)}
-                        {renderDay('saturday', fmtSaturday)}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+          {/* Sub-nav */}
+          <div className="flex items-center gap-1 border-b border-slate-200">
+            {[{ key: 'schedule', label: 'Schedule' }, { key: 'records', label: 'Records' }].map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setPracticeSubPage(key)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${practiceSubPage === key ? 'border-violet-600 text-violet-700' : 'border-transparent text-slate-500 hover:text-violet-600'}`}
+              >
+                {label}
+              </button>
+            ))}
+            {canManageWorship && practiceSubPage === 'schedule' && (
+              <button
+                type="button"
+                onClick={() => { setEditingRehearsal(null); setRehearsalForm({ date: '', time: '', location: '', notes: '' }); setRehearsalModalOpen(true) }}
+                className="ml-auto mb-1 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-medium hover:bg-violet-700"
+              >
+                + Add Session
+              </button>
             )}
           </div>
 
-          {/* ── Additional / custom sessions ── */}
+          {/* ── Schedule sub-page ── */}
+          {practiceSubPage === 'schedule' && (
+            <div className="space-y-6">
+              {/* 3-Sunday week boxes */}
+              {loadingWeekBoxes ? (
+                <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {weekBoxSchedules.filter(w => {
+                    const pa = w.schedule?.practiceAttendance || {}
+                    return !(pa.fridaySession?.endOfPractice && pa.saturdaySession?.endOfPractice && pa.saturdaySession?.beginRehearsal && pa.saturdaySession?.endRehearsal)
+                  }).map(({ sundayDate, fridayDate, saturdayDate, schedule }) => {
+                    const assignments = (schedule?.assignments || []).filter(a => a.memberId)
+                    const practiceAtt = schedule?.practiceAttendance || {}
+
+                    let fmtSunday = sundayDate
+                    try { fmtSunday = format(new Date(sundayDate + 'T12:00:00'), 'd MMM yyyy') } catch {}
+                    let fmtFriday = fridayDate
+                    try { fmtFriday = format(new Date(fridayDate + 'T12:00:00'), 'EEE d MMM') } catch {}
+                    let fmtSaturday = saturdayDate
+                    try { fmtSaturday = format(new Date(saturdayDate + 'T12:00:00'), 'EEE d MMM') } catch {}
+
+                    const arriveCount = (day) =>
+                      Object.values(practiceAtt[day] || {}).filter(v => v.arrivedAt).length
+
+                    const saveUpdated = async (updated) => {
+                      await updateWorshipScheduleById(schedule.id, { practiceAttendance: updated })
+                      setWeekBoxSchedules(prev =>
+                        prev.map(w => w.sundayDate === sundayDate ? { ...w, schedule: { ...w.schedule, practiceAttendance: updated } } : w)
+                      )
+                    }
+
+                    const markArrived = async (day, a) => {
+                      const updated = { ...practiceAtt, [day]: { ...(practiceAtt[day] || {}), [a.memberId]: { arrivedAt: format(new Date(), 'HH:mm'), memberName: a.memberName } } }
+                      await saveUpdated(updated)
+                    }
+
+                    const recordSession = async (sessionKey, field) => {
+                      const updated = { ...practiceAtt, [sessionKey]: { ...(practiceAtt[sessionKey] || {}), [field]: format(new Date(), 'HH:mm') } }
+                      await saveUpdated(updated)
+                    }
+
+                    const clearSession = async (sessionKey, field) => {
+                      const sess = { ...(practiceAtt[sessionKey] || {}) }
+                      delete sess[field]
+                      const updated = { ...practiceAtt, [sessionKey]: sess }
+                      await saveUpdated(updated)
+                    }
+
+                    const TimingRow = (label, sessionKey, field) => {
+                      const val = practiceAtt[sessionKey]?.[field]
+                      return (
+                        <div className="flex items-center justify-between gap-2 py-1">
+                          <span className="text-xs text-slate-400">{label}</span>
+                          {val ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">{val}</span>
+                              {canManageWorship && <button type="button" onClick={() => clearSession(sessionKey, field)} className="text-[10px] text-slate-300 hover:text-red-400 leading-none">×</button>}
+                            </div>
+                          ) : canManageWorship ? (
+                            <button type="button" onClick={() => recordSession(sessionKey, field)} className="text-xs text-indigo-600 border border-indigo-200 rounded-full px-2 py-0.5 hover:bg-indigo-50 transition-colors">Record</button>
+                          ) : <span className="text-xs text-slate-300">—</span>}
+                        </div>
+                      )
+                    }
+
+                    const renderDay = (day, sessionKey, fmtLabel, sessionFields) => {
+                      const dayAtt = practiceAtt[day] || {}
+                      return (
+                        <div className="px-4 py-3 border-t border-slate-100">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-slate-600">{fmtLabel}</p>
+                            {assignments.length > 0 && (
+                              <span className="text-xs text-violet-600 font-medium">{arriveCount(day)}/{assignments.length} arrived</span>
+                            )}
+                          </div>
+                          {assignments.length === 0 ? (
+                            <p className="text-xs text-slate-300 italic">No team assigned</p>
+                          ) : (
+                            <div className="space-y-1.5 mb-3">
+                              {assignments.map(a => {
+                                const rec = dayAtt[a.memberId]
+                                return (
+                                  <div key={a.memberId} className="flex items-center justify-between gap-2">
+                                    <span className={`text-xs truncate ${rec?.arrivedAt ? 'text-slate-800 font-medium' : 'text-slate-400'}`}>{a.memberName}</span>
+                                    {rec?.arrivedAt ? (
+                                      <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5 flex-shrink-0">{rec.arrivedAt}</span>
+                                    ) : canManageWorship ? (
+                                      <button type="button" onClick={() => markArrived(day, a)} className="text-xs text-violet-600 border border-violet-200 rounded-full px-2 py-0.5 hover:bg-violet-50 flex-shrink-0">Arrived</button>
+                                    ) : null}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                          <div className="border-t border-dashed border-slate-100 pt-2 space-y-0.5">
+                            {sessionFields.map(([label, field]) => TimingRow(label, sessionKey, field))}
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <div key={sundayDate} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                        <div className="bg-gradient-to-br from-violet-600 to-indigo-600 px-4 py-3">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Sunday Service</p>
+                          <p className="text-base font-bold text-white mt-0.5">{fmtSunday}</p>
+                          <p className="text-xs text-violet-200 mt-0.5">{assignments.length > 0 ? `${assignments.length} members assigned` : 'No team assigned yet'}</p>
+                        </div>
+                        <div className="flex-1">
+                          {renderDay('friday', 'fridaySession', fmtFriday, [
+                            ['End of Practice', 'endOfPractice'],
+                          ])}
+                          {renderDay('saturday', 'saturdaySession', fmtSaturday, [
+                            ['End of Practice', 'endOfPractice'],
+                            ['Begin Rehearsal', 'beginRehearsal'],
+                            ['End of Rehearsal', 'endRehearsal'],
+                          ])}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Records sub-page ── */}
+          {practiceSubPage === 'records' && (
+            <div className="space-y-3">
+              {loadingRecords ? (
+                <div className="py-10 text-center text-slate-400 text-sm">Loading records…</div>
+              ) : recordsSchedules.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-sm">No completed sessions yet. Records appear here once both Friday and Saturday timings are fully saved.</div>
+              ) : recordsSchedules.map(s => {
+                const pa = s.practiceAttendance || {}
+                let fmtSunday = s.date
+                try { fmtSunday = format(new Date(s.date + 'T12:00:00'), 'EEEE, d MMMM yyyy') } catch {}
+                const fridayArrived = Object.values(pa.friday || {}).filter(v => v.arrivedAt).length
+                const satArrived = Object.values(pa.saturday || {}).filter(v => v.arrivedAt).length
+                const total = (s.assignments || []).filter(a => a.memberId).length
+                return (
+                  <div key={s.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-slate-800 text-sm">{fmtSunday}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Fri: {fridayArrived}/{total} · Sat: {satArrived}/{total}</p>
+                      </div>
+                      <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2.5 py-0.5 font-semibold">Complete</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+                      <div className="px-5 py-4 space-y-1.5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Friday</p>
+                        <div className="flex justify-between text-xs"><span className="text-slate-500">End of Practice</span><span className="font-semibold text-slate-800">{pa.fridaySession?.endOfPractice || '—'}</span></div>
+                      </div>
+                      <div className="px-5 py-4 space-y-1.5">
+                        <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Saturday</p>
+                        <div className="flex justify-between text-xs"><span className="text-slate-500">End of Practice</span><span className="font-semibold text-slate-800">{pa.saturdaySession?.endOfPractice || '—'}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-slate-500">Begin Rehearsal</span><span className="font-semibold text-slate-800">{pa.saturdaySession?.beginRehearsal || '—'}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-slate-500">End of Rehearsal</span><span className="font-semibold text-slate-800">{pa.saturdaySession?.endRehearsal || '—'}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* ── Custom Sessions (schedule view only) ── */}
+          {practiceSubPage === 'schedule' && (
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Custom Sessions</p>
 
@@ -2608,7 +2697,8 @@ export default function DepartmentWorship() {
               </div>
             </div>
           )}
-          </div>{/* end Custom Sessions */}
+          </div>
+          )}
         </div>
       )}
 
