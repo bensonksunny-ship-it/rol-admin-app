@@ -4,8 +4,14 @@ function toDate(value) {
   if (!value) return null
   if (value instanceof Date) return isValid(value) ? value : null
   if (typeof value === 'string') {
-    // Accept ISO-like yyyy-MM-dd and full ISO strings
-    const d = parseISO(value)
+    const s = value.trim()
+    // Date-only YYYY-MM-DD: construct with local parts to avoid UTC shift
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+    if (m) {
+      const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]))
+      return isValid(d) ? d : null
+    }
+    const d = parseISO(s)
     return isValid(d) ? d : null
   }
   return null
@@ -17,36 +23,48 @@ function toDate(value) {
  */
 export function parseDateToYYYYMMDD(value) {
   if (value == null || value === '') return ''
-  if (value instanceof Date) return isValid(value) ? format(value, 'yyyy-MM-dd') : ''
+
+  // JS Date object — use local parts to avoid UTC shift
+  if (value instanceof Date) {
+    if (!isValid(value)) return ''
+    const yyyy = value.getFullYear()
+    const mm = String(value.getMonth() + 1).padStart(2, '0')
+    const dd = String(value.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+
+  // Excel serial number — days since 1900-01-01; read in UTC to preserve the day
   if (typeof value === 'number') {
-    // Excel serial: days since 1900-01-01 (approx). 25569 = 1970-01-01
-    // Use UTC year/month/day to avoid timezone shift on the whole-day serial
-    const ms = Math.round((value - 25569) * 86400 * 1000)
-    const d = new Date(ms)
+    const d = new Date(Math.round((value - 25569) * 86400 * 1000))
     if (!isValid(d)) return ''
     const yyyy = d.getUTCFullYear()
     const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
     const dd = String(d.getUTCDate()).padStart(2, '0')
     return `${yyyy}-${mm}-${dd}`
   }
+
   const s = String(value).trim()
   if (!s || /^na$/i.test(s)) return ''
   // Normalise spaces around separators: "27/ 05/ 1989" → "27/05/1989"
   const norm = s.replace(/\s*([\/\-])\s*/g, '$1')
-  // DD-MM-YYYY or DD/MM/YYYY (common Indian format)
+
+  // Already YYYY-MM-DD — return as-is, no Date object needed
+  if (/^\d{4}-\d{2}-\d{2}$/.test(norm)) return norm
+
+  // DD/MM/YYYY or DD-MM-YYYY — rearrange digits, no Date object → no timezone shift
   const dmy = norm.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
   if (dmy) {
-    const d = parseISO(`${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`)
-    if (isValid(d)) return format(d, 'yyyy-MM-dd')
+    const dd = dmy[1].padStart(2, '0')
+    const mm = dmy[2].padStart(2, '0')
+    const yyyy = dmy[3]
+    if (parseInt(mm) >= 1 && parseInt(mm) <= 12 && parseInt(dd) >= 1 && parseInt(dd) <= 31)
+      return `${yyyy}-${mm}-${dd}`
   }
-  // For date-only strings (YYYY-MM-DD) use parseISO so they stay in local time
-  const isoOnly = norm.match(/^\d{4}-\d{2}-\d{2}$/)
-  if (isoOnly) {
-    const d = parseISO(norm)
-    return isValid(d) ? format(d, 'yyyy-MM-dd') : ''
-  }
+
+  // Last resort: Date constructor with local parts
   const d = new Date(norm)
-  return isValid(d) ? format(d, 'yyyy-MM-dd') : ''
+  if (!isValid(d)) return ''
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 export function formatDMY(value) {
