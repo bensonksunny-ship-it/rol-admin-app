@@ -231,6 +231,10 @@ export default function DepartmentHub() {
   const [editingDelightVisitorId, setEditingDelightVisitorId] = useState(null)
   const [importingVisitors, setImportingVisitors] = useState(false)
   const [importVisitorResult, setImportVisitorResult] = useState(null)
+  const [importPreviewRows, setImportPreviewRows] = useState([])
+  const [importPreviewOpen, setImportPreviewOpen] = useState(false)
+  const [pasteImportOpen, setPasteImportOpen] = useState(false)
+  const [pasteText, setPasteText] = useState('')
   const [visitorSubPage, setVisitorSubPage] = useState('current')
   const [visitorPrevYear, setVisitorPrevYear] = useState(VISITOR_CURRENT_YEAR - 1)
   const [delightVisitorForm, setDelightVisitorForm] = useState({
@@ -828,6 +832,49 @@ export default function DepartmentHub() {
   const getVisitorYear = (v) =>
     v.year || (v.attendedDate ? new Date(v.attendedDate).getFullYear() : VISITOR_CURRENT_YEAR)
 
+  const parseVisitorRows = (rows) => {
+    const firstRowCells = (rows[0] || []).map((h) => String(h || '').toLowerCase().trim())
+    const HEADER_KEYWORDS = ['name', 'email', 'phone', 'dob', 'nativity', 'service', 'date', 'birth', 'mobile']
+    const looksLikeHeader = firstRowCells.some((h) => HEADER_KEYWORDS.some((k) => h.includes(k)))
+    let nameIdx, dobIdx, phoneIdx, emailIdx, natIdx, placeIdx, serviceIdx, dateIdx, sourceIdx, startRow
+    if (looksLikeHeader) {
+      const col = (keywords) => firstRowCells.findIndex((h) => keywords.some((k) => h.includes(k)))
+      nameIdx    = col(['name'])
+      dobIdx     = col(['date of birth', 'dob', 'birth'])
+      phoneIdx   = col(['phone', 'mobile', 'contact', 'ph'])
+      emailIdx   = col(['email'])
+      natIdx     = col(['nativity', 'nativ', 'native', 'state'])
+      placeIdx   = col(['current place', 'place', 'location', 'address'])
+      serviceIdx = col(['service attended', 'service'])
+      dateIdx    = col(['date of attend', 'attended date', 'attending'])
+      sourceIdx  = col(['how', 'source', 'known'])
+      startRow   = 1
+    } else {
+      const firstDataCell = String((rows[0] || [])[0] ?? '').trim()
+      const off = /^\d+$/.test(firstDataCell) ? 1 : 0
+      nameIdx    = 0 + off; dobIdx     = 1 + off; phoneIdx   = 2 + off; emailIdx   = 3 + off
+      natIdx     = 4 + off; placeIdx   = 5 + off; serviceIdx = 6 + off; dateIdx    = 7 + off
+      sourceIdx  = 8 + off; startRow   = 0
+    }
+    const na = (v) => (!v || /^na$/i.test(String(v).trim()) || String(v).trim() === 'N/A') ? '' : String(v).trim()
+    const get = (row, idx) => na(String(row[idx] ?? ''))
+    const getDate = (row, idx) => idx >= 0 ? parseDateToYYYYMMDD(row[idx]) : ''
+    const result = []
+    for (let i = startRow; i < rows.length; i++) {
+      const row = rows[i] || []
+      const name = na(String(row[nameIdx] ?? ''))
+      if (!name) continue
+      result.push({
+        name, dob: getDate(row, dobIdx), phone: get(row, phoneIdx), email: get(row, emailIdx),
+        nativity: get(row, natIdx), currentPlace: get(row, placeIdx), serviceAttended: get(row, serviceIdx),
+        attendedDate: getDate(row, dateIdx), howKnown: get(row, sourceIdx), source: get(row, sourceIdx),
+        year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear,
+        createdBy: userProfile?.email || 'import',
+      })
+    }
+    return result
+  }
+
   const filteredDelightVisitors = delightVisitors
     .filter((v) =>
       visitorSubPage === 'current'
@@ -1249,6 +1296,20 @@ export default function DepartmentHub() {
                 </div>
                 {canEditDelightVisitors && (
                   <div className="flex items-center gap-2">
+                    {/* Paste data button */}
+                    <button
+                      type="button"
+                      title="Paste data"
+                      onClick={() => { setPasteText(''); setPasteImportOpen(true) }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer select-none bg-white/70 backdrop-blur-sm border border-slate-200/80 shadow-sm text-slate-600 text-sm font-medium hover:bg-white hover:shadow-md hover:border-blue-200 hover:text-blue-700 transition-all duration-150"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
+                        <rect x="6" y="2" width="10" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                        <path d="M6 5H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        <path d="M9 8h4M9 11h4M9 14h2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+                      </svg>
+                      <span className="hidden sm:inline">Paste Data</span>
+                    </button>
                     {/* Import Excel — glassmorphism icon button */}
                     <label
                       title="Import from Excel"
@@ -1259,14 +1320,13 @@ export default function DepartmentHub() {
                         transition-all duration-150
                         ${importingVisitors ? 'opacity-50 pointer-events-none' : ''}`}
                     >
-                      {/* Minimalist spreadsheet + import arrow SVG */}
                       <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
                         <rect x="2" y="2" width="12" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                         <path d="M5 7h6M5 10h6M5 13h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
                         <circle cx="16" cy="15" r="3.5" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.25"/>
                         <path d="M16 13.5v3M14.5 15.5l1.5 1.5 1.5-1.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
-                      <span className="hidden sm:inline">{importingVisitors ? 'Importing…' : 'Import Excel'}</span>
+                      <span className="hidden sm:inline">{importingVisitors ? 'Parsing…' : 'Import Excel'}</span>
                       <input
                         type="file"
                         accept=".xlsx,.xls,.csv"
@@ -1277,7 +1337,6 @@ export default function DepartmentHub() {
                           if (!file) return
                           e.target.value = ''
                           setImportingVisitors(true)
-                          setImportVisitorResult(null)
                           try {
                             const ext = file.name.toLowerCase()
                             const readFile = () => new Promise((res, rej) => {
@@ -1296,69 +1355,18 @@ export default function DepartmentHub() {
                               const wb = XLSX.read(data, { type: 'array', cellDates: true })
                               rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 })
                             }
-                            const firstRowCells = (rows[0] || []).map((h) => String(h || '').toLowerCase().trim())
-                            const HEADER_KEYWORDS = ['name', 'email', 'phone', 'dob', 'nativity', 'service', 'date', 'birth', 'mobile']
-                            const looksLikeHeader = firstRowCells.some((h) => HEADER_KEYWORDS.some((k) => h.includes(k)))
-                            let nameIdx, dobIdx, phoneIdx, emailIdx, natIdx, placeIdx, serviceIdx, dateIdx, sourceIdx, startRow
-                            if (looksLikeHeader) {
-                              const col = (keywords) => firstRowCells.findIndex((h) => keywords.some((k) => h.includes(k)))
-                              nameIdx    = col(['name'])
-                              dobIdx     = col(['date of birth', 'dob', 'birth'])
-                              phoneIdx   = col(['phone', 'mobile', 'contact', 'ph'])
-                              emailIdx   = col(['email'])
-                              natIdx     = col(['nativity', 'nativ', 'native', 'state'])
-                              placeIdx   = col(['current place', 'place', 'location', 'address'])
-                              serviceIdx = col(['service attended', 'service'])
-                              dateIdx    = col(['date of attend', 'attended date', 'attending'])
-                              sourceIdx  = col(['how', 'source', 'known'])
-                              startRow   = 1
+                            const parsed = parseVisitorRows(rows)
+                            if (parsed.length === 0) {
+                              setImportVisitorResult({ error: true, message: 'No valid rows found in file.' })
+                              setTimeout(() => setImportVisitorResult(null), 4000)
                             } else {
-                              // Positional: detect optional leading serial-number column
-                              const firstDataCell = String((rows[0] || [])[0] ?? '').trim()
-                              const off = /^\d+$/.test(firstDataCell) ? 1 : 0
-                              nameIdx    = 0 + off
-                              dobIdx     = 1 + off
-                              phoneIdx   = 2 + off
-                              emailIdx   = 3 + off
-                              natIdx     = 4 + off
-                              placeIdx   = 5 + off
-                              serviceIdx = 6 + off
-                              dateIdx    = 7 + off
-                              sourceIdx  = 8 + off
-                              startRow   = 0
+                              setImportPreviewRows(parsed)
+                              setImportPreviewOpen(true)
                             }
-                            const na = (v) => (!v || /^na$/i.test(v.trim()) || v.trim() === 'N/A') ? '' : v.trim()
-                            const get = (row, idx) => na(String(row[idx] ?? ''))
-                            const getDate = (row, idx) => idx >= 0 ? parseDateToYYYYMMDD(row[idx]) : ''
-                            let added = 0, skipped = 0
-                            for (let i = startRow; i < rows.length; i++) {
-                              const row = rows[i] || []
-                              const name = na(String(row[nameIdx] ?? ''))
-                              if (!name) { skipped++; continue }
-                              await addDelightVisitor({
-                                name,
-                                dob: getDate(row, dobIdx),
-                                phone: get(row, phoneIdx),
-                                email: get(row, emailIdx),
-                                nativity: get(row, natIdx),
-                                currentPlace: get(row, placeIdx),
-                                serviceAttended: get(row, serviceIdx),
-                                attendedDate: getDate(row, dateIdx),
-                                howKnown: get(row, sourceIdx),
-                                source: get(row, sourceIdx),
-                                year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear,
-                                createdBy: userProfile?.email || 'import',
-                              })
-                              added++
-                            }
-                            const freshList = await getDelightVisitors()
-                            setDelightVisitors(freshList)
-                            setImportVisitorResult({ message: `✓ Imported ${added} visitor${added !== 1 ? 's' : ''}${skipped ? ` (${skipped} skipped)` : ''}` })
-                            setTimeout(() => setImportVisitorResult(null), 5000)
                           } catch (err) {
                             console.error(err)
-                            setImportVisitorResult({ error: true, message: 'Import failed — check file format.' })
-                            setTimeout(() => setImportVisitorResult(null), 5000)
+                            setImportVisitorResult({ error: true, message: 'Could not read file — check format.' })
+                            setTimeout(() => setImportVisitorResult(null), 4000)
                           } finally {
                             setImportingVisitors(false)
                           }
@@ -1556,6 +1564,121 @@ export default function DepartmentHub() {
                     <button type="button" onClick={() => { setCaringMemberModalOpen(false); setEditingCaringId(null) }} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* ── Paste-data modal ─────────────────────────────────────────── */}
+          {pasteImportOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+                <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800">Paste Visitor Data</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Paste rows copied from Excel or a spreadsheet. Each row: Serial(optional), Name, DOB, Phone, Email, Nativity, Place, Service, Date Attended, How Known</p>
+                  </div>
+                  <button type="button" onClick={() => setPasteImportOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+                </div>
+                <div className="p-5 flex-1 overflow-y-auto">
+                  <textarea
+                    autoFocus
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    placeholder="Paste your data here…"
+                    className="w-full h-64 px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  />
+                </div>
+                <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
+                  <button type="button" onClick={() => setPasteImportOpen(false)} className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+                  <button
+                    type="button"
+                    disabled={!pasteText.trim()}
+                    onClick={() => {
+                      const lines = pasteText.trim().split(/\r?\n/)
+                      const rows = lines.map((l) => l.split(/\t|,/).map((c) => c.trim().replace(/^["']|["']$/g, '')))
+                      const parsed = parseVisitorRows(rows)
+                      if (parsed.length === 0) {
+                        alert('No valid rows found — make sure each row has at least a name.')
+                        return
+                      }
+                      setPasteImportOpen(false)
+                      setImportPreviewRows(parsed)
+                      setImportPreviewOpen(true)
+                    }}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    Preview {pasteText.trim() ? `(${pasteText.trim().split(/\r?\n/).filter(Boolean).length} rows)` : ''}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Import preview / confirm modal ───────────────────────────── */}
+          {importPreviewOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl flex flex-col max-h-[90vh]">
+                <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800">Preview Import — {importPreviewRows.length} visitor{importPreviewRows.length !== 1 ? 's' : ''}</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Review the parsed data below. Click "Save" to add these records.</p>
+                  </div>
+                  <button type="button" onClick={() => setImportPreviewOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+                </div>
+                <div className="flex-1 overflow-auto">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        {['#', 'Name', 'DOB', 'Phone', 'Email', 'Nativity', 'Place', 'Service', 'Date Attended', 'How Known'].map((h) => (
+                          <th key={h} className="text-left px-3 py-2 font-medium text-slate-500 whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {importPreviewRows.map((v, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                          <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">{v.name}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.dob ? formatDMY(v.dob) : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.phone || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 text-slate-600">{v.email || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.nativity || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.currentPlace || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 text-slate-600">{v.serviceAttended || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.attendedDate ? formatDMY(v.attendedDate) : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 text-slate-600">{v.howKnown || <span className="text-slate-300">—</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
+                  <button type="button" onClick={() => setImportPreviewOpen(false)} className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setImportPreviewOpen(false)
+                      setImportingVisitors(true)
+                      try {
+                        for (const v of importPreviewRows) await addDelightVisitor(v)
+                        const freshList = await getDelightVisitors()
+                        setDelightVisitors(freshList)
+                        setImportVisitorResult({ message: `✓ Imported ${importPreviewRows.length} visitor${importPreviewRows.length !== 1 ? 's' : ''}` })
+                        setTimeout(() => setImportVisitorResult(null), 5000)
+                      } catch (err) {
+                        console.error(err)
+                        setImportVisitorResult({ error: true, message: 'Save failed — check your connection.' })
+                        setTimeout(() => setImportVisitorResult(null), 5000)
+                      } finally {
+                        setImportingVisitors(false)
+                        setImportPreviewRows([])
+                      }
+                    }}
+                    className="px-5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+                  >
+                    Save {importPreviewRows.length} visitor{importPreviewRows.length !== 1 ? 's' : ''}
+                  </button>
+                </div>
               </div>
             </div>
           )}
