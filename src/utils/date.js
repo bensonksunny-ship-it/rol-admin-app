@@ -20,8 +20,14 @@ export function parseDateToYYYYMMDD(value) {
   if (value instanceof Date) return isValid(value) ? format(value, 'yyyy-MM-dd') : ''
   if (typeof value === 'number') {
     // Excel serial: days since 1900-01-01 (approx). 25569 = 1970-01-01
-    const d = new Date(Math.round((value - 25569) * 86400 * 1000))
-    return isValid(d) ? format(d, 'yyyy-MM-dd') : ''
+    // Use UTC year/month/day to avoid timezone shift on the whole-day serial
+    const ms = Math.round((value - 25569) * 86400 * 1000)
+    const d = new Date(ms)
+    if (!isValid(d)) return ''
+    const yyyy = d.getUTCFullYear()
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+    const dd = String(d.getUTCDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
   }
   const s = String(value).trim()
   if (!s || /^na$/i.test(s)) return ''
@@ -30,8 +36,14 @@ export function parseDateToYYYYMMDD(value) {
   // DD-MM-YYYY or DD/MM/YYYY (common Indian format)
   const dmy = norm.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
   if (dmy) {
-    const d = new Date(`${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`)
+    const d = parseISO(`${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`)
     if (isValid(d)) return format(d, 'yyyy-MM-dd')
+  }
+  // For date-only strings (YYYY-MM-DD) use parseISO so they stay in local time
+  const isoOnly = norm.match(/^\d{4}-\d{2}-\d{2}$/)
+  if (isoOnly) {
+    const d = parseISO(norm)
+    return isValid(d) ? format(d, 'yyyy-MM-dd') : ''
   }
   const d = new Date(norm)
   return isValid(d) ? format(d, 'yyyy-MM-dd') : ''
@@ -49,7 +61,7 @@ export function formatDMYTime(value) {
 
 export function formatDisplayDate(value) {
   if (!value) return '—'
-  const d = toDate(value) ?? (isValid(new Date(value)) ? new Date(value) : null)
+  const d = toDate(value)
   return d ? format(d, 'dd/MMM/yyyy') : '—'
 }
 

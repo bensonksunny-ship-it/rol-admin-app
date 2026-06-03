@@ -119,6 +119,8 @@ async function mergeTasksEntriesTeam(canonicalName) {
 
 const VISITOR_START_YEAR = 2014
 const VISITOR_CURRENT_YEAR = new Date().getFullYear()
+const VISITOR_SERVICE_LABELS = { E: 'English', M: 'Malayalam', T: 'Tamil' }
+const fmtService = (s) => VISITOR_SERVICE_LABELS[(s || '').trim().toUpperCase()] || s || '—'
 
 export default function DepartmentHub() {
   const { slug } = useParams()
@@ -235,6 +237,8 @@ export default function DepartmentHub() {
   const [importPreviewOpen, setImportPreviewOpen] = useState(false)
   const [pasteImportOpen, setPasteImportOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
+  const [visitorSearch, setVisitorSearch] = useState('')
+  const [visitorSearchOpen, setVisitorSearchOpen] = useState(false)
   const [visitorSubPage, setVisitorSubPage] = useState('current')
   const [visitorPrevYear, setVisitorPrevYear] = useState(VISITOR_CURRENT_YEAR - 1)
   const [delightVisitorForm, setDelightVisitorForm] = useState({
@@ -864,11 +868,13 @@ export default function DepartmentHub() {
       const row = rows[i] || []
       const name = na(String(row[nameIdx] ?? ''))
       if (!name) continue
+      const attendedDate = getDate(row, dateIdx)
+      const yearFromDate = attendedDate ? new Date(attendedDate + 'T00:00:00').getFullYear() : null
       result.push({
         name, dob: getDate(row, dobIdx), phone: get(row, phoneIdx), email: get(row, emailIdx),
         nativity: get(row, natIdx), currentPlace: get(row, placeIdx), serviceAttended: get(row, serviceIdx),
-        attendedDate: getDate(row, dateIdx), howKnown: get(row, sourceIdx), source: get(row, sourceIdx),
-        year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear,
+        attendedDate, howKnown: get(row, sourceIdx), source: get(row, sourceIdx),
+        year: yearFromDate || (visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear),
         createdBy: userProfile?.email || 'import',
       })
     }
@@ -886,6 +892,16 @@ export default function DepartmentHub() {
       const db = b.attendedDate ? new Date(b.attendedDate).getTime() : 0
       return da - db
     })
+  const visitorSearchResults = visitorSearch.trim().length > 0
+    ? delightVisitors
+        .filter((v) => {
+          const q = visitorSearch.trim().toLowerCase()
+          const name = (v.name || '').toLowerCase()
+          return name.startsWith(q) || name.split(' ').some((word) => word.startsWith(q))
+        })
+        .slice(0, 10)
+    : []
+
   const headLabel = userProfile?.department === department.name && isDepartmentHead(department.name)
     ? (userProfile?.role === ROLES.DIRECTOR ? 'Director' : 'Coordinator')
     : null
@@ -1407,6 +1423,93 @@ export default function DepartmentHub() {
                   </div>
                 )}
               </div>
+              {/* Search bar — searches across all years */}
+              <div className="px-5 py-3 border-b border-slate-100 relative">
+                <div className="relative max-w-sm">
+                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" width="15" height="15" viewBox="0 0 20 20" fill="none">
+                    <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.6"/>
+                    <path d="M13 13l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  </svg>
+                  <input
+                    type="text"
+                    placeholder="Search visitors across all years…"
+                    value={visitorSearch}
+                    onChange={(e) => { setVisitorSearch(e.target.value); setVisitorSearchOpen(true) }}
+                    onFocus={() => setVisitorSearchOpen(true)}
+                    onBlur={() => setTimeout(() => setVisitorSearchOpen(false), 150)}
+                    className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 placeholder-slate-400"
+                  />
+                  {visitorSearch && (
+                    <button type="button" onClick={() => { setVisitorSearch(''); setVisitorSearchOpen(false) }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
+                    </button>
+                  )}
+                </div>
+                {visitorSearchOpen && visitorSearchResults.length > 0 && (
+                  <div className="absolute left-5 right-5 top-full mt-1 bg-white rounded-xl border border-slate-200 shadow-lg z-30 overflow-hidden max-w-sm">
+                    {visitorSearchResults.map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onMouseDown={() => {
+                          const yr = getVisitorYear(v)
+                          if (yr === VISITOR_CURRENT_YEAR) {
+                            setVisitorSubPage('current')
+                          } else {
+                            setVisitorSubPage('previous')
+                            setVisitorPrevYear(yr)
+                          }
+                          setVisitorSearch('')
+                          setVisitorSearchOpen(false)
+                        }}
+                        className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-indigo-50 text-left transition-colors"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">{v.name}</p>
+                          <p className="text-xs text-slate-400">{[v.phone, v.email].filter(Boolean).join(' · ') || 'No contact info'}</p>
+                        </div>
+                        <span className="ml-3 shrink-0 text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                          {getVisitorYear(v)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {visitorSearchOpen && visitorSearch.trim().length > 0 && visitorSearchResults.length === 0 && (
+                  <div className="absolute left-5 right-5 top-full mt-1 bg-white rounded-xl border border-slate-200 shadow-lg z-30 max-w-sm">
+                    <p className="px-4 py-3 text-sm text-slate-400">No visitors found for "{visitorSearch}"</p>
+                  </div>
+                )}
+              </div>
+              {!loadingDelightVisitors && filteredDelightVisitors.length > 0 && (() => {
+                const counts = { E: 0, M: 0, T: 0, other: 0 }
+                filteredDelightVisitors.forEach((v) => {
+                  const key = (v.serviceAttended || '').trim().toUpperCase()
+                  if (counts[key] !== undefined) counts[key]++
+                  else counts.other++
+                })
+                const pills = [
+                  { key: 'E', label: 'English',   color: 'bg-blue-50 text-blue-700 border-blue-200' },
+                  { key: 'M', label: 'Malayalam',  color: 'bg-green-50 text-green-700 border-green-200' },
+                  { key: 'T', label: 'Tamil',      color: 'bg-orange-50 text-orange-700 border-orange-200' },
+                  { key: 'other', label: 'Other',  color: 'bg-slate-50 text-slate-600 border-slate-200' },
+                ].filter((p) => counts[p.key] > 0)
+                return (
+                  <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center gap-3">
+                    <span className="text-xs font-medium text-slate-500">
+                      {filteredDelightVisitors.length} visitor{filteredDelightVisitors.length !== 1 ? 's' : ''}
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {pills.map((p) => (
+                        <span key={p.key} className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${p.color}`}>
+                          <span className="font-bold">{counts[p.key]}</span>
+                          {p.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
               {loadingDelightVisitors ? (
                 <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
               ) : filteredDelightVisitors.length === 0 ? (
@@ -1428,7 +1531,7 @@ export default function DepartmentHub() {
                         {(v.nativity || v.currentPlace) && (
                           <p className="text-sm text-slate-500">{[v.nativity, v.currentPlace].filter(Boolean).join(' → ')}</p>
                         )}
-                        {v.serviceAttended && <p className="text-sm text-slate-500">Service: {v.serviceAttended}</p>}
+                        {v.serviceAttended && <p className="text-sm text-slate-500">Service: {fmtService(v.serviceAttended)}</p>}
                         {(v.source || v.howKnown) && <p className="text-xs text-slate-400">How: {v.source || v.howKnown}</p>}
                         {canEditDelightVisitors && (
                           <div className="flex gap-3 pt-1">
@@ -1465,7 +1568,7 @@ export default function DepartmentHub() {
                             <td className="px-4 py-3 text-slate-600">{v.email || '—'}</td>
                             <td className="px-4 py-3 text-slate-600">{v.nativity || '—'}</td>
                             <td className="px-4 py-3 text-slate-600">{v.currentPlace || '—'}</td>
-                            <td className="px-4 py-3 text-slate-600">{v.serviceAttended || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{fmtService(v.serviceAttended)}</td>
                             <td className="px-4 py-3 text-slate-600">{v.attendedDate ? formatDMY(v.attendedDate) : '—'}</td>
                             <td className="px-4 py-3 text-slate-600">{v.source || v.howKnown || '—'}</td>
                             {canEditDelightVisitors && (
@@ -1621,7 +1724,13 @@ export default function DepartmentHub() {
                 <div className="p-5 border-b border-slate-200 flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-semibold text-slate-800">Preview Import — {importPreviewRows.length} visitor{importPreviewRows.length !== 1 ? 's' : ''}</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Review the parsed data below. Click "Save" to add these records.</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Review the parsed data below. Records will appear under the year matching their <strong>Date Attended</strong>.
+                      {importPreviewRows.length > 0 && (() => {
+                        const years = [...new Set(importPreviewRows.map((v) => v.year).filter(Boolean))].sort()
+                        return years.length > 0 ? ` Years detected: ${years.join(', ')}.` : ''
+                      })()}
+                    </p>
                   </div>
                   <button type="button" onClick={() => setImportPreviewOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
                 </div>
@@ -1644,7 +1753,7 @@ export default function DepartmentHub() {
                           <td className="px-3 py-2 text-slate-600">{v.email || <span className="text-slate-300">—</span>}</td>
                           <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.nativity || <span className="text-slate-300">—</span>}</td>
                           <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.currentPlace || <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2 text-slate-600">{v.serviceAttended || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 text-slate-600">{v.serviceAttended ? fmtService(v.serviceAttended) : <span className="text-slate-300">—</span>}</td>
                           <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.attendedDate ? formatDMY(v.attendedDate) : <span className="text-slate-300">—</span>}</td>
                           <td className="px-3 py-2 text-slate-600">{v.howKnown || <span className="text-slate-300">—</span>}</td>
                         </tr>
@@ -1657,13 +1766,28 @@ export default function DepartmentHub() {
                   <button
                     type="button"
                     onClick={async () => {
+                      const rowsToSave = importPreviewRows
                       setImportPreviewOpen(false)
+                      setImportPreviewRows([])
                       setImportingVisitors(true)
                       try {
-                        for (const v of importPreviewRows) await addDelightVisitor(v)
+                        for (const v of rowsToSave) await addDelightVisitor(v)
                         const freshList = await getDelightVisitors()
                         setDelightVisitors(freshList)
-                        setImportVisitorResult({ message: `✓ Imported ${importPreviewRows.length} visitor${importPreviewRows.length !== 1 ? 's' : ''}` })
+                        // Navigate to the year that most imported records belong to
+                        const years = rowsToSave.map((v) => v.year).filter(Boolean)
+                        if (years.length > 0) {
+                          const counts = {}
+                          years.forEach((y) => { counts[y] = (counts[y] || 0) + 1 })
+                          const dominantYear = Number(Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0])
+                          if (dominantYear === VISITOR_CURRENT_YEAR) {
+                            setVisitorSubPage('current')
+                          } else {
+                            setVisitorSubPage('previous')
+                            setVisitorPrevYear(dominantYear)
+                          }
+                        }
+                        setImportVisitorResult({ message: `✓ Imported ${rowsToSave.length} visitor${rowsToSave.length !== 1 ? 's' : ''}` })
                         setTimeout(() => setImportVisitorResult(null), 5000)
                       } catch (err) {
                         console.error(err)
@@ -1671,7 +1795,6 @@ export default function DepartmentHub() {
                         setTimeout(() => setImportVisitorResult(null), 5000)
                       } finally {
                         setImportingVisitors(false)
-                        setImportPreviewRows([])
                       }
                     }}
                     className="px-5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
