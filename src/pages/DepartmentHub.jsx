@@ -192,6 +192,8 @@ export default function DepartmentHub() {
   const [cellMemberForm, setCellMemberForm] = useState({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
   const [cellMemberModalOpen, setCellMemberModalOpen] = useState(false)
   const [editingCellMemberId, setEditingCellMemberId] = useState(null)
+  const [cellMemberVisitors, setCellMemberVisitors] = useState([])
+  const [cellMemberVisitorSearch, setCellMemberVisitorSearch] = useState('')
   const [cellGroupModalOpen, setCellGroupModalOpen] = useState(false)
   const [newCellGroupForm, setNewCellGroupForm] = useState({ cellId: '', cellName: '', leader: '', meetingDay: '', launchDate: '', status: 'active' })
   const [editingCellGroupId, setEditingCellGroupId] = useState(null)
@@ -2728,6 +2730,7 @@ export default function DepartmentHub() {
 
             const Chip = ({ entry }) => {
               const hasMember = !!entry.membershipNumber
+              const hasLeadership = !!entry.leadershipPosition
               return (
                 <div
                   className={`flex items-center gap-2 rounded-2xl pl-2 pr-2.5 py-2 border transition-all cursor-pointer
@@ -2741,9 +2744,16 @@ export default function DepartmentHub() {
                     {entry.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
-                      {entry.name}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
+                        {entry.name}
+                      </p>
+                      {hasLeadership && (
+                        <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 leading-none whitespace-nowrap">
+                          {entry.leadershipPosition}
+                        </span>
+                      )}
+                    </div>
                     {hasMember
                       ? <p className="text-xs text-amber-600 font-medium leading-tight">#{entry.membershipNumber}</p>
                       : <p className="text-xs text-blue-400 leading-tight">No member #</p>
@@ -4531,7 +4541,11 @@ export default function DepartmentHub() {
                                   onClick={() => {
                                     setEditingCellMemberId(null)
                                     setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
+                                    setCellMemberVisitorSearch('')
                                     setCellMemberModalOpen(true)
+                                    if (cellMemberVisitors.length === 0) {
+                                      getDelightVisitors().then(setCellMemberVisitors).catch(() => {})
+                                    }
                                   }}
                                   className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
                                 >
@@ -4951,70 +4965,151 @@ export default function DepartmentHub() {
           )}
 
           {cellMemberModalOpen && expandedCellId && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">{editingCellMemberId ? 'Edit member' : 'Add Member'}</h3>
+            <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
+              <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md flex flex-col max-h-[92vh]">
+                {/* Header */}
+                <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+                  <h3 className="text-base font-semibold text-slate-800">{editingCellMemberId ? 'Edit Member' : 'Add Member'}</h3>
+                  <button type="button" onClick={() => { setCellMemberModalOpen(false); setEditingCellMemberId(null) }}
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
                 </div>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault()
-                    try {
-                      if (editingCellMemberId) {
-                        await updateCellGroupMember(expandedCellId, editingCellMemberId, cellMemberForm)
-                        setCellMembers((prev) => prev.map((m) => (m.id === editingCellMemberId ? { ...m, ...cellMemberForm } : m)))
-                      } else {
-                        await addCellGroupMember(expandedCellId, cellMemberForm)
-                        const list = await getCellGroupMembers(expandedCellId)
-                        setCellMembers(list)
-                        setCellGroups((prev) => prev.map((c) => (c.id === expandedCellId ? { ...c, memberCount: list.length } : c)))
+
+                <div className="overflow-y-auto min-h-0 flex-1">
+                  <form
+                    id="cell-member-form"
+                    onSubmit={async (e) => {
+                      e.preventDefault()
+                      try {
+                        if (editingCellMemberId) {
+                          await updateCellGroupMember(expandedCellId, editingCellMemberId, cellMemberForm)
+                          setCellMembers((prev) => prev.map((m) => (m.id === editingCellMemberId ? { ...m, ...cellMemberForm } : m)))
+                        } else {
+                          await addCellGroupMember(expandedCellId, cellMemberForm)
+                          const list = await getCellGroupMembers(expandedCellId)
+                          setCellMembers(list)
+                          setCellGroups((prev) => prev.map((c) => (c.id === expandedCellId ? { ...c, memberCount: list.length } : c)))
+                        }
+                        setCellMemberModalOpen(false)
+                        setEditingCellMemberId(null)
+                        setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
+                      } catch (err) {
+                        console.error(err)
+                        alert('Failed to save')
                       }
-                      setCellMemberModalOpen(false)
-                      setEditingCellMemberId(null)
-                      setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
-                    } catch (err) {
-                      console.error(err)
-                      alert('Failed to save')
-                    }
-                  }}
-                  className="p-5 space-y-4"
-                >
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
-                    <input type="text" value={cellMemberForm.name} onChange={(e) => setCellMemberForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Birthday</label>
-                    <input type="date" value={cellMemberForm.birthday} onChange={(e) => setCellMemberForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Anniversary (optional)</label>
-                    <input type="date" value={cellMemberForm.anniversary} onChange={(e) => setCellMemberForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
-                    <input type="text" value={cellMemberForm.phone} onChange={(e) => setCellMemberForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Locality</label>
-                    <input type="text" value={cellMemberForm.locality} onChange={(e) => setCellMemberForm((f) => ({ ...f, locality: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Since (first visit / started attending)</label>
-                    <input type="date" value={cellMemberForm.since} onChange={(e) => setCellMemberForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                    <select value={cellMemberForm.status} onChange={(e) => setCellMemberForm((f) => ({ ...f, status: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
-                  </div>
-                  <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>
-                    <button type="button" onClick={() => { setCellMemberModalOpen(false); setEditingCellMemberId(null) }} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
-                  </div>
-                </form>
+                    }}
+                    className="p-5 space-y-4"
+                  >
+                    {/* Visitor picker — only for Add mode */}
+                    {!editingCellMemberId && (
+                      <div className="rounded-xl border border-indigo-100 bg-indigo-50 overflow-hidden">
+                        <div className="px-3 pt-3 pb-2">
+                          <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">Select from Visitor Entry</p>
+                          <div className="relative">
+                            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
+                              <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                            </svg>
+                            <input
+                              type="text"
+                              placeholder="Search visitor name…"
+                              value={cellMemberVisitorSearch}
+                              onChange={e => setCellMemberVisitorSearch(e.target.value)}
+                              className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400"
+                            />
+                          </div>
+                        </div>
+                        <div className="max-h-44 overflow-y-auto border-t border-indigo-100">
+                          {cellMemberVisitors.length === 0 ? (
+                            <p className="px-3 py-4 text-xs text-slate-400 text-center">Loading visitors…</p>
+                          ) : (() => {
+                            const q = cellMemberVisitorSearch.trim().toLowerCase()
+                            const matches = cellMemberVisitors.filter(v =>
+                              !q || v.name.toLowerCase().includes(q)
+                            )
+                            if (matches.length === 0) return (
+                              <p className="px-3 py-4 text-xs text-slate-400 text-center">No matches found.</p>
+                            )
+                            return matches.map(v => (
+                              <button
+                                key={v.id}
+                                type="button"
+                                onClick={() => {
+                                  setCellMemberForm(f => ({
+                                    ...f,
+                                    name: v.name,
+                                    phone: v.phone || f.phone,
+                                    birthday: v.dob ? String(v.dob).slice(0, 10) : f.birthday,
+                                  }))
+                                  setCellMemberVisitorSearch('')
+                                }}
+                                className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 hover:bg-indigo-100 border-b border-indigo-50 transition-colors last:border-0"
+                              >
+                                <div className="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                  {v.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-slate-800 truncate">{v.name}</p>
+                                  {v.phone && <p className="text-xs text-slate-400">{v.phone}</p>}
+                                </div>
+                                {cellMemberForm.name === v.name && (
+                                  <span className="ml-auto text-xs text-indigo-500 font-medium flex-shrink-0">Selected</span>
+                                )}
+                              </button>
+                            ))
+                          })()}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Name field */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                      <input
+                        type="text"
+                        value={cellMemberForm.name}
+                        onChange={(e) => setCellMemberForm((f) => ({ ...f, name: e.target.value }))}
+                        placeholder="Or type a name manually…"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Birthday</label>
+                      <input type="date" value={cellMemberForm.birthday} onChange={(e) => setCellMemberForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Anniversary (optional)</label>
+                      <input type="date" value={cellMemberForm.anniversary} onChange={(e) => setCellMemberForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
+                      <input type="text" value={cellMemberForm.phone} onChange={(e) => setCellMemberForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Locality</label>
+                      <input type="text" value={cellMemberForm.locality} onChange={(e) => setCellMemberForm((f) => ({ ...f, locality: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Since (first visit / started attending)</label>
+                      <input type="date" value={cellMemberForm.since} onChange={(e) => setCellMemberForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                      <select value={cellMemberForm.status} onChange={(e) => setCellMemberForm((f) => ({ ...f, status: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </div>
+                  </form>
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 py-4 border-t border-slate-100 flex gap-2 flex-shrink-0">
+                  <button type="submit" form="cell-member-form" className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700">Save</button>
+                  <button type="button" onClick={() => { setCellMemberModalOpen(false); setEditingCellMemberId(null) }}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+                </div>
               </div>
             </div>
           )}
@@ -5314,6 +5409,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
     phone: entry.phone || '',
     attendedDate: entry.attendedDate || '',
     membershipNumber: entry.membershipNumber || '',
+    leadershipPosition: entry.leadershipPosition || '',
     email: '',
     dob: '',
     nativity: '',
@@ -5374,7 +5470,14 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 {form.name.charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
-                <p className="font-bold text-slate-800 text-base truncate">{form.name}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-bold text-slate-800 text-base truncate">{form.name}</p>
+                  {form.leadershipPosition && (
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0">
+                      {form.leadershipPosition}
+                    </span>
+                  )}
+                </div>
                 {hasMember
                   ? <p className="text-xs text-amber-600 font-semibold">Member #{form.membershipNumber}</p>
                   : <p className="text-xs text-blue-400">No membership number</p>
@@ -5399,6 +5502,30 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 className={`mt-1.5 w-full px-3 py-2.5 rounded-lg border text-sm font-semibold focus:outline-none focus:ring-2
                   ${hasMember ? 'border-amber-300 bg-white text-amber-800 focus:ring-amber-200' : 'border-slate-200 bg-white text-slate-700 focus:ring-indigo-200'}`}
               />
+            </div>
+
+            {/* Leadership position */}
+            <div className={`rounded-xl p-3 border ${form.leadershipPosition ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
+              <label className={`text-xs font-bold uppercase tracking-wide ${form.leadershipPosition ? 'text-emerald-700' : 'text-slate-400'}`}>
+                👑 Leadership Position
+              </label>
+              <select
+                value={form.leadershipPosition}
+                onChange={e => setForm(f => ({ ...f, leadershipPosition: e.target.value }))}
+                className={`mt-1.5 w-full px-3 py-2.5 rounded-lg border text-sm font-semibold focus:outline-none focus:ring-2
+                  ${form.leadershipPosition ? 'border-emerald-300 bg-white text-emerald-800 focus:ring-emerald-200' : 'border-slate-200 bg-white text-slate-600 focus:ring-indigo-200'}`}
+              >
+                <option value="">— None —</option>
+                <option value="Senior Pastor">Senior Pastor</option>
+                <option value="Pastor">Pastor</option>
+                <option value="Director">Director</option>
+                <option value="Cell Leader">Cell Leader</option>
+                <option value="Coordinator">Coordinator</option>
+                <option value="Worship Leader">Worship Leader</option>
+                <option value="Department Head">Department Head</option>
+                <option value="Elder">Elder</option>
+                <option value="Deacon">Deacon</option>
+              </select>
             </div>
 
             {/* Visitor fields */}
@@ -5427,10 +5554,10 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
               disabled={saving}
               onClick={async () => {
                 setSaving(true)
-                const { name, phone, attendedDate, membershipNumber, email, dob, nativity, currentPlace, serviceAttended, howKnown, year } = form
-                onUpdate({ id: entry.id, name, phone, attendedDate, membershipNumber, year: year ? Number(year) : null })
+                const { name, phone, attendedDate, membershipNumber, leadershipPosition, email, dob, nativity, currentPlace, serviceAttended, howKnown, year } = form
+                onUpdate({ id: entry.id, name, phone, attendedDate, membershipNumber, leadershipPosition, year: year ? Number(year) : null })
                 await Promise.all([
-                  updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, year }),
+                  updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, leadershipPosition, year }),
                   entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),
                 ]).catch(() => {})
                 setSaving(false)

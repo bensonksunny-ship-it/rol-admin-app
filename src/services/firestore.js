@@ -2190,6 +2190,7 @@ export async function getPCSEntries() {
       attendedDate: data.attendedDate || '',
       year: data.year ? Number(data.year) : null,
       membershipNumber: data.membershipNumber || '',
+      leadershipPosition: data.leadershipPosition || '',
       addedAt: toDate(data.addedAt),
       addedBy: data.addedBy || '',
     }
@@ -2205,6 +2206,7 @@ export async function addPCSEntry(data) {
     attendedDate: data.attendedDate || '',
     year: data.year ? Number(data.year) : null,
     membershipNumber: data.membershipNumber || '',
+    leadershipPosition: data.leadershipPosition || '',
     addedAt: Timestamp.now(),
     addedBy: data.addedBy || 'unknown',
   })
@@ -2219,6 +2221,7 @@ export async function updatePCSEntry(id, data) {
   if (data.attendedDate !== undefined) payload.attendedDate = String(data.attendedDate).slice(0, 10)
   if (data.year !== undefined) payload.year = data.year ? Number(data.year) : null
   if (data.membershipNumber !== undefined) payload.membershipNumber = String(data.membershipNumber)
+  if (data.leadershipPosition !== undefined) payload.leadershipPosition = String(data.leadershipPosition)
   if (Object.keys(payload).length) await updateDoc(doc(db, CARING_PCS_COLLECTION, id), payload)
 }
 
