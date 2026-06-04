@@ -2089,6 +2089,19 @@ export async function deleteCaringMember(id) {
 // Delight department – visitors (delight_visitors)
 const DELIGHT_VISITORS_COLLECTION = 'delight_visitors'
 
+export async function getDelightVisitorById(id) {
+  if (!db || !id) return null
+  const snap = await getDoc(doc(db, DELIGHT_VISITORS_COLLECTION, id))
+  if (!snap.exists()) return null
+  const d = snap.data()
+  return {
+    id: snap.id, name: d.name || '', dob: d.dob || '', phone: d.phone || '',
+    email: d.email || '', nativity: d.nativity || '', currentPlace: d.currentPlace || '',
+    serviceAttended: d.serviceAttended || '', attendedDate: d.attendedDate || '',
+    howKnown: d.howKnown || '', source: d.source || '', year: d.year ? Number(d.year) : null,
+  }
+}
+
 export async function getDelightVisitors() {
   if (!db) return []
   const q = query(
@@ -2158,6 +2171,60 @@ export async function updateDelightVisitor(id, data) {
 export async function deleteDelightVisitor(id) {
   if (!db || !id) return
   await deleteDoc(doc(db, DELIGHT_VISITORS_COLLECTION, id))
+}
+
+// Caring – PCS (caring_pcs)
+const CARING_PCS_COLLECTION = 'caring_pcs'
+
+export async function getPCSEntries() {
+  if (!db) return []
+  const q = query(collection(db, CARING_PCS_COLLECTION), orderBy('addedAt', 'desc'))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      visitorId: data.visitorId || '',
+      name: data.name || '',
+      phone: data.phone || '',
+      attendedDate: data.attendedDate || '',
+      year: data.year ? Number(data.year) : null,
+      membershipNumber: data.membershipNumber || '',
+      addedAt: toDate(data.addedAt),
+      addedBy: data.addedBy || '',
+    }
+  })
+}
+
+export async function addPCSEntry(data) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, CARING_PCS_COLLECTION), {
+    visitorId: data.visitorId || '',
+    name: data.name || '',
+    phone: data.phone || '',
+    attendedDate: data.attendedDate || '',
+    year: data.year ? Number(data.year) : null,
+    membershipNumber: data.membershipNumber || '',
+    addedAt: Timestamp.now(),
+    addedBy: data.addedBy || 'unknown',
+  })
+  return ref.id
+}
+
+export async function updatePCSEntry(id, data) {
+  if (!db || !id) return
+  const payload = {}
+  if (data.name !== undefined) payload.name = String(data.name)
+  if (data.phone !== undefined) payload.phone = String(data.phone)
+  if (data.attendedDate !== undefined) payload.attendedDate = String(data.attendedDate).slice(0, 10)
+  if (data.year !== undefined) payload.year = data.year ? Number(data.year) : null
+  if (data.membershipNumber !== undefined) payload.membershipNumber = String(data.membershipNumber)
+  if (Object.keys(payload).length) await updateDoc(doc(db, CARING_PCS_COLLECTION, id), payload)
+}
+
+export async function deletePCSEntry(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, CARING_PCS_COLLECTION, id))
 }
 
 // D Light – sub departments (dlight_sub_departments)

@@ -13,7 +13,11 @@
       "PowerShell(npx --yes playwright@1.60.0 install chromium 2>&1 | Select-Object -Last 5; \\(Resolve-Path \"$\\(npm root -g\\)\\\\playwright\" -ErrorAction SilentlyContinue\\) 2>$null)",
       "PowerShell(npm root *)",
       "PowerShell(\\(Get-Command npx\\).Source; npx --yes playwright --version 2>&1)",
-      "PowerShell(npm install *)"
+      "PowerShell(npm install *)",
+      "PowerShell(Start-Process explorer.exe -ArgumentList \"C:\\\\\")",
+      "PowerShell(Start-Process \"http://localhost\")",
+      "PowerShell(node -e \"require\\('playwright'\\)\" 2>&1; npx playwright --version 2>&1)",
+      "PowerShell(npx playwright install chromium 2>&1 | Select-Object -Last 5)"
     ]
   }
 }

@@ -24,12 +24,13 @@ function toDate(value) {
 export function parseDateToYYYYMMDD(value) {
   if (value == null || value === '') return ''
 
-  // JS Date object — use local parts to avoid UTC shift
+  // JS Date object — always read UTC parts; Date objects here come from
+  // UTC-midnight sources (XLSX cellDates, new Date(isoString)) so UTC is correct
   if (value instanceof Date) {
     if (!isValid(value)) return ''
-    const yyyy = value.getFullYear()
-    const mm = String(value.getMonth() + 1).padStart(2, '0')
-    const dd = String(value.getDate()).padStart(2, '0')
+    const yyyy = value.getUTCFullYear()
+    const mm = String(value.getUTCMonth() + 1).padStart(2, '0')
+    const dd = String(value.getUTCDate()).padStart(2, '0')
     return `${yyyy}-${mm}-${dd}`
   }
 

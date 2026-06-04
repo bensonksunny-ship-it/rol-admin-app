@@ -62,6 +62,11 @@ import {
   addDepartmentEvent,
   updateDepartmentEvent,
   deleteDepartmentEvent,
+  getPCSEntries,
+  addPCSEntry,
+  updatePCSEntry,
+  deletePCSEntry,
+  getDelightVisitorById,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -241,6 +246,11 @@ export default function DepartmentHub() {
   const [visitorSearchOpen, setVisitorSearchOpen] = useState(false)
   const [visitorSubPage, setVisitorSubPage] = useState('current')
   const [visitorPrevYear, setVisitorPrevYear] = useState(VISITOR_CURRENT_YEAR - 1)
+  const [yearSelectorOpen, setYearSelectorOpen] = useState(false)
+  const [pcsEntries, setPcsEntries] = useState([])
+  const [loadingPCS, setLoadingPCS] = useState(false)
+  const [pcsPickerOpen, setPcsPickerOpen] = useState(false)
+  const [pcsDetailEntry, setPcsDetailEntry] = useState(null)
   const [delightVisitorForm, setDelightVisitorForm] = useState({
     name: '',
     dob: '',
@@ -738,6 +748,13 @@ export default function DepartmentHub() {
   }, [slug, activeTab])
 
   useEffect(() => {
+    if (slug === 'caring' && activeTab === 'pcs') {
+      setLoadingPCS(true)
+      getPCSEntries().then(setPcsEntries).catch(() => setPcsEntries([])).finally(() => setLoadingPCS(false))
+    }
+  }, [slug, activeTab])
+
+  useEffect(() => {
     if (!expandedCellId) {
       setCellMembers([])
       return
@@ -833,8 +850,12 @@ export default function DepartmentHub() {
       userProfile?.role === ROLES.MINISTRY_LEADER ||
       isDepartmentHead('D Light'))
 
-  const getVisitorYear = (v) =>
-    v.year || (v.attendedDate ? new Date(v.attendedDate).getFullYear() : VISITOR_CURRENT_YEAR)
+  const getVisitorYear = (v) => {
+    if (v.year) return v.year
+    if (!v.attendedDate) return VISITOR_CURRENT_YEAR
+    const m = String(v.attendedDate).match(/^(\d{4})/)
+    return m ? parseInt(m[1]) : VISITOR_CURRENT_YEAR
+  }
 
   const parseVisitorRows = (rows) => {
     const firstRowCells = (rows[0] || []).map((h) => String(h || '').toLowerCase().trim())
@@ -887,11 +908,7 @@ export default function DepartmentHub() {
         ? getVisitorYear(v) === VISITOR_CURRENT_YEAR
         : getVisitorYear(v) === visitorPrevYear
     )
-    .sort((a, b) => {
-      const da = a.attendedDate ? new Date(a.attendedDate).getTime() : 0
-      const db = b.attendedDate ? new Date(b.attendedDate).getTime() : 0
-      return da - db
-    })
+    .sort((a, b) => (a.attendedDate || '').localeCompare(b.attendedDate || ''))
   const visitorSearchResults = visitorSearch.trim().length > 0
     ? delightVisitors
         .filter((v) => {
@@ -1281,33 +1298,59 @@ export default function DepartmentHub() {
                       {importVisitorResult.message}
                     </p>
                   )}
+                  {/* Year selector backdrop */}
+                  {yearSelectorOpen && visitorSubPage === 'previous' && (
+                    <div className="fixed inset-0 z-20" onClick={() => setYearSelectorOpen(false)} />
+                  )}
                   {/* Year sub-nav */}
                   <div className="flex items-center gap-1 mt-2">
                     <button
                       type="button"
-                      onClick={() => setVisitorSubPage('current')}
+                      onClick={() => { setVisitorSubPage('current'); setYearSelectorOpen(false) }}
                       className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${visitorSubPage === 'current' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                     >
                       {VISITOR_CURRENT_YEAR}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setVisitorSubPage('previous')}
-                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${visitorSubPage === 'previous' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                    >
-                      Previous Years
-                    </button>
-                    {visitorSubPage === 'previous' && (
-                      <select
-                        value={visitorPrevYear}
-                        onChange={(e) => setVisitorPrevYear(Number(e.target.value))}
-                        className="ml-2 text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-700 bg-white"
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (visitorSubPage !== 'previous') {
+                            setVisitorSubPage('previous')
+                            setYearSelectorOpen(true)
+                          } else {
+                            setYearSelectorOpen((o) => !o)
+                          }
+                        }}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${visitorSubPage === 'previous' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                       >
-                        {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR }, (_, i) => VISITOR_CURRENT_YEAR - 1 - i).map((yr) => (
-                          <option key={yr} value={yr}>{yr}</option>
-                        ))}
-                      </select>
-                    )}
+                        {visitorSubPage === 'previous' ? visitorPrevYear : 'Previous Years'}
+                        <svg
+                          width="10" height="10" viewBox="0 0 10 10" fill="none"
+                          className={`transition-transform duration-200 ${yearSelectorOpen && visitorSubPage === 'previous' ? 'rotate-180' : ''}`}
+                        >
+                          <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                      {visitorSubPage === 'previous' && yearSelectorOpen && (
+                        <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden"
+                          style={{ minWidth: '90px' }}
+                        >
+                          <div className="max-h-52 overflow-y-auto py-1">
+                            {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR }, (_, i) => VISITOR_CURRENT_YEAR - 1 - i).map((yr) => (
+                              <button
+                                key={yr}
+                                type="button"
+                                onClick={() => { setVisitorPrevYear(yr); setYearSelectorOpen(false) }}
+                                className={`w-full text-left px-4 py-2 text-xs font-medium transition-colors ${visitorPrevYear === yr ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-700 hover:bg-slate-50'}`}
+                              >
+                                {yr}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
                 {canEditDelightVisitors && (
@@ -1368,7 +1411,7 @@ export default function DepartmentHub() {
                               rows = String(data).split(/\r?\n/).map((l) => l.split(',').map((c) => c.trim().replace(/^["']|["']$/g, '')))
                             } else {
                               const XLSX = await import('xlsx')
-                              const wb = XLSX.read(data, { type: 'array', cellDates: true })
+                              const wb = XLSX.read(data, { type: 'array' })
                               rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 })
                             }
                             const parsed = parseVisitorRows(rows)
@@ -1943,24 +1986,40 @@ export default function DepartmentHub() {
                       <input
                         type="date"
                         value={delightVisitorForm.attendedDate}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, attendedDate: e.target.value }))}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          const yr = val ? new Date(val).getFullYear() : null
+                          setDelightVisitorForm((f) => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
+                        }}
                         className="w-full px-3 py-2 rounded-lg border border-slate-300"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">How did you know about church?</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Year</label>
                       <select
-                        value={delightVisitorForm.source || ''}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, source: e.target.value }))}
+                        value={delightVisitorForm.year || ''}
+                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, year: Number(e.target.value) }))}
                         className="w-full px-3 py-2 rounded-lg border border-slate-300"
                       >
-                        <option value="">— Select —</option>
-                        <option value="Friend">Friend</option>
-                        <option value="Family">Family</option>
-                        <option value="Social Media">Social Media</option>
-                        <option value="Other">Other</option>
+                        {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR + 1 }, (_, i) => VISITOR_CURRENT_YEAR - i).map((yr) => (
+                          <option key={yr} value={yr}>{yr}</option>
+                        ))}
                       </select>
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">How did you know about church?</label>
+                    <select
+                      value={delightVisitorForm.source || ''}
+                      onChange={(e) => setDelightVisitorForm((f) => ({ ...f, source: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    >
+                      <option value="">— Select —</option>
+                      <option value="Friend">Friend</option>
+                      <option value="Family">Family</option>
+                      <option value="Social Media">Social Media</option>
+                      <option value="Other">Other</option>
+                    </select>
                   </div>
                   <div className="flex gap-2 pt-2">
                     <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">
@@ -2657,6 +2716,158 @@ export default function DepartmentHub() {
               </div>
             </div>
           )}
+
+          {activeTab === 'pcs' && slug === 'caring' && (() => {
+            // Group by year, newest first; entries with no year go to the bottom
+            const pcsYears = [...new Set(pcsEntries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a)
+            const noYearEntries = pcsEntries.filter(e => !e.year)
+            const grouped = [
+              ...pcsYears.map(yr => ({ year: yr, entries: pcsEntries.filter(e => e.year === yr) })),
+              ...(noYearEntries.length ? [{ year: null, entries: noYearEntries }] : []),
+            ]
+
+            const Chip = ({ entry }) => {
+              const hasMember = !!entry.membershipNumber
+              return (
+                <div
+                  className={`flex items-center gap-2 rounded-2xl pl-2 pr-2.5 py-2 border transition-all cursor-pointer
+                    ${hasMember
+                      ? 'bg-amber-50 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
+                      : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300'}`}
+                  onClick={() => setPcsDetailEntry(entry)}
+                >
+                  <div className={`w-8 h-8 rounded-full text-white text-sm font-bold flex items-center justify-center flex-shrink-0
+                    ${hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
+                    {entry.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
+                      {entry.name}
+                    </p>
+                    {hasMember
+                      ? <p className="text-xs text-amber-600 font-medium leading-tight">#{entry.membershipNumber}</p>
+                      : <p className="text-xs text-blue-400 leading-tight">No member #</p>
+                    }
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      if (!window.confirm(`Remove ${entry.name}?`)) return
+                      await deletePCSEntry(entry.id)
+                      setPcsEntries(prev => prev.filter(x => x.id !== entry.id))
+                    }}
+                    className={`ml-1 w-5 h-5 flex items-center justify-center rounded-full text-sm leading-none flex-shrink-0 transition-colors
+                      ${hasMember ? 'text-amber-300 hover:text-red-500 hover:bg-red-50' : 'text-blue-300 hover:text-red-500 hover:bg-red-50'}`}
+                    title="Remove"
+                  >×</button>
+                </div>
+              )
+            }
+
+            return (
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-indigo-600 to-indigo-500 rounded-xl px-5 py-5 flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-white font-bold text-lg leading-tight">Personal Caring System</h2>
+                    <p className="text-indigo-200 text-xs mt-1">Active people coming to church under personal care</p>
+                    {!loadingPCS && (
+                      <div className="mt-3 flex items-center gap-2 flex-wrap">
+                        <span className="bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full">
+                          {pcsEntries.length} {pcsEntries.length === 1 ? 'Person' : 'People'}
+                        </span>
+                        {pcsYears.map(yr => (
+                          <span key={yr} className="bg-white/15 text-indigo-100 text-xs px-2 py-0.5 rounded-full">
+                            {yr}: {pcsEntries.filter(e => e.year === yr).length}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPcsPickerOpen(true)}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white text-indigo-700 text-sm font-semibold hover:bg-indigo-50 transition-colors shadow-sm"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
+                    Add Person
+                  </button>
+                </div>
+
+                {/* Picker */}
+                {pcsPickerOpen && (
+                  <PCSPickerModal
+                    addedIds={new Set(pcsEntries.map((e) => e.visitorId))}
+                    onAdd={(v) => {
+                      const tempId = `temp_${Date.now()}`
+                      const optimistic = { id: tempId, visitorId: v.id, name: v.name, phone: v.phone, attendedDate: v.attendedDate, year: v.year, addedAt: new Date(), addedBy: userProfile?.email || '' }
+                      setPcsEntries((prev) => [optimistic, ...prev])
+                      addPCSEntry({ visitorId: v.id, name: v.name, phone: v.phone, attendedDate: v.attendedDate, year: v.year, addedBy: userProfile?.email || 'unknown' })
+                        .then((realId) => { if (realId) setPcsEntries((prev) => prev.map((e) => e.id === tempId ? { ...e, id: realId } : e)) })
+                        .catch(() => { setPcsEntries((prev) => prev.filter((e) => e.id !== tempId)) })
+                    }}
+                    onClose={() => setPcsPickerOpen(false)}
+                  />
+                )}
+
+                {/* Detail sheet */}
+                {pcsDetailEntry && (
+                  <PCSDetailSheet
+                    entry={pcsDetailEntry}
+                    onClose={() => setPcsDetailEntry(null)}
+                    onUpdate={(updated) => {
+                      setPcsEntries(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e))
+                      setPcsDetailEntry(null)
+                    }}
+                    onRemove={(id) => {
+                      setPcsEntries(prev => prev.filter(e => e.id !== id))
+                      setPcsDetailEntry(null)
+                    }}
+                  />
+                )}
+
+                {/* Main card — all years on one page */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  {loadingPCS ? (
+                    <div className="py-14 text-center text-slate-400 text-sm">Loading…</div>
+                  ) : pcsEntries.length === 0 ? (
+                    <div className="py-16 flex flex-col items-center gap-3 text-center">
+                      <svg width="38" height="38" viewBox="0 0 36 36" fill="none" className="text-slate-200">
+                        <circle cx="18" cy="12" r="6" stroke="currentColor" strokeWidth="1.6"/>
+                        <path d="M6 30c0-6.627 5.373-12 12-12s12 5.373 12 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                      </svg>
+                      <p className="text-sm text-slate-400">No people added yet. Click "Add Person" to start.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100">
+                      {grouped.map(({ year, entries }) => (
+                        <div key={year ?? 'no-year'} className="flex items-start gap-3 px-4 py-3">
+                          {/* Year label */}
+                          <div className="flex-shrink-0 w-12 pt-2.5 text-right">
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">
+                              {year ?? '—'}
+                            </span>
+                          </div>
+                          {/* Chips row */}
+                          <div className="flex flex-wrap gap-2 flex-1">
+                            {entries.map(entry => <Chip key={entry.id} entry={entry} />)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Footer */}
+                  {!loadingPCS && pcsEntries.length > 0 && (
+                    <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 text-center">
+                      {pcsEntries.length} {pcsEntries.length === 1 ? 'person' : 'people'} across {grouped.length} {grouped.length === 1 ? 'year' : 'years'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           {(activeTab === 'team' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts') && activeTab === 'operations' && opsSubTab === 'team')) && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-6">
@@ -4357,7 +4568,7 @@ export default function DepartmentHub() {
                                             // Lazy-load xlsx to avoid loading it on non-Cell pages
                                             ;(async () => {
                                               const XLSX = await import('xlsx')
-                                              const wb = XLSX.read(data, { type: 'binary', cellDates: true })
+                                              const wb = XLSX.read(data, { type: 'binary' })
                                               const ws = wb.Sheets[wb.SheetNames[0]]
                                               const parsedRows = XLSX.utils.sheet_to_json(ws, { header: 1 })
 
@@ -5091,5 +5302,286 @@ export default function DepartmentHub() {
       )}
       </div>
     </div>
+  )
+}
+
+// ─── PCS Detail Sheet ─────────────────────────────────────────────────────────
+function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
+  const [visitor, setVisitor] = useState(null)
+  const [loadingVisitor, setLoadingVisitor] = useState(true)
+  const [form, setForm] = useState({
+    name: entry.name || '',
+    phone: entry.phone || '',
+    attendedDate: entry.attendedDate || '',
+    membershipNumber: entry.membershipNumber || '',
+    email: '',
+    dob: '',
+    nativity: '',
+    currentPlace: '',
+    serviceAttended: '',
+    howKnown: '',
+    year: entry.year || '',
+  })
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!entry.visitorId) { setLoadingVisitor(false); return }
+    getDelightVisitorById(entry.visitorId)
+      .then((v) => {
+        if (v) {
+          setVisitor(v)
+          setForm(f => ({
+            ...f,
+            email: v.email || '',
+            dob: v.dob || '',
+            nativity: v.nativity || '',
+            currentPlace: v.currentPlace || '',
+            serviceAttended: v.serviceAttended || '',
+            howKnown: v.howKnown || '',
+          }))
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingVisitor(false))
+  }, [entry.visitorId])
+
+  const field = (label, key, type = 'text') => (
+    <div>
+      <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{label}</label>
+      <input
+        type={type}
+        value={form[key]}
+        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+        className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
+      />
+    </div>
+  )
+
+  const hasMember = !!form.membershipNumber
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div
+          className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh]"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Sheet header */}
+          <div className={`px-5 pt-5 pb-4 flex items-start justify-between gap-3 flex-shrink-0 ${hasMember ? 'bg-amber-50 border-b border-amber-100' : 'bg-blue-50 border-b border-blue-100'}`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-11 h-11 rounded-full text-white text-lg font-bold flex items-center justify-center flex-shrink-0 ${hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
+                {form.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-slate-800 text-base truncate">{form.name}</p>
+                {hasMember
+                  ? <p className="text-xs text-amber-600 font-semibold">Member #{form.membershipNumber}</p>
+                  : <p className="text-xs text-blue-400">No membership number</p>
+                }
+              </div>
+            </div>
+            <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-white/80 text-xl flex-shrink-0">×</button>
+          </div>
+
+          {/* Scrollable body */}
+          <div className="overflow-y-auto min-h-0 flex-1 px-5 py-4 space-y-4">
+            {/* Membership number — prominent */}
+            <div className={`rounded-xl p-3 border ${hasMember ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+              <label className={`text-xs font-bold uppercase tracking-wide ${hasMember ? 'text-amber-600' : 'text-slate-400'}`}>
+                🏅 Membership Number
+              </label>
+              <input
+                type="text"
+                placeholder="Enter membership number…"
+                value={form.membershipNumber}
+                onChange={e => setForm(f => ({ ...f, membershipNumber: e.target.value }))}
+                className={`mt-1.5 w-full px-3 py-2.5 rounded-lg border text-sm font-semibold focus:outline-none focus:ring-2
+                  ${hasMember ? 'border-amber-300 bg-white text-amber-800 focus:ring-amber-200' : 'border-slate-200 bg-white text-slate-700 focus:ring-indigo-200'}`}
+              />
+            </div>
+
+            {/* Visitor fields */}
+            {loadingVisitor ? (
+              <p className="text-sm text-slate-400 text-center py-4">Loading details…</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {field('Name', 'name')}
+                {field('Phone', 'phone')}
+                {field('Email', 'email')}
+                {field('Date of Birth', 'dob', 'date')}
+                {field('Date Attended', 'attendedDate', 'date')}
+                {field('Nativity', 'nativity')}
+                {field('Current Place', 'currentPlace')}
+                {field('Service Attended', 'serviceAttended')}
+                {field('How Known', 'howKnown')}
+                {field('Year', 'year')}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 py-4 border-t border-slate-100 flex gap-2 flex-shrink-0">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={async () => {
+                setSaving(true)
+                const { name, phone, attendedDate, membershipNumber, email, dob, nativity, currentPlace, serviceAttended, howKnown, year } = form
+                onUpdate({ id: entry.id, name, phone, attendedDate, membershipNumber, year: year ? Number(year) : null })
+                await Promise.all([
+                  updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, year }),
+                  entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),
+                ]).catch(() => {})
+                setSaving(false)
+              }}
+              className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+            >{saving ? 'Saving…' : 'Save Changes'}</button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
+                await deletePCSEntry(entry.id)
+                onRemove(entry.id)
+              }}
+              className="px-4 py-2.5 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-colors"
+            >Remove</button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ─── PCS Picker Modal ─────────────────────────────────────────────────────────
+function PCSPickerModal({ addedIds, onAdd, onClose }) {
+  const [visitors, setVisitors] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [yearFilter, setYearFilter] = useState('all')
+
+  useEffect(() => {
+    getDelightVisitors()
+      .then(setVisitors)
+      .catch(() => setVisitors([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const years = [...new Set(visitors.map((v) => v.year).filter(Boolean))].sort((a, b) => b - a)
+
+  const filtered = visitors.filter((v) => {
+    const matchSearch = v.name.toLowerCase().includes(search.toLowerCase())
+    const matchYear = yearFilter === 'all' || String(v.year) === String(yearFilter)
+    return matchSearch && matchYear
+  })
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[94vh] sm:max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+
+          {/* Modal header */}
+          <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+            <div>
+              <p className="font-semibold text-slate-800 text-sm">Add to Personal Caring System</p>
+              <p className="text-xs text-slate-400 mt-0.5">Select from D Light visitor list</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-xl leading-none"
+            >×</button>
+          </div>
+
+          {/* Search */}
+          <div className="px-3 pt-3 pb-2 flex-shrink-0">
+            <input
+              type="text"
+              placeholder="Search by name…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400"
+            />
+          </div>
+
+          {/* Year filter chips */}
+          {years.length > 0 && (
+            <div className="px-3 pb-2 flex gap-1.5 flex-wrap flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setYearFilter('all')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${yearFilter === 'all' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >All</button>
+              {years.map((yr) => (
+                <button
+                  key={yr}
+                  type="button"
+                  onClick={() => setYearFilter(String(yr))}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${yearFilter === String(yr) ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >{yr}</button>
+              ))}
+            </div>
+          )}
+
+          {/* Divider */}
+          <div className="border-t border-slate-100 flex-shrink-0" />
+
+          {/* List */}
+          <div className="overflow-y-auto min-h-0 flex-1">
+            {loading ? (
+              <div className="px-4 py-12 text-center text-slate-400 text-sm">Loading visitors…</div>
+            ) : filtered.length === 0 ? (
+              <div className="px-4 py-12 text-center text-slate-400 text-sm">
+                {search || yearFilter !== 'all' ? 'No matches found.' : 'No visitors available.'}
+              </div>
+            ) : filtered.map((v) => {
+              const added = addedIds.has(v.id)
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  disabled={added}
+                  onClick={() => {
+                    if (added) return
+                    onAdd(v)
+                    onClose()
+                  }}
+                  className={`w-full text-left px-4 py-3 flex items-center gap-3 border-b border-slate-50 transition-colors
+                    ${added ? 'opacity-40 cursor-not-allowed bg-slate-50' : 'hover:bg-indigo-50 active:bg-indigo-100'}`}
+                >
+                  {/* Avatar initial */}
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold
+                    ${added ? 'bg-slate-200 text-slate-400' : 'bg-indigo-100 text-indigo-700'}`}>
+                    {v.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">{v.name}</p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      {v.phone && <span className="text-xs text-slate-400">{v.phone}</span>}
+                      {v.year && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">{v.year}</span>
+                      )}
+                      {v.attendedDate && <span className="text-xs text-slate-400">{v.attendedDate}</span>}
+                    </div>
+                  </div>
+                  {added
+                    ? <span className="text-xs text-indigo-400 font-medium flex-shrink-0">Added</span>
+                    : <svg className="flex-shrink-0 text-slate-300" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  }
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Footer count */}
+          {!loading && (
+            <div className="px-4 py-2.5 border-t border-slate-100 flex-shrink-0">
+              <p className="text-xs text-slate-400 text-center">{filtered.length} visitor{filtered.length !== 1 ? 's' : ''} shown</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   )
 }

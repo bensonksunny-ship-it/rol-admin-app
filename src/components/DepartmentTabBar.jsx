@@ -60,6 +60,8 @@ function getTabLabel(tab) {
       return 'Visitor Entry'
     case 'attendance':
       return 'Attendance'
+    case 'pcs':
+      return 'PCS'
     case 'events':
       return 'New Event'
     case 'liveControl':

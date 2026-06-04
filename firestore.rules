@@ -213,6 +213,10 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (isFullAccess() || userDepartment() == 'Caring');
     }
 
+    match /caring_pcs/{docId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || userDepartment() == 'Caring');
+    }
+
     match /cell_attendance/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
