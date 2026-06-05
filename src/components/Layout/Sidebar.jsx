@@ -11,7 +11,7 @@ import { getDepartmentRole } from '../../utils/access'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard' },
+  { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard', founderOnly: true },
   { to: '/senior-pastor', label: 'Senior Pastor Office', icon: '👤', permission: 'pastorHub', orFounder: true },
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
   { to: '/sunday-planning', label: 'Sunday Plan', icon: '📋', permission: 'attendance' },
@@ -551,6 +551,7 @@ export default function Sidebar() {
   const onlyCell = departments.length === 1 && departments[0] === 'Cell'
 
   let visible = navItems.filter((item) => {
+    if (item.founderOnly) return isFounder
     if (item.to === '/departments') return hasPermission(item.permission)
     if (item.adminOnly) return (userProfile?.role === ROLES.ADMIN || isFounder) && hasPermission(item.permission)
     if (item.showOnlyDepartment) return departments.includes(item.showOnlyDepartment) || (item.showOnlyDepartmentAlt && departments.includes(item.showOnlyDepartmentAlt)) || isFounder || (item.orAttendance && hasPermission('attendance'))

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import {
   getSecCoreDirectorBoard,
@@ -7,6 +7,8 @@ import {
   getSecCoreSundayLeaderEntry,
   setSecCoreSundayLeaderEntry,
   deleteSecCoreSundayLeaderEntry,
+  getAllBoardPoints,
+  updateBoardPoint,
 } from '../../services/firestore'
 import { useAuth } from '../../context/AuthContext'
 import { formatDisplayDate } from '../../utils/date'
@@ -368,6 +370,228 @@ function SundayLeaderTab({ canEdit, userProfile }) {
   )
 }
 
+// ─── Board Agenda tab ─────────────────────────────────────────────────────────
+
+function BoardAgendaTab({ canEdit, userProfile }) {
+  const [points, setPoints]     = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [approving, setApproving] = useState(null) // { id, point, department }
+  const [timeInput, setTimeInput] = useState('')
+  const [filterStatus, setFilterStatus] = useState('all')
+
+  useEffect(() => {
+    getAllBoardPoints()
+      .then(setPoints)
+      .catch(() => setPoints([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  // Group by department
+  const grouped = useMemo(() => {
+    const filtered = filterStatus === 'all' ? points : points.filter(p => p.status === filterStatus)
+    const map = {}
+    filtered.forEach(p => {
+      if (!map[p.department]) map[p.department] = []
+      map[p.department].push(p)
+    })
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
+  }, [points, filterStatus])
+
+  const handleApprove = async () => {
+    if (!approving) return
+    const time = timeInput.trim()
+    if (!time) return
+    await updateBoardPoint(approving.id, {
+      status: 'approved',
+      allottedTime: time,
+      approvedBy: userProfile?.displayName || userProfile?.email || 'Sec-Core',
+    })
+    setPoints(prev => prev.map(p => p.id === approving.id
+      ? { ...p, status: 'approved', allottedTime: time, approvedBy: userProfile?.displayName || userProfile?.email || 'Sec-Core' }
+      : p
+    ))
+    setApproving(null)
+    setTimeInput('')
+  }
+
+  const handleReject = async (id) => {
+    if (!window.confirm('Reject this agenda point?')) return
+    await updateBoardPoint(id, { status: 'rejected', allottedTime: '', approvedBy: '' })
+    setPoints(prev => prev.map(p => p.id === id ? { ...p, status: 'rejected', allottedTime: '', approvedBy: '' } : p))
+  }
+
+  const handleReset = async (id) => {
+    await updateBoardPoint(id, { status: 'pending', allottedTime: '', approvedBy: '' })
+    setPoints(prev => prev.map(p => p.id === id ? { ...p, status: 'pending', allottedTime: '', approvedBy: '' } : p))
+  }
+
+  const counts = {
+    all: points.length,
+    pending: points.filter(p => p.status === 'pending').length,
+    approved: points.filter(p => p.status === 'approved').length,
+    rejected: points.filter(p => p.status === 'rejected').length,
+  }
+
+  const statusStyle = {
+    pending:  'bg-amber-100 text-amber-700',
+    approved: 'bg-emerald-100 text-emerald-700',
+    rejected: 'bg-red-100 text-red-500',
+  }
+
+  if (loading) return <p className="text-sm text-slate-400 py-6 text-center">Loading agenda…</p>
+
+  return (
+    <div className="space-y-4">
+      {/* Approve modal */}
+      {approving && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => { setApproving(null); setTimeInput('') }} />
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => { setApproving(null); setTimeInput('') }}>
+            <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <p className="font-semibold text-slate-800 text-sm">Approve Agenda Point</p>
+                <button type="button" onClick={() => { setApproving(null); setTimeInput('') }} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
+              </div>
+              <div className="px-5 py-4 space-y-3">
+                <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">{approving.department}</p>
+                  <p className="text-sm text-slate-800">{approving.point}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Allotted Time *</label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="e.g. 10 mins, 15 minutes"
+                      value={timeInput}
+                      onChange={e => setTimeInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && timeInput.trim() && handleApprove()}
+                      className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">Enter the time allocated for this presentation.</p>
+                </div>
+              </div>
+              <div className="px-5 pb-5 flex gap-2">
+                <button
+                  type="button"
+                  disabled={!timeInput.trim()}
+                  onClick={handleApprove}
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                >Approve & Set Time</button>
+                <button type="button" onClick={() => { setApproving(null); setTimeInput('') }}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Summary stats + filter */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h3 className="font-semibold text-slate-800 text-sm">Board Meeting Agenda</h3>
+          <span className="text-xs text-slate-400">{counts.all} total points</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { key: 'all',      label: `All (${counts.all})`,           cls: 'bg-slate-100 text-slate-600' },
+            { key: 'pending',  label: `Pending (${counts.pending})`,   cls: 'bg-amber-100 text-amber-700' },
+            { key: 'approved', label: `Approved (${counts.approved})`, cls: 'bg-emerald-100 text-emerald-700' },
+            { key: 'rejected', label: `Rejected (${counts.rejected})`, cls: 'bg-red-100 text-red-500' },
+          ].map(f => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setFilterStatus(f.key)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all
+                ${filterStatus === f.key ? 'ring-2 ring-offset-1 ring-indigo-400 ' + f.cls : f.cls + ' opacity-60 hover:opacity-100'}`}
+            >{f.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Grouped list */}
+      {grouped.length === 0 ? (
+        <div className="py-12 text-center text-slate-400 text-sm">
+          {points.length === 0 ? 'No presentation points submitted yet.' : 'No points match the selected filter.'}
+        </div>
+      ) : grouped.map(([dept, deptPoints]) => (
+        <div key={dept} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <p className="text-sm font-bold text-slate-700">{dept}</p>
+            <span className="text-xs text-slate-400">{deptPoints.length} point{deptPoints.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {deptPoints.map((bp, idx) => (
+              <div key={bp.id} className="flex items-start gap-3 px-5 py-4">
+                <span className="text-xs font-medium text-slate-400 w-5 pt-0.5 flex-shrink-0 text-right">{idx + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-slate-800 leading-relaxed">{bp.point}</p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                    {bp.meetingDate && <span className="text-xs text-slate-400">📅 {bp.meetingDate}</span>}
+                    {bp.status === 'approved' && bp.allottedTime && (
+                      <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">⏱ {bp.allottedTime}</span>
+                    )}
+                    {bp.approvedBy && bp.status === 'approved' && (
+                      <span className="text-xs text-slate-400">by {bp.approvedBy}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex-shrink-0 flex items-center gap-2">
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusStyle[bp.status] || 'bg-slate-100 text-slate-500'}`}>
+                    {bp.status === 'approved' ? 'Approved' : bp.status === 'rejected' ? 'Rejected' : 'Pending'}
+                  </span>
+                  {canEdit && (
+                    <div className="flex gap-1.5">
+                      {bp.status === 'pending' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => { setApproving(bp); setTimeInput('') }}
+                            className="text-xs text-emerald-600 font-semibold hover:underline"
+                          >Approve</button>
+                          <button
+                            type="button"
+                            onClick={() => handleReject(bp.id)}
+                            className="text-xs text-red-500 hover:underline"
+                          >Reject</button>
+                        </>
+                      )}
+                      {bp.status === 'approved' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => { setApproving(bp); setTimeInput(bp.allottedTime || '') }}
+                            className="text-xs text-slate-500 hover:underline"
+                          >Edit Time</button>
+                          <button
+                            type="button"
+                            onClick={() => handleReset(bp.id)}
+                            className="text-xs text-amber-600 hover:underline"
+                          >Reset</button>
+                        </>
+                      )}
+                      {bp.status === 'rejected' && (
+                        <button
+                          type="button"
+                          onClick={() => handleReset(bp.id)}
+                          className="text-xs text-amber-600 hover:underline"
+                        >Reconsider</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export default function SecCoreSummary() {
@@ -375,39 +599,32 @@ export default function SecCoreSummary() {
   const canEdit = canManageDepartment('Sec-Core')
   const [tab, setTab] = useState('directorBoard')
 
+  const tabs = [
+    { key: 'directorBoard', label: 'Director Board' },
+    { key: 'boardAgenda',   label: 'Board Agenda' },
+    { key: 'sundayLeader',  label: 'Sunday Leader' },
+  ]
+
   return (
     <div className="space-y-3">
-      <div className="flex gap-1 border-b border-slate-200">
-        <button
-          type="button"
-          onClick={() => setTab('directorBoard')}
-          className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-            tab === 'directorBoard'
-              ? 'border-indigo-600 text-indigo-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          Director Board
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab('sundayLeader')}
-          className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-            tab === 'sundayLeader'
-              ? 'border-indigo-600 text-indigo-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          Sunday Leader
-        </button>
+      <div className="flex gap-1 border-b border-slate-200 overflow-x-auto scrollbar-hide">
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              tab === t.key
+                ? 'border-indigo-600 text-indigo-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >{t.label}</button>
+        ))}
       </div>
 
-      {tab === 'directorBoard' && (
-        <DirectorBoardTab canEdit={canEdit} userProfile={userProfile} />
-      )}
-      {tab === 'sundayLeader' && (
-        <SundayLeaderTab canEdit={canEdit} userProfile={userProfile} />
-      )}
+      {tab === 'directorBoard' && <DirectorBoardTab canEdit={canEdit} userProfile={userProfile} />}
+      {tab === 'boardAgenda'   && <BoardAgendaTab   canEdit={canEdit} userProfile={userProfile} />}
+      {tab === 'sundayLeader'  && <SundayLeaderTab  canEdit={canEdit} userProfile={userProfile} />}
     </div>
   )
 }

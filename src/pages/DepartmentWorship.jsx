@@ -25,6 +25,7 @@ import {
   addDepartmentSubDepartment,
   updateDepartmentSubDepartment,
   deleteDepartmentSubDepartment,
+  getDelightVisitors,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
@@ -330,6 +331,7 @@ export default function DepartmentWorship() {
   )
   const [loadingTeam, setLoadingTeam] = useState(true)
   const [teamError, setTeamError] = useState(null)
+  const [worshipMemberLinking, setWorshipMemberLinking] = useState(null)
   const [newMember, setNewMember] = useState({
     name: '',
     memberSince: new Date().toISOString().slice(0, 10),
@@ -1233,13 +1235,17 @@ export default function DepartmentWorship() {
                         }
                       >
                         <td className="px-4 py-2 text-slate-600">{i + 1}</td>
-                        <td className="px-4 py-2 font-medium text-slate-800">
-                          {m.name}
-                          {m.isWorshipDirector && (
-                            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] uppercase tracking-wide">
-                              Worship director
-                            </span>
-                          )}
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-medium text-slate-800">{m.name}</span>
+                            {m.isWorshipDirector && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] uppercase tracking-wide">Worship director</span>
+                            )}
+                            {m.visitorId
+                              ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                              : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                            }
+                          </div>
                         </td>
                         <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
                         <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
@@ -1264,14 +1270,13 @@ export default function DepartmentWorship() {
                         </td>
                         <td className="px-4 py-2 text-slate-600">
                           {m.positions?.length ? (
-                            <span className="text-xs text-slate-500">
-                              {m.positions.join(', ')}
-                            </span>
+                            <span className="text-xs text-slate-500">{m.positions.join(', ')}</span>
                           ) : <span className="text-xs text-slate-300">—</span>}
                         </td>
                         {canManageWorship && (
-                          <td className="px-4 py-2">
+                          <td className="px-4 py-2 space-x-2 whitespace-nowrap">
                             <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
+                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="text-indigo-600 hover:underline text-sm font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
                           </td>
                         )}
                       </tr>
@@ -1312,7 +1317,15 @@ export default function DepartmentWorship() {
                       return (
                       <tr key={m.id} className="hover:bg-slate-50">
                         <td className="px-4 py-2 text-slate-600">{i + 1}</td>
-                        <td className="px-4 py-2 font-medium text-slate-800">{m.name}</td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-medium text-slate-800">{m.name}</span>
+                            {m.visitorId
+                              ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                              : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                            }
+                          </div>
+                        </td>
                         <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
                         <td className="px-4 py-2 text-slate-500 text-sm">{m.formerSince ? formatDMY(m.formerSince) : <span className="text-slate-300">—</span>}</td>
                         <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
@@ -1324,8 +1337,9 @@ export default function DepartmentWorship() {
                         </td>
                         <td className="px-4 py-2 text-slate-500 text-sm font-medium">{totalDays.toLocaleString()} days</td>
                         {canManageWorship && (
-                          <td className="px-4 py-2">
+                          <td className="px-4 py-2 space-x-2 whitespace-nowrap">
                             <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
+                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="text-indigo-600 hover:underline text-sm font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
                           </td>
                         )}
                       </tr>
@@ -1827,6 +1841,19 @@ export default function DepartmentWorship() {
         </div>
 
         </div>
+      )}
+
+      {worshipMemberLinking && (
+        <WorshipLinkModal
+          member={worshipMemberLinking}
+          onLink={async (visitor) => {
+            const updated = { name: visitor.name, phone: visitor.phone || '', visitorId: visitor.id }
+            await updateWorshipTeamMember(worshipMemberLinking.id, updated)
+            setAllMembers(prev => prev.map(m => m.id === worshipMemberLinking.id ? { ...m, ...updated } : m))
+            setWorshipMemberLinking(null)
+          }}
+          onClose={() => setWorshipMemberLinking(null)}
+        />
       )}
 
       {editMember && (
@@ -2747,5 +2774,112 @@ export default function DepartmentWorship() {
 
       </div>
     </div>
+  )
+}
+
+// ─── Worship Member Link Modal ────────────────────────────────────────────────
+function WorshipLinkModal({ member, onLink, onClose }) {
+  const [visitors, setVisitors] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState(member.name || '')
+  const [linking, setLinking] = useState(false)
+
+  useEffect(() => {
+    getDelightVisitors()
+      .then(setVisitors)
+      .catch(() => setVisitors([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const filtered = visitors.filter(v =>
+    !search.trim() || v.name.toLowerCase().includes(search.trim().toLowerCase())
+  )
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[88vh]" onClick={e => e.stopPropagation()}>
+
+          {/* Header */}
+          <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-start justify-between gap-3 flex-shrink-0">
+            <div>
+              <p className="font-semibold text-slate-800 text-sm">Link to Visitor Entry</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Linking <span className="font-medium text-slate-600">{member.name}</span>
+              </p>
+            </div>
+            <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
+          </div>
+
+          {/* Search */}
+          <div className="px-3 py-2.5 border-b border-slate-100 flex-shrink-0">
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
+                <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              <input
+                type="text"
+                autoFocus
+                placeholder="Search visitor name…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400"
+              />
+            </div>
+          </div>
+
+          {/* List */}
+          <div className="overflow-y-auto min-h-0 flex-1">
+            {loading ? (
+              <div className="py-12 text-center text-slate-400 text-sm">Loading visitors…</div>
+            ) : filtered.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-sm">No matches found.</div>
+            ) : filtered.map(v => {
+              const isCurrent = v.id === member.visitorId
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  disabled={linking}
+                  onClick={async () => {
+                    setLinking(true)
+                    await onLink(v)
+                    setLinking(false)
+                  }}
+                  className={`w-full text-left px-4 py-3 flex items-center gap-3 border-b border-slate-50 transition-colors
+                    ${isCurrent ? 'bg-emerald-50' : 'hover:bg-indigo-50'}`}
+                >
+                  <div className={`w-9 h-9 rounded-full text-white text-sm font-bold flex items-center justify-center flex-shrink-0
+                    ${isCurrent ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
+                    {v.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{v.name}</p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      {v.phone && <span className="text-xs text-slate-400">{v.phone}</span>}
+                      {v.year && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">{v.year}</span>}
+                      {v.attendedDate && <span className="text-xs text-slate-400">{v.attendedDate}</span>}
+                    </div>
+                  </div>
+                  {isCurrent
+                    ? <span className="text-xs text-emerald-600 font-semibold flex-shrink-0">Current</span>
+                    : <svg className="flex-shrink-0 text-slate-300" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  }
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Footer */}
+          {!loading && (
+            <div className="px-4 py-2.5 border-t border-slate-100 flex-shrink-0 text-center text-xs text-slate-400">
+              {filtered.length} visitor{filtered.length !== 1 ? 's' : ''} shown
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   )
 }

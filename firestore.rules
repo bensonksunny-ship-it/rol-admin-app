@@ -316,6 +316,12 @@ service cloud.firestore {
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
     }
 
+    match /board_meeting_points/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+    }
+
     // Sunday Plan checklists — weekly instances
     match /sunday_checklist_weekly/{docId} {
       allow read: if isSignedIn();

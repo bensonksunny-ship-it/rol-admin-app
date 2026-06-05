@@ -68,6 +68,13 @@ import {
   deletePCSEntry,
   getDelightVisitorById,
   migrateSundayServiceToEnglish,
+  syncVisitorDataEverywhere,
+  updateCellMembersByVisitorId,
+  updatePCSEntriesByVisitorId,
+  getBoardPoints,
+  addBoardPoint,
+  updateBoardPoint,
+  deleteBoardPoint,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -208,6 +215,10 @@ export default function DepartmentHub() {
   const [editingCellMemberId, setEditingCellMemberId] = useState(null)
   const [cellMemberVisitors, setCellMemberVisitors] = useState([])
   const [cellMemberVisitorSearch, setCellMemberVisitorSearch] = useState('')
+  const [cellMemberLinking, setCellMemberLinking] = useState(null)
+  const [teamMemberLinking, setTeamMemberLinking] = useState(null)
+  const [cellMemberLinkedVisitor, setCellMemberLinkedVisitor] = useState(null)
+  const [cellMemberLinkedVisitorForm, setCellMemberLinkedVisitorForm] = useState({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
   const [cellGroupModalOpen, setCellGroupModalOpen] = useState(false)
   const [newCellGroupForm, setNewCellGroupForm] = useState({ cellId: '', cellName: '', leader: '', meetingDay: '', launchDate: '', status: 'active' })
   const [editingCellGroupId, setEditingCellGroupId] = useState(null)
@@ -248,6 +259,11 @@ export default function DepartmentHub() {
   const [caringCellNames, setCaringCellNames] = useState([])
   const [departmentUpdates, setDepartmentUpdates] = useState([])
   const [loadingDepartmentUpdates, setLoadingDepartmentUpdates] = useState(false)
+  const [boardPoints, setBoardPoints] = useState([])
+  const [loadingBoardPoints, setLoadingBoardPoints] = useState(false)
+  const [boardPointForm, setBoardPointForm] = useState({ point: '', meetingDate: '' })
+  const [boardPointModalOpen, setBoardPointModalOpen] = useState(false)
+  const [editingBoardPointId, setEditingBoardPointId] = useState(null)
   const [delightVisitors, setDelightVisitors] = useState([])
   const [loadingDelightVisitors, setLoadingDelightVisitors] = useState(false)
   const [delightVisitorModalOpen, setDelightVisitorModalOpen] = useState(false)
@@ -662,7 +678,19 @@ export default function DepartmentHub() {
     getDepartmentUpdates(department.name)
       .then(setDepartmentUpdates)
       .finally(() => setLoadingDepartmentUpdates(false))
+    setLoadingBoardPoints(true)
+    getBoardPoints(department.name)
+      .then(setBoardPoints)
+      .catch(() => setBoardPoints([]))
+      .finally(() => setLoadingBoardPoints(false))
   }, [department, slug, activeTab, opsSubTab])
+
+  useEffect(() => {
+    if (!department || activeTab !== 'summary' || slug === 'sec-core') return
+    getBoardPoints(department.name)
+      .then(setBoardPoints)
+      .catch(() => setBoardPoints([]))
+  }, [department, slug, activeTab])
 
   useEffect(() => {
     if (department && slug === 'cell' && (activeTab === 'cellGroups' || activeTab === 'summary')) {
@@ -1076,6 +1104,126 @@ export default function DepartmentHub() {
                   </div>
                 </div>
               </div>
+              {/* Board Meeting Points shortcut — all departments except sec-core */}
+              {slug !== 'sec-core' && (() => {
+                const pending  = boardPoints.filter(p => p.status === 'pending')
+                const approved = boardPoints.filter(p => p.status === 'approved')
+                const preview  = pending.slice(0, 3)
+                return (
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">📋</span>
+                        <div>
+                          <p className="font-semibold text-slate-800 text-sm">Board Meeting Points</p>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {pending.length} pending · {approved.length} approved
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingBoardPointId(null)
+                              setBoardPointForm({ point: '', meetingDate: format(new Date(), 'yyyy-MM-dd') })
+                              setBoardPointModalOpen(true)
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors"
+                          >
+                            <svg width="11" height="11" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
+                            Add Point
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('planning'); setSearchParams({ tab: 'planning' }, { replace: true }) }}
+                          className="text-xs text-indigo-600 font-medium hover:underline"
+                        >View All →</button>
+                      </div>
+                    </div>
+
+                    {boardPoints.length === 0 ? (
+                      <div className="px-5 py-5 text-center text-slate-400 text-xs">
+                        No points added yet.{canEdit ? ' Click "Add Point" to submit one for the board meeting.' : ''}
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-50">
+                        {preview.map((bp, idx) => (
+                          <div key={bp.id} className="flex items-start gap-3 px-5 py-3">
+                            <span className="text-xs text-amber-500 font-bold mt-0.5 flex-shrink-0">●</span>
+                            <p className="flex-1 text-sm text-slate-700 leading-snug line-clamp-2">{bp.point}</p>
+                            {bp.meetingDate && <span className="text-xs text-slate-400 flex-shrink-0">{bp.meetingDate}</span>}
+                          </div>
+                        ))}
+                        {pending.length > 3 && (
+                          <div className="px-5 py-2.5 text-xs text-slate-400 text-center">
+                            +{pending.length - 3} more pending point{pending.length - 3 !== 1 ? 's' : ''}
+                          </div>
+                        )}
+                        {pending.length === 0 && approved.length > 0 && (
+                          <div className="px-5 py-3 flex items-center gap-2 text-xs text-emerald-600">
+                            <span>✓</span>
+                            <span>All {approved.length} point{approved.length !== 1 ? 's' : ''} approved by Sec-Core.</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* Board point add/edit modal — accessible from summary too */}
+              {boardPointModalOpen && activeTab === 'summary' && (
+                <>
+                  <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setBoardPointModalOpen(false)} />
+                  <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setBoardPointModalOpen(false)}>
+                    <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                        <h3 className="font-semibold text-slate-800">Add Presentation Point</h3>
+                        <button type="button" onClick={() => setBoardPointModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
+                      </div>
+                      <div className="px-5 py-4 space-y-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Presentation Point *</label>
+                          <textarea
+                            value={boardPointForm.point}
+                            onChange={e => setBoardPointForm(f => ({ ...f, point: e.target.value }))}
+                            placeholder="Describe the point to present at the board meeting…"
+                            rows={4}
+                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Meeting Date</label>
+                          <input
+                            type="date"
+                            value={boardPointForm.meetingDate}
+                            onChange={e => setBoardPointForm(f => ({ ...f, meetingDate: e.target.value }))}
+                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          />
+                        </div>
+                      </div>
+                      <div className="px-5 pb-5">
+                        <button
+                          type="button"
+                          disabled={!boardPointForm.point.trim()}
+                          onClick={async () => {
+                            if (!boardPointForm.point.trim()) return
+                            const id = await addBoardPoint({ department: department.name, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate, createdBy: userProfile?.email || 'unknown' })
+                            if (id) setBoardPoints(prev => [...prev, { id, department: department.name, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate, status: 'pending', allottedTime: '', approvedBy: '', createdAt: new Date(), createdBy: userProfile?.email || '' }])
+                            setBoardPointModalOpen(false)
+                            setBoardPointForm({ point: '', meetingDate: '' })
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                        >Add Point</button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
               {slug === 'cell' ? (
                 <CellDirectorCockpit
                   userProfile={userProfile}
@@ -2180,6 +2328,146 @@ export default function DepartmentHub() {
                 </div>
               )}
 
+              {/* Director Board Meeting Presentation Points */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-semibold text-slate-800">Director Board Meeting</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Presentation points for the board meeting</p>
+                  </div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingBoardPointId(null)
+                        setBoardPointForm({ point: '', meetingDate: format(new Date(), 'yyyy-MM-dd') })
+                        setBoardPointModalOpen(true)
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                      Add Point
+                    </button>
+                  )}
+                </div>
+
+                {loadingBoardPoints ? (
+                  <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>
+                ) : boardPoints.length === 0 ? (
+                  <div className="py-10 text-center text-slate-400 text-sm">
+                    No presentation points yet. Click "Add Point" to get started.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {boardPoints.map((bp, idx) => (
+                      <div key={bp.id} className="flex items-start gap-3 px-5 py-4 hover:bg-slate-50 transition-colors group">
+                        <span className="text-xs font-medium text-slate-400 w-5 flex-shrink-0 pt-0.5 text-right">{idx + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-slate-800 leading-relaxed">{bp.point}</p>
+                          {bp.meetingDate && (
+                            <p className="text-xs text-slate-400 mt-1">Meeting: {formatDMY(bp.meetingDate)}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${bp.status === 'presented' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {bp.status === 'presented' ? 'Presented' : 'Pending'}
+                          </span>
+                          {canEdit && (
+                            <div className="opacity-0 group-hover:opacity-100 flex gap-2 transition-opacity">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingBoardPointId(bp.id)
+                                  setBoardPointForm({ point: bp.point, meetingDate: bp.meetingDate || '' })
+                                  setBoardPointModalOpen(true)
+                                }}
+                                className="text-xs text-blue-600 hover:underline"
+                              >Edit</button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const newStatus = bp.status === 'presented' ? 'pending' : 'presented'
+                                  await updateBoardPoint(bp.id, { status: newStatus })
+                                  setBoardPoints(prev => prev.map(p => p.id === bp.id ? { ...p, status: newStatus } : p))
+                                }}
+                                className="text-xs text-emerald-600 hover:underline"
+                              >{bp.status === 'presented' ? 'Mark Pending' : 'Mark Presented'}</button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!window.confirm('Delete this point?')) return
+                                  await deleteBoardPoint(bp.id)
+                                  setBoardPoints(prev => prev.filter(p => p.id !== bp.id))
+                                }}
+                                className="text-xs text-red-500 hover:underline"
+                              >Delete</button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Add/Edit board point modal */}
+              {boardPointModalOpen && (
+                <>
+                  <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setBoardPointModalOpen(false)} />
+                  <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setBoardPointModalOpen(false)}>
+                    <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                        <h3 className="font-semibold text-slate-800">{editingBoardPointId ? 'Edit Point' : 'Add Presentation Point'}</h3>
+                        <button type="button" onClick={() => setBoardPointModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
+                      </div>
+                      <div className="px-5 py-4 space-y-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Presentation Point *</label>
+                          <textarea
+                            value={boardPointForm.point}
+                            onChange={e => setBoardPointForm(f => ({ ...f, point: e.target.value }))}
+                            placeholder="Describe the point to present at the board meeting…"
+                            rows={4}
+                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Meeting Date</label>
+                          <input
+                            type="date"
+                            value={boardPointForm.meetingDate}
+                            onChange={e => setBoardPointForm(f => ({ ...f, meetingDate: e.target.value }))}
+                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          />
+                        </div>
+                      </div>
+                      <div className="px-5 pb-5">
+                        <button
+                          type="button"
+                          disabled={!boardPointForm.point.trim()}
+                          onClick={async () => {
+                            if (!boardPointForm.point.trim()) return
+                            if (editingBoardPointId) {
+                              await updateBoardPoint(editingBoardPointId, { point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate })
+                              setBoardPoints(prev => prev.map(p => p.id === editingBoardPointId ? { ...p, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate } : p))
+                            } else {
+                              const id = await addBoardPoint({ department: department.name, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate, createdBy: userProfile?.email || 'unknown' })
+                              if (id) setBoardPoints(prev => [...prev, { id, department: department.name, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate, status: 'pending', createdAt: new Date(), createdBy: userProfile?.email || '' }])
+                            }
+                            setBoardPointModalOpen(false)
+                            setEditingBoardPointId(null)
+                            setBoardPointForm({ point: '', meetingDate: '' })
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                        >
+                          {editingBoardPointId ? 'Save Changes' : 'Add Point'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
               <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <h2 className="font-semibold text-slate-800">Updates</h2>
@@ -2783,18 +3071,6 @@ export default function DepartmentHub() {
                       : <p className="text-xs text-blue-400 leading-tight">No member #</p>
                     }
                   </div>
-                  <button
-                    type="button"
-                    onClick={async (e) => {
-                      e.stopPropagation()
-                      if (!window.confirm(`Remove ${entry.name}?`)) return
-                      await deletePCSEntry(entry.id)
-                      setPcsEntries(prev => prev.filter(x => x.id !== entry.id))
-                    }}
-                    className={`ml-1 w-5 h-5 flex items-center justify-center rounded-full text-sm leading-none flex-shrink-0 transition-colors
-                      ${hasMember ? 'text-amber-300 hover:text-red-500 hover:bg-red-50' : 'text-blue-300 hover:text-red-500 hover:bg-red-50'}`}
-                    title="Remove"
-                  >×</button>
                 </div>
               )
             }
@@ -2959,12 +3235,20 @@ export default function DepartmentHub() {
                         return (
                         <tr key={m.id} className="hover:bg-slate-50">
                           <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
-                          <td className="px-4 py-2 text-slate-800">{m.name}</td>
+                          <td className="px-4 py-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-slate-800">{m.name}</span>
+                              {m.visitorId
+                                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                                : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                              }
+                            </div>
+                          </td>
                           {slug === 'd-light' && <td className="px-4 py-2 text-slate-600">{formatTeamSubDepartmentCell(m)}</td>}
                           <td className="px-4 py-2 text-slate-600 capitalize">{m.status || 'active'}</td>
                           <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
                           {canEdit && (
-                            <td className="px-4 py-2 text-sm space-x-2">
+                            <td className="px-4 py-2 text-sm space-x-2 whitespace-nowrap">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -2985,9 +3269,12 @@ export default function DepartmentHub() {
                                   })
                                 }}
                                 className="text-blue-600 hover:underline"
-                              >
-                                Edit
-                              </button>
+                              >Edit</button>
+                              <button
+                                type="button"
+                                onClick={() => setTeamMemberLinking(m)}
+                                className="text-indigo-600 hover:underline"
+                              >{m.visitorId ? 'Relink' : 'Link'}</button>
                               <button
                                 type="button"
                                 onClick={async () => {
@@ -2996,9 +3283,7 @@ export default function DepartmentHub() {
                                   setTeam((prev) => prev.filter((x) => x.id !== m.id))
                                 }}
                                 className="text-red-600 hover:underline"
-                              >
-                                Delete
-                              </button>
+                              >Delete</button>
                             </td>
                           )}
                         </tr>
@@ -4711,15 +4996,38 @@ export default function DepartmentHub() {
                                       {cellMembers.filter((m) => m.status !== 'inactive').map((m, idx) => (
                                         <tr key={m.id} className="hover:bg-slate-50">
                                           <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
-                                          <td className="px-3 py-2 text-slate-800">{m.name || '—'}</td>
+                                          <td className="px-3 py-2">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="text-slate-800">{m.name || '—'}</span>
+                                              {m.visitorId
+                                                ? <span title="Linked to visitor entry" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                                                : <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                                              }
+                                            </div>
+                                          </td>
                                           <td className="px-3 py-2 text-slate-600">{m.birthday ? formatDMY(m.birthday) : '—'}</td>
                                           <td className="px-3 py-2 text-slate-600">{m.anniversary ? formatDMY(m.anniversary) : '—'}</td>
                                           <td className="px-3 py-2 text-slate-600">{m.phone || '—'}</td>
                                           <td className="px-3 py-2 text-slate-600">{m.locality || '—'}</td>
                                           <td className="px-3 py-2 text-slate-600">{m.since ? `${differenceInDays(new Date(), new Date(m.since))} days` : '—'}</td>
                                           {canEdit && (
-                                            <td className="px-3 py-2 space-x-2">
-                                              <button type="button" onClick={() => { setEditingCellMemberId(m.id); setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: m.status || 'active' }); setCellMemberModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
+                                            <td className="px-3 py-2 space-x-2 whitespace-nowrap">
+                                              <button type="button" onClick={() => {
+                                                setEditingCellMemberId(m.id)
+                                                setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: m.status || 'active', visitorId: m.visitorId || '' })
+                                                setCellMemberLinkedVisitor(null)
+                                                setCellMemberLinkedVisitorForm({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
+                                                if (m.visitorId) {
+                                                  getDelightVisitorById(m.visitorId).then(v => {
+                                                    if (v) {
+                                                      setCellMemberLinkedVisitor(v)
+                                                      setCellMemberLinkedVisitorForm({ email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate || '', howKnown: v.howKnown || '' })
+                                                    }
+                                                  }).catch(() => {})
+                                                }
+                                                setCellMemberModalOpen(true)
+                                              }} className="text-blue-600 hover:underline">Edit</button>
+                                              <button type="button" onClick={() => setCellMemberLinking({ member: m, cellId: cell.id })} className="text-indigo-600 hover:underline">{m.visitorId ? 'Relink' : 'Link'}</button>
                                               <button type="button" onClick={async () => { if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); }} className="text-red-600 hover:underline">Delete</button>
                                               <button type="button" onClick={async () => { await updateCellGroupMember(cell.id, m.id, { status: 'inactive' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); }} className="text-amber-600 hover:underline">Make Inactive</button>
                                             </td>
@@ -4751,15 +5059,38 @@ export default function DepartmentHub() {
                                       {cellMembers.filter((m) => m.status === 'inactive').map((m, idx) => (
                                         <tr key={m.id} className="hover:bg-slate-50 opacity-90">
                                           <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
-                                          <td className="px-3 py-2 text-slate-800">{m.name || '—'}</td>
+                                          <td className="px-3 py-2">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="text-slate-800">{m.name || '—'}</span>
+                                              {m.visitorId
+                                                ? <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                                                : <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                                              }
+                                            </div>
+                                          </td>
                                           <td className="px-3 py-2 text-slate-600">{m.birthday ? formatDMY(m.birthday) : '—'}</td>
                                           <td className="px-3 py-2 text-slate-600">{m.anniversary ? formatDMY(m.anniversary) : '—'}</td>
                                           <td className="px-3 py-2 text-slate-600">{m.phone || '—'}</td>
                                           <td className="px-3 py-2 text-slate-600">{m.locality || '—'}</td>
                                           <td className="px-3 py-2 text-slate-600">{m.since ? `${differenceInDays(new Date(), new Date(m.since))} days` : '—'}</td>
                                           {canEdit && (
-                                            <td className="px-3 py-2 space-x-2">
-                                              <button type="button" onClick={() => { setEditingCellMemberId(m.id); setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: 'inactive' }); setCellMemberModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
+                                            <td className="px-3 py-2 space-x-2 whitespace-nowrap">
+                                              <button type="button" onClick={() => {
+                                                setEditingCellMemberId(m.id)
+                                                setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: 'inactive', visitorId: m.visitorId || '' })
+                                                setCellMemberLinkedVisitor(null)
+                                                setCellMemberLinkedVisitorForm({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
+                                                if (m.visitorId) {
+                                                  getDelightVisitorById(m.visitorId).then(v => {
+                                                    if (v) {
+                                                      setCellMemberLinkedVisitor(v)
+                                                      setCellMemberLinkedVisitorForm({ email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate || '', howKnown: v.howKnown || '' })
+                                                    }
+                                                  }).catch(() => {})
+                                                }
+                                                setCellMemberModalOpen(true)
+                                              }} className="text-blue-600 hover:underline">Edit</button>
+                                              <button type="button" onClick={() => setCellMemberLinking({ member: m, cellId: cell.id })} className="text-indigo-600 hover:underline">{m.visitorId ? 'Relink' : 'Link'}</button>
                                               <button type="button" onClick={async () => { await updateCellGroupMember(cell.id, m.id, { status: 'active' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); }} className="text-emerald-600 hover:underline">Make Active</button>
                                             </td>
                                           )}
@@ -4988,6 +5319,42 @@ export default function DepartmentHub() {
             </div>
           )}
 
+          {cellMemberLinking && (
+            <CellMemberLinkModal
+              member={cellMemberLinking.member}
+              cellId={cellMemberLinking.cellId}
+              onLink={async (visitor) => {
+                const updated = {
+                  name: visitor.name,
+                  phone: visitor.phone || cellMemberLinking.member.phone,
+                  birthday: visitor.dob ? String(visitor.dob).slice(0, 10) : cellMemberLinking.member.birthday,
+                  visitorId: visitor.id,
+                }
+                await updateCellGroupMember(cellMemberLinking.cellId, cellMemberLinking.member.id, updated)
+                setCellMembers(prev => prev.map(m => m.id === cellMemberLinking.member.id ? { ...m, ...updated } : m))
+                setCellMemberLinking(null)
+              }}
+              onClose={() => setCellMemberLinking(null)}
+            />
+          )}
+
+          {teamMemberLinking && (
+            <CellMemberLinkModal
+              member={teamMemberLinking}
+              onLink={async (visitor) => {
+                const updated = {
+                  name: visitor.name,
+                  phone: visitor.phone || teamMemberLinking.phone,
+                  visitorId: visitor.id,
+                }
+                await updateDepartmentTeamMember(teamMemberLinking.id, updated)
+                setTeam(prev => prev.map(m => m.id === teamMemberLinking.id ? { ...m, ...updated } : m))
+                setTeamMemberLinking(null)
+              }}
+              onClose={() => setTeamMemberLinking(null)}
+            />
+          )}
+
           {cellMemberModalOpen && expandedCellId && (
             <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
               <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md flex flex-col max-h-[92vh]">
@@ -5007,6 +5374,17 @@ export default function DepartmentHub() {
                         if (editingCellMemberId) {
                           await updateCellGroupMember(expandedCellId, editingCellMemberId, cellMemberForm)
                           setCellMembers((prev) => prev.map((m) => (m.id === editingCellMemberId ? { ...m, ...cellMemberForm } : m)))
+                          // Sync to visitor entry and PCS if linked
+                          if (cellMemberForm.visitorId) {
+                            await syncVisitorDataEverywhere(cellMemberForm.visitorId, {
+                              name: cellMemberForm.name,
+                              phone: cellMemberForm.phone,
+                              dob: cellMemberForm.birthday,
+                            })
+                            if (cellMemberLinkedVisitorForm.email || cellMemberLinkedVisitorForm.nativity || cellMemberLinkedVisitorForm.currentPlace) {
+                              await updateDelightVisitor(cellMemberForm.visitorId, { ...cellMemberLinkedVisitorForm })
+                            }
+                          }
                         } else {
                           await addCellGroupMember(expandedCellId, cellMemberForm)
                           const list = await getCellGroupMembers(expandedCellId)
@@ -5015,6 +5393,7 @@ export default function DepartmentHub() {
                         }
                         setCellMemberModalOpen(false)
                         setEditingCellMemberId(null)
+                        setCellMemberLinkedVisitor(null)
                         setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
                       } catch (err) {
                         console.error(err)
@@ -5097,6 +5476,40 @@ export default function DepartmentHub() {
                         required
                       />
                     </div>
+
+                    {/* Linked visitor info — shown only when editing a linked member */}
+                    {editingCellMemberId && cellMemberForm.visitorId && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 overflow-hidden">
+                        <div className="px-3 py-2.5 border-b border-emerald-100 flex items-center gap-2">
+                          <span className="text-emerald-600 text-sm">🔗</span>
+                          <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Visitor Entry Details</p>
+                          {!cellMemberLinkedVisitor && <span className="text-xs text-emerald-400 ml-auto">Loading…</span>}
+                        </div>
+                        {cellMemberLinkedVisitor && (
+                          <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {[
+                              { label: 'Email', key: 'email', type: 'email' },
+                              { label: 'Nativity', key: 'nativity' },
+                              { label: 'Current Place', key: 'currentPlace' },
+                              { label: 'Service Attended', key: 'serviceAttended' },
+                              { label: 'Date Attended', key: 'attendedDate', type: 'date' },
+                              { label: 'How Known', key: 'howKnown' },
+                            ].map(({ label, key, type = 'text' }) => (
+                              <div key={key}>
+                                <label className="block text-xs font-medium text-emerald-700 mb-1">{label}</label>
+                                <input
+                                  type={type}
+                                  value={cellMemberLinkedVisitorForm[key] || ''}
+                                  onChange={e => setCellMemberLinkedVisitorForm(f => ({ ...f, [key]: e.target.value }))}
+                                  className="w-full px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <p className="px-3 pb-2 text-xs text-emerald-500">Changes saved here will also update in Visitor Entry and PCS.</p>
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Birthday</label>
@@ -5508,7 +5921,18 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 }
               </div>
             </div>
-            <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-white/80 text-xl flex-shrink-0">×</button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
+                  await deletePCSEntry(entry.id)
+                  onRemove(entry.id)
+                }}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+              >Remove from PCS</button>
+              <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-white/80 text-xl">×</button>
+            </div>
           </div>
 
           {/* Scrollable body */}
@@ -5561,18 +5985,42 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 {field('Phone', 'phone')}
                 {field('Email', 'email')}
                 {field('Date of Birth', 'dob', 'date')}
-                {field('Date Attended', 'attendedDate', 'date')}
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Date Attended</label>
+                  <input
+                    type="date"
+                    value={form.attendedDate}
+                    onChange={e => {
+                      const val = e.target.value
+                      const yr = val ? new Date(val).getFullYear() : null
+                      setForm(f => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
+                    }}
+                    className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Year</label>
+                  <select
+                    value={form.year || ''}
+                    onChange={e => setForm(f => ({ ...f, year: e.target.value ? Number(e.target.value) : '' }))}
+                    className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  >
+                    <option value="">— Select —</option>
+                    {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR + 1 }, (_, i) => VISITOR_CURRENT_YEAR - i).map(yr => (
+                      <option key={yr} value={yr}>{yr}</option>
+                    ))}
+                  </select>
+                </div>
                 {field('Nativity', 'nativity')}
                 {field('Current Place', 'currentPlace')}
                 {field('Service Attended', 'serviceAttended')}
                 {field('How Known', 'howKnown')}
-                {field('Year', 'year')}
               </div>
             )}
           </div>
 
           {/* Footer */}
-          <div className="px-5 py-4 border-t border-slate-100 flex gap-2 flex-shrink-0">
+          <div className="px-5 py-4 border-t border-slate-100 flex-shrink-0">
             <button
               type="button"
               disabled={saving}
@@ -5583,21 +6031,120 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 await Promise.all([
                   updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, leadershipPosition, year }),
                   entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),
+                  entry.visitorId ? updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }) : Promise.resolve(),
                 ]).catch(() => {})
                 setSaving(false)
               }}
-              className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+              className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
             >{saving ? 'Saving…' : 'Save Changes'}</button>
-            <button
-              type="button"
-              onClick={async () => {
-                if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
-                await deletePCSEntry(entry.id)
-                onRemove(entry.id)
-              }}
-              className="px-4 py-2.5 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-colors"
-            >Remove</button>
           </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ─── Cell Member Link Modal ───────────────────────────────────────────────────
+function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
+  const [visitors, setVisitors] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState(member.name || '')
+  const [linking, setLinking] = useState(false)
+
+  useEffect(() => {
+    getDelightVisitors()
+      .then(setVisitors)
+      .catch(() => setVisitors([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const filtered = visitors.filter(v =>
+    !search.trim() || v.name.toLowerCase().includes(search.trim().toLowerCase())
+  )
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[88vh]" onClick={e => e.stopPropagation()}>
+
+          {/* Header */}
+          <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-start justify-between gap-3 flex-shrink-0">
+            <div>
+              <p className="font-semibold text-slate-800 text-sm">Link to Visitor Entry</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Linking <span className="font-medium text-slate-600">{member.name}</span> — pick the matching visitor record
+              </p>
+            </div>
+            <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
+          </div>
+
+          {/* Search */}
+          <div className="px-3 py-2.5 border-b border-slate-100 flex-shrink-0">
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
+                <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              <input
+                type="text"
+                autoFocus
+                placeholder="Search visitor name…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400"
+              />
+            </div>
+          </div>
+
+          {/* List */}
+          <div className="overflow-y-auto min-h-0 flex-1">
+            {loading ? (
+              <div className="py-12 text-center text-slate-400 text-sm">Loading visitors…</div>
+            ) : filtered.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-sm">No matches found.</div>
+            ) : filtered.map(v => {
+              const isCurrentLink = v.id === member.visitorId
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  disabled={linking}
+                  onClick={async () => {
+                    setLinking(true)
+                    await onLink(v)
+                    setLinking(false)
+                  }}
+                  className={`w-full text-left px-4 py-3 flex items-center gap-3 border-b border-slate-50 transition-colors
+                    ${isCurrentLink ? 'bg-emerald-50' : 'hover:bg-indigo-50'}`}
+                >
+                  <div className={`w-9 h-9 rounded-full text-white text-sm font-bold flex items-center justify-center flex-shrink-0
+                    ${isCurrentLink ? 'bg-emerald-500' : 'bg-indigo-500'}`}>
+                    {v.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{v.name}</p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      {v.phone && <span className="text-xs text-slate-400">{v.phone}</span>}
+                      {v.year && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">{v.year}</span>}
+                      {v.attendedDate && <span className="text-xs text-slate-400">{v.attendedDate}</span>}
+                    </div>
+                  </div>
+                  {isCurrentLink
+                    ? <span className="text-xs text-emerald-600 font-semibold flex-shrink-0">Current</span>
+                    : <svg className="flex-shrink-0 text-slate-300" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  }
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Footer count */}
+          {!loading && (
+            <div className="px-4 py-2.5 border-t border-slate-100 flex-shrink-0 text-center text-xs text-slate-400">
+              {filtered.length} visitor{filtered.length !== 1 ? 's' : ''} shown
+            </div>
+          )}
         </div>
       </div>
     </>

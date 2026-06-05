@@ -459,6 +459,7 @@ export async function getDepartmentTeamMembers(department) {
       memberSince: data.memberSince || '',
       notes: data.notes || '',
       isFormer: data.isFormer ?? false,
+      visitorId: data.visitorId || '',
       createdAt: toDate(data.createdAt),
     }
   })
@@ -501,6 +502,7 @@ export async function updateDepartmentTeamMember(id, data) {
     memberSince: data.memberSince != null ? String(data.memberSince).slice(0, 10) : undefined,
     notes: data.notes != null ? String(data.notes) : undefined,
     isFormer: data.isFormer !== undefined ? !!data.isFormer : undefined,
+    visitorId: data.visitorId !== undefined ? String(data.visitorId) : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, 'department_team_members', id), clean)
@@ -1536,6 +1538,7 @@ export async function getCellGroupMembers(cellId) {
       locality: data.locality || '',
       since: data.since || '',
       status: data.status === 'inactive' ? 'inactive' : 'active',
+      visitorId: data.visitorId || '',
       createdAt: toDate(data.createdAt),
     }
   })
@@ -1578,6 +1581,7 @@ export async function updateCellGroupMember(cellId, memberId, data) {
     role:        data.role        !== undefined ? String(data.role)                                    : undefined,
     notes:       data.notes       !== undefined ? String(data.notes)                                   : undefined,
     status:      data.status      !== undefined ? (data.status === 'inactive' ? 'inactive' : 'active') : undefined,
+    visitorId:   data.visitorId   !== undefined ? String(data.visitorId) : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId), clean)
@@ -3463,4 +3467,116 @@ export async function bulkAddDlightMembers(rows, createdBy) {
     }
   }
   return { imported, failed }
+}
+
+// Director Board Meeting Points
+const BOARD_POINTS_COLLECTION = 'board_meeting_points'
+
+function mapBoardPoint(d) {
+  const data = d.data()
+  return {
+    id: d.id,
+    department: data.department || '',
+    point: data.point || '',
+    meetingDate: data.meetingDate || '',
+    status: data.status || 'pending',
+    allottedTime: data.allottedTime || '',
+    approvedBy: data.approvedBy || '',
+    createdAt: toDate(data.createdAt),
+    createdBy: data.createdBy || '',
+  }
+}
+
+export async function getBoardPoints(department) {
+  if (!db || !department) return []
+  const q = query(
+    collection(db, BOARD_POINTS_COLLECTION),
+    where('department', '==', department),
+    orderBy('createdAt', 'asc')
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map(mapBoardPoint)
+}
+
+export async function getAllBoardPoints() {
+  if (!db) return []
+  const q = query(collection(db, BOARD_POINTS_COLLECTION), orderBy('createdAt', 'asc'))
+  const snap = await getDocs(q)
+  return snap.docs.map(mapBoardPoint)
+}
+
+export async function addBoardPoint(data) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, BOARD_POINTS_COLLECTION), {
+    department: data.department || '',
+    point: data.point || '',
+    meetingDate: data.meetingDate || '',
+    status: 'pending',
+    createdAt: Timestamp.now(),
+    createdBy: data.createdBy || 'unknown',
+  })
+  return ref.id
+}
+
+export async function updateBoardPoint(id, data) {
+  if (!db || !id) return
+  const payload = {}
+  if (data.point !== undefined) payload.point = String(data.point)
+  if (data.meetingDate !== undefined) payload.meetingDate = String(data.meetingDate)
+  if (data.status !== undefined) payload.status = String(data.status)
+  if (data.allottedTime !== undefined) payload.allottedTime = String(data.allottedTime)
+  if (data.approvedBy !== undefined) payload.approvedBy = String(data.approvedBy)
+  if (Object.keys(payload).length) await updateDoc(doc(db, BOARD_POINTS_COLLECTION, id), payload)
+}
+
+export async function deleteBoardPoint(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, BOARD_POINTS_COLLECTION, id))
+}
+
+// ─── Cross-collection sync (visitorId as the key) ─────────────────────────────
+
+/** Find all cell group members across ALL cell groups that share a visitorId. */
+export async function getCellMembersByVisitorId(visitorId) {
+  if (!db || !visitorId) return []
+  const q = query(collectionGroup(db, 'members'), where('visitorId', '==', visitorId))
+  const snap = await getDocs(q)
+  return snap.docs.map(d => ({ ref: d.ref, id: d.id, ...d.data() }))
+}
+
+/** Update name/phone on all cell members that share this visitorId. */
+export async function updateCellMembersByVisitorId(visitorId, data) {
+  if (!db || !visitorId) return
+  const docs = await getCellMembersByVisitorId(visitorId)
+  const payload = {}
+  if (data.name  !== undefined) payload.name  = String(data.name)
+  if (data.phone !== undefined) payload.phone = String(data.phone)
+  if (data.birthday !== undefined) payload.birthday = data.birthday ? String(data.birthday).slice(0, 10) : ''
+  if (!Object.keys(payload).length) return
+  await Promise.all(docs.map(d => updateDoc(d.ref, payload)))
+}
+
+/** Update name/phone on all caring_pcs entries that share this visitorId. */
+export async function updatePCSEntriesByVisitorId(visitorId, data) {
+  if (!db || !visitorId) return
+  const q = query(collection(db, CARING_PCS_COLLECTION), where('visitorId', '==', visitorId))
+  const snap = await getDocs(q)
+  const payload = {}
+  if (data.name  !== undefined) payload.name  = String(data.name)
+  if (data.phone !== undefined) payload.phone = String(data.phone)
+  if (!Object.keys(payload).length) return
+  await Promise.all(snap.docs.map(d => updateDoc(doc(db, CARING_PCS_COLLECTION, d.id), payload)))
+}
+
+/**
+ * Single call to push a name/phone/dob change from any source to ALL linked records.
+ * Call this whenever the canonical data changes in visitor entry, PCS, or cell member.
+ */
+export async function syncVisitorDataEverywhere(visitorId, { name, phone, dob } = {}) {
+  if (!db || !visitorId) return
+  await Promise.all([
+    name || phone || dob ? updateDelightVisitor(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }), ...(dob !== undefined && { dob }) }) : Promise.resolve(),
+    updateCellMembersByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }), ...(dob !== undefined && { birthday: dob }) }),
+    updatePCSEntriesByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }) }),
+  ])
 }
