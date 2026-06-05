@@ -2089,6 +2089,15 @@ export async function deleteCaringMember(id) {
 // Delight department – visitors (delight_visitors)
 const DELIGHT_VISITORS_COLLECTION = 'delight_visitors'
 
+export async function migrateSundayServiceToEnglish() {
+  if (!db) return 0
+  const q = query(collection(db, DELIGHT_VISITORS_COLLECTION), where('serviceAttended', '==', 'Sunday Service'))
+  const snap = await getDocs(q)
+  if (snap.empty) return 0
+  await Promise.all(snap.docs.map(d => updateDoc(doc(db, DELIGHT_VISITORS_COLLECTION, d.id), { serviceAttended: 'English Service' })))
+  return snap.size
+}
+
 export async function getDelightVisitorById(id) {
   if (!db || !id) return null
   const snap = await getDoc(doc(db, DELIGHT_VISITORS_COLLECTION, id))

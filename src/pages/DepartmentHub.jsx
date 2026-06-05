@@ -67,6 +67,7 @@ import {
   updatePCSEntry,
   deletePCSEntry,
   getDelightVisitorById,
+  migrateSundayServiceToEnglish,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -125,7 +126,20 @@ async function mergeTasksEntriesTeam(canonicalName) {
 const VISITOR_START_YEAR = 2014
 const VISITOR_CURRENT_YEAR = new Date().getFullYear()
 const VISITOR_SERVICE_LABELS = { E: 'English', M: 'Malayalam', T: 'Tamil' }
-const fmtService = (s) => VISITOR_SERVICE_LABELS[(s || '').trim().toUpperCase()] || s || '—'
+const SERVICE_DISPLAY = {
+  'english service': 'English',
+  'tamil service': 'Tamil',
+  'sunday service': 'English',
+  'youth service': 'Youth',
+  'cell group': 'Cell',
+  'special meeting': 'Special',
+}
+const fmtService = (s) => {
+  if (!s) return '—'
+  const lower = s.trim().toLowerCase()
+  if (SERVICE_DISPLAY[lower]) return SERVICE_DISPLAY[lower]
+  return VISITOR_SERVICE_LABELS[s.trim().toUpperCase()] || s
+}
 
 export default function DepartmentHub() {
   const { slug } = useParams()
@@ -693,8 +707,15 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (slug === 'd-light' && (activeTab === 'visitorEntry' || (activeTab === 'summary' && canEditDelightVisitors))) {
       setLoadingDelightVisitors(true)
+      // Silently migrate any legacy "Sunday Service" records to "English Service"
+      migrateSundayServiceToEnglish().catch(() => {})
       getDelightVisitors()
-        .then(setDelightVisitors)
+        .then((visitors) => {
+          // Apply migration in local state too (for records updated this session)
+          setDelightVisitors(visitors.map(v =>
+            v.serviceAttended === 'Sunday Service' ? { ...v, serviceAttended: 'English Service' } : v
+          ))
+        })
         .catch(() => setDelightVisitors([]))
         .finally(() => setLoadingDelightVisitors(false))
     }
@@ -1528,9 +1549,11 @@ export default function DepartmentHub() {
               </div>
               {!loadingDelightVisitors && filteredDelightVisitors.length > 0 && (() => {
                 const counts = { E: 0, M: 0, T: 0, other: 0 }
+                const serviceToKey = { 'english service': 'E', 'sunday service': 'E', 'tamil service': 'T', 'malayalam service': 'M' }
                 filteredDelightVisitors.forEach((v) => {
-                  const key = (v.serviceAttended || '').trim().toUpperCase()
-                  if (counts[key] !== undefined) counts[key]++
+                  const raw = (v.serviceAttended || '').trim()
+                  const mapped = serviceToKey[raw.toLowerCase()] || raw.toUpperCase()
+                  if (counts[mapped] !== undefined) counts[mapped]++
                   else counts.other++
                 })
                 const pills = [
@@ -1975,7 +1998,8 @@ export default function DepartmentHub() {
                         className="w-full px-3 py-2 rounded-lg border border-slate-300"
                       >
                         <option value="">— Select —</option>
-                        <option value="Sunday Service">Sunday Service</option>
+                        <option value="English Service">English Service</option>
+                        <option value="Tamil Service">Tamil Service</option>
                         <option value="Youth Service">Youth Service</option>
                         <option value="Cell Group">Cell Group</option>
                         <option value="Special Meeting">Special Meeting</option>
