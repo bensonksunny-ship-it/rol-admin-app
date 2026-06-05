@@ -20,9 +20,8 @@ import { computeMeetingDateISO, totalAttendanceFromCellReport } from '../utils/c
 
 const CELL_DEPARTMENT = 'Cell'
 const MAX_TREND_CELLS = 6
-const TREND_COLORS = ['#1e40af', '#059669', '#d97706', '#7c3aed', '#db2777', '#0d9488']
+const TREND_COLORS = ['#6366f1', '#059669', '#d97706', '#7c3aed', '#db2777', '#0d9488']
 
-/** Departments user is Director of (from positions). */
 function directorDepartments(userProfile) {
   const out = []
   const positions = userProfile?.positions || []
@@ -34,7 +33,6 @@ function directorDepartments(userProfile) {
   return [...new Set(out)]
 }
 
-/** Founder → all active cells; Director → cells whose group.department matches a directed department. */
 export function filterCellGroupsForDirectorView(groups, userProfile) {
   const active = (groups || []).filter((g) => g.status !== 'inactive')
   if (isFounderUser(userProfile) || userProfile?.role === ROLES.FOUNDER) return active
@@ -50,7 +48,6 @@ export function canSeeCellDirectorDashboard(userProfile) {
   if (!userProfile) return false
   if (isFounderUser(userProfile) || userProfile?.role === ROLES.FOUNDER) return true
   if (getDepartmentRole(userProfile, CELL_DEPARTMENT) === 'DIRECTOR') return true
-  // Other department Directors: show dashboard only if they have a Director position (filter may yield rows)
   return directorDepartments(userProfile).length > 0
 }
 
@@ -63,91 +60,126 @@ function buildReportLookup(reports) {
   return m
 }
 
-/** Simple alert strip — placeholder for future WhatsApp / deep links. */
 export function AlertPanelCellReports({ missingCount, onOpenDetails }) {
-  return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+  if (missingCount === 0) {
+    return (
+      <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center text-base flex-shrink-0">✅</div>
         <div>
-          <h3 className="font-semibold text-amber-900">Alerts</h3>
-          <p className="text-sm text-amber-800/90 mt-0.5">
-            Weekly cell report status (read-only). WhatsApp reminders — coming later.
-          </p>
+          <p className="text-sm font-semibold text-emerald-800">All reports submitted</p>
+          <p className="text-xs text-emerald-600 mt-0.5">Every cell group has submitted their report this week.</p>
         </div>
-        {missingCount > 0 && (
-          <button
-            type="button"
-            onClick={onOpenDetails}
-            className="text-sm font-medium text-amber-900 underline decoration-amber-600 hover:text-amber-950"
-          >
-            🔴 {missingCount} cell{missingCount === 1 ? '' : 's'} missing reports — view list
-          </button>
-        )}
       </div>
+    )
+  }
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-xl bg-amber-200 flex items-center justify-center text-base flex-shrink-0">⚠️</div>
+        <div>
+          <p className="text-sm font-semibold text-amber-900">
+            {missingCount} cell{missingCount !== 1 ? 's' : ''} missing reports
+          </p>
+          <p className="text-xs text-amber-700 mt-0.5">Weekly reports not yet submitted</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onOpenDetails}
+        className="text-xs font-semibold text-amber-800 px-3 py-1.5 rounded-xl bg-amber-200 hover:bg-amber-300 transition-colors flex-shrink-0"
+      >
+        View list →
+      </button>
     </div>
   )
 }
 
-/**
- * Missing cell reports for the current week (same meeting-date rules as Cell Report).
- */
 export function MissingCellReportsTable({ rows, loading, remindLeader, dismissedIds = new Set(), onDismiss, onUndismiss }) {
+  const submitted = rows.filter((r) => r.submitted).length
+  const missing   = rows.filter((r) => !r.submitted && !dismissedIds.has(r.cellId)).length
+  const dismissed = rows.filter((r) => !r.submitted && dismissedIds.has(r.cellId)).length
+
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-      <h2 className="font-semibold text-slate-800 mb-1">Missing cell reports</h2>
-      <p className="text-sm text-slate-500 mb-4">
-        Current week (Mon–Sun). Expected report date follows each cell&apos;s meeting day.
-      </p>
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100">
+        <p className="text-sm font-bold text-slate-800">Cell Report Status</p>
+        <p className="text-xs text-slate-400 mt-0.5">Current week (Mon–Sun) · Expected date follows each cell's meeting day</p>
+        {!loading && rows.length > 0 && (
+          <div className="flex gap-3 mt-3">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+              {submitted} Submitted
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
+              {missing} Missing
+            </span>
+            {dismissed > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+                {dismissed} Dismissed
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
       {loading ? (
-        <p className="text-sm text-slate-500">Loading…</p>
+        <div className="px-5 py-10 text-sm text-slate-400 text-center">Loading…</div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-slate-500">No cell groups in scope.</p>
+        <div className="px-5 py-10 text-sm text-slate-400 text-center">No cell groups in scope.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-600">
-                <th className="py-2 pr-4 font-medium">Cell name</th>
-                <th className="py-2 pr-4 font-medium">Leader</th>
-                <th className="py-2 pr-4 font-medium">Due date</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 font-medium w-48" />
+              <tr className="bg-slate-50 border-b border-slate-100 text-left">
+                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Cell</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Leader</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Due Date</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3 w-44" />
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-50">
               {rows.map((row) => {
                 const isDismissed = !row.submitted && dismissedIds.has(row.cellId)
                 return (
-                  <tr key={row.cellId} className="border-b border-slate-100">
-                    <td className="py-2 pr-4 text-slate-800">{row.cellName}</td>
-                    <td className="py-2 pr-4 text-slate-700">{row.leaderName || '—'}</td>
-                    <td className="py-2 pr-4 text-slate-600 tabular-nums">{row.expectedDate}</td>
-                    <td className="py-2 pr-4">
+                  <tr key={row.cellId} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3 font-medium text-slate-800">{row.cellName}</td>
+                    <td className="px-4 py-3 text-slate-600">{row.leaderName || '—'}</td>
+                    <td className="px-4 py-3 text-slate-500 tabular-nums">{row.expectedDate}</td>
+                    <td className="px-4 py-3">
                       {row.submitted ? (
-                        <span className="text-emerald-700 font-medium">✅ Submitted</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" /> Submitted
+                        </span>
                       ) : isDismissed ? (
-                        <span className="text-amber-700 font-medium">🔕 Alert dismissed</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" /> Dismissed
+                        </span>
                       ) : (
-                        <span className="text-red-600 font-medium">❌ Missing</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" /> Missing
+                        </span>
                       )}
                     </td>
-                    <td className="py-2">
-                      <div className="flex gap-2">
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2 justify-end">
                         {!row.submitted && !isDismissed && (
                           <>
                             <button
                               type="button"
                               onClick={() => remindLeader(row)}
-                              className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+                              className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors font-medium"
                             >
-                              Remind leader
+                              Remind
                             </button>
                             <button
                               type="button"
                               onClick={() => onDismiss?.(row.cellId)}
-                              className="text-xs px-2 py-1 rounded border border-amber-300 text-amber-700 hover:bg-amber-50"
+                              className="text-xs px-2.5 py-1 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 transition-colors font-medium"
                             >
-                              Turn down alert
+                              Dismiss
                             </button>
                           </>
                         )}
@@ -155,7 +187,7 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, dismissed
                           <button
                             type="button"
                             onClick={() => onUndismiss?.(row.cellId)}
-                            className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-500 hover:bg-slate-50"
+                            className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 transition-colors font-medium"
                           >
                             Undo
                           </button>
@@ -176,24 +208,26 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, dismissed
 export function CellWeeklyTrendsChart({ chartData, cellSeries }) {
   if (!chartData?.length || !cellSeries?.length) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-        <h2 className="font-semibold text-slate-800 mb-1">Weekly trends — cell attendance</h2>
-        <p className="text-sm text-slate-500">Not enough data to chart yet.</p>
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+        <p className="text-sm font-bold text-slate-800">Weekly Attendance Trends</p>
+        <p className="text-sm text-slate-400 mt-2">Not enough data to chart yet.</p>
       </div>
     )
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-      <h2 className="font-semibold text-slate-800 mb-1">Weekly trends — cell attendance</h2>
-      <p className="text-sm text-slate-500 mb-4">Total attendance per meeting report (last 6 weeks, up to {MAX_TREND_CELLS} cells).</p>
-      <ResponsiveContainer width="100%" height={280}>
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p className="text-sm font-bold text-slate-800">Weekly Attendance Trends</p>
+      <p className="text-xs text-slate-400 mt-0.5 mb-5">Total attendance per report · last 6 weeks · up to {MAX_TREND_CELLS} cells</p>
+      <ResponsiveContainer width="100%" height={260}>
         <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="weekLabel" tick={{ fontSize: 11 }} />
-          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-          <Tooltip />
-          <Legend />
+          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+          <XAxis dataKey="weekLabel" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} axisLine={false} tickLine={false} />
+          <Tooltip
+            contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+          />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
           {cellSeries.map((c, i) => (
             <Line
               key={c.id}
@@ -201,8 +235,9 @@ export function CellWeeklyTrendsChart({ chartData, cellSeries }) {
               dataKey={c.id}
               name={c.shortName}
               stroke={TREND_COLORS[i % TREND_COLORS.length]}
-              strokeWidth={2}
-              dot={{ r: 3 }}
+              strokeWidth={2.5}
+              dot={{ r: 3, fill: TREND_COLORS[i % TREND_COLORS.length] }}
+              activeDot={{ r: 5 }}
             />
           ))}
         </LineChart>
@@ -211,9 +246,6 @@ export function CellWeeklyTrendsChart({ chartData, cellSeries }) {
   )
 }
 
-/**
- * Loads cell groups + latest reports once; drives alert, missing table, and trends chart.
- */
 export function DirectorDashboardCellWidgets({ userProfile }) {
   const [cellGroups, setCellGroups] = useState([])
   const [latestReports, setLatestCellReports] = useState([])
@@ -242,9 +274,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  useEffect(() => { load() }, [load])
 
   const isFounder = isFounderUser(userProfile) || userProfile?.role === ROLES.FOUNDER
 
@@ -259,7 +289,6 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
     return visibleGroups.map((cell) => {
       const expectedDate = computeMeetingDateISO(cell.meetingDay, weekStartDate)
       const hit = reportLookup.get(`${cell.id}|${expectedDate}`)
-      const submitted = Boolean(hit)
       return {
         cellId: cell.id,
         cellName: cell.cellName || 'Unnamed',
@@ -319,7 +348,6 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   )
 
   const remindLeader = useCallback((row) => {
-    // UI only — no WhatsApp / push yet
     const name = row?.cellName || 'this cell'
     alert(`Reminder for "${name}" will be available when messaging is connected.`)
   }, [])
@@ -339,11 +367,10 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   }, [scrollToTable])
 
   if (!canSeeCellDirectorDashboard(userProfile)) return null
-
   if (!loading && visibleGroups.length === 0 && !isFounder) return null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AlertPanelCellReports missingCount={missingCount} onOpenDetails={onOpenDetails} />
       <div id="missing-cell-reports-table">
         <MissingCellReportsTable
@@ -363,25 +390,25 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
 export function CellMemberGrowthChart({ cellMemberData }) {
   if (!cellMemberData || cellMemberData.length === 0) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-        <p className="text-sm text-gray-400 text-center">No cell data available.</p>
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+        <p className="text-sm text-slate-400 text-center">No cell data available.</p>
       </div>
     )
   }
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-      <h3 className="font-bold text-gray-800 text-base mb-1">Active Members per Cell</h3>
-      <p className="text-xs text-gray-400 mb-4">Current active member count across all cells you oversee</p>
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+      <p className="text-sm font-bold text-slate-800">Active Members per Cell</p>
+      <p className="text-xs text-slate-400 mt-0.5 mb-5">Current active member count across all cells you oversee</p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={cellMemberData} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-          <XAxis dataKey="cellName" tick={{ fontSize: 11, fill: '#64748b' }} />
-          <YAxis tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
+          <XAxis dataKey="cellName" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} axisLine={false} tickLine={false} />
           <Tooltip
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+            contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
             formatter={(value) => [value, 'Members']}
           />
-          <Bar dataKey="memberCount" radius={[4, 4, 0, 0]}>
+          <Bar dataKey="memberCount" radius={[6, 6, 0, 0]}>
             {cellMemberData.map((entry, index) => (
               <Cell
                 key={index}

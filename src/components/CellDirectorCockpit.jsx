@@ -16,6 +16,13 @@ function initials(name) {
     .join('')
 }
 
+const CHANGE_TYPE_STYLES = {
+  add:        'bg-emerald-100 text-emerald-700',
+  deactivate: 'bg-red-100 text-red-700',
+  activate:   'bg-blue-100 text-blue-700',
+  edit:       'bg-slate-100 text-slate-600',
+}
+
 export function CellDirectorCockpit({
   userProfile,
   cellGroups,
@@ -23,22 +30,18 @@ export function CellDirectorCockpit({
   loadingCellPending,
   onChangeResolved,
 }) {
-  // ── Member data (shared fetch: Total Members stat + growth chart + cross-reference) ──
   const [cellMemberData, setCellMemberData] = useState([])
   const [loadingMembers, setLoadingMembers] = useState(true)
 
-  // ── Unassigned visitors ────────────────────────────────────────────────────
   const [unassignedVisitors, setUnassignedVisitors] = useState([])
   const [loadingUnassigned, setLoadingUnassigned] = useState(true)
   const [assignedNames, setAssignedNames] = useState(new Set())
 
-  // ── Drawer / assign state ──────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [assignOpenName, setAssignOpenName] = useState(null)
   const [assignSelectedCellId, setAssignSelectedCellId] = useState('')
   const [assigning, setAssigning] = useState(false)
 
-  // ── Toast ──────────────────────────────────────────────────────────────────
   const [toast, setToast] = useState(null)
   const showToast = useCallback((msg, type = 'success') => {
     setToast({ msg, type })
@@ -50,7 +53,6 @@ export function CellDirectorCockpit({
     [cellGroups]
   )
 
-  // Load all active members for every cell (one shared Promise.all)
   useEffect(() => {
     if (activeCells.length === 0) {
       setCellMemberData([])
@@ -91,7 +93,6 @@ export function CellDirectorCockpit({
     [cellMemberData]
   )
 
-  // Load unassigned visitors from last 8 Sunday reports, cross-checked against member names
   useEffect(() => {
     if (loadingMembers) return
     setLoadingUnassigned(true)
@@ -182,104 +183,103 @@ export function CellDirectorCockpit({
     <div className="space-y-6">
       {/* Toast */}
       {toast && (
-        <div
-          className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl text-white shadow-lg text-sm font-medium ${
-            toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'
-          }`}
-        >
+        <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
+          toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
+        }`}>
           {toast.msg}
         </div>
       )}
 
-      {/* ── 4 Stat Cards ── */}
+      {/* ── Stat Cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center">
-          <div className="text-2xl font-black text-amber-900">
-            {loadingCellPending ? '—' : cellPendingChanges.length}
-          </div>
-          <div className="text-xs font-semibold text-amber-700 mt-1">⏳ Pending Approvals</div>
+        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+          <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-base mb-3">⏳</div>
+          <p className="text-2xl font-black text-slate-800">{loadingCellPending ? '—' : cellPendingChanges.length}</p>
+          <p className="text-xs font-medium text-slate-500 mt-0.5">Pending Approvals</p>
         </div>
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center">
-          <div className="text-2xl font-black text-emerald-900">{activeCells.length}</div>
-          <div className="text-xs font-semibold text-emerald-700 mt-1">🏘 Active Cells</div>
+
+        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+          <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-base mb-3">🏘</div>
+          <p className="text-2xl font-black text-slate-800">{activeCells.length}</p>
+          <p className="text-xs font-medium text-slate-500 mt-0.5">Active Cells</p>
         </div>
-        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-center">
-          <div className="text-2xl font-black text-blue-900">
-            {loadingMembers ? '—' : totalMembers}
-          </div>
-          <div className="text-xs font-semibold text-blue-700 mt-1">👥 Total Members</div>
+
+        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+          <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-base mb-3">👥</div>
+          <p className="text-2xl font-black text-slate-800">{loadingMembers ? '—' : totalMembers}</p>
+          <p className="text-xs font-medium text-slate-500 mt-0.5">Total Members</p>
         </div>
+
         <button
           type="button"
           onClick={() => setDrawerOpen(true)}
-          className="bg-violet-50 border border-violet-200 rounded-2xl p-4 text-center hover:bg-violet-100 transition-all"
+          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left hover:border-violet-200 hover:shadow-md transition-all group"
         >
-          <div className="text-2xl font-black text-violet-900">
-            {loadingUnassigned ? '—' : visibleUnassigned.length}
-          </div>
-          <div className="text-xs font-semibold text-violet-700 mt-1">🔍 Unassigned</div>
-          <div className="text-xs text-violet-400 mt-0.5">tap to view ↗</div>
+          <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center text-base mb-3 group-hover:bg-violet-200 transition-colors">🔍</div>
+          <p className="text-2xl font-black text-slate-800">{loadingUnassigned ? '—' : visibleUnassigned.length}</p>
+          <p className="text-xs font-medium text-slate-500 mt-0.5">Unassigned</p>
+          <p className="text-xs text-violet-500 font-semibold mt-1">Tap to view →</p>
         </button>
       </div>
 
       {/* ── Pending Member Changes ── */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-            ⏳ Pending Member Changes
-          </h3>
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+          <p className="text-sm font-bold text-slate-800">Pending Member Changes</p>
           {!loadingCellPending && cellPendingChanges.length > 0 && (
             <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
               {cellPendingChanges.length}
             </span>
           )}
         </div>
+
         {loadingCellPending ? (
-          <p className="text-sm text-slate-500">Loading…</p>
+          <div className="px-5 py-10 text-sm text-slate-400 text-center">Loading…</div>
         ) : cellPendingChanges.length === 0 ? (
-          <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-6 text-center text-sm text-slate-400">
-            No pending member changes.
+          <div className="px-5 py-10 text-sm text-slate-400 text-center">
+            All caught up — no pending changes.
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="divide-y divide-slate-50">
             {cellPendingChanges.map((change) => (
-              <div
-                key={change.id}
-                className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-2"
-              >
+              <div key={change.id} className="p-5 space-y-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-bold text-slate-900">
-                      {change.memberData?.name || '—'}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      👤 Leader: <strong>{change.requestedBy || '—'}</strong>
-                      {' · '}🏘 {change.cellName || '—'}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-600 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                      {(change.memberData?.name || '?')[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 text-sm">{change.memberData?.name || '—'}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {change.requestedBy || '—'} · {change.cellName || '—'}
+                      </p>
+                    </div>
                   </div>
-                  <span className="text-xs font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full flex-shrink-0 uppercase">
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0 uppercase tracking-wide ${CHANGE_TYPE_STYLES[change.changeType] || 'bg-slate-100 text-slate-600'}`}>
                     {change.changeType}
                   </span>
                 </div>
-                {change.reason ? (
-                  <div className="bg-amber-100/70 border-l-4 border-amber-400 rounded-r-lg px-3 py-2 text-xs text-amber-900 italic">
-                    &ldquo;{change.reason}&rdquo;
+
+                {change.reason && (
+                  <div className="bg-amber-50 border-l-4 border-amber-300 rounded-r-lg px-3 py-2 text-xs text-amber-800 italic">
+                    "{change.reason}"
                   </div>
-                ) : null}
-                <div className="flex gap-2 pt-1">
+                )}
+
+                <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => handleApprove(change)}
-                    className="flex-1 py-2 rounded-xl bg-green-500 text-white text-xs font-bold hover:bg-green-600 transition"
+                    className="flex-1 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors"
                   >
-                    ✓ Approve
+                    Approve
                   </button>
                   <button
                     type="button"
                     onClick={() => handleReject(change)}
-                    className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition"
+                    className="flex-1 py-2 rounded-xl border border-red-200 text-red-600 text-xs font-bold hover:bg-red-50 transition-colors"
                   >
-                    ✕ Reject
+                    Reject
                   </button>
                 </div>
               </div>
@@ -288,42 +288,40 @@ export function CellDirectorCockpit({
         )}
       </div>
 
-      {/* ── Cell Growth Chart ── */}
+      {/* ── Cell Member Growth Chart ── */}
       {!loadingMembers && growthData.length > 0 && (
         <CellMemberGrowthChart cellMemberData={growthData} />
       )}
 
-      {/* ── Attendance trends + missing reports (existing widgets) ── */}
+      {/* ── Attendance trends + missing reports ── */}
       <DirectorDashboardCellWidgets userProfile={userProfile} />
 
       {/* ── Unassigned Visitors Drawer ── */}
       {drawerOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setDrawerOpen(false)
-          }}
+          className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center"
+          onClick={(e) => { if (e.target === e.currentTarget) setDrawerOpen(false) }}
         >
-          <div className="bg-white rounded-t-3xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+          <div className="bg-white rounded-t-3xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
               <div>
-                <h3 className="font-bold text-slate-900">🔍 Unassigned Repeat Visitors</h3>
+                <h3 className="font-bold text-slate-900">Unassigned Repeat Visitors</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Attended 2+ Sundays · Not yet in any cell · Sourced from Sunday Reports
+                  Attended 2+ Sundays · Not yet in any cell · From Sunday Reports
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setDrawerOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200"
+                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors text-lg"
               >
                 ✕
               </button>
             </div>
 
             {/* Drawer body */}
-            <div className="overflow-y-auto p-4 space-y-3 flex-1">
+            <div className="overflow-y-auto p-4 space-y-2 flex-1">
               {loadingUnassigned ? (
                 <p className="text-sm text-slate-500 text-center py-10">Loading…</p>
               ) : visibleUnassigned.length === 0 ? (
@@ -333,37 +331,31 @@ export function CellDirectorCockpit({
               ) : (
                 visibleUnassigned.map((visitor) => (
                   <div key={visitor.name} className="relative">
-                    <div className="flex items-center gap-3 bg-violet-50 border border-violet-100 rounded-2xl px-4 py-3">
-                      {/* Avatar */}
-                      <div className="w-9 h-9 rounded-full bg-violet-600 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
+                    <div className="flex items-center gap-3 bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-sm">
+                      <div className="w-9 h-9 rounded-full bg-violet-100 text-violet-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
                         {initials(visitor.name)}
                       </div>
-                      {/* Info */}
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-slate-900 text-sm">{visitor.name}</p>
-                        <p className="text-xs text-violet-600 font-semibold">
-                          🗓 {visitor.weekCount} Sunday{visitor.weekCount !== 1 ? 's' : ''} attended
+                        <p className="font-semibold text-slate-900 text-sm">{visitor.name}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {visitor.weekCount} Sunday{visitor.weekCount !== 1 ? 's' : ''} attended
                         </p>
                       </div>
-                      {/* Assign button */}
                       <button
                         type="button"
                         onClick={() => {
-                          setAssignOpenName(
-                            assignOpenName === visitor.name ? null : visitor.name
-                          )
+                          setAssignOpenName(assignOpenName === visitor.name ? null : visitor.name)
                           setAssignSelectedCellId('')
                         }}
-                        className="px-3 py-1.5 bg-violet-600 text-white text-xs font-bold rounded-xl hover:bg-violet-700 flex-shrink-0 transition"
+                        className="px-3 py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-xl hover:bg-violet-700 flex-shrink-0 transition-colors"
                       >
                         Assign {assignOpenName === visitor.name ? '▲' : '▼'}
                       </button>
                     </div>
 
-                    {/* Inline cell-selector dropdown */}
                     {assignOpenName === visitor.name && (
                       <div className="absolute right-0 top-full mt-1 w-60 bg-white border border-slate-200 rounded-2xl shadow-xl z-10 overflow-hidden">
-                        <p className="text-xs font-bold text-slate-400 uppercase px-3 py-2 border-b border-slate-100">
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wide px-3 py-2 border-b border-slate-100">
                           Choose a cell group
                         </p>
                         <div className="max-h-48 overflow-y-auto">
@@ -372,14 +364,14 @@ export function CellDirectorCockpit({
                               key={cell.id}
                               type="button"
                               onClick={() => setAssignSelectedCellId(cell.id)}
-                              className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition ${
+                              className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
                                 assignSelectedCellId === cell.id
                                   ? 'bg-violet-50 text-violet-700 font-semibold'
-                                  : 'text-slate-700 hover:bg-violet-50'
+                                  : 'text-slate-700 hover:bg-slate-50'
                               }`}
                             >
                               <span>{cell.cellName || cell.id}</span>
-                              {assignSelectedCellId === cell.id && <span>✓</span>}
+                              {assignSelectedCellId === cell.id && <span className="text-violet-600">✓</span>}
                             </button>
                           ))}
                         </div>
@@ -388,15 +380,12 @@ export function CellDirectorCockpit({
                             type="button"
                             onClick={() => handleAssign(visitor.name)}
                             disabled={!assignSelectedCellId || assigning}
-                            className="w-full py-2 bg-violet-600 text-white text-xs font-bold rounded-xl hover:bg-violet-700 disabled:opacity-40 transition"
+                            className="w-full py-2 bg-violet-600 text-white text-xs font-bold rounded-xl hover:bg-violet-700 disabled:opacity-40 transition-colors"
                           >
                             {assigning
                               ? 'Adding…'
                               : assignSelectedCellId
-                              ? `✓ Add to ${
-                                  activeCells.find((c) => c.id === assignSelectedCellId)
-                                    ?.cellName || 'Cell'
-                                }`
+                              ? `Add to ${activeCells.find((c) => c.id === assignSelectedCellId)?.cellName || 'Cell'}`
                               : 'Select a cell first'}
                           </button>
                         </div>
@@ -407,8 +396,7 @@ export function CellDirectorCockpit({
               )}
 
               <p className="text-xs text-slate-400 text-center pt-2">
-                Data from <code>sunday_reports → secondWeekAttendeesNames</code>.
-                Updates each Sunday when the Sunday Report is saved.
+                Updated each Sunday when the Sunday Report is saved.
               </p>
             </div>
           </div>
