@@ -2023,10 +2023,18 @@ export default function DepartmentHub() {
           )}
 
           {delightVisitorModalOpen && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">{editingDelightVisitorId ? 'Edit Visitor' : 'Add Visitor'}</h3>
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">{editingDelightVisitorId ? 'Edit Visitor' : 'Add Visitor'}</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Fill in the visitor's details below</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setDelightVisitorModalOpen(false); setEditingDelightVisitorId(null) }}
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors text-lg"
+                  >✕</button>
                 </div>
                 <form
                   onSubmit={async (e) => {
@@ -2077,73 +2085,96 @@ export default function DepartmentHub() {
                       alert('Failed to save visitor')
                     }
                   }}
-                  className="p-5 space-y-4"
+                  className="px-6 py-5 space-y-5"
                 >
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Personal Info</p>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Name <span className="text-red-400">*</span></label>
                     <input
+                      required
                       type="text"
+                      placeholder="Full name"
                       value={delightVisitorForm.name}
                       onChange={(e) => setDelightVisitorForm((f) => ({ ...f, name: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                     />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">DOB</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Birth</label>
                       <input
                         type="date"
                         value={delightVisitorForm.dob}
                         onChange={(e) => setDelightVisitorForm((f) => ({ ...f, dob: e.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Ph. Number</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>
                       <input
                         type="tel"
+                        placeholder="+91 XXXXX XXXXX"
                         value={delightVisitorForm.phone}
                         onChange={(e) => setDelightVisitorForm((f) => ({ ...f, phone: e.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
                       <input
                         type="email"
+                        placeholder="email@example.com"
                         value={delightVisitorForm.email}
                         onChange={(e) => setDelightVisitorForm((f) => ({ ...f, email: e.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Nativity</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Nativity</label>
                       <input
                         type="text"
+                        placeholder="Hometown"
                         value={delightVisitorForm.nativity}
                         onChange={(e) => setDelightVisitorForm((f) => ({ ...f, nativity: e.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="border-t border-slate-100 pt-1">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Visit Details</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Current Place</label>
+                    <input
+                      type="text"
+                      placeholder="City / Area"
+                      value={delightVisitorForm.currentPlace}
+                      onChange={(e) => setDelightVisitorForm((f) => ({ ...f, currentPlace: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Current Place</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Attending <span className="text-red-400">*</span></label>
                       <input
-                        type="text"
-                        value={delightVisitorForm.currentPlace}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, currentPlace: e.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        type="date"
+                        value={delightVisitorForm.attendedDate}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          const yr = val ? new Date(val).getFullYear() : null
+                          setDelightVisitorForm((f) => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Service Attended</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Service Attended</label>
                       <select
                         value={delightVisitorForm.serviceAttended}
                         onChange={(e) => setDelightVisitorForm((f) => ({ ...f, serviceAttended: e.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm bg-white"
                       >
                         <option value="">— Select —</option>
                         <option value="English Service">English Service</option>
@@ -2154,26 +2185,27 @@ export default function DepartmentHub() {
                       </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Date of Attending</label>
-                      <input
-                        type="date"
-                        value={delightVisitorForm.attendedDate}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          const yr = val ? new Date(val).getFullYear() : null
-                          setDelightVisitorForm((f) => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
-                        }}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                      />
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">How did they find us?</label>
+                      <select
+                        value={delightVisitorForm.source || ''}
+                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, source: e.target.value }))}
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm bg-white"
+                      >
+                        <option value="">— Select —</option>
+                        <option value="Friend">Friend</option>
+                        <option value="Family">Family</option>
+                        <option value="Social Media">Social Media</option>
+                        <option value="Other">Other</option>
+                      </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Year</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Year</label>
                       <select
                         value={delightVisitorForm.year || ''}
                         onChange={(e) => setDelightVisitorForm((f) => ({ ...f, year: Number(e.target.value) }))}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm bg-white"
                       >
                         {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR + 1 }, (_, i) => VISITOR_CURRENT_YEAR - i).map((yr) => (
                           <option key={yr} value={yr}>{yr}</option>
@@ -2181,23 +2213,9 @@ export default function DepartmentHub() {
                       </select>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">How did you know about church?</label>
-                    <select
-                      value={delightVisitorForm.source || ''}
-                      onChange={(e) => setDelightVisitorForm((f) => ({ ...f, source: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                    >
-                      <option value="">— Select —</option>
-                      <option value="Friend">Friend</option>
-                      <option value="Family">Family</option>
-                      <option value="Social Media">Social Media</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                  <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">
-                      Save
+                  <div className="flex gap-3 pt-1">
+                    <button type="submit" className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+                      {editingDelightVisitorId ? 'Update Visitor' : 'Add Visitor'}
                     </button>
                     <button
                       type="button"
@@ -2205,7 +2223,7 @@ export default function DepartmentHub() {
                         setDelightVisitorModalOpen(false)
                         setEditingDelightVisitorId(null)
                       }}
-                      className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                      className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
                     >
                       Cancel
                     </button>

@@ -10,7 +10,8 @@ import {
   getDelightVisitors, getCellGroups, getAllBoardPoints,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, isThisMonth, isThisYear } from 'date-fns'
+import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, subDays, isThisMonth, isThisYear } from 'date-fns'
+import { formatDMY } from '../utils/date'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -164,9 +165,11 @@ export default function Dashboard() {
     return { month: format(m, 'MMM'), Visitors: count }
   })
 
+  const sevenDaysAgo = format(subDays(now, 6), 'yyyy-MM-dd')
+  const today = format(now, 'yyyy-MM-dd')
   const recentVisitors = [...visitors]
-    .filter(v => v.attendedDate)
-    .sort((a, b) => b.attendedDate.localeCompare(a.attendedDate))
+    .filter(v => v.attendedDate && v.attendedDate >= sevenDaysAgo && v.attendedDate <= today)
+    .sort((a, b) => (b.attendedDate > a.attendedDate ? 1 : b.attendedDate < a.attendedDate ? -1 : 0))
     .slice(0, 6)
 
   if (loading) {
@@ -336,7 +339,7 @@ export default function Dashboard() {
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <div>
               <p className="text-sm font-bold text-slate-800">Recent Visitors</p>
-              <p className="text-xs text-slate-400 mt-0.5">{visitorsThisMonth} this month</p>
+              <p className="text-xs text-slate-400 mt-0.5">{recentVisitors.length > 0 ? `Last 7 days` : 'No visitors this week'}</p>
             </div>
             <Link to="/department/d-light?tab=visitorEntry"
               className="text-xs text-indigo-600 font-medium hover:underline">View all →</Link>
@@ -352,7 +355,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-slate-800 truncate">{v.name}</p>
-                    <p className="text-xs text-slate-400">{v.attendedDate || '—'}</p>
+                    <p className="text-xs text-slate-400">{formatDMY(v.attendedDate)}</p>
                   </div>
                   {v.serviceAttended && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 flex-shrink-0">{v.serviceAttended}</span>
