@@ -6,7 +6,7 @@ export function getDepartmentHubTabs(slug) {
     case 'cell':
       return ['summary', 'cellGroups', 'reports', 'leaderEntry', 'operations']
     case 'caring':
-      return ['summary', 'members', 'pcs', 'subDepartment', 'team', 'planning', 'financial']
+      return ['summary', 'pcs', 'operations']
     case 'sunday-ministry':
       return ['summary', 'sundayReport', 'sundayReportsHistory', 'sundayProgram', 'operations']
     case 'worship':
@@ -14,7 +14,7 @@ export function getDepartmentHubTabs(slug) {
     case 'media':
       return ['summary', 'operations']
     case 'd-light':
-      return ['summary', 'visitorEntry', 'assign', 'subDepartment', 'team', 'planning', 'financial']
+      return ['summary', 'visitorEntry', 'assign', 'operations']
     case 'event-m':
       return ['summary', 'events', 'liveControl', 'subDepartment', 'team', 'planning', 'financial']
     case 'river-kids':

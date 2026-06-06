@@ -87,6 +87,24 @@ function upcomingSundays(count = 5) {
   return result
 }
 
+// Returns the forthcoming Sunday date string.
+// If today IS Sunday and before 18:00, returns today; after 18:00 returns next Sunday.
+function getForthcomingSunday() {
+  const now = new Date()
+  const day = now.getDay()
+  if (day === 0 && now.getHours() < 18) return format(now, 'yyyy-MM-dd')
+  const daysTo = day === 0 ? 7 : 7 - day
+  const d = new Date(now)
+  d.setDate(now.getDate() + daysTo)
+  return format(d, 'yyyy-MM-dd')
+}
+
+// True only while the plan card should be shown (up to Sunday 18:00)
+function isBeforeSundayEvening(sundayDateStr) {
+  const cutoff = new Date(sundayDateStr + 'T18:00:00')
+  return new Date() < cutoff
+}
+
 function positionKeyForRole(role) {
   if (role.startsWith('Lead Vocal')) return 'Lead vocal'
   if (role.startsWith('Parts')) return 'Parts'
@@ -377,6 +395,8 @@ export default function DepartmentWorship() {
   const [openAttendanceId, setOpenAttendanceId] = useState(null)
   const [attendanceDraft, setAttendanceDraft] = useState({})
   const [weekBoxSchedules, setWeekBoxSchedules] = useState([])
+  const [forthcomingSchedule, setForthcomingSchedule] = useState(null)
+  const [loadingForthcoming, setLoadingForthcoming] = useState(false)
   const [loadingWeekBoxes, setLoadingWeekBoxes] = useState(false)
   const [practiceSubPage, setPracticeSubPage] = useState('schedule')
   const [recordsSchedules, setRecordsSchedules] = useState([])
@@ -453,6 +473,16 @@ export default function DepartmentWorship() {
   useEffect(() => {
     if ((activeTab === 'assign' || activeTab === 'summary') && selectedDate) loadScheduleForDate(selectedDate)
   }, [activeTab, selectedDate])
+
+  useEffect(() => {
+    if (activeTab !== 'summary') return
+    const sunday = getForthcomingSunday()
+    setLoadingForthcoming(true)
+    getWorshipScheduleByDate(DEPARTMENT, sunday)
+      .then(setForthcomingSchedule)
+      .catch(() => setForthcomingSchedule(null))
+      .finally(() => setLoadingForthcoming(false))
+  }, [activeTab])
 
   async function loadSubDepartments() {
     setSubDeptLoading(true)
@@ -569,6 +599,9 @@ export default function DepartmentWorship() {
       setScheduleForDate((s) => ({ ...s, assignments: localAssignments }))
       setAssignStamp({ date: selectedDate, assignments: [...localAssignments], savedAt: new Date() })
       setStampOpen(false)
+      if (selectedDate === getForthcomingSunday()) {
+        setForthcomingSchedule(prev => ({ ...(prev || {}), date: selectedDate, assignments: [...localAssignments] }))
+      }
     } catch (e) {
       console.error(e)
       alert('Failed to save')
@@ -679,6 +712,103 @@ export default function DepartmentWorship() {
       <div className="space-y-4 p-4">
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
+
+          {/* ── Forthcoming Sunday plan card ── */}
+          {(() => {
+            const sunday = getForthcomingSunday()
+            const visible = isBeforeSundayEvening(sunday)
+            if (!visible) return null
+            if (loadingForthcoming) return (
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-violet-100 shadow-sm px-5 py-4 text-sm text-slate-400">
+                Loading this Sunday's plan…
+              </div>
+            )
+            const fas = forthcomingSchedule?.assignments || []
+            const assigned = fas.filter(a => a.memberId)
+            const songs = fas.filter(a => a.songName)
+            if (assigned.length === 0) return (
+              <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-violet-100 shadow-sm px-5 py-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-violet-400">Forthcoming Sunday</p>
+                  <p className="text-sm font-semibold text-slate-700 mt-0.5">{format(new Date(sunday + 'T12:00:00'), 'EEEE, d MMMM yyyy')}</p>
+                  <p className="text-xs text-slate-400 mt-1">No plan saved yet — go to the Assign tab to set up.</p>
+                </div>
+              </div>
+            )
+            // Group assigned roles by category
+            const vocals  = assigned.filter(a => /vocal|parts|choir/i.test(a.role))
+            const band    = assigned.filter(a => /guitar|bass|drum|keyboard/i.test(a.role))
+            const tech    = assigned.filter(a => /sound|media/i.test(a.role))
+            return (
+              <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-violet-200 shadow-md overflow-hidden">
+                {/* Card header */}
+                <div className="px-5 py-4 bg-gradient-to-r from-violet-600 to-violet-700 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-violet-200">This Sunday's Worship Plan</p>
+                    <p className="text-lg font-black text-white mt-0.5">
+                      {format(new Date(sunday + 'T12:00:00'), 'EEEE, d MMMM yyyy')}
+                    </p>
+                  </div>
+                  <span className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 text-white text-xs font-bold">
+                    <CheckCircle2 size={11} />
+                    Plan Ready
+                  </span>
+                </div>
+
+                {/* Stats row */}
+                <div className="flex divide-x divide-slate-100 border-b border-slate-100">
+                  {[
+                    { label: 'Assigned', value: assigned.length, sub: `of ${ASSIGNMENT_ROLES.length} roles`, color: 'text-violet-700' },
+                    { label: 'Songs', value: songs.length, sub: 'in setlist', color: 'text-sky-600' },
+                    { label: 'Team Pool', value: activeMembers.length, sub: 'active', color: 'text-emerald-600' },
+                  ].map(({ label, value, sub, color }) => (
+                    <div key={label} className="flex-1 px-4 py-3 text-center">
+                      <p className={`text-xl font-black ${color}`}>{value}</p>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
+                      <p className="text-[10px] text-slate-400">{sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Role groups */}
+                <div className="px-5 py-4 space-y-3">
+                  {[
+                    { label: 'Vocals & Choir', items: vocals },
+                    { label: 'Band', items: band },
+                    { label: 'Tech', items: tech },
+                  ].filter(g => g.items.length > 0).map(group => (
+                    <div key={group.label}>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">{group.label}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {group.items.map(a => (
+                          <span key={a.role} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-50 border border-violet-100 text-xs font-medium text-violet-800">
+                            <span className="text-[10px] text-violet-400">{a.role.replace(/-\d+$/, '')}</span>
+                            <span className="font-bold">{a.memberName || '—'}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Setlist */}
+                  {songs.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Setlist</p>
+                      <ol className="space-y-0.5">
+                        {songs.map((a, i) => (
+                          <li key={i} className="flex items-center gap-2 text-sm">
+                            <span className="text-[10px] text-slate-400 w-4 text-right">{i + 1}.</span>
+                            <span className="text-slate-800 font-medium">{a.songName}</span>
+                            {a.key && <span className="text-[10px] text-slate-400">({a.key})</span>}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Header strip: Coming Sundays + Distribute button */}
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">

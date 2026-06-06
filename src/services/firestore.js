@@ -3477,7 +3477,9 @@ function mapBoardPoint(d) {
   return {
     id: d.id,
     department: data.department || '',
+    slNo: data.slNo || '',
     point: data.point || '',
+    timeNeeded: data.timeNeeded || '',
     meetingDate: data.meetingDate || '',
     status: data.status || 'pending',
     allottedTime: data.allottedTime || '',
@@ -3509,7 +3511,9 @@ export async function addBoardPoint(data) {
   if (!db) return null
   const ref = await addDoc(collection(db, BOARD_POINTS_COLLECTION), {
     department: data.department || '',
+    slNo: data.slNo || '',
     point: data.point || '',
+    timeNeeded: data.timeNeeded || '',
     meetingDate: data.meetingDate || '',
     status: 'pending',
     createdAt: Timestamp.now(),
@@ -3521,7 +3525,9 @@ export async function addBoardPoint(data) {
 export async function updateBoardPoint(id, data) {
   if (!db || !id) return
   const payload = {}
+  if (data.slNo !== undefined) payload.slNo = String(data.slNo)
   if (data.point !== undefined) payload.point = String(data.point)
+  if (data.timeNeeded !== undefined) payload.timeNeeded = String(data.timeNeeded)
   if (data.meetingDate !== undefined) payload.meetingDate = String(data.meetingDate)
   if (data.status !== undefined) payload.status = String(data.status)
   if (data.allottedTime !== undefined) payload.allottedTime = String(data.allottedTime)
@@ -3579,4 +3585,59 @@ export async function syncVisitorDataEverywhere(visitorId, { name, phone, dob } 
     updateCellMembersByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }), ...(dob !== undefined && { birthday: dob }) }),
     updatePCSEntriesByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }) }),
   ])
+}
+
+// ─── Member Profiles ─────────────────────────────────────────────────────────
+// Document ID = visitorId for instant lookup without extra query.
+// Stores fields that don't live in any other collection: baptism, marriage, director.
+
+const MEMBER_PROFILES_COLLECTION = 'member_profiles'
+
+export async function getMemberProfile(visitorId) {
+  if (!db || !visitorId) return null
+  const snap = await getDoc(doc(db, MEMBER_PROFILES_COLLECTION, visitorId))
+  if (!snap.exists()) return null
+  const d = snap.data()
+  return {
+    visitorId,
+    baptismDate:   d.baptismDate   || '',
+    baptismPlace:  d.baptismPlace  || '',
+    marriageDate:  d.marriageDate  || '',
+    spouseName:    d.spouseName    || '',
+    isDirector:    d.isDirector    || false,
+    directorOf:    d.directorOf    || '',
+    directorSince: d.directorSince || '',
+    leaderSince:   d.leaderSince   || '',
+    leaderUntil:   d.leaderUntil   || '',
+    ministryNotes: d.ministryNotes || '',
+    updatedAt:     toDate(d.updatedAt),
+    updatedBy:     d.updatedBy     || '',
+  }
+}
+
+export async function upsertMemberProfile(visitorId, data, updatedBy = '') {
+  if (!db || !visitorId) return
+  const payload = {}
+  const allowed = ['baptismDate','baptismPlace','marriageDate','spouseName','isDirector','directorOf','directorSince','leaderSince','leaderUntil','ministryNotes']
+  for (const k of allowed) {
+    if (data[k] !== undefined) payload[k] = data[k]
+  }
+  payload.updatedAt = Timestamp.now()
+  payload.updatedBy = updatedBy
+  await setDoc(doc(db, MEMBER_PROFILES_COLLECTION, visitorId), payload, { merge: true })
+}
+
+export async function getMemberProfileWithContext(visitorId) {
+  if (!db || !visitorId) return null
+  const safe = (p) => p.catch(() => null)
+  const [profile, deptSnap, worshipSnap] = await Promise.all([
+    safe(getMemberProfile(visitorId)),
+    safe(getDocs(query(collection(db, 'department_team_members'), where('visitorId', '==', visitorId)))),
+    safe(getDocs(query(collection(db, 'worship_team_members'),    where('visitorId', '==', visitorId)))),
+  ])
+  return {
+    profile:     profile || {},
+    deptTeams:   deptSnap   ? deptSnap.docs.map(d   => ({ id: d.id,   ...d.data() }))   : [],
+    worshipTeams: worshipSnap ? worshipSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [],
+  }
 }

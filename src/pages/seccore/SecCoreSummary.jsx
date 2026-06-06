@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import {
   getSecCoreDirectorBoard,
@@ -372,222 +372,243 @@ function SundayLeaderTab({ canEdit, userProfile }) {
 
 // ─── Board Agenda tab ─────────────────────────────────────────────────────────
 
+function sundayDateChips() {
+  const today = new Date()
+  const daysToSun = today.getDay() === 0 ? 0 : 7 - today.getDay()
+  const first = new Date(today)
+  first.setDate(today.getDate() + daysToSun)
+  return Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(first)
+    d.setDate(first.getDate() + i * 7)
+    return format(d, 'yyyy-MM-dd')
+  })
+}
+
 function BoardAgendaTab({ canEdit, userProfile }) {
-  const [points, setPoints]     = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [approving, setApproving] = useState(null) // { id, point, department }
-  const [timeInput, setTimeInput] = useState('')
-  const [filterStatus, setFilterStatus] = useState('all')
+  const [allPoints, setAllPoints] = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [editId, setEditId]       = useState(null)
+  const [editVals, setEditVals]   = useState({ slNo: '', allottedTime: '' })
+  const [saving, setSaving]       = useState(false)
 
   useEffect(() => {
+    setLoading(true)
     getAllBoardPoints()
-      .then(setPoints)
-      .catch(() => setPoints([]))
+      .then(pts => {
+        setAllPoints(pts)
+        const dates = [...new Set(pts.map(p => p.meetingDate).filter(Boolean))].sort()
+        if (dates.length > 0) setSelectedDate(dates[dates.length - 1])
+        else {
+          const chips = sundayDateChips()
+          if (chips.length) setSelectedDate(chips[0])
+        }
+      })
+      .catch(() => setAllPoints([]))
       .finally(() => setLoading(false))
   }, [])
 
-  // Group by department
-  const grouped = useMemo(() => {
-    const filtered = filterStatus === 'all' ? points : points.filter(p => p.status === filterStatus)
-    const map = {}
-    filtered.forEach(p => {
-      if (!map[p.department]) map[p.department] = []
-      map[p.department].push(p)
-    })
-    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
-  }, [points, filterStatus])
+  const pointDates   = [...new Set(allPoints.map(p => p.meetingDate).filter(Boolean))]
+  const upcomingChips = sundayDateChips().filter(d => !pointDates.includes(d))
+  const allDates     = [...new Set([...pointDates, ...upcomingChips])].sort()
 
-  const handleApprove = async () => {
-    if (!approving) return
-    const time = timeInput.trim()
-    if (!time) return
-    await updateBoardPoint(approving.id, {
-      status: 'approved',
-      allottedTime: time,
-      approvedBy: userProfile?.displayName || userProfile?.email || 'Sec-Core',
-    })
-    setPoints(prev => prev.map(p => p.id === approving.id
-      ? { ...p, status: 'approved', allottedTime: time, approvedBy: userProfile?.displayName || userProfile?.email || 'Sec-Core' }
-      : p
-    ))
-    setApproving(null)
-    setTimeInput('')
+  const datePoints   = selectedDate ? allPoints.filter(p => p.meetingDate === selectedDate) : []
+  const fixedPoints  = datePoints.filter(p => p.slNo && p.allottedTime).sort((a, b) => Number(a.slNo) - Number(b.slNo))
+  const unfixedPoints = datePoints.filter(p => !p.slNo || !p.allottedTime)
+  const sortedPoints = [...fixedPoints, ...unfixedPoints]
+
+  const handleFix = async (id) => {
+    if (!editVals.slNo.trim() || !editVals.allottedTime.trim()) return
+    setSaving(true)
+    try {
+      const patch = {
+        slNo: editVals.slNo.trim(),
+        allottedTime: editVals.allottedTime.trim(),
+        status: 'approved',
+        approvedBy: userProfile?.displayName || userProfile?.email || 'Sec-Core',
+      }
+      await updateBoardPoint(id, patch)
+      setAllPoints(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
+      setEditId(null)
+      setEditVals({ slNo: '', allottedTime: '' })
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleReject = async (id) => {
-    if (!window.confirm('Reject this agenda point?')) return
-    await updateBoardPoint(id, { status: 'rejected', allottedTime: '', approvedBy: '' })
-    setPoints(prev => prev.map(p => p.id === id ? { ...p, status: 'rejected', allottedTime: '', approvedBy: '' } : p))
-  }
-
-  const handleReset = async (id) => {
-    await updateBoardPoint(id, { status: 'pending', allottedTime: '', approvedBy: '' })
-    setPoints(prev => prev.map(p => p.id === id ? { ...p, status: 'pending', allottedTime: '', approvedBy: '' } : p))
-  }
-
-  const counts = {
-    all: points.length,
-    pending: points.filter(p => p.status === 'pending').length,
-    approved: points.filter(p => p.status === 'approved').length,
-    rejected: points.filter(p => p.status === 'rejected').length,
-  }
-
-  const statusStyle = {
-    pending:  'bg-amber-100 text-amber-700',
-    approved: 'bg-emerald-100 text-emerald-700',
-    rejected: 'bg-red-100 text-red-500',
+  const handleUnfix = async (id) => {
+    setSaving(true)
+    try {
+      const patch = { slNo: '', allottedTime: '', status: 'pending', approvedBy: '' }
+      await updateBoardPoint(id, patch)
+      setAllPoints(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loading) return <p className="text-sm text-slate-400 py-6 text-center">Loading agenda…</p>
 
   return (
     <div className="space-y-4">
-      {/* Approve modal */}
-      {approving && (
-        <>
-          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => { setApproving(null); setTimeInput('') }} />
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => { setApproving(null); setTimeInput('') }}>
-            <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                <p className="font-semibold text-slate-800 text-sm">Approve Agenda Point</p>
-                <button type="button" onClick={() => { setApproving(null); setTimeInput('') }} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
-              </div>
-              <div className="px-5 py-4 space-y-3">
-                <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">{approving.department}</p>
-                  <p className="text-sm text-slate-800">{approving.point}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Allotted Time *</label>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      autoFocus
-                      placeholder="e.g. 10 mins, 15 minutes"
-                      value={timeInput}
-                      onChange={e => setTimeInput(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && timeInput.trim() && handleApprove()}
-                      className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                    />
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">Enter the time allocated for this presentation.</p>
-                </div>
-              </div>
-              <div className="px-5 pb-5 flex gap-2">
-                <button
-                  type="button"
-                  disabled={!timeInput.trim()}
-                  onClick={handleApprove}
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                >Approve & Set Time</button>
-                <button type="button" onClick={() => { setApproving(null); setTimeInput('') }}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
 
-      {/* Summary stats + filter */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <h3 className="font-semibold text-slate-800 text-sm">Board Meeting Agenda</h3>
-          <span className="text-xs text-slate-400">{counts.all} total points</span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {[
-            { key: 'all',      label: `All (${counts.all})`,           cls: 'bg-slate-100 text-slate-600' },
-            { key: 'pending',  label: `Pending (${counts.pending})`,   cls: 'bg-amber-100 text-amber-700' },
-            { key: 'approved', label: `Approved (${counts.approved})`, cls: 'bg-emerald-100 text-emerald-700' },
-            { key: 'rejected', label: `Rejected (${counts.rejected})`, cls: 'bg-red-100 text-red-500' },
-          ].map(f => (
+      {/* ── Sunday date chips ── */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+        {allDates.map(date => {
+          const pts      = allPoints.filter(p => p.meetingDate === date)
+          const fixed    = pts.filter(p => p.slNo && p.allottedTime).length
+          const isActive = selectedDate === date
+          const d        = new Date(date + 'T00:00:00')
+          return (
             <button
-              key={f.key}
+              key={date}
               type="button"
-              onClick={() => setFilterStatus(f.key)}
-              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all
-                ${filterStatus === f.key ? 'ring-2 ring-offset-1 ring-indigo-400 ' + f.cls : f.cls + ' opacity-60 hover:opacity-100'}`}
-            >{f.label}</button>
-          ))}
-        </div>
+              onClick={() => setSelectedDate(date)}
+              className={`flex-shrink-0 flex flex-col items-center px-3 py-2 rounded-xl border transition-all text-xs font-medium ${
+                isActive
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-md'
+                  : pts.length > 0
+                    ? 'bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50'
+                    : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'
+              }`}
+            >
+              <span className="text-[10px] font-bold uppercase">{format(d, 'EEE')}</span>
+              <span className="text-lg font-black leading-tight">{format(d, 'd')}</span>
+              <span className="text-[10px]">{format(d, 'MMM')}</span>
+              {pts.length > 0 && (
+                <span className={`mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/25 text-white' : 'bg-indigo-100 text-indigo-600'}`}>
+                  {fixed}/{pts.length}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
-      {/* Grouped list */}
-      {grouped.length === 0 ? (
-        <div className="py-12 text-center text-slate-400 text-sm">
-          {points.length === 0 ? 'No presentation points submitted yet.' : 'No points match the selected filter.'}
-        </div>
-      ) : grouped.map(([dept, deptPoints]) => (
-        <div key={dept} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-            <p className="text-sm font-bold text-slate-700">{dept}</p>
-            <span className="text-xs text-slate-400">{deptPoints.length} point{deptPoints.length !== 1 ? 's' : ''}</span>
+      {/* ── A5 agenda sheet ── */}
+      {selectedDate && (
+        <div className="mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden w-full" style={{ maxWidth: 480 }}>
+
+          {/* Header */}
+          <div className="px-6 py-5 bg-gradient-to-br from-indigo-700 to-indigo-900 text-white">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-300 mb-0.5">ROL Board Meeting</p>
+            <p className="text-xl font-black">{format(new Date(selectedDate + 'T00:00:00'), 'EEEE, d MMMM yyyy')}</p>
+            <p className="text-xs text-indigo-300 mt-1.5">
+              {fixedPoints.length} of {datePoints.length} agenda item{datePoints.length !== 1 ? 's' : ''} fixed
+            </p>
           </div>
+
+          {/* Agenda rows */}
           <div className="divide-y divide-slate-100">
-            {deptPoints.map((bp, idx) => (
-              <div key={bp.id} className="flex items-start gap-3 px-5 py-4">
-                <span className="text-xs font-medium text-slate-400 w-5 pt-0.5 flex-shrink-0 text-right">{idx + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-slate-800 leading-relaxed">{bp.point}</p>
-                  <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                    {bp.meetingDate && <span className="text-xs text-slate-400">📅 {bp.meetingDate}</span>}
-                    {bp.status === 'approved' && bp.allottedTime && (
-                      <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">⏱ {bp.allottedTime}</span>
-                    )}
-                    {bp.approvedBy && bp.status === 'approved' && (
-                      <span className="text-xs text-slate-400">by {bp.approvedBy}</span>
+            {sortedPoints.length === 0 && (
+              <p className="px-6 py-10 text-center text-slate-400 text-sm">
+                No points submitted for this Sunday yet.
+              </p>
+            )}
+
+            {sortedPoints.map(bp => {
+              const isFixed   = !!(bp.slNo && bp.allottedTime)
+              const isEditing = editId === bp.id
+
+              return (
+                <div key={bp.id} className={`px-5 py-4 transition-colors ${isFixed ? 'bg-emerald-50/40' : 'bg-white'}`}>
+                  <div className="flex items-start gap-3">
+
+                    {/* Sl No circle */}
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-black mt-0.5 ${
+                      isFixed ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-100 text-slate-400'
+                    }`}>
+                      {isFixed ? bp.slNo : '—'}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide">{bp.department}</p>
+                      <p className="text-sm text-slate-800 leading-snug mt-0.5">{bp.point}</p>
+                      {bp.timeNeeded && (
+                        <p className="text-[10px] text-slate-400 mt-0.5">Requested: {bp.timeNeeded}</p>
+                      )}
+
+                      {/* Inline Sl + Time editor for unfixed items */}
+                      {!isFixed && canEdit && (
+                        isEditing ? (
+                          <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                            <input
+                              type="number"
+                              min="1"
+                              placeholder="Sl"
+                              autoFocus
+                              value={editVals.slNo}
+                              onChange={e => setEditVals(v => ({ ...v, slNo: e.target.value }))}
+                              className="w-14 px-2 py-1.5 rounded-lg border border-indigo-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Approved time"
+                              value={editVals.allottedTime}
+                              onChange={e => setEditVals(v => ({ ...v, allottedTime: e.target.value }))}
+                              onKeyDown={e => e.key === 'Enter' && handleFix(bp.id)}
+                              className="flex-1 min-w-[120px] px-2 py-1.5 rounded-lg border border-indigo-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                            />
+                            <button
+                              type="button"
+                              disabled={!editVals.slNo.trim() || !editVals.allottedTime.trim() || saving}
+                              onClick={() => handleFix(bp.id)}
+                              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                            >{saving ? '…' : 'Fix Slot'}</button>
+                            <button
+                              type="button"
+                              onClick={() => { setEditId(null); setEditVals({ slNo: '', allottedTime: '' }) }}
+                              className="text-slate-400 hover:text-slate-600 text-sm leading-none px-1"
+                            >✕</button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditId(bp.id)
+                              setEditVals({ slNo: bp.slNo || '', allottedTime: bp.allottedTime || '' })
+                            }}
+                            className="mt-2 text-xs text-indigo-600 font-semibold hover:underline"
+                          >Set Sl &amp; Time →</button>
+                        )
+                      )}
+                      {!isFixed && !canEdit && (
+                        <span className="mt-1.5 inline-block text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Awaiting schedule</span>
+                      )}
+                    </div>
+
+                    {/* Fixed badge + unlock */}
+                    {isFixed && (
+                      <div className="flex-shrink-0 flex flex-col items-end gap-1">
+                        <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">{bp.allottedTime}</span>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => handleUnfix(bp.id)}
+                            className="text-[10px] text-slate-400 hover:text-red-500 transition-colors"
+                          >unlock</button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
-                <div className="flex-shrink-0 flex items-center gap-2">
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusStyle[bp.status] || 'bg-slate-100 text-slate-500'}`}>
-                    {bp.status === 'approved' ? 'Approved' : bp.status === 'rejected' ? 'Rejected' : 'Pending'}
-                  </span>
-                  {canEdit && (
-                    <div className="flex gap-1.5">
-                      {bp.status === 'pending' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => { setApproving(bp); setTimeInput('') }}
-                            className="text-xs text-emerald-600 font-semibold hover:underline"
-                          >Approve</button>
-                          <button
-                            type="button"
-                            onClick={() => handleReject(bp.id)}
-                            className="text-xs text-red-500 hover:underline"
-                          >Reject</button>
-                        </>
-                      )}
-                      {bp.status === 'approved' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => { setApproving(bp); setTimeInput(bp.allottedTime || '') }}
-                            className="text-xs text-slate-500 hover:underline"
-                          >Edit Time</button>
-                          <button
-                            type="button"
-                            onClick={() => handleReset(bp.id)}
-                            className="text-xs text-amber-600 hover:underline"
-                          >Reset</button>
-                        </>
-                      )}
-                      {bp.status === 'rejected' && (
-                        <button
-                          type="button"
-                          onClick={() => handleReset(bp.id)}
-                          className="text-xs text-amber-600 hover:underline"
-                        >Reconsider</button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
+
+          {/* Footer */}
+          {datePoints.length > 0 && (
+            <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+              <p className="text-xs text-slate-500">
+                {fixedPoints.length} fixed · {unfixedPoints.length} pending
+              </p>
+              {fixedPoints.length === datePoints.length && datePoints.length > 0 && (
+                <span className="text-xs font-bold text-emerald-600">Agenda complete</span>
+              )}
+            </div>
+          )}
         </div>
-      ))}
+      )}
     </div>
   )
 }

@@ -17,7 +17,8 @@
       "PowerShell(Start-Process explorer.exe -ArgumentList \"C:\\\\\")",
       "PowerShell(Start-Process \"http://localhost\")",
       "PowerShell(node -e \"require\\('playwright'\\)\" 2>&1; npx playwright --version 2>&1)",
-      "PowerShell(npx playwright install chromium 2>&1 | Select-Object -Last 5)"
+      "PowerShell(npx playwright install chromium 2>&1 | Select-Object -Last 5)",
+      "Bash(grep -n \"^\\\\s*<\\\\/>\" \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\\\\src\\\\pages\\\\DepartmentHub.jsx\")"
     ]
   }
 }

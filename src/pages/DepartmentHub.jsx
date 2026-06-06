@@ -75,6 +75,9 @@ import {
   addBoardPoint,
   updateBoardPoint,
   deleteBoardPoint,
+  getMemberProfile,
+  getMemberProfileWithContext,
+  upsertMemberProfile,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -94,6 +97,7 @@ import MediaOperationsToggle from './media/MediaOperationsToggle'
 import RiverKidsOperationsToggle from './river-kids/RiverKidsOperationsToggle'
 import AdministrationOperationsToggle from './administration/AdministrationOperationsToggle'
 import AccountsOperationsToggle from './accounts/AccountsOperationsToggle'
+import DLightOperationsToggle from './d-light/DLightOperationsToggle'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
 import SundayPlanning from './SundayPlanning'
 import SecCoreSummary from './seccore/SecCoreSummary'
@@ -132,13 +136,14 @@ async function mergeTasksEntriesTeam(canonicalName) {
 
 const VISITOR_START_YEAR = 2014
 const VISITOR_CURRENT_YEAR = new Date().getFullYear()
-const VISITOR_SERVICE_LABELS = { E: 'English', M: 'Malayalam', T: 'Tamil' }
+const VISITOR_SERVICE_LABELS = { E: 'English Service', M: 'Malayalam', T: 'Tamil' }
 const SERVICE_DISPLAY = {
-  'english service': 'English',
-  'tamil service': 'Tamil',
-  'sunday service': 'English',
-  'youth service': 'Youth',
-  'cell group': 'Cell',
+  'english':         'English Service',
+  'english service': 'English Service',
+  'sunday service':  'English Service',
+  'tamil service':   'Tamil',
+  'youth service':   'Youth',
+  'cell group':      'Cell',
   'special meeting': 'Special',
 }
 const fmtService = (s) => {
@@ -210,7 +215,7 @@ export default function DepartmentHub() {
   const [expandedCellId, setExpandedCellId] = useState(null)
   const [cellMembers, setCellMembers] = useState([])
   const [loadingCellMembers, setLoadingCellMembers] = useState(false)
-  const [cellMemberForm, setCellMemberForm] = useState({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
+  const [cellMemberForm, setCellMemberForm] = useState({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active', visitorId: '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
   const [cellMemberModalOpen, setCellMemberModalOpen] = useState(false)
   const [editingCellMemberId, setEditingCellMemberId] = useState(null)
   const [cellMemberVisitors, setCellMemberVisitors] = useState([])
@@ -261,9 +266,11 @@ export default function DepartmentHub() {
   const [loadingDepartmentUpdates, setLoadingDepartmentUpdates] = useState(false)
   const [boardPoints, setBoardPoints] = useState([])
   const [loadingBoardPoints, setLoadingBoardPoints] = useState(false)
-  const [boardPointForm, setBoardPointForm] = useState({ point: '', meetingDate: '' })
+  const [boardPointForm, setBoardPointForm] = useState({ slNo: '', point: '', timeNeeded: '', meetingDate: '' })
   const [boardPointModalOpen, setBoardPointModalOpen] = useState(false)
   const [editingBoardPointId, setEditingBoardPointId] = useState(null)
+  const [boardPointsPopupOpen, setBoardPointsPopupOpen] = useState(false)
+  const [boardAllottedNotifications, setBoardAllottedNotifications] = useState([])
   const [delightVisitors, setDelightVisitors] = useState([])
   const [loadingDelightVisitors, setLoadingDelightVisitors] = useState(false)
   const [delightVisitorModalOpen, setDelightVisitorModalOpen] = useState(false)
@@ -282,7 +289,13 @@ export default function DepartmentHub() {
   const [pcsEntries, setPcsEntries] = useState([])
   const [loadingPCS, setLoadingPCS] = useState(false)
   const [pcsPickerOpen, setPcsPickerOpen] = useState(false)
-  const [pcsDetailEntry, setPcsDetailEntry] = useState(null)
+  const [pcsExpandedId, setPcsExpandedId] = useState(null)
+  const [pcsExpandedVisitor, setPcsExpandedVisitor] = useState(null)
+  const [pcsExpandedProfile, setPcsExpandedProfile] = useState(null)
+  const [pcsExpandedContext, setPcsExpandedContext] = useState(null)
+  const [pcsExpandedLoading, setPcsExpandedLoading] = useState(false)
+  const [pcsExpandedForm, setPcsExpandedForm] = useState({})
+  const [pcsExpandedSaving, setPcsExpandedSaving] = useState(false)
   const [delightVisitorForm, setDelightVisitorForm] = useState({
     name: '',
     dob: '',
@@ -510,7 +523,7 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (!department || slug === 'cell' || slug === 'd-light') return
     const wantsSubOrTeam = activeTab === 'team' || activeTab === 'subDepartment' ||
-      ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts') && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment')) ||
+      ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment')) ||
       (slug === 'media' && activeTab === 'summary')
     if (!wantsSubOrTeam) return
     setSubDeptLoading(true)
@@ -527,7 +540,8 @@ export default function DepartmentHub() {
   }, [department, slug, activeTab, opsSubTab])
 
   useEffect(() => {
-    if (slug !== 'd-light' || activeTab !== 'team') {
+    const wantsDlightTeam = slug === 'd-light' && (activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team'))
+    if (!wantsDlightTeam) {
       setDlightTeamSubOpts([])
       return
     }
@@ -538,7 +552,7 @@ export default function DepartmentHub() {
         )
       )
       .catch(() => setDlightTeamSubOpts([]))
-  }, [slug, activeTab])
+  }, [slug, activeTab, opsSubTab])
 
   useEffect(() => {
     if (slug !== 'river-kids' || activeTab !== 'attendance' || !department) return
@@ -652,7 +666,7 @@ export default function DepartmentHub() {
 
   useEffect(() => {
     const wantsFinancial = activeTab === 'financial' ||
-      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts') && activeTab === 'operations' && opsSubTab === 'financial')
+      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'financial')
     if (department && wantsFinancial) {
       setLoadingBudget(true)
       getFinanceBudgetItemsByDepartment(department.name)
@@ -672,7 +686,7 @@ export default function DepartmentHub() {
 
   useEffect(() => {
     const wantsPlanning = activeTab === 'planning' ||
-      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts') && activeTab === 'operations' && opsSubTab === 'planning')
+      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'planning')
     if (!department || !wantsPlanning) return
     setLoadingDepartmentUpdates(true)
     getDepartmentUpdates(department.name)
@@ -691,6 +705,14 @@ export default function DepartmentHub() {
       .then(setBoardPoints)
       .catch(() => setBoardPoints([]))
   }, [department, slug, activeTab])
+
+  useEffect(() => {
+    if (!boardPoints.length || !department?.name) return
+    const seenKey = `board-allotted-seen-${department.name}`
+    const seen = new Set(JSON.parse(localStorage.getItem(seenKey) || '[]'))
+    const newlyAllotted = boardPoints.filter(bp => bp.allottedTime && !seen.has(bp.id))
+    if (newlyAllotted.length) setBoardAllottedNotifications(newlyAllotted)
+  }, [boardPoints, department?.name])
 
   useEffect(() => {
     if (department && slug === 'cell' && (activeTab === 'cellGroups' || activeTab === 'summary')) {
@@ -778,13 +800,18 @@ export default function DepartmentHub() {
   }, [slug, activeTab])
 
   useEffect(() => {
-    if (slug !== 'd-light' || (activeTab !== 'subDepartment' && !(activeTab === 'summary' && canEditDelightVisitors))) return
+    const wantsDlightSubDept = slug === 'd-light' && (
+      activeTab === 'subDepartment' ||
+      (activeTab === 'operations' && opsSubTab === 'subDepartment') ||
+      (activeTab === 'summary' && canEditDelightVisitors)
+    )
+    if (!wantsDlightSubDept) return
     setLoadingDlightSubDepts(true)
     getDlightSubDepartments()
       .then(setDlightSubDepts)
       .catch(() => setDlightSubDepts([]))
       .finally(() => setLoadingDlightSubDepts(false))
-  }, [slug, activeTab])
+  }, [slug, activeTab, opsSubTab])
 
   useEffect(() => {
     if (slug === 'caring' && activeTab === 'members') {
@@ -799,7 +826,7 @@ export default function DepartmentHub() {
   }, [slug, activeTab])
 
   useEffect(() => {
-    if (slug === 'caring' && activeTab === 'pcs') {
+    if (slug === 'caring' && (activeTab === 'pcs' || activeTab === 'summary')) {
       setLoadingPCS(true)
       getPCSEntries().then(setPcsEntries).catch(() => setPcsEntries([])).finally(() => setLoadingPCS(false))
     }
@@ -1061,7 +1088,36 @@ export default function DepartmentHub() {
           }
         }}
         userProfile={userProfile}
+        departmentName={department?.name}
+        boardPointCount={boardPoints.filter(b => b.status === 'pending').length}
+        onBoardPointsClick={() => setBoardPointsPopupOpen(true)}
       />
+
+      {/* ── Allotted-time notifications ── */}
+      {boardAllottedNotifications.length > 0 && (
+        <div className="fixed top-4 left-4 right-4 z-[70] sm:left-auto sm:right-4 sm:w-80 space-y-2 pointer-events-none">
+          {boardAllottedNotifications.map(bp => (
+            <div key={bp.id} className="bg-emerald-600 text-white rounded-2xl shadow-xl px-4 py-3 flex items-start gap-3 pointer-events-auto">
+              <span className="text-base flex-shrink-0 mt-0.5">🎉</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold leading-tight">Sec-Core has allotted {bp.allottedTime} for your presentation</p>
+                {bp.point && <p className="text-xs text-emerald-100 mt-0.5 line-clamp-2">"{bp.point}"</p>}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBoardAllottedNotifications(prev => prev.filter(n => n.id !== bp.id))
+                  const seenKey = `board-allotted-seen-${department?.name}`
+                  const seen = new Set(JSON.parse(localStorage.getItem(seenKey) || '[]'))
+                  seen.add(bp.id)
+                  localStorage.setItem(seenKey, JSON.stringify([...seen]))
+                }}
+                className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full hover:bg-emerald-500 text-white text-base leading-none mt-0.5"
+              >×</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="space-y-6 p-4">
       {isAccountsEntryRoute ? (
@@ -1072,156 +1128,183 @@ export default function DepartmentHub() {
         <>
           {activeTab === 'summary' && (
             <>
-              <div className="bg-white/70 backdrop-blur rounded-xl border border-slate-200/70 p-4 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-slate-800">Work Cockpit</h3>
-                    <p className="text-sm text-slate-600 mt-1">
-                      {slug === 'cell'
-                        ? `${cellPendingChanges.length} pending member approval${cellPendingChanges.length === 1 ? '' : 's'}`
-                        : `${pending.length} pending item${pending.length === 1 ? '' : 's'}`}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 items-center">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('planning')
-                        setSearchParams({ tab: 'planning' }, { replace: true })
-                      }}
-                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
-                    >
-                      Open planning
-                    </button>
-                    {slug === 'accounts' && canAccessAccountsEntry(userProfile, hasPermission, isFounder) && (
-                      <Link
-                        to={`${ACCOUNTS_ENTRY_BASE_PATH}/tally`}
-                        className="px-4 py-2 rounded-lg bg-white text-slate-800 text-sm font-medium border border-slate-300 hover:bg-slate-50"
-                      >
-                        Accounts Entry
-                      </Link>
-                    )}
-                  </div>
-                </div>
-              </div>
-              {/* Board Meeting Points shortcut — all departments except sec-core */}
-              {slug !== 'sec-core' && (() => {
-                const pending  = boardPoints.filter(p => p.status === 'pending')
-                const approved = boardPoints.filter(p => p.status === 'approved')
-                const preview  = pending.slice(0, 3)
-                return (
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">📋</span>
-                        <div>
-                          <p className="font-semibold text-slate-800 text-sm">Board Meeting Points</p>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            {pending.length} pending · {approved.length} approved
-                          </p>
+              {/* ── Caring Hub ── */}
+              {slug === 'caring' && (
+                <div className="space-y-4">
+                  {loadingPCS ? (
+                    <div className="py-10 text-center text-slate-400 text-sm">Loading insights…</div>
+                  ) : (() => {
+                    const currentYear = new Date().getFullYear()
+                    const members  = pcsEntries.filter(e => e.membershipNumber)
+                    const leaders  = pcsEntries.filter(e => e.leadershipPosition)
+                    const thisYear = pcsEntries.filter(e => e.year === currentYear)
+                    const conversionPct = pcsEntries.length ? Math.round((members.length / pcsEntries.length) * 100) : 0
+                    const pcsYears = [...new Set(pcsEntries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a)
+                    const maxYearCount = pcsYears.length ? Math.max(...pcsYears.map(yr => pcsEntries.filter(e => e.year === yr).length)) : 1
+                    const pendingBoard = boardPoints.filter(b => b.status === 'pending').length
+
+                    return (
+                      <>
+                        {/* ── 4-stat insight grid ── */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-2xl border border-indigo-200 shadow-sm px-4 py-3">
+                            <p className="text-3xl font-black text-indigo-700">{pcsEntries.length}</p>
+                            <p className="text-xs font-semibold text-indigo-500 mt-0.5">Total in PCS</p>
+                            {thisYear.length > 0 && (
+                              <p className="text-[10px] text-indigo-400 mt-1">+{thisYear.length} added in {currentYear}</p>
+                            )}
+                          </div>
+
+                          <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl border border-emerald-200 shadow-sm px-4 py-3">
+                            <div className="flex items-end gap-1">
+                              <p className="text-3xl font-black text-emerald-700">{members.length}</p>
+                              <p className="text-sm font-bold text-emerald-400 mb-1">/{pcsEntries.length}</p>
+                            </div>
+                            <p className="text-xs font-semibold text-emerald-600 mt-0.5">Are Members</p>
+                            <div className="mt-1.5 h-1.5 bg-emerald-200 rounded-full overflow-hidden">
+                              <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${conversionPct}%` }} />
+                            </div>
+                            <p className="text-[10px] text-emerald-500 mt-0.5">{conversionPct}% conversion</p>
+                          </div>
+
+                          <div className="bg-gradient-to-br from-violet-50 to-violet-100 rounded-2xl border border-violet-200 shadow-sm px-4 py-3">
+                            <p className="text-3xl font-black text-violet-700">{leaders.length}</p>
+                            <p className="text-xs font-semibold text-violet-500 mt-0.5">Leaders in PCS</p>
+                            {leaders.length > 0 && (
+                              <p className="text-[10px] text-violet-400 mt-1 truncate">
+                                {leaders[0].leadershipPosition}{leaders.length > 1 ? ` +${leaders.length - 1} more` : ''}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-2xl border border-amber-200 shadow-sm px-4 py-3">
+                            <p className="text-3xl font-black text-amber-600">{pending.length}</p>
+                            <p className="text-xs font-semibold text-amber-500 mt-0.5">Pending tasks</p>
+                            {pendingBoard > 0 && (
+                              <p className="text-[10px] text-amber-400 mt-1">{pendingBoard} board point{pendingBoard !== 1 ? 's' : ''}</p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {canEdit && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingBoardPointId(null)
-                              setBoardPointForm({ point: '', meetingDate: format(new Date(), 'yyyy-MM-dd') })
-                              setBoardPointModalOpen(true)
-                            }}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors"
-                          >
-                            <svg width="11" height="11" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
-                            Add Point
+
+                        {/* ── PCS year breakdown ── */}
+                        {pcsYears.length > 0 && (
+                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">PCS by Year</p>
+                            <div className="space-y-2">
+                              {pcsYears.map(yr => {
+                                const count = pcsEntries.filter(e => e.year === yr).length
+                                const pct   = Math.round((count / maxYearCount) * 100)
+                                const isCurrent = yr === currentYear
+                                return (
+                                  <div key={yr} className="flex items-center gap-2.5">
+                                    <span className={`text-xs font-bold w-10 flex-shrink-0 ${isCurrent ? 'text-indigo-600' : 'text-slate-400'}`}>{yr}</span>
+                                    <div className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full flex items-center justify-end pr-2 ${isCurrent ? 'bg-indigo-500' : 'bg-slate-400'}`}
+                                        style={{ width: `${Math.max(pct, 10)}%` }}
+                                      >
+                                        <span className="text-[9px] font-bold text-white">{count}</span>
+                                      </div>
+                                    </div>
+                                    {isCurrent && (
+                                      <span className="text-[9px] font-bold text-indigo-500 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full flex-shrink-0">current</span>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── Leaders spotlight ── */}
+                        {leaders.length > 0 && (
+                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                            <div className="px-4 py-2.5 border-b border-slate-100 bg-gradient-to-r from-violet-50 to-white">
+                              <p className="text-[10px] font-bold text-violet-600 uppercase tracking-widest">Leaders in PCS</p>
+                            </div>
+                            <div className="divide-y divide-slate-50">
+                              {leaders.map(e => (
+                                <div key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+                                  <div className="w-8 h-8 rounded-full bg-violet-500 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
+                                    {e.name[0].toUpperCase()}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-slate-800 truncate">{e.name}</p>
+                                    {e.membershipNumber && <p className="text-xs text-indigo-500">#{e.membershipNumber}</p>}
+                                  </div>
+                                  <span className="text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full flex-shrink-0">{e.leadershipPosition}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── Quick actions ── */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <button type="button"
+                            onClick={() => { setActiveTab('pcs'); setSearchParams({ tab: 'pcs' }, { replace: true }) }}
+                            className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-indigo-200 hover:shadow-md transition-all group">
+                            <div className="w-9 h-9 rounded-xl bg-indigo-100 group-hover:bg-indigo-200 flex items-center justify-center text-base mb-3 transition-colors">👤</div>
+                            <p className="text-sm font-bold text-slate-800">PCS</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{pcsEntries.length} people</p>
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => { setActiveTab('planning'); setSearchParams({ tab: 'planning' }, { replace: true }) }}
-                          className="text-xs text-indigo-600 font-medium hover:underline"
-                        >View All →</button>
-                      </div>
-                    </div>
-
-                    {boardPoints.length === 0 ? (
-                      <div className="px-5 py-5 text-center text-slate-400 text-xs">
-                        No points added yet.{canEdit ? ' Click "Add Point" to submit one for the board meeting.' : ''}
-                      </div>
-                    ) : (
-                      <div className="divide-y divide-slate-50">
-                        {preview.map((bp, idx) => (
-                          <div key={bp.id} className="flex items-start gap-3 px-5 py-3">
-                            <span className="text-xs text-amber-500 font-bold mt-0.5 flex-shrink-0">●</span>
-                            <p className="flex-1 text-sm text-slate-700 leading-snug line-clamp-2">{bp.point}</p>
-                            {bp.meetingDate && <span className="text-xs text-slate-400 flex-shrink-0">{bp.meetingDate}</span>}
-                          </div>
-                        ))}
-                        {pending.length > 3 && (
-                          <div className="px-5 py-2.5 text-xs text-slate-400 text-center">
-                            +{pending.length - 3} more pending point{pending.length - 3 !== 1 ? 's' : ''}
-                          </div>
-                        )}
-                        {pending.length === 0 && approved.length > 0 && (
-                          <div className="px-5 py-3 flex items-center gap-2 text-xs text-emerald-600">
-                            <span>✓</span>
-                            <span>All {approved.length} point{approved.length !== 1 ? 's' : ''} approved by Sec-Core.</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              })()}
-
-              {/* Board point add/edit modal — accessible from summary too */}
-              {boardPointModalOpen && activeTab === 'summary' && (
-                <>
-                  <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setBoardPointModalOpen(false)} />
-                  <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setBoardPointModalOpen(false)}>
-                    <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-                      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                        <h3 className="font-semibold text-slate-800">Add Presentation Point</h3>
-                        <button type="button" onClick={() => setBoardPointModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
-                      </div>
-                      <div className="px-5 py-4 space-y-4">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Presentation Point *</label>
-                          <textarea
-                            value={boardPointForm.point}
-                            onChange={e => setBoardPointForm(f => ({ ...f, point: e.target.value }))}
-                            placeholder="Describe the point to present at the board meeting…"
-                            rows={4}
-                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
-                          />
+                          <button type="button"
+                            onClick={() => { setOpsSubTab('team'); setActiveTab('operations'); setSearchParams({ tab: 'operations' }, { replace: true }) }}
+                            className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-violet-200 hover:shadow-md transition-all group">
+                            <div className="w-9 h-9 rounded-xl bg-violet-100 group-hover:bg-violet-200 flex items-center justify-center text-base mb-3 transition-colors">🤝</div>
+                            <p className="text-sm font-bold text-slate-800">Team</p>
+                            <p className="text-xs text-slate-500 mt-0.5">Caring team members</p>
+                          </button>
+                          <button type="button"
+                            onClick={() => { setOpsSubTab('planning'); setActiveTab('operations'); setSearchParams({ tab: 'operations' }, { replace: true }) }}
+                            className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-amber-200 hover:shadow-md transition-all group">
+                            <div className="w-9 h-9 rounded-xl bg-amber-100 group-hover:bg-amber-200 flex items-center justify-center text-base mb-3 transition-colors">📋</div>
+                            <p className="text-sm font-bold text-slate-800">Planning</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{pending.length} task{pending.length !== 1 ? 's' : ''}</p>
+                          </button>
+                          <button type="button"
+                            onClick={() => { setOpsSubTab('financial'); setActiveTab('operations'); setSearchParams({ tab: 'operations' }, { replace: true }) }}
+                            className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-teal-200 hover:shadow-md transition-all group">
+                            <div className="w-9 h-9 rounded-xl bg-teal-100 group-hover:bg-teal-200 flex items-center justify-center text-base mb-3 transition-colors">💰</div>
+                            <p className="text-sm font-bold text-slate-800">Budget</p>
+                            <p className="text-xs text-slate-500 mt-0.5">Financial overview</p>
+                          </button>
                         </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Meeting Date</label>
-                          <input
-                            type="date"
-                            value={boardPointForm.meetingDate}
-                            onChange={e => setBoardPointForm(f => ({ ...f, meetingDate: e.target.value }))}
-                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                          />
-                        </div>
-                      </div>
-                      <div className="px-5 pb-5">
-                        <button
-                          type="button"
-                          disabled={!boardPointForm.point.trim()}
-                          onClick={async () => {
-                            if (!boardPointForm.point.trim()) return
-                            const id = await addBoardPoint({ department: department.name, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate, createdBy: userProfile?.email || 'unknown' })
-                            if (id) setBoardPoints(prev => [...prev, { id, department: department.name, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate, status: 'pending', allottedTime: '', approvedBy: '', createdAt: new Date(), createdBy: userProfile?.email || '' }])
-                            setBoardPointModalOpen(false)
-                            setBoardPointForm({ point: '', meetingDate: '' })
-                          }}
-                          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                        >Add Point</button>
-                      </div>
-                    </div>
-                  </div>
-                </>
+
+                        {/* ── Recent additions ── */}
+                        {pcsEntries.length > 0 && (
+                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                            <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Recent Additions</p>
+                              <button type="button"
+                                onClick={() => { setActiveTab('pcs'); setSearchParams({ tab: 'pcs' }, { replace: true }) }}
+                                className="text-xs text-indigo-600 font-medium hover:underline">View all →</button>
+                            </div>
+                            <div className="divide-y divide-slate-50">
+                              {pcsEntries.slice(0, 3).map(e => (
+                                <div key={e.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                                  <div className={`w-8 h-8 rounded-full text-white text-sm font-bold flex items-center justify-center flex-shrink-0 ${e.membershipNumber ? 'bg-indigo-500' : 'bg-slate-400'}`}>
+                                    {e.name[0].toUpperCase()}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-slate-800 truncate">{e.name}</p>
+                                    {e.membershipNumber
+                                      ? <p className="text-xs text-indigo-500 font-medium">#{e.membershipNumber}</p>
+                                      : <p className="text-xs text-slate-400">Visitor</p>}
+                                  </div>
+                                  {e.leadershipPosition && (
+                                    <span className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-100 px-2 py-0.5 rounded-full flex-shrink-0">{e.leadershipPosition}</span>
+                                  )}
+                                  {e.year && <span className="text-[10px] text-slate-400 flex-shrink-0">{e.year}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
               )}
 
               {slug === 'cell' ? (
@@ -1347,6 +1430,7 @@ export default function DepartmentHub() {
               )}
             </>
           )}
+
 
           {activeTab === 'members' && slug === 'caring' && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1697,7 +1781,7 @@ export default function DepartmentHub() {
               </div>
               {!loadingDelightVisitors && filteredDelightVisitors.length > 0 && (() => {
                 const counts = { E: 0, M: 0, T: 0, other: 0 }
-                const serviceToKey = { 'english service': 'E', 'sunday service': 'E', 'tamil service': 'T', 'malayalam service': 'M' }
+                const serviceToKey = { 'english': 'E', 'english service': 'E', 'sunday service': 'E', 'tamil service': 'T', 'malayalam service': 'M' }
                 filteredDelightVisitors.forEach((v) => {
                   const raw = (v.serviceAttended || '').trim()
                   const mapped = serviceToKey[raw.toLowerCase()] || raw.toUpperCase()
@@ -1705,7 +1789,7 @@ export default function DepartmentHub() {
                   else counts.other++
                 })
                 const pills = [
-                  { key: 'E', label: 'English',   color: 'bg-blue-50 text-blue-700 border-blue-200' },
+                  { key: 'E', label: 'English Service', color: 'bg-blue-50 text-blue-700 border-blue-200' },
                   { key: 'M', label: 'Malayalam',  color: 'bg-green-50 text-green-700 border-green-200' },
                   { key: 'T', label: 'Tamil',      color: 'bg-orange-50 text-orange-700 border-orange-200' },
                   { key: 'other', label: 'Other',  color: 'bg-slate-50 text-slate-600 border-slate-200' },
@@ -1801,6 +1885,105 @@ export default function DepartmentHub() {
                 </>
               )}
             </div>
+          )}
+
+          {/* ── Board Points global popup (top-bar icon) ── */}
+          {boardPointsPopupOpen && (
+            <>
+              <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setBoardPointsPopupOpen(false)} />
+              <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setBoardPointsPopupOpen(false)}>
+                <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+
+                  {/* Header */}
+                  <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+                    <div>
+                      <h3 className="font-semibold text-slate-800">Board Meeting Points</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {boardPoints.length === 0 ? 'No points yet' : `${boardPoints.length} point${boardPoints.length !== 1 ? 's' : ''} submitted`}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => setBoardPointsPopupOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
+                  </div>
+
+                  {/* Existing points list */}
+                  {boardPoints.length > 0 && (
+                    <div className="overflow-y-auto flex-shrink-0 max-h-44 divide-y divide-slate-50">
+                      {boardPoints.map((bp, idx) => (
+                        <div key={bp.id} className="px-5 py-2.5 flex items-start gap-2">
+                          <span className="text-xs font-bold text-slate-300 flex-shrink-0 mt-0.5 w-5">{idx + 1}.</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-slate-700 leading-snug">{bp.point}</p>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              {bp.timeNeeded && <span className="text-[10px] text-slate-400">Requested: {bp.timeNeeded}</span>}
+                              {bp.allottedTime
+                                ? <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Allotted: {bp.allottedTime}</span>
+                                : <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${bp.status === 'approved' ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 'text-amber-700 bg-amber-50 border border-amber-200'}`}>{bp.status}</span>
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add point form — always visible */}
+                  <div className="px-5 py-4 border-t border-slate-100 space-y-3 flex-shrink-0">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Points of Discussion *</label>
+                      <textarea
+                        value={boardPointForm.point}
+                        onChange={e => setBoardPointForm(f => ({ ...f, point: e.target.value }))}
+                        placeholder="Describe the point to present at the board meeting…"
+                        rows={3}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Time Needed</label>
+                      <input
+                        type="text"
+                        value={boardPointForm.timeNeeded}
+                        onChange={e => setBoardPointForm(f => ({ ...f, timeNeeded: e.target.value }))}
+                        placeholder="e.g. 10 min"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!boardPointForm.point.trim()}
+                      onClick={async () => {
+                        if (!boardPointForm.point.trim()) return
+                        const slNo = String(boardPoints.length + 1)
+                        const id = await addBoardPoint({
+                          department: department.name,
+                          slNo,
+                          point: boardPointForm.point.trim(),
+                          timeNeeded: boardPointForm.timeNeeded.trim(),
+                          meetingDate: boardPointForm.meetingDate,
+                          createdBy: userProfile?.email || 'unknown',
+                        })
+                        if (id) setBoardPoints(prev => [...prev, {
+                          id,
+                          department: department.name,
+                          slNo,
+                          point: boardPointForm.point.trim(),
+                          timeNeeded: boardPointForm.timeNeeded.trim(),
+                          meetingDate: boardPointForm.meetingDate,
+                          status: 'pending',
+                          allottedTime: '',
+                          approvedBy: '',
+                          createdAt: new Date(),
+                          createdBy: userProfile?.email || '',
+                        }])
+                        setBoardPointForm({ slNo: '', point: '', timeNeeded: '', meetingDate: '' })
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                    >Submit Point</button>
+                  </div>
+
+                </div>
+              </div>
+            </>
           )}
 
           {caringMemberModalOpen && (
@@ -2233,6 +2416,10 @@ export default function DepartmentHub() {
             </div>
           )}
 
+          {activeTab === 'operations' && slug === 'caring' && (
+            <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
           {activeTab === 'operations' && slug === 'sunday-ministry' && (
             <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
           )}
@@ -2253,11 +2440,15 @@ export default function DepartmentHub() {
             <AccountsOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
           )}
 
+          {activeTab === 'operations' && slug === 'd-light' && (
+            <DLightOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
           {activeTab === 'operations' && slug === 'accounts' && opsSubTab === 'addDepartments' && (
             <AddDepartmentsPage />
           )}
 
-          {(activeTab === 'planning' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration') && activeTab === 'operations' && opsSubTab === 'planning')) && (
+          {(activeTab === 'planning' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'planning')) && (
             <div className="space-y-6">
               {slug === 'cell' && (
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -2358,7 +2549,7 @@ export default function DepartmentHub() {
                       type="button"
                       onClick={() => {
                         setEditingBoardPointId(null)
-                        setBoardPointForm({ point: '', meetingDate: format(new Date(), 'yyyy-MM-dd') })
+                        setBoardPointForm({ slNo: '', point: '', timeNeeded: '', meetingDate: format(new Date(), 'yyyy-MM-dd') })
                         setBoardPointModalOpen(true)
                       }}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors"
@@ -2382,13 +2573,20 @@ export default function DepartmentHub() {
                         <span className="text-xs font-medium text-slate-400 w-5 flex-shrink-0 pt-0.5 text-right">{idx + 1}</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-slate-800 leading-relaxed">{bp.point}</p>
-                          {bp.meetingDate && (
-                            <p className="text-xs text-slate-400 mt-1">Meeting: {formatDMY(bp.meetingDate)}</p>
-                          )}
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                            {bp.meetingDate && (
+                              <p className="text-xs text-slate-400">Meeting: {formatDMY(bp.meetingDate)}</p>
+                            )}
+                            {bp.allottedTime && (
+                              <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                Allotted: {bp.allottedTime}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${bp.status === 'presented' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {bp.status === 'presented' ? 'Presented' : 'Pending'}
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${bp.status === 'presented' ? 'bg-emerald-100 text-emerald-700' : bp.allottedTime ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {bp.status === 'presented' ? 'Presented' : bp.allottedTime ? 'Scheduled' : 'Pending'}
                           </span>
                           {canEdit && (
                             <div className="opacity-0 group-hover:opacity-100 flex gap-2 transition-opacity">
@@ -2396,7 +2594,7 @@ export default function DepartmentHub() {
                                 type="button"
                                 onClick={() => {
                                   setEditingBoardPointId(bp.id)
-                                  setBoardPointForm({ point: bp.point, meetingDate: bp.meetingDate || '' })
+                                  setBoardPointForm({ slNo: bp.slNo || '', point: bp.point, timeNeeded: bp.timeNeeded || '', meetingDate: bp.meetingDate || '' })
                                   setBoardPointModalOpen(true)
                                 }}
                                 className="text-xs text-blue-600 hover:underline"
@@ -2469,12 +2667,12 @@ export default function DepartmentHub() {
                               await updateBoardPoint(editingBoardPointId, { point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate })
                               setBoardPoints(prev => prev.map(p => p.id === editingBoardPointId ? { ...p, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate } : p))
                             } else {
-                              const id = await addBoardPoint({ department: department.name, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate, createdBy: userProfile?.email || 'unknown' })
-                              if (id) setBoardPoints(prev => [...prev, { id, department: department.name, point: boardPointForm.point.trim(), meetingDate: boardPointForm.meetingDate, status: 'pending', createdAt: new Date(), createdBy: userProfile?.email || '' }])
+                              const id = await addBoardPoint({ department: department.name, slNo: boardPointForm.slNo, point: boardPointForm.point.trim(), timeNeeded: boardPointForm.timeNeeded, meetingDate: boardPointForm.meetingDate, createdBy: userProfile?.email || 'unknown' })
+                              if (id) setBoardPoints(prev => [...prev, { id, department: department.name, slNo: boardPointForm.slNo, point: boardPointForm.point.trim(), timeNeeded: boardPointForm.timeNeeded, meetingDate: boardPointForm.meetingDate, status: 'pending', allottedTime: '', createdAt: new Date(), createdBy: userProfile?.email || '' }])
                             }
                             setBoardPointModalOpen(false)
                             setEditingBoardPointId(null)
-                            setBoardPointForm({ point: '', meetingDate: '' })
+                            setBoardPointForm({ slNo: '', point: '', timeNeeded: '', meetingDate: '' })
                           }}
                           className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
                         >
@@ -2746,7 +2944,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts') && activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
+          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring') && activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-200 flex justify-end items-center">
                 {canEdit && (
@@ -2910,7 +3108,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {slug === 'd-light' && activeTab === 'subDepartment' && (
+          {slug === 'd-light' && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center">
                 <h2 className="font-semibold text-slate-800">Sub Department</h2>
@@ -3050,7 +3248,6 @@ export default function DepartmentHub() {
           )}
 
           {activeTab === 'pcs' && slug === 'caring' && (() => {
-            // Group by year, newest first; entries with no year go to the bottom
             const pcsYears = [...new Set(pcsEntries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a)
             const noYearEntries = pcsEntries.filter(e => !e.year)
             const grouped = [
@@ -3058,36 +3255,263 @@ export default function DepartmentHub() {
               ...(noYearEntries.length ? [{ year: null, entries: noYearEntries }] : []),
             ]
 
+            const handleChipClick = (entry) => {
+              if (pcsExpandedId === entry.id) {
+                setPcsExpandedId(null); setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null); setPcsExpandedForm({})
+                return
+              }
+              setPcsExpandedId(entry.id)
+              setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null)
+              setPcsExpandedForm({
+                name: entry.name || '', phone: entry.phone || '', attendedDate: entry.attendedDate || '',
+                membershipNumber: entry.membershipNumber || '', leadershipPosition: entry.leadershipPosition || '',
+                year: entry.year || '', email: '', dob: '', nativity: '', currentPlace: '', serviceAttended: '', howKnown: '',
+                baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '',
+                isDirector: false, directorOf: '', directorSince: '', leaderSince: '', leaderUntil: '',
+              })
+              if (entry.visitorId) {
+                setPcsExpandedLoading(true)
+                Promise.all([
+                  getDelightVisitorById(entry.visitorId),
+                  getMemberProfileWithContext(entry.visitorId),
+                ]).then(([v, ctx]) => {
+                  if (v) {
+                    setPcsExpandedVisitor(v)
+                    setPcsExpandedForm(f => ({ ...f, email: v.email || '', dob: v.dob || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', howKnown: v.howKnown || '' }))
+                  }
+                  if (ctx) {
+                    setPcsExpandedProfile(ctx.profile)
+                    setPcsExpandedContext(ctx)
+                    setPcsExpandedForm(f => ({
+                      ...f,
+                      baptismDate: ctx.profile?.baptismDate || '', baptismPlace: ctx.profile?.baptismPlace || '',
+                      marriageDate: ctx.profile?.marriageDate || '', spouseName: ctx.profile?.spouseName || '',
+                      isDirector: ctx.profile?.isDirector || false, directorOf: ctx.profile?.directorOf || '', directorSince: ctx.profile?.directorSince || '',
+                      leaderSince: ctx.profile?.leaderSince || '', leaderUntil: ctx.profile?.leaderUntil || '',
+                    }))
+                  }
+                }).catch(() => {}).finally(() => setPcsExpandedLoading(false))
+              }
+            }
+
             const Chip = ({ entry }) => {
               const hasMember = !!entry.membershipNumber
               const hasLeadership = !!entry.leadershipPosition
+              const isExpanded = pcsExpandedId === entry.id
               return (
                 <div
                   className={`flex items-center gap-2 rounded-2xl pl-2 pr-2.5 py-2 border transition-all cursor-pointer
-                    ${hasMember
-                      ? 'bg-amber-50 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
-                      : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300'}`}
-                  onClick={() => setPcsDetailEntry(entry)}
+                    ${isExpanded
+                      ? 'bg-indigo-600 border-indigo-600 shadow-md'
+                      : hasMember
+                        ? 'bg-amber-50 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
+                        : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300'}`}
+                  onClick={() => handleChipClick(entry)}
                 >
                   <div className={`w-8 h-8 rounded-full text-white text-sm font-bold flex items-center justify-center flex-shrink-0
-                    ${hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
+                    ${isExpanded ? 'bg-white/25' : hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
                     {entry.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
+                      <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${isExpanded ? 'text-white' : hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
                         {entry.name}
                       </p>
                       {hasLeadership && (
-                        <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 leading-none whitespace-nowrap">
+                        <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
                           {entry.leadershipPosition}
                         </span>
                       )}
                     </div>
                     {hasMember
-                      ? <p className="text-xs text-amber-600 font-medium leading-tight">#{entry.membershipNumber}</p>
-                      : <p className="text-xs text-blue-400 leading-tight">No member #</p>
+                      ? <p className={`text-xs font-medium leading-tight ${isExpanded ? 'text-indigo-200' : 'text-amber-600'}`}>#{entry.membershipNumber}</p>
+                      : <p className={`text-xs leading-tight ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>No member #</p>
                     }
+                  </div>
+                </div>
+              )
+            }
+
+            // Inline expanded profile panel
+            const PCSInlineProfile = ({ entry }) => {
+              const f = pcsExpandedForm
+              const setF = setPcsExpandedForm
+              const inp = 'w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-colors'
+              const fld = (label, key, type = 'text', placeholder = '') => (
+                <div className="space-y-0.5">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{label}</p>
+                  <input type={type} placeholder={placeholder} value={f[key] || ''} onChange={e => setF(p => ({ ...p, [key]: e.target.value }))} className={inp} />
+                </div>
+              )
+              const ctx = pcsExpandedContext
+              const deptTeams = ctx?.deptTeams || []
+              const worshipTeams = ctx?.worshipTeams || []
+
+              return (
+                <div className="border-t-2 border-indigo-500 bg-slate-50 px-4 py-4">
+                  {pcsExpandedLoading && (
+                    <p className="text-xs text-slate-400 text-center py-6">Loading profile…</p>
+                  )}
+
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+
+                    {/* ── Identity header ── */}
+                    <div className="px-4 py-3 flex items-center gap-3 border-b border-slate-100">
+                      <div className={`w-10 h-10 rounded-full text-white text-base font-bold flex items-center justify-center flex-shrink-0 ${f.membershipNumber ? 'bg-amber-500' : 'bg-indigo-500'}`}>
+                        {(f.name || '?')[0].toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-slate-800 text-sm">{f.name || '—'}</p>
+                          {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">#{f.membershipNumber}</span>}
+                          {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{f.leadershipPosition}</span>}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5 truncate">
+                          {[f.phone, f.email].filter(Boolean).join(' · ') || 'No contact info'}
+                        </p>
+                      </div>
+                      {(deptTeams.length > 0 || worshipTeams.length > 0) && (
+                        <div className="flex gap-1.5 flex-wrap justify-end">
+                          {deptTeams.map(t => (
+                            <span key={t.id} className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                              {t.department}{t.rolePosition ? ` · ${t.rolePosition}` : ''}
+                            </span>
+                          ))}
+                          {worshipTeams.map(t => (
+                            <span key={t.id} className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                              Worship{t.positions?.length ? ` · ${t.positions[0]}` : ''}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Personal Info ── */}
+                    <div className="px-4 py-3 border-b border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Personal Info</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {fld('Name', 'name')}
+                        {fld('Phone', 'phone')}
+                        {fld('Email', 'email', 'email')}
+                        {fld('Date of Birth', 'dob', 'date')}
+                        {fld('Nativity', 'nativity')}
+                        {fld('Current Place', 'currentPlace')}
+                        {fld('Service Attended', 'serviceAttended')}
+                        {fld('How Known', 'howKnown')}
+                      </div>
+                    </div>
+
+                    {/* ── Membership & Visit ── */}
+                    <div className="px-4 py-3 border-b border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Membership & Visit</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Membership #</p>
+                          <input type="text" placeholder="Enter #" value={f.membershipNumber || ''} onChange={e => setF(p => ({ ...p, membershipNumber: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-200" />
+                        </div>
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Date Attended</p>
+                          <input type="date" value={f.attendedDate || ''} onChange={e => { const val = e.target.value; const yr = val ? new Date(val).getFullYear() : null; setF(p => ({ ...p, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) })) }} className={inp} />
+                        </div>
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Year (auto)</p>
+                          <div className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
+                            {f.year || (f.attendedDate ? new Date(f.attendedDate).getFullYear() : '—')}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ── Leadership — read-only, only shown if set by a department ── */}
+                    {(f.leadershipPosition || f.leaderSince) && (
+                      <div className="px-4 py-3 border-b border-slate-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Leadership</p>
+                          <p className="text-[10px] text-slate-400">Set by department · view only</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {f.leadershipPosition && (
+                            <span className="inline-flex items-center text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
+                              {f.leadershipPosition}
+                            </span>
+                          )}
+                          {f.leaderSince && (() => {
+                            const start = new Date(f.leaderSince)
+                            const end = f.leaderUntil ? new Date(f.leaderUntil) : new Date()
+                            const totalMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth())
+                            const yrs = Math.floor(totalMonths / 12)
+                            const mos = totalMonths % 12
+                            const dur = [yrs > 0 ? `${yrs}y` : '', mos > 0 ? `${mos}m` : ''].filter(Boolean).join(' ') || '<1m'
+                            return (
+                              <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-full">
+                                Since {formatDMY(f.leaderSince)}
+                                <span className="font-semibold text-emerald-600">{dur}</span>
+                                {!f.leaderUntil && <span className="text-emerald-400">ongoing</span>}
+                                {f.leaderUntil && <span className="text-slate-400">until {formatDMY(f.leaderUntil)}</span>}
+                              </span>
+                            )
+                          })()}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Spiritual Records — read-only, only shown if set by cell leader ── */}
+                    {(f.baptismDate || f.marriageDate) && (
+                      <div className="px-4 py-3 border-b border-slate-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-[10px] font-bold text-violet-500 uppercase tracking-widest">Spiritual Records</p>
+                          <p className="text-[10px] text-slate-400">Set by cell leader · view only</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {f.baptismDate && (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-violet-50 border border-violet-100 px-3 py-1.5 rounded-full">
+                              Baptism: <span className="font-semibold text-violet-700">{formatDMY(f.baptismDate)}</span>
+                              {f.baptismPlace && <span className="text-violet-400">· {f.baptismPlace}</span>}
+                            </span>
+                          )}
+                          {f.marriageDate && (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-violet-50 border border-violet-100 px-3 py-1.5 rounded-full">
+                              Marriage: <span className="font-semibold text-violet-700">{formatDMY(f.marriageDate)}</span>
+                              {f.spouseName && <span className="text-violet-400">· {f.spouseName}</span>}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Actions ── */}
+                    <div className="px-4 py-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={pcsExpandedSaving}
+                        onClick={async () => {
+                          setPcsExpandedSaving(true)
+                          try {
+                            const { name, phone, attendedDate, membershipNumber, year, email, dob, nativity, currentPlace, serviceAttended, howKnown } = f
+                            const resolvedYear = year || (attendedDate ? new Date(attendedDate).getFullYear() : null)
+                            await Promise.all([
+                              updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, year: resolvedYear }),
+                              entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),
+                              entry.visitorId ? updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }) : Promise.resolve(),
+                            ])
+                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, attendedDate, membershipNumber, year: resolvedYear ? Number(resolvedYear) : null } : e))
+                          } catch { alert('Failed to save') }
+                          setPcsExpandedSaving(false)
+                        }}
+                        className="flex-1 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                      >{pcsExpandedSaving ? 'Saving…' : 'Save Changes'}</button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
+                          await deletePCSEntry(entry.id)
+                          setPcsEntries(prev => prev.filter(e => e.id !== entry.id))
+                          setPcsExpandedId(null)
+                        }}
+                        className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-colors"
+                      >Remove</button>
+                    </div>
+
                   </div>
                 </div>
               )
@@ -3139,22 +3563,6 @@ export default function DepartmentHub() {
                   />
                 )}
 
-                {/* Detail sheet */}
-                {pcsDetailEntry && (
-                  <PCSDetailSheet
-                    entry={pcsDetailEntry}
-                    onClose={() => setPcsDetailEntry(null)}
-                    onUpdate={(updated) => {
-                      setPcsEntries(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e))
-                      setPcsDetailEntry(null)
-                    }}
-                    onRemove={(id) => {
-                      setPcsEntries(prev => prev.filter(e => e.id !== id))
-                      setPcsDetailEntry(null)
-                    }}
-                  />
-                )}
-
                 {/* Main card — all years on one page */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   {loadingPCS ? (
@@ -3169,20 +3577,22 @@ export default function DepartmentHub() {
                     </div>
                   ) : (
                     <div className="divide-y divide-slate-100">
-                      {grouped.map(({ year, entries }) => (
-                        <div key={year ?? 'no-year'} className="flex items-start gap-3 px-4 py-3">
-                          {/* Year label */}
-                          <div className="flex-shrink-0 w-12 pt-2.5 text-right">
-                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">
-                              {year ?? '—'}
-                            </span>
+                      {grouped.map(({ year, entries }) => {
+                        const expandedEntry = entries.find(e => e.id === pcsExpandedId)
+                        return (
+                          <div key={year ?? 'no-year'}>
+                            <div className="flex items-start gap-3 px-4 py-3">
+                              <div className="flex-shrink-0 w-12 pt-2.5 text-right">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">{year ?? '—'}</span>
+                              </div>
+                              <div className="flex flex-wrap gap-2 flex-1">
+                                {entries.map(entry => <Chip key={entry.id} entry={entry} />)}
+                              </div>
+                            </div>
+                            {expandedEntry && <PCSInlineProfile entry={expandedEntry} />}
                           </div>
-                          {/* Chips row */}
-                          <div className="flex flex-wrap gap-2 flex-1">
-                            {entries.map(entry => <Chip key={entry.id} entry={entry} />)}
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
 
@@ -3197,7 +3607,7 @@ export default function DepartmentHub() {
             )
           })()}
 
-          {(activeTab === 'team' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts') && activeTab === 'operations' && opsSubTab === 'team')) && (
+          {(activeTab === 'team' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'team')) && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-6">
               <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-slate-800">Team</h2>
@@ -4386,7 +4796,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {(activeTab === 'financial' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'administration' || slug === 'accounts') && activeTab === 'operations' && opsSubTab === 'financial')) && (
+          {(activeTab === 'financial' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'financial')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <h2 className="font-semibold text-slate-800 p-5 pb-0">Budget & Spending</h2>
               <p className="text-sm text-slate-500 px-5 pt-1">Budget items for this department (₹).</p>
@@ -5032,7 +5442,7 @@ export default function DepartmentHub() {
                                             <td className="px-3 py-2 space-x-2 whitespace-nowrap">
                                               <button type="button" onClick={() => {
                                                 setEditingCellMemberId(m.id)
-                                                setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: m.status || 'active', visitorId: m.visitorId || '' })
+                                                setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: m.status || 'active', visitorId: m.visitorId || '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
                                                 setCellMemberLinkedVisitor(null)
                                                 setCellMemberLinkedVisitorForm({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
                                                 if (m.visitorId) {
@@ -5041,6 +5451,9 @@ export default function DepartmentHub() {
                                                       setCellMemberLinkedVisitor(v)
                                                       setCellMemberLinkedVisitorForm({ email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate || '', howKnown: v.howKnown || '' })
                                                     }
+                                                  }).catch(() => {})
+                                                  getMemberProfile(m.visitorId).then(p => {
+                                                    if (p) setCellMemberForm(f => ({ ...f, baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '', marriageDate: p.marriageDate || '', spouseName: p.spouseName || '' }))
                                                   }).catch(() => {})
                                                 }
                                                 setCellMemberModalOpen(true)
@@ -5095,7 +5508,7 @@ export default function DepartmentHub() {
                                             <td className="px-3 py-2 space-x-2 whitespace-nowrap">
                                               <button type="button" onClick={() => {
                                                 setEditingCellMemberId(m.id)
-                                                setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: 'inactive', visitorId: m.visitorId || '' })
+                                                setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: 'inactive', visitorId: m.visitorId || '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
                                                 setCellMemberLinkedVisitor(null)
                                                 setCellMemberLinkedVisitorForm({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
                                                 if (m.visitorId) {
@@ -5104,6 +5517,9 @@ export default function DepartmentHub() {
                                                       setCellMemberLinkedVisitor(v)
                                                       setCellMemberLinkedVisitorForm({ email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate || '', howKnown: v.howKnown || '' })
                                                     }
+                                                  }).catch(() => {})
+                                                  getMemberProfile(m.visitorId).then(p => {
+                                                    if (p) setCellMemberForm(f => ({ ...f, baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '', marriageDate: p.marriageDate || '', spouseName: p.spouseName || '' }))
                                                   }).catch(() => {})
                                                 }
                                                 setCellMemberModalOpen(true)
@@ -5392,7 +5808,6 @@ export default function DepartmentHub() {
                         if (editingCellMemberId) {
                           await updateCellGroupMember(expandedCellId, editingCellMemberId, cellMemberForm)
                           setCellMembers((prev) => prev.map((m) => (m.id === editingCellMemberId ? { ...m, ...cellMemberForm } : m)))
-                          // Sync to visitor entry and PCS if linked
                           if (cellMemberForm.visitorId) {
                             await syncVisitorDataEverywhere(cellMemberForm.visitorId, {
                               name: cellMemberForm.name,
@@ -5402,6 +5817,12 @@ export default function DepartmentHub() {
                             if (cellMemberLinkedVisitorForm.email || cellMemberLinkedVisitorForm.nativity || cellMemberLinkedVisitorForm.currentPlace) {
                               await updateDelightVisitor(cellMemberForm.visitorId, { ...cellMemberLinkedVisitorForm })
                             }
+                            await upsertMemberProfile(cellMemberForm.visitorId, {
+                              baptismDate:  cellMemberForm.baptismDate  || '',
+                              baptismPlace: cellMemberForm.baptismPlace || '',
+                              marriageDate: cellMemberForm.marriageDate || '',
+                              spouseName:   cellMemberForm.spouseName   || '',
+                            }, userProfile?.email || '')
                           }
                         } else {
                           await addCellGroupMember(expandedCellId, cellMemberForm)
@@ -5412,7 +5833,7 @@ export default function DepartmentHub() {
                         setCellMemberModalOpen(false)
                         setEditingCellMemberId(null)
                         setCellMemberLinkedVisitor(null)
-                        setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
+                        setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active', visitorId: '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
                       } catch (err) {
                         console.error(err)
                         alert('Failed to save')
@@ -5556,6 +5977,34 @@ export default function DepartmentHub() {
                         <option value="inactive">Inactive</option>
                       </select>
                     </div>
+
+                    {/* Spiritual Records — only shown when member is linked (has visitorId) */}
+                    {(editingCellMemberId && cellMemberForm.visitorId) && (
+                      <div className="rounded-xl border border-violet-200 bg-violet-50 overflow-hidden">
+                        <div className="px-3 py-2.5 border-b border-violet-100">
+                          <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">Spiritual Records</p>
+                          <p className="text-xs text-violet-400 mt-0.5">Saved to member profile · visible across the app</p>
+                        </div>
+                        <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-violet-700 mb-1">Baptism Date</label>
+                            <input type="date" value={cellMemberForm.baptismDate} onChange={e => setCellMemberForm(f => ({ ...f, baptismDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-violet-700 mb-1">Baptism Place</label>
+                            <input type="text" placeholder="Church / Location" value={cellMemberForm.baptismPlace} onChange={e => setCellMemberForm(f => ({ ...f, baptismPlace: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-violet-700 mb-1">Marriage Date</label>
+                            <input type="date" value={cellMemberForm.marriageDate} onChange={e => setCellMemberForm(f => ({ ...f, marriageDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-violet-700 mb-1">Spouse Name</label>
+                            <input type="text" placeholder="Spouse full name" value={cellMemberForm.spouseName} onChange={e => setCellMemberForm(f => ({ ...f, spouseName: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </form>
                 </div>
 
@@ -5848,6 +6297,8 @@ export default function DepartmentHub() {
               </div>
             </div>
           )}
+
+
         </>
       )}
       </div>
@@ -5855,7 +6306,7 @@ export default function DepartmentHub() {
   )
 }
 
-// ─── PCS Detail Sheet ─────────────────────────────────────────────────────────
+// ─── PCS Detail Sheet (legacy — replaced by inline profile panel) ─────────────
 function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
   const [visitor, setVisitor] = useState(null)
   const [loadingVisitor, setLoadingVisitor] = useState(true)
