@@ -397,17 +397,15 @@ function BoardAgendaTab({ canEdit, userProfile }) {
     getAllBoardPoints()
       .then(pts => {
         setAllPoints(pts)
-        const dates = [...new Set(pts.map(p => p.meetingDate).filter(Boolean))].sort()
-        if (dates.length > 0) setSelectedDate(dates[dates.length - 1])
-        else {
-          const chips = sundayDateChips()
-          if (chips.length) setSelectedDate(chips[0])
-        }
+        // Auto-select the forthcoming Sunday
+        const chips = sundayDateChips()
+        setSelectedDate(chips[0] || null)
       })
       .catch(() => setAllPoints([]))
       .finally(() => setLoading(false))
   }, [])
 
+  const unscheduled  = allPoints.filter(p => !p.meetingDate)
   const pointDates   = [...new Set(allPoints.map(p => p.meetingDate).filter(Boolean))]
   const upcomingChips = sundayDateChips().filter(d => !pointDates.includes(d))
   const allDates     = [...new Set([...pointDates, ...upcomingChips])].sort()
@@ -442,6 +440,16 @@ function BoardAgendaTab({ canEdit, userProfile }) {
       const patch = { slNo: '', allottedTime: '', status: 'pending', approvedBy: '' }
       await updateBoardPoint(id, patch)
       setAllPoints(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAssignToDate = async (id, date) => {
+    setSaving(true)
+    try {
+      await updateBoardPoint(id, { meetingDate: date })
+      setAllPoints(prev => prev.map(p => p.id === id ? { ...p, meetingDate: date } : p))
     } finally {
       setSaving(false)
     }
@@ -483,7 +491,61 @@ function BoardAgendaTab({ canEdit, userProfile }) {
             </button>
           )
         })}
+        {/* Unscheduled chip */}
+        {unscheduled.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSelectedDate(null)}
+            className={`flex-shrink-0 flex flex-col items-center px-3 py-2 rounded-xl border transition-all text-xs font-medium ${
+              selectedDate === null
+                ? 'bg-rose-600 border-rose-600 text-white shadow-md'
+                : 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
+            }`}
+          >
+            <span className="text-[10px] font-bold uppercase">No</span>
+            <span className="text-lg font-black leading-tight">—</span>
+            <span className="text-[10px]">Date</span>
+            <span className={`mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${selectedDate === null ? 'bg-white/25 text-white' : 'bg-rose-100 text-rose-600'}`}>
+              {unscheduled.length}
+            </span>
+          </button>
+        )}
       </div>
+
+      {/* ── Unscheduled points panel (when "No Date" chip selected) ── */}
+      {selectedDate === null && unscheduled.length > 0 && (
+        <div className="mx-auto bg-white rounded-2xl shadow-xl border border-rose-200 overflow-hidden w-full" style={{ maxWidth: 480 }}>
+          <div className="px-6 py-4 bg-gradient-to-br from-rose-600 to-rose-700 text-white">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-rose-200 mb-0.5">Inbox — No Sunday Assigned</p>
+            <p className="text-lg font-black">{unscheduled.length} point{unscheduled.length !== 1 ? 's' : ''} pending date</p>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {unscheduled.map(bp => (
+              <div key={bp.id} className="px-5 py-4">
+                <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide">{bp.department}</p>
+                <p className="text-sm text-slate-800 mt-0.5 leading-snug">{bp.point}</p>
+                {bp.timeNeeded && <p className="text-[10px] text-slate-400 mt-0.5">Requested: {bp.timeNeeded}</p>}
+                {canEdit && (
+                  <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] text-slate-500 font-medium">Assign to:</span>
+                    {sundayDateChips().slice(0, 4).map(d => (
+                      <button
+                        key={d}
+                        type="button"
+                        disabled={saving}
+                        onClick={() => handleAssignToDate(bp.id, d)}
+                        className="text-[10px] font-bold px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+                      >
+                        {format(new Date(d + 'T00:00:00'), 'd MMM')}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── A5 agenda sheet ── */}
       {selectedDate && (
