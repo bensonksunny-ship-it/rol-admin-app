@@ -32,6 +32,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { format, subMonths, subDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import DepartmentTabBar from '../components/DepartmentTabBar'
+import BoardPointsModal from '../components/BoardPointsModal'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -325,6 +326,7 @@ export default function DepartmentWorship() {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
+  const [boardPointsOpen, setBoardPointsOpen] = useState(false)
   const [operationsSubTab, setOperationsSubTab] = useState('team')
   const [subDepartments, setSubDepartments] = useState([])
   const [subDeptLoading, setSubDeptLoading] = useState(false)
@@ -708,7 +710,19 @@ export default function DepartmentWorship() {
 
   return (
     <div>
-      <DepartmentTabBar slug="worship" activeTab={activeTab} setActiveTab={setActiveTab} />
+      <DepartmentTabBar
+        slug="worship"
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onBoardPointsClick={() => setBoardPointsOpen(true)}
+      />
+      {boardPointsOpen && (
+        <BoardPointsModal
+          department={DEPARTMENT}
+          userEmail={userProfile?.email}
+          onClose={() => setBoardPointsOpen(false)}
+        />
+      )}
       <div className="space-y-4 p-4">
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">

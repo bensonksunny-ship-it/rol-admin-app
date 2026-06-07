@@ -86,6 +86,7 @@ import { differenceInDays, differenceInYears, differenceInMonths, format, startO
 import { formatDMY, formatDMYTime, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import DepartmentTabBar from '../components/DepartmentTabBar'
+import BoardPointsModal from '../components/BoardPointsModal'
 import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
 import DLightDirectorDashboard from '../components/DLightDirectorDashboard'
 import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
@@ -1119,119 +1120,12 @@ export default function DepartmentHub() {
         </div>
       )}
 
-      {/* ── Board Points popup — top-level so fixed positioning works on mobile ── */}
       {boardPointsPopupOpen && (
-        <>
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setBoardPointsPopupOpen(false)} />
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setBoardPointsPopupOpen(false)}>
-            <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-
-              {/* Header */}
-              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-                <div>
-                  <h3 className="font-semibold text-slate-800">Board Meeting Points</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {boardPoints.length === 0 ? 'No points yet' : `${boardPoints.length} point${boardPoints.length !== 1 ? 's' : ''} submitted`}
-                  </p>
-                </div>
-                <button type="button" onClick={() => setBoardPointsPopupOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
-              </div>
-
-              {/* Existing points list */}
-              {boardPoints.length > 0 && (
-                <div className="overflow-y-auto flex-shrink-0 max-h-44 divide-y divide-slate-50">
-                  {boardPoints.map((bp, idx) => (
-                    <div key={bp.id} className="px-5 py-2.5 flex items-start gap-2">
-                      <span className="text-xs font-bold text-slate-300 flex-shrink-0 mt-0.5 w-5">{idx + 1}.</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-slate-700 leading-snug">{bp.point}</p>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          {bp.timeNeeded && <span className="text-[10px] text-slate-400">Requested: {bp.timeNeeded}</span>}
-                          {bp.allottedTime
-                            ? <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Allotted: {bp.allottedTime}</span>
-                            : <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${bp.status === 'approved' ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 'text-amber-700 bg-amber-50 border border-amber-200'}`}>{bp.status}</span>
-                          }
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Add point form — always visible */}
-              {(() => {
-                const now = new Date()
-                const daysTo = now.getDay() === 0 ? 0 : 7 - now.getDay()
-                const nextSun = new Date(now)
-                nextSun.setDate(now.getDate() + daysTo)
-                const targetSunday = format(nextSun, 'yyyy-MM-dd')
-                const targetLabel  = format(nextSun, 'd MMM yyyy')
-                return (
-                <div className="px-5 py-4 border-t border-slate-100 space-y-3 flex-shrink-0">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">New Point</p>
-                    <span className="text-[10px] text-indigo-500 font-semibold bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
-                      For Sunday {targetLabel}
-                    </span>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Points of Discussion *</label>
-                    <textarea
-                      value={boardPointForm.point}
-                      onChange={e => setBoardPointForm(f => ({ ...f, point: e.target.value }))}
-                      placeholder="Describe the point to present at the board meeting…"
-                      rows={3}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Time Needed</label>
-                    <input
-                      type="text"
-                      value={boardPointForm.timeNeeded}
-                      onChange={e => setBoardPointForm(f => ({ ...f, timeNeeded: e.target.value }))}
-                      placeholder="e.g. 10 min"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    disabled={!boardPointForm.point.trim()}
-                    onClick={async () => {
-                      if (!boardPointForm.point.trim()) return
-                      const slNo = String(boardPoints.length + 1)
-                      const id = await addBoardPoint({
-                        department: department?.name,
-                        slNo,
-                        point: boardPointForm.point.trim(),
-                        timeNeeded: boardPointForm.timeNeeded.trim(),
-                        meetingDate: targetSunday,
-                        createdBy: userProfile?.email || 'unknown',
-                      })
-                      if (id) setBoardPoints(prev => [...prev, {
-                        id,
-                        department: department?.name,
-                        slNo,
-                        point: boardPointForm.point.trim(),
-                        timeNeeded: boardPointForm.timeNeeded.trim(),
-                        meetingDate: targetSunday,
-                        status: 'pending',
-                        allottedTime: '',
-                        approvedBy: '',
-                        createdAt: new Date(),
-                        createdBy: userProfile?.email || '',
-                      }])
-                      setBoardPointForm({ slNo: '', point: '', timeNeeded: '', meetingDate: '' })
-                    }}
-                    className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                  >Submit Point</button>
-                </div>
-                )
-              })()}
-
-            </div>
-          </div>
-        </>
+        <BoardPointsModal
+          department={department?.name}
+          userEmail={userProfile?.email}
+          onClose={() => setBoardPointsPopupOpen(false)}
+        />
       )}
 
       <div className="space-y-6 p-4">
