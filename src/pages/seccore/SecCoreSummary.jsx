@@ -7,7 +7,7 @@ import {
   getSecCoreSundayLeaderEntry,
   setSecCoreSundayLeaderEntry,
   deleteSecCoreSundayLeaderEntry,
-  getAllBoardPoints,
+  subscribeToBoardPoints,
   updateBoardPoint,
 } from '../../services/firestore'
 import { useAuth } from '../../context/AuthContext'
@@ -394,15 +394,15 @@ function BoardAgendaTab({ canEdit, userProfile }) {
 
   useEffect(() => {
     setLoading(true)
-    getAllBoardPoints()
-      .then(pts => {
-        setAllPoints(pts)
-        // Auto-select the forthcoming Sunday
-        const chips = sundayDateChips()
-        setSelectedDate(chips[0] || null)
-      })
-      .catch(() => setAllPoints([]))
-      .finally(() => setLoading(false))
+    // Auto-select the forthcoming Sunday immediately
+    const chips = sundayDateChips()
+    setSelectedDate(chips[0] || null)
+
+    const unsub = subscribeToBoardPoints(pts => {
+      setAllPoints(pts)
+      setLoading(false)
+    })
+    return unsub
   }, [])
 
   const unscheduled  = allPoints.filter(p => !p.meetingDate)

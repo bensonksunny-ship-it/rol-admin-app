@@ -14,6 +14,7 @@ import {
   Timestamp,
   writeBatch,
   serverTimestamp,
+  onSnapshot,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { deriveRoleFromPositions } from '../constants/roles'
@@ -3505,6 +3506,15 @@ export async function getAllBoardPoints() {
   const q = query(collection(db, BOARD_POINTS_COLLECTION), orderBy('createdAt', 'asc'))
   const snap = await getDocs(q)
   return snap.docs.map(mapBoardPoint)
+}
+
+// Real-time listener — returns an unsubscribe function
+export function subscribeToBoardPoints(onChange) {
+  if (!db) return () => {}
+  const q = query(collection(db, BOARD_POINTS_COLLECTION), orderBy('createdAt', 'asc'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map(mapBoardPoint))
+  }, () => {})
 }
 
 export async function addBoardPoint(data) {
