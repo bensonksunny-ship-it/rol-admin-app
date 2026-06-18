@@ -839,6 +839,7 @@ export default function DepartmentHub() {
     if (slug === 'caring' && (activeTab === 'pcs' || activeTab === 'summary')) {
       setLoadingPCS(true)
       getPCSEntries().then(setPcsEntries).catch(() => setPcsEntries([])).finally(() => setLoadingPCS(false))
+      getAllCellGroupMembers().then(setAllCellMembers).catch(() => {})
     }
   }, [slug, activeTab])
 
@@ -3225,10 +3226,13 @@ export default function DepartmentHub() {
               }
             }
 
+            const cellVisitorIds = new Set(allCellMembers.filter(m => m.status !== 'inactive' && m.visitorId).map(m => m.visitorId))
+
             const Chip = ({ entry }) => {
               const hasMember = !!entry.membershipNumber
               const hasLeadership = !!entry.leadershipPosition
               const isExpanded = pcsExpandedId === entry.id
+              const isInCell = !!(entry.visitorId && cellVisitorIds.has(entry.visitorId))
               return (
                 <div
                   className={`flex items-center gap-2 rounded-2xl pl-2 pr-2.5 py-2 border transition-all cursor-pointer
@@ -3239,9 +3243,14 @@ export default function DepartmentHub() {
                         : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300'}`}
                   onClick={() => handleChipClick(entry)}
                 >
-                  <div className={`w-8 h-8 rounded-full text-white text-sm font-bold flex items-center justify-center flex-shrink-0
-                    ${isExpanded ? 'bg-white/25' : hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
-                    {entry.name.charAt(0).toUpperCase()}
+                  <div className="relative flex-shrink-0">
+                    <div className={`w-8 h-8 rounded-full text-white text-sm font-bold flex items-center justify-center
+                      ${isExpanded ? 'bg-white/25' : hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
+                      {entry.name.charAt(0).toUpperCase()}
+                    </div>
+                    {isInCell && (
+                      <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" title="In a cell group" />
+                    )}
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
