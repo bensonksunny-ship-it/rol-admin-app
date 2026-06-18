@@ -1545,6 +1545,18 @@ export async function getCellGroupMembers(cellId) {
   })
 }
 
+export async function getAllCellGroupMembers() {
+  if (!db) return []
+  const snap = await getDocs(collectionGroup(db, 'members'))
+  return snap.docs.map((d) => ({
+    id: d.id,
+    cellId: d.ref.parent.parent.id,
+    name: d.data().name || '',
+    visitorId: d.data().visitorId || '',
+    status: d.data().status === 'inactive' ? 'inactive' : 'active',
+  }))
+}
+
 export async function addCellGroupMember(cellId, data) {
   if (!db || !cellId) return null
   const ref = await addDoc(cellGroupMembersRef(cellId), {

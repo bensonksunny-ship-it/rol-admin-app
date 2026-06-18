@@ -20,6 +20,7 @@ import {
   deleteEventSpendingItem,
   getCellGroups,
   getCellGroupMembers,
+  getAllCellGroupMembers,
   addCellGroup,
   updateCellGroup,
   addCellGroupMember,
@@ -216,6 +217,7 @@ export default function DepartmentHub() {
   const [expandedCellId, setExpandedCellId] = useState(null)
   const [cellMembers, setCellMembers] = useState([])
   const [loadingCellMembers, setLoadingCellMembers] = useState(false)
+  const [allCellMembers, setAllCellMembers] = useState([])
   const [cellMemberForm, setCellMemberForm] = useState({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active', visitorId: '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
   const [cellMemberModalOpen, setCellMemberModalOpen] = useState(false)
   const [editingCellMemberId, setEditingCellMemberId] = useState(null)
@@ -718,6 +720,12 @@ export default function DepartmentHub() {
 
   useEffect(() => {
     if (department && slug === 'cell' && (activeTab === 'cellGroups' || activeTab === 'summary')) {
+      getAllCellGroupMembers().then(setAllCellMembers)
+    }
+  }, [department, slug, activeTab])
+
+  useEffect(() => {
+    if (department && slug === 'cell' && (activeTab === 'cellGroups' || activeTab === 'summary')) {
       setLoadingCellGroups(true)
       Promise.all([getCellGroups(department.name), getLatestCellAttendance(department.name)])
         .then(([groups, attendance]) => {
@@ -981,6 +989,17 @@ export default function DepartmentHub() {
     }
     return result
   }
+
+  const duplicateCellMemberKeys = useMemo(() => {
+    const cellsByKey = {}
+    allCellMembers.filter(m => m.status !== 'inactive').forEach(m => {
+      const key = m.visitorId || ('name:' + (m.name || '').toLowerCase().trim())
+      if (!key || key === 'name:') return
+      if (!cellsByKey[key]) cellsByKey[key] = new Set()
+      cellsByKey[key].add(m.cellId)
+    })
+    return new Set(Object.entries(cellsByKey).filter(([, s]) => s.size > 1).map(([k]) => k))
+  }, [allCellMembers])
 
   const filteredDelightVisitors = delightVisitors
     .filter((v) =>
@@ -2124,7 +2143,11 @@ export default function DepartmentHub() {
                     try {
                       if (editingDelightVisitorId) {
                         const before = delightVisitors.find((x) => x.id === editingDelightVisitorId) || null
-                        await updateDelightVisitor(editingDelightVisitorId, delightVisitorForm)
+                        await Promise.all([
+                          updateDelightVisitor(editingDelightVisitorId, delightVisitorForm),
+                          updateCellMembersByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone, birthday: delightVisitorForm.dob }),
+                          updatePCSEntriesByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone }),
+                        ])
                         setDelightVisitors((prev) =>
                           prev.map((x) => (x.id === editingDelightVisitorId ? { ...x, ...delightVisitorForm } : x))
                         )
@@ -3404,6 +3427,7 @@ export default function DepartmentHub() {
                               updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, year: resolvedYear }),
                               entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),
                               entry.visitorId ? updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }) : Promise.resolve(),
+                              entry.visitorId ? updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }) : Promise.resolve(),
                             ])
                             setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, attendedDate, membershipNumber, year: resolvedYear ? Number(resolvedYear) : null } : e))
                           } catch { alert('Failed to save') }
@@ -5337,6 +5361,9 @@ export default function DepartmentHub() {
                                           <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
                                           <td className="px-3 py-2">
                                             <div className="flex items-center gap-1.5">
+                                              {duplicateCellMemberKeys.has(m.visitorId || ('name:' + (m.name || '').toLowerCase().trim())) && (
+                                                <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="This person is in multiple cell groups" />
+                                              )}
                                               <span className="text-slate-800">{m.name || '—'}</span>
                                               {m.visitorId
                                                 ? <span title="Linked to visitor entry" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
@@ -5370,8 +5397,8 @@ export default function DepartmentHub() {
                                                 setCellMemberModalOpen(true)
                                               }} className="text-blue-600 hover:underline">Edit</button>
                                               <button type="button" onClick={() => setCellMemberLinking({ member: m, cellId: cell.id })} className="text-indigo-600 hover:underline">{m.visitorId ? 'Relink' : 'Link'}</button>
-                                              <button type="button" onClick={async () => { if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); }} className="text-red-600 hover:underline">Delete</button>
-                                              <button type="button" onClick={async () => { await updateCellGroupMember(cell.id, m.id, { status: 'inactive' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); }} className="text-amber-600 hover:underline">Make Inactive</button>
+                                              <button type="button" onClick={async () => { if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); getAllCellGroupMembers().then(setAllCellMembers) }} className="text-red-600 hover:underline">Delete</button>
+                                              <button type="button" onClick={async () => { await updateCellGroupMember(cell.id, m.id, { status: 'inactive' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); getAllCellGroupMembers().then(setAllCellMembers) }} className="text-amber-600 hover:underline">Make Inactive</button>
                                             </td>
                                           )}
                                         </tr>
@@ -5715,6 +5742,10 @@ export default function DepartmentHub() {
                     id="cell-member-form"
                     onSubmit={async (e) => {
                       e.preventDefault()
+                      if (!editingCellMemberId && !cellMemberForm.visitorId) {
+                        alert('Please select a person from the visitor list above.')
+                        return
+                      }
                       try {
                         if (editingCellMemberId) {
                           await updateCellGroupMember(expandedCellId, editingCellMemberId, cellMemberForm)
@@ -5736,10 +5767,18 @@ export default function DepartmentHub() {
                             }, userProfile?.email || '')
                           }
                         } else {
+                          const addKey = cellMemberForm.visitorId || ('name:' + (cellMemberForm.name || '').toLowerCase().trim())
+                          const conflict = allCellMembers.find(m => m.status !== 'inactive' && m.cellId !== expandedCellId && (m.visitorId || ('name:' + (m.name || '').toLowerCase().trim())) === addKey)
+                          if (conflict) {
+                            const otherCell = cellGroups.find(c => c.id === conflict.cellId)
+                            alert(`${cellMemberForm.name || 'This person'} is already a member of "${otherCell?.cellName || otherCell?.name || 'another cell group'}". A person can only be in one cell group.`)
+                            return
+                          }
                           await addCellGroupMember(expandedCellId, cellMemberForm)
                           const list = await getCellGroupMembers(expandedCellId)
                           setCellMembers(list)
                           setCellGroups((prev) => prev.map((c) => (c.id === expandedCellId ? { ...c, memberCount: list.length } : c)))
+                          getAllCellGroupMembers().then(setAllCellMembers)
                         }
                         setCellMemberModalOpen(false)
                         setEditingCellMemberId(null)
@@ -5792,6 +5831,7 @@ export default function DepartmentHub() {
                                     name: v.name,
                                     phone: v.phone || f.phone,
                                     birthday: v.dob ? String(v.dob).slice(0, 10) : f.birthday,
+                                    visitorId: v.id,
                                   }))
                                   setCellMemberVisitorSearch('')
                                 }}
@@ -5815,17 +5855,35 @@ export default function DepartmentHub() {
                     )}
 
                     {/* Name field */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
-                      <input
-                        type="text"
-                        value={cellMemberForm.name}
-                        onChange={(e) => setCellMemberForm((f) => ({ ...f, name: e.target.value }))}
-                        placeholder="Or type a name manually…"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                        required
-                      />
-                    </div>
+                    {editingCellMemberId ? (
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                        <input
+                          type="text"
+                          value={cellMemberForm.name}
+                          onChange={(e) => setCellMemberForm((f) => ({ ...f, name: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          required
+                        />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Selected Person</label>
+                        {cellMemberForm.name ? (
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50">
+                            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                              {cellMemberForm.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-sm font-medium text-slate-800 flex-1">{cellMemberForm.name}</span>
+                            <button type="button" onClick={() => setCellMemberForm(f => ({ ...f, name: '', phone: '', birthday: '', visitorId: '' }))} className="text-slate-400 hover:text-red-500 text-lg leading-none">×</button>
+                          </div>
+                        ) : (
+                          <div className="px-3 py-2.5 rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 text-center">
+                            Search and select a visitor above
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Linked visitor info — shown only when editing a linked member */}
                     {editingCellMemberId && cellMemberForm.visitorId && (
@@ -6412,6 +6470,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                   updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, leadershipPosition, year }),
                   entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),
                   entry.visitorId ? updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }) : Promise.resolve(),
+                  entry.visitorId ? updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }) : Promise.resolve(),
                 ]).catch(() => {})
                 setSaving(false)
               }}
