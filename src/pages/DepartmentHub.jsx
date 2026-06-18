@@ -1,5 +1,5 @@
 import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useMemo, useState, useCallback, Fragment } from 'react'
+import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
@@ -3536,7 +3536,7 @@ export default function DepartmentHub() {
                                 {entries.map(entry => <Chip key={entry.id} entry={entry} />)}
                               </div>
                             </div>
-                            {expandedEntry && <PCSInlineProfile entry={expandedEntry} />}
+                            {expandedEntry && PCSInlineProfile({ entry: expandedEntry })}
                           </div>
                         )
                       })}
@@ -6523,25 +6523,43 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
 // ─── Convenience date picker (day / month / year selects) ────────────────────
 function DateSelect({ value, onChange, minYear, maxYear }) {
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  const parts = (value || '').split('-')
-  const y = parts[0] || ''
-  const m = parts[1] ? String(Number(parts[1])) : ''
-  const d = parts[2] ? String(Number(parts[2])) : ''
-  const update = (ny, nm, nd) => {
-    onChange(ny && nm && nd ? `${ny}-${String(nm).padStart(2,'0')}-${String(nd).padStart(2,'0')}` : '')
+  const parseDate = (val) => {
+    const parts = (val || '').split('-')
+    return { y: parts[0] || '', m: parts[1] ? String(Number(parts[1])) : '', d: parts[2] ? String(Number(parts[2])) : '' }
   }
-  const sel = 'flex-1 px-2 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 text-sm transition-colors'
+  const [sel, setSel] = useState(() => parseDate(value))
+  // Track the last value we emitted so we can detect external changes (e.g. form reset)
+  const lastEmitted = useRef(value)
+  useEffect(() => {
+    if (value !== lastEmitted.current) {
+      lastEmitted.current = value
+      setSel(parseDate(value))
+    }
+  }, [value])
+  const update = (ny, nm, nd) => {
+    setSel({ y: ny, m: nm, d: nd })
+    if (ny && nm && nd) {
+      const full = `${ny}-${String(nm).padStart(2,'0')}-${String(nd).padStart(2,'0')}`
+      lastEmitted.current = full
+      onChange(full)
+    } else if (!ny && !nm && !nd) {
+      lastEmitted.current = ''
+      onChange('')
+    }
+    // Partial selection: keep parent value unchanged; local state shows the choice
+  }
+  const cls = 'flex-1 px-2 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 text-sm transition-colors'
   return (
     <div className="flex gap-1.5">
-      <select value={d} onChange={e => update(y, m, e.target.value)} className={sel}>
+      <select value={sel.d} onChange={e => update(sel.y, sel.m, e.target.value)} className={cls}>
         <option value="">Day</option>
         {Array.from({length: 31}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
       </select>
-      <select value={m} onChange={e => update(y, e.target.value, d)} className={sel}>
+      <select value={sel.m} onChange={e => update(sel.y, e.target.value, sel.d)} className={cls}>
         <option value="">Month</option>
         {MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
       </select>
-      <select value={y} onChange={e => update(e.target.value, m, d)} className={sel}>
+      <select value={sel.y} onChange={e => update(e.target.value, sel.m, sel.d)} className={cls}>
         <option value="">Year</option>
         {Array.from({length: maxYear - minYear + 1}, (_, i) => maxYear - i).map(yr => (
           <option key={yr} value={yr}>{yr}</option>

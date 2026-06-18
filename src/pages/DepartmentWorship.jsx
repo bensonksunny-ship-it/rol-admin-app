@@ -2369,10 +2369,16 @@ export default function DepartmentWorship() {
                       <tr key={m.id} className={`hover:bg-slate-50 ${m.isWorshipDirector ? 'bg-amber-50/60' : ''}`}>
                         <td className="px-4 py-2 text-slate-600">{i + 1}</td>
                         <td className="px-4 py-2 font-medium text-slate-800">
-                          {m.name}
-                          {m.isWorshipDirector && (
-                            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] uppercase tracking-wide">Director</span>
-                          )}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {m.name}
+                            {m.isWorshipDirector && (
+                              <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] uppercase tracking-wide">Director</span>
+                            )}
+                            {m.visitorId
+                              ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                              : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                            }
+                          </div>
                         </td>
                         <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
                         <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
@@ -2401,8 +2407,9 @@ export default function DepartmentWorship() {
                             : <span className="text-xs text-slate-300">—</span>}
                         </td>
                         {canManageWorship && (
-                          <td className="px-4 py-2">
+                          <td className="px-4 py-2 space-x-2 whitespace-nowrap">
                             <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
+                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="text-indigo-600 hover:underline text-sm font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
                           </td>
                         )}
                       </tr>
@@ -2445,7 +2452,15 @@ export default function DepartmentWorship() {
                       return (
                         <tr key={m.id} className="hover:bg-slate-50">
                           <td className="px-4 py-2 text-slate-600">{i + 1}</td>
-                          <td className="px-4 py-2 font-medium text-slate-800">{m.name}</td>
+                          <td className="px-4 py-2 font-medium text-slate-800">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {m.name}
+                              {m.visitorId
+                                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                                : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                              }
+                            </div>
+                          </td>
                           <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
                           <td className="px-4 py-2 text-slate-500 text-sm">{m.formerSince ? formatDMY(m.formerSince) : <span className="text-slate-300">—</span>}</td>
                           <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
@@ -2457,8 +2472,9 @@ export default function DepartmentWorship() {
                           </td>
                           <td className="px-4 py-2 text-slate-500 text-sm font-medium">{totalDays.toLocaleString()} days</td>
                           {canManageWorship && (
-                            <td className="px-4 py-2">
+                            <td className="px-4 py-2 space-x-2 whitespace-nowrap">
                               <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
+                              <button type="button" onClick={() => setWorshipMemberLinking(m)} className="text-indigo-600 hover:underline text-sm font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
                             </td>
                           )}
                         </tr>

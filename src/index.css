@@ -306,3 +306,22 @@ body {
   color: var(--rol-muted) !important;
   opacity: 1;
 }
+
+/* ─── Dark mode: visitor table row border (border-white/60 → subtle dark line) ── */
+.dark .border-white\/60 {
+  border-color: rgba(51, 65, 85, 0.35) !important;
+}
+
+/* ─── Dark mode: divide utilities ─────────────────────────────────────────────── */
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--rol-border) !important;
+}
+
+/* ─── Dark mode: table header stripe ──────────────────────────────────────────── */
+/* bg-slate-50 on a table thead should be slightly lighter than the card bg,
+   not the full page-bg (#0b1220). Override just for thead. */
+.dark thead.bg-slate-50,
+.dark thead > tr.bg-slate-50 {
+  background-color: rgba(15, 23, 42, 0.60) !important;
+}
