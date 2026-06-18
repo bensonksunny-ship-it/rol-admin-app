@@ -72,6 +72,17 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
     [visitorsThisYear, currentMonth]
   )
 
+  const recentVisitors = useMemo(() => {
+    return [...visitorsThisYear]
+      .sort((a, b) => {
+        if (!a.attendedDate && !b.attendedDate) return 0
+        if (!a.attendedDate) return 1
+        if (!b.attendedDate) return -1
+        return new Date(b.attendedDate) - new Date(a.attendedDate)
+      })
+      .slice(0, 8)
+  }, [visitorsThisYear])
+
   const activeTeam = useMemo(
     () => team.filter((m) => m.status !== 'former'),
     [team]
@@ -260,6 +271,7 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100">
           <p className="text-sm font-semibold text-slate-800">Recent Visitors</p>
+          <p className="text-xs text-slate-400 mt-0.5">Sorted by date of attendance</p>
         </div>
         {visitorsThisYear.length === 0 ? (
           <p className="px-4 py-6 text-xs text-slate-400 text-center">No visitors recorded for {currentYear} yet.</p>
@@ -267,7 +279,7 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
           <>
             {/* Mobile */}
             <div className="sm:hidden divide-y divide-slate-100">
-              {visitorsThisYear.slice(0, 8).map((v) => (
+              {recentVisitors.map((v) => (
                 <div key={v.id} className="px-4 py-3 space-y-0.5">
                   <p className="text-sm font-semibold text-slate-800">{v.name || '—'}</p>
                   <p className="text-xs text-slate-500">{[v.phone, v.serviceAttended].filter(Boolean).join(' · ')}</p>
@@ -290,7 +302,7 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {visitorsThisYear.slice(0, 8).map((v) => (
+                  {recentVisitors.map((v) => (
                     <tr key={v.id} className="hover:bg-slate-50/50">
                       <td className="px-4 py-2.5 font-medium text-slate-800">{v.name || '—'}</td>
                       <td className="px-4 py-2.5 text-slate-600">{v.phone || '—'}</td>

@@ -14,10 +14,11 @@
 /* Day/Night mode: toggle `dark` on <html> */
 .dark {
   --rol-bg: #0b1220;
-  --rol-card: rgba(15, 23, 42, 0.92);
+  --rol-card: #16213a;      /* was rgba(15,23,42,0.92) — too close to bg */
   --rol-border: #334155;
-  --rol-text: #e5e7eb;
+  --rol-text: #e2e8f0;
   --rol-muted: #94a3b8;
+  color-scheme: dark;       /* native inputs/selects/scrollbars render dark */
 }
 
 body {
@@ -138,7 +139,7 @@ body {
   padding: 1.25rem;
 }
 .dark .rol-card {
-  background: rgba(15, 23, 42, 0.85);
+  background: rgba(22, 33, 58, 0.95);
   border-color: rgba(51, 65, 85, 0.8);
   box-shadow: 0 8px 32px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.05);
 }
@@ -222,4 +223,86 @@ body {
 }
 .dash-shimmer:hover::after {
   animation: shimmerSweep 0.72s ease-out forwards;
+}
+
+/* ─── Dark mode: rounded cards — subtle depth without harsh contrast ─────────── */
+.dark .bg-white.rounded-xl,
+.dark .bg-white.rounded-2xl,
+.dark .bg-white.rounded-lg {
+  background: rgba(22, 33, 58, 0.97) !important;
+  border-color: rgba(51, 65, 85, 0.65) !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+/* ─── Dark mode: opacity-variant white (toolbar buttons bg-white/70) ─────────── */
+.dark .bg-white\/70 {
+  background-color: rgba(22, 33, 58, 0.85) !important;
+}
+
+/* ─── Dark mode: colour-50 tints (month rows, service pills, badges) ─────────── */
+.dark .bg-blue-50    { background-color: rgba(59,  130, 246, 0.10) !important; }
+.dark .bg-emerald-50 { background-color: rgba(16,  185, 129, 0.10) !important; }
+.dark .bg-green-50   { background-color: rgba(34,  197,  94, 0.09) !important; }
+.dark .bg-amber-50   { background-color: rgba(245, 158,  11, 0.09) !important; }
+.dark .bg-orange-50  { background-color: rgba(249, 115,  22, 0.09) !important; }
+.dark .bg-violet-50  { background-color: rgba(139,  92, 246, 0.10) !important; }
+.dark .bg-rose-50    { background-color: rgba(244,  63,  94, 0.09) !important; }
+.dark .bg-teal-50    { background-color: rgba(20,  184, 166, 0.10) !important; }
+.dark .bg-cyan-50    { background-color: rgba(6,   182, 212, 0.10) !important; }
+.dark .bg-pink-50    { background-color: rgba(236,  72, 153, 0.09) !important; }
+.dark .bg-lime-50    { background-color: rgba(132, 204,  22, 0.09) !important; }
+.dark .bg-sky-50     { background-color: rgba(14,  165, 233, 0.10) !important; }
+.dark .bg-indigo-50  { background-color: rgba(99,  102, 241, 0.10) !important; }
+.dark .bg-red-50     { background-color: rgba(239,  68,  68, 0.09) !important; }
+.dark .bg-slate-300  { background-color: rgba(51,   65,  85, 0.65) !important; }
+
+/* ─── Dark mode: coloured text — lighter shades for legibility on dark ──────── */
+.dark .text-blue-700,
+.dark .text-blue-600   { color: #93c5fd !important; }  /* → blue-300   */
+.dark .text-green-700  { color: #86efac !important; }  /* → green-300  */
+.dark .text-emerald-600{ color: #6ee7b7 !important; }  /* → emerald-300*/
+.dark .text-orange-700 { color: #fdba74 !important; }  /* → orange-300 */
+.dark .text-amber-700  { color: #fcd34d !important; }  /* → amber-300  */
+.dark .text-teal-700   { color: #5eead4 !important; }  /* → teal-300   */
+.dark .text-indigo-700,
+.dark .text-indigo-500 { color: #a5b4fc !important; }  /* → indigo-300 */
+.dark .text-violet-700 { color: #c4b5fd !important; }  /* → violet-300 */
+.dark .text-rose-700   { color: #fda4af !important; }  /* → rose-300   */
+.dark .text-red-700,
+.dark .text-red-600,
+.dark .text-red-500    { color: #fca5a5 !important; }  /* → red-300    */
+
+/* ─── Dark mode: coloured borders ────────────────────────────────────────────── */
+.dark .border-blue-200   { border-color: rgba(59,  130, 246, 0.25) !important; }
+.dark .border-green-200  { border-color: rgba(34,  197,  94, 0.25) !important; }
+.dark .border-orange-200 { border-color: rgba(249, 115,  22, 0.25) !important; }
+.dark .border-red-200    { border-color: rgba(239,  68,  68, 0.25) !important; }
+.dark .border-indigo-100 { border-color: rgba(99,  102, 241, 0.20) !important; }
+.dark .border-indigo-400 { border-color: rgba(99,  102, 241, 0.60) !important; }
+
+/* ─── Dark mode: hover states ────────────────────────────────────────────────── */
+.dark .hover\:bg-indigo-50:hover  { background-color: rgba(99,  102, 241, 0.15) !important; }
+.dark .hover\:bg-slate-50:hover   { background-color: rgba(30,   41,  59, 0.50) !important; }
+.dark .hover\:bg-slate-100:hover  { background-color: rgba(30,   41,  59, 0.70) !important; }
+.dark .hover\:bg-red-100:hover    { background-color: rgba(239,  68,  68, 0.15) !important; }
+.dark .hover\:bg-white:hover      { background-color: rgba(22,   33,  58, 0.98) !important; }
+
+/* ─── Dark mode: form focus rings ────────────────────────────────────────────── */
+.dark .focus\:ring-indigo-200:focus,
+.dark .focus\:ring-indigo-300:focus {
+  --tw-ring-color: rgba(99, 102, 241, 0.50) !important;
+}
+.dark .focus-within\:ring-indigo-200:focus-within {
+  --tw-ring-color: rgba(99, 102, 241, 0.50) !important;
+}
+.dark .focus\:border-indigo-400:focus,
+.dark .focus-within\:border-indigo-400:focus-within {
+  border-color: rgba(99, 102, 241, 0.70) !important;
+}
+
+/* ─── Dark mode: placeholder text ────────────────────────────────────────────── */
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--rol-muted) !important;
+  opacity: 1;
 }
