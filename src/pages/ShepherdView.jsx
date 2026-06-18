@@ -14,6 +14,8 @@ import {
   saveMidweekPrayerPoints,
   addCellMemberPendingChange,
   getCellMemberPendingChanges,
+  getPCSEntries,
+  createTask,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
@@ -323,6 +325,12 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [prayerSubject, setPrayerSubject] = useState('')
   const [savingPrayer, setSavingPrayer]   = useState(false)
 
+  // PCS lookup — names + visitorIds of people already in PCS
+  const [pcsNames, setPcsNames]     = useState(new Set())
+  const [pcsLoading, setPcsLoading] = useState(true)
+  const [notifyingPCS, setNotifyingPCS] = useState(new Set())
+  const [notifiedPCS, setNotifiedPCS]   = useState(new Set())
+
   // Load cell groups
   useEffect(() => {
     getCellGroups('Cell').then(setCellGroups).finally(() => setLoadingGroups(false))
@@ -350,6 +358,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     setMembers([])
     setHeatmap([])
     setSundayAtt({ presentIds: [], date: null })
+    setNotifiedPCS(new Set())
     Promise.all([
       getCellGroupMembers(selectedCellId),
       getRecentCellReportsForHeatmap(selectedCellId, 2),
@@ -359,9 +368,59 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       .finally(() => setLoadingMembers(false))
   }, [selectedCellId])
 
+  // Load PCS entries to determine which members are already in PCS
+  useEffect(() => {
+    setPcsLoading(true)
+    getPCSEntries()
+      .then(entries => {
+        const names = new Set()
+        entries.forEach(e => {
+          if (e.name) names.add(e.name.trim().toLowerCase())
+          if (e.visitorId) names.add(`vid:${e.visitorId}`)
+        })
+        setPcsNames(names)
+      })
+      .catch(() => setPcsNames(new Set()))
+      .finally(() => setPcsLoading(false))
+  }, [])
+
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
+  }
+
+  const isInPCS = (member) => {
+    if (member.visitorId && pcsNames.has(`vid:${member.visitorId}`)) return true
+    return pcsNames.has((member.name || '').trim().toLowerCase())
+  }
+
+  const handleNotifyCaring = async (member) => {
+    setNotifyingPCS(prev => new Set([...prev, member.id]))
+    try {
+      const cellName = cellGroups.find(g => g.id === selectedCellId)?.cellName || ''
+      await createTask({
+        taskTitle: `Add ${member.name} to PCS`,
+        department: 'Caring',
+        assignedPerson: '',
+        priority: 'Medium',
+        deadline: '',
+        status: 'Pending',
+        notes: `Referred from Cell by ${userProfile?.name || userProfile?.email || 'Cell Leader'}. ${member.name} is a cell member (${cellName}) but not yet in PCS.${member.phone ? ` Phone: ${member.phone}` : ''}`,
+        createdBy: userProfile?.email || '',
+        cellMemberReferral: true,
+        memberName: member.name,
+        memberPhone: member.phone || '',
+        memberVisitorId: member.visitorId || '',
+        cellId: selectedCellId,
+        cellName,
+      })
+      setNotifiedPCS(prev => new Set([...prev, member.id]))
+      showToast(`Caring Director notified for ${member.name}.`)
+    } catch {
+      showToast('Failed to notify. Please try again.', 'error')
+    } finally {
+      setNotifyingPCS(prev => { const s = new Set(prev); s.delete(member.id); return s })
+    }
   }
 
   const handleTransfer = async () => {
@@ -425,20 +484,24 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const filteredMembers = useMemo(() => {
     return activeMembers.filter((m) => {
       if (search && !m.name.toLowerCase().includes(search.toLowerCase())) return false
+      if (glowFilter === 'not-pcs') return !pcsLoading && !isInPCS(m)
       if (glowFilter === 'all') return true
       const glow = getGlow(m.name, heatmap)
       return glow === glowFilter
     })
-  }, [activeMembers, search, heatmap, glowFilter])
+  }, [activeMembers, search, heatmap, glowFilter, pcsNames, pcsLoading])
 
   const otherCells = cellGroups.filter((g) => g.id !== selectedCellId)
 
   // Count by status for filter bar
   const statusCounts = useMemo(() => {
-    const counts = { green: 0, amber: 0, red: 0, grey: 0 }
-    activeMembers.forEach((m) => counts[getGlow(m.name, heatmap)]++)
+    const counts = { green: 0, amber: 0, red: 0, grey: 0, notPcs: 0 }
+    activeMembers.forEach((m) => {
+      counts[getGlow(m.name, heatmap)]++
+      if (!isInPCS(m)) counts.notPcs++
+    })
     return counts
-  }, [activeMembers, heatmap])
+  }, [activeMembers, heatmap, pcsNames])
 
   const sundayDate = sundayAtt.date
     ? new Date(sundayAtt.date + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
@@ -481,18 +544,19 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
         <div className="bg-white rounded-3xl border border-slate-200 p-3 shadow-sm">
           <div className="flex flex-wrap gap-2">
             {[
-              { key: 'all', label: 'All', count: activeMembers.length, dot: 'bg-slate-400' },
-              { key: 'green', label: 'Healthy', count: statusCounts.green, dot: 'bg-green-400' },
-              { key: 'amber', label: 'Needs Attention', count: statusCounts.amber, dot: 'bg-amber-400' },
-              { key: 'red', label: 'Urgent', count: statusCounts.red, dot: 'bg-red-400' },
-            ].map(({ key, label, count, dot }) => (
+              { key: 'all',      label: 'All',             count: activeMembers.length,  dot: 'bg-slate-400',  activeClass: 'bg-slate-900 text-white' },
+              { key: 'green',    label: 'Healthy',          count: statusCounts.green,    dot: 'bg-green-400',  activeClass: 'bg-slate-900 text-white' },
+              { key: 'amber',    label: 'Needs Attention',  count: statusCounts.amber,    dot: 'bg-amber-400',  activeClass: 'bg-slate-900 text-white' },
+              { key: 'red',      label: 'Urgent',           count: statusCounts.red,      dot: 'bg-red-400',    activeClass: 'bg-slate-900 text-white' },
+              { key: 'not-pcs',  label: 'Not in PCS',       count: statusCounts.notPcs,   dot: 'bg-orange-400', activeClass: 'bg-orange-500 text-white' },
+            ].map(({ key, label, count, dot, activeClass }) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setGlowFilter(key)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
                   glowFilter === key
-                    ? 'bg-slate-900 text-white'
+                    ? activeClass
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -549,12 +613,19 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               const anniv      = member.anniversary
               const bdaySoon   = isUpcomingSoon(bday)
               const annivSoon  = isUpcomingSoon(anniv)
+              const inPCS      = isInPCS(member)
+              const notified   = notifiedPCS.has(member.id)
+              const notifying  = notifyingPCS.has(member.id)
+
+              const pcsStatus = pcsLoading ? 'checking' : inPCS ? 'in' : 'out'
 
               return (
                 <div
                   key={member.id}
-                  className={`bg-white rounded-3xl p-5 shadow-sm transition-all ${GLOW_RING[glow]}`}
+                  style={pcsStatus === 'out' ? { borderLeft: '4px solid #f97316' } : { borderLeft: '4px solid #e2e8f0' }}
+                  className={`bg-white rounded-3xl shadow-sm transition-all overflow-hidden ${GLOW_RING[glow]}`}
                 >
+                  <div className="p-5">
                   {/* ── Header row ── */}
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <div className="flex items-center gap-2 min-w-0">
@@ -564,13 +635,40 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                         <p className={`text-xs font-medium ${GLOW_TEXT[glow]}`}>{GLOW_LABEL[glow]}</p>
                       </div>
                     </div>
-                    {/* Sunday Pulse */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
-                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isSunday ? 'bg-emerald-400' : 'bg-slate-200'}`} />
-                      <span className="text-xs text-slate-400 whitespace-nowrap">
-                        {isSunday ? 'Sunday ✓' : 'Sunday –'}
-                      </span>
+                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0 ml-1">
+                      {/* Sunday Pulse */}
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full ${isSunday ? 'bg-emerald-400' : 'bg-slate-200'}`} />
+                        <span className="text-xs text-slate-400 whitespace-nowrap">
+                          {isSunday ? 'Sunday ✓' : 'Sunday –'}
+                        </span>
+                      </div>
                     </div>
+                  </div>
+
+                  {/* ── PCS status row — always visible ── */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      marginBottom: 10,
+                      padding: '5px 10px',
+                      borderRadius: 8,
+                      backgroundColor: pcsStatus === 'out' ? '#fff7ed' : pcsStatus === 'in' ? '#eef2ff' : '#f8fafc',
+                      border: `1px solid ${pcsStatus === 'out' ? '#fed7aa' : pcsStatus === 'in' ? '#c7d2fe' : '#e2e8f0'}`,
+                    }}
+                  >
+                    <span style={{
+                      width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                      backgroundColor: pcsStatus === 'out' ? '#f97316' : pcsStatus === 'in' ? '#6366f1' : '#94a3b8',
+                    }} />
+                    <span style={{
+                      fontSize: 11, fontWeight: 700,
+                      color: pcsStatus === 'out' ? '#c2410c' : pcsStatus === 'in' ? '#4338ca' : '#94a3b8',
+                    }}>
+                      {pcsStatus === 'out' ? 'Not in PCS' : pcsStatus === 'in' ? 'In PCS' : 'Checking PCS…'}
+                    </span>
                   </div>
 
                   {/* ── Birthday / Anniversary ── */}
@@ -613,7 +711,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                   </div>
 
                   {/* ── Action buttons ── */}
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {phone10 && (
                       <a
                         href={`https://wa.me/91${phone10}`}
@@ -644,7 +742,26 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                         Transfer
                       </button>
                     )}
+                    {/* Notify Caring — only visible if member is NOT in PCS */}
+                    {pcsStatus === 'out' && (
+                      notified ? (
+                        <span className="w-full flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-500 text-xs font-semibold">
+                          ✓ Caring Notified
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={notifying}
+                          onClick={() => handleNotifyCaring(member)}
+                          className="w-full flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition disabled:opacity-50"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
+                          {notifying ? 'Notifying…' : 'Notify Caring'}
+                        </button>
+                      )
+                    )}
                   </div>
+                  </div>{/* end p-5 */}
                 </div>
               )
             })}

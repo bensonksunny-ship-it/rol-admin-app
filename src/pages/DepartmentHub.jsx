@@ -5,6 +5,9 @@ import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
 import {
   getTasks,
+  createTask,
+  updateTask,
+  subscribeCellMemberReferralTasks,
   getDepartmentEntries,
   addDepartmentEntry,
   getDepartmentTeamMembers,
@@ -300,6 +303,10 @@ export default function DepartmentHub() {
   const [pcsExpandedLoading, setPcsExpandedLoading] = useState(false)
   const [pcsExpandedForm, setPcsExpandedForm] = useState({})
   const [pcsExpandedSaving, setPcsExpandedSaving] = useState(false)
+  const [pcsNotifiedIds, setPcsNotifiedIds] = useState(new Set())
+  const [pcsNotifyingId, setPcsNotifyingId] = useState(null)
+  const [cellReferralTasks, setCellReferralTasks] = useState([])
+  const [cellReferralAdding, setCellReferralAdding] = useState(new Set())
   const [delightVisitorForm, setDelightVisitorForm] = useState({
     name: '',
     dob: '',
@@ -844,9 +851,22 @@ export default function DepartmentHub() {
     if (slug === 'caring' && (activeTab === 'pcs' || activeTab === 'summary')) {
       setLoadingPCS(true)
       getPCSEntries().then(setPcsEntries).catch(() => setPcsEntries([])).finally(() => setLoadingPCS(false))
-      getAllCellGroupMembers().then(setAllCellMembers).catch(() => {})
+      getCellGroups('Cell').then(groups => {
+        setCellGroups(groups)
+        if (!groups.length) return
+        Promise.all(groups.map(g =>
+          getCellGroupMembers(g.id).then(members => members.map(m => ({ ...m, cellId: g.id })))
+        )).then(results => setAllCellMembers(results.flat())).catch(() => {})
+      }).catch(() => {})
     }
   }, [slug, activeTab])
+
+  // Live listener for cell-leader PCS referral tasks (Caring hub)
+  useEffect(() => {
+    if (slug !== 'caring') return
+    const unsub = subscribeCellMemberReferralTasks(setCellReferralTasks)
+    return unsub
+  }, [slug])
 
   useEffect(() => {
     if (!expandedCellId) {
@@ -1352,6 +1372,8 @@ export default function DepartmentHub() {
                   cellPendingChanges={cellPendingChanges}
                   loadingCellPending={loadingCellPending}
                   onChangeResolved={handleCellChangeResolved}
+                  tasks={tasks}
+                  onTaskUpdated={(id, patch) => setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))}
                 />
               ) : slug === 'd-light' ? (
                 canEditDelightVisitors ? (
@@ -3423,6 +3445,72 @@ export default function DepartmentHub() {
                       </div>
                     )}
 
+                    {/* ── Cell Connection ── */}
+                    {(() => {
+                      const cellMember = entry.visitorId
+                        ? allCellMembers.find(m => m.visitorId === entry.visitorId && m.status !== 'inactive')
+                        : null
+                      const cg = cellMember ? cellGroups.find(g => g.id === cellMember.cellId) : null
+                      const notified = pcsNotifiedIds.has(entry.id)
+                      const notifying = pcsNotifyingId === entry.id
+                      return (
+                        <div className="px-4 py-3 border-b border-slate-100">
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Cell Group</p>
+                            {!cg && entry.visitorId && canEdit && (
+                              notified ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                  Notified
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={notifying}
+                                  onClick={async () => {
+                                    setPcsNotifyingId(entry.id)
+                                    try {
+                                      await createTask({
+                                        taskTitle: `Add ${entry.name} to a cell group`,
+                                        department: 'Cell',
+                                        assignedPerson: '',
+                                        priority: 'Medium',
+                                        deadline: '',
+                                        status: 'Pending',
+                                        notes: `Referred from Caring PCS by ${userProfile?.name || userProfile?.email || 'Caring Director'}. ${entry.name} is under personal care but is not currently part of any cell group.${entry.phone ? ` Phone: ${entry.phone}` : ''}`,
+                                        createdBy: userProfile?.email || '',
+                                        pcsReferral: true,
+                                        pcsPersonName: entry.name,
+                                        pcsPersonPhone: entry.phone || '',
+                                        pcsPersonVisitorId: entry.visitorId || '',
+                                      })
+                                      setPcsNotifiedIds(prev => new Set([...prev, entry.id]))
+                                    } catch { alert('Failed to send notification') }
+                                    setPcsNotifyingId(null)
+                                  }}
+                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                                >
+                                  <svg width="10" height="10" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                                  {notifying ? 'Sending…' : 'Notify Cell Director'}
+                                </button>
+                              )
+                            )}
+                          </div>
+                          {cg ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                              {cg.cellName || 'Unnamed Cell'}
+                              {cg.leader ? <span className="text-emerald-500">· {cg.leader}</span> : null}
+                            </span>
+                          ) : (
+                            <p className="text-xs text-slate-400">
+                              {entry.visitorId ? 'Not connected to any cell group' : 'Link to visitor record to see cell connection'}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                     {/* ── Actions ── */}
                     <div className="px-4 py-3 flex items-center gap-2">
                       <button
@@ -3508,6 +3596,71 @@ export default function DepartmentHub() {
                     }}
                     onClose={() => setPcsPickerOpen(false)}
                   />
+                )}
+
+                {/* ── Pending Members from Cell Leaders ── */}
+                {cellReferralTasks.length > 0 && (
+                  <div className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 border-b border-orange-100 flex items-center gap-2 bg-orange-50">
+                      <span className="w-2.5 h-2.5 rounded-full bg-orange-400 flex-shrink-0" />
+                      <p className="text-sm font-bold text-orange-800 flex-1">Pending Members from Cell</p>
+                      <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                        {cellReferralTasks.length}
+                      </span>
+                    </div>
+                    <p className="px-4 pt-3 pb-1 text-xs text-slate-400">
+                      Cell leaders have flagged these members as not yet in PCS. Add them to PCS to acknowledge.
+                    </p>
+                    <div className="divide-y divide-slate-50 pb-2">
+                      {cellReferralTasks.map(task => {
+                        const name     = task.memberName || task.taskTitle.replace(/^Add /, '').replace(/ to PCS$/, '')
+                        const phone    = task.memberPhone || ''
+                        const visitorId = task.memberVisitorId || ''
+                        const cellName = task.cellName || ''
+                        const adding   = cellReferralAdding.has(task.id)
+                        return (
+                          <div key={task.id} className="flex items-center gap-3 px-4 py-3">
+                            <div className="w-9 h-9 rounded-full bg-orange-100 text-orange-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                              {String(name || '?').split(' ').slice(0,2).map(w => (w[0]||'').toUpperCase()).join('')}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-slate-900 text-sm truncate">{name}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                {[phone, cellName ? `Cell: ${cellName}` : ''].filter(Boolean).join(' · ')}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={adding}
+                              onClick={async () => {
+                                setCellReferralAdding(prev => new Set([...prev, task.id]))
+                                try {
+                                  await addPCSEntry({
+                                    visitorId,
+                                    name,
+                                    phone,
+                                    year: new Date().getFullYear(),
+                                    addedBy: userProfile?.email || 'unknown',
+                                  })
+                                  await updateTask(task.id, { status: 'Completed' })
+                                  setPcsEntries(prev => [{
+                                    id: `ref_${task.id}`, visitorId, name, phone,
+                                    year: new Date().getFullYear(), addedAt: new Date(), addedBy: userProfile?.email || '',
+                                  }, ...prev])
+                                } catch { /* toast already shown by error boundary */ }
+                                finally {
+                                  setCellReferralAdding(prev => { const s = new Set(prev); s.delete(task.id); return s })
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-orange-600 text-white text-xs font-semibold rounded-xl hover:bg-orange-700 disabled:opacity-50 transition-colors flex-shrink-0"
+                            >
+                              {adding ? 'Adding…' : 'Add to PCS'}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
                 )}
 
                 {/* Main card — all years on one page */}

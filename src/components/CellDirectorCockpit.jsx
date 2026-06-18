@@ -5,6 +5,8 @@ import {
   addCellGroupMember,
   updateCellGroupMember,
   deleteCellMemberPendingChange,
+  updateTask,
+  subscribePCSReferralTasks,
 } from '../services/firestore'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
 
@@ -29,6 +31,8 @@ export function CellDirectorCockpit({
   cellPendingChanges,
   loadingCellPending,
   onChangeResolved,
+  tasks = [],
+  onTaskUpdated,
 }) {
   const [cellMemberData, setCellMemberData] = useState([])
   const [loadingMembers, setLoadingMembers] = useState(true)
@@ -41,6 +45,15 @@ export function CellDirectorCockpit({
   const [assignOpenName, setAssignOpenName] = useState(null)
   const [assignSelectedCellId, setAssignSelectedCellId] = useState('')
   const [assigning, setAssigning] = useState(false)
+  const [dismissedNames, setDismissedNames] = useState(new Set())
+
+
+  // Live PCS referral tasks — independent of parent tasks prop so they update in real time
+  const [livePcsTasks, setLivePcsTasks] = useState([])
+  useEffect(() => {
+    const unsub = subscribePCSReferralTasks(setLivePcsTasks)
+    return unsub
+  }, [])
 
   const [toast, setToast] = useState(null)
   const showToast = useCallback((msg, type = 'success') => {
@@ -118,10 +131,31 @@ export function CellDirectorCockpit({
       .finally(() => setLoadingUnassigned(false))
   }, [loadingMembers, memberNamesSet])
 
-  const visibleUnassigned = useMemo(
-    () => unassignedVisitors.filter((v) => !assignedNames.has(v.name.toLowerCase())),
-    [unassignedVisitors, assignedNames]
+  // PCS referrals merged into the unassigned list — derived from live listener, not prop
+  const pcsReferrals = useMemo(
+    () => livePcsTasks.map(t => ({
+      name: t.pcsPersonName || (t.taskTitle || '').replace(/^Add /, '').replace(/ to a cell group$/, ''),
+      phone: t.pcsPersonPhone || '',
+      visitorId: t.pcsPersonVisitorId || '',
+      taskId: t.id,
+      source: 'pcs',
+    })),
+    [livePcsTasks]
   )
+
+  const visibleUnassigned = useMemo(() => {
+    const sundayItems = unassignedVisitors
+      .filter(v => !assignedNames.has(v.name.toLowerCase()) && !dismissedNames.has(v.name.toLowerCase()))
+      .map(v => ({ ...v, source: 'sunday' }))
+    // PCS referrals come first; deduplicate by name against Sunday list
+    const sundayNames = new Set(sundayItems.map(v => v.name.toLowerCase()))
+    const pcsItems = pcsReferrals.filter(
+      r => !assignedNames.has(r.name.toLowerCase()) &&
+           !dismissedNames.has(r.name.toLowerCase()) &&
+           !sundayNames.has(r.name.toLowerCase())
+    )
+    return [...pcsItems, ...sundayItems]
+  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames])
 
   const handleApprove = useCallback(
     async (change) => {
@@ -159,15 +193,24 @@ export function CellDirectorCockpit({
   )
 
   const handleAssign = useCallback(
-    async (visitorName) => {
+    async (item) => {
       if (!assignSelectedCellId) return
       setAssigning(true)
       try {
-        await addCellGroupMember(assignSelectedCellId, { name: visitorName, status: 'active' })
-        setAssignedNames((prev) => new Set([...prev, visitorName.toLowerCase()]))
-        const cellName =
-          activeCells.find((c) => c.id === assignSelectedCellId)?.cellName || 'cell'
-        showToast(`${visitorName} added to ${cellName}.`)
+        await addCellGroupMember(assignSelectedCellId, {
+          name: item.name,
+          status: 'active',
+          ...(item.phone ? { phone: item.phone } : {}),
+          ...(item.visitorId ? { visitorId: item.visitorId } : {}),
+        })
+        // If this is a PCS referral task, mark it completed
+        if (item.taskId) {
+          await updateTask(item.taskId, { status: 'Completed' })
+          onTaskUpdated?.(item.taskId, { status: 'Completed' })
+        }
+        setAssignedNames((prev) => new Set([...prev, item.name.toLowerCase()]))
+        const cellName = activeCells.find((c) => c.id === assignSelectedCellId)?.cellName || 'cell'
+        showToast(`${item.name} added to ${cellName}.`)
         setAssignOpenName(null)
         setAssignSelectedCellId('')
       } catch {
@@ -176,7 +219,7 @@ export function CellDirectorCockpit({
         setAssigning(false)
       }
     },
-    [assignSelectedCellId, activeCells, showToast]
+    [assignSelectedCellId, activeCells, onTaskUpdated, showToast]
   )
 
   return (
@@ -306,9 +349,9 @@ export function CellDirectorCockpit({
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
               <div>
-                <h3 className="font-bold text-slate-900">Unassigned Repeat Visitors</h3>
+                <h3 className="font-bold text-slate-900">Unassigned</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Attended 2+ Sundays · Not yet in any cell · From Sunday Reports
+                  Repeat Sunday visitors + Caring PCS referrals not yet in a cell
                 </p>
               </div>
               <button
@@ -329,74 +372,119 @@ export function CellDirectorCockpit({
                   No unassigned repeat visitors found.
                 </p>
               ) : (
-                visibleUnassigned.map((visitor) => (
-                  <div key={visitor.name} className="relative">
-                    <div className="flex items-center gap-3 bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-sm">
-                      <div className="w-9 h-9 rounded-full bg-violet-100 text-violet-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
-                        {initials(visitor.name)}
+                visibleUnassigned.map((item) => {
+                  const isPCS = item.source === 'pcs'
+                  return (
+                    <div key={`${item.source}-${item.name}`} className="relative">
+                      <div className={`flex items-center gap-3 bg-white border rounded-2xl px-4 py-3 shadow-sm ${
+                        isPCS ? 'border-indigo-100' : 'border-slate-100'
+                      }`}>
+                        <div className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${
+                          isPCS ? 'bg-indigo-100 text-indigo-700' : 'bg-violet-100 text-violet-700'
+                        }`}>
+                          {initials(item.name)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-semibold text-slate-900 text-sm">{item.name}</p>
+                            {isPCS && (
+                              <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
+                                From Caring
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {isPCS
+                              ? item.phone || 'PCS referral'
+                              : `${item.weekCount} Sunday${item.weekCount !== 1 ? 's' : ''} attended`}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAssignOpenName(assignOpenName === item.name ? null : item.name)
+                            setAssignSelectedCellId('')
+                          }}
+                          className={`px-3 py-1.5 text-white text-xs font-semibold rounded-xl flex-shrink-0 transition-colors ${
+                            isPCS
+                              ? 'bg-indigo-600 hover:bg-indigo-700'
+                              : 'bg-violet-600 hover:bg-violet-700'
+                          }`}
+                        >
+                          Assign {assignOpenName === item.name ? '▲' : '▼'}
+                        </button>
+                        <button
+                          type="button"
+                          title="Dismiss"
+                          onClick={async () => {
+                            setDismissedNames(prev => new Set([...prev, item.name.toLowerCase()]))
+                            if (assignOpenName === item.name) setAssignOpenName(null)
+                            if (item.taskId) {
+                              try {
+                                await updateTask(item.taskId, { status: 'Completed' })
+                                onTaskUpdated?.(item.taskId, { status: 'Completed' })
+                              } catch { /* silently ignore */ }
+                            }
+                          }}
+                          className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 hover:text-slate-600 flex-shrink-0 transition-colors text-xs leading-none"
+                        >
+                          ✕
+                        </button>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-900 text-sm">{visitor.name}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {visitor.weekCount} Sunday{visitor.weekCount !== 1 ? 's' : ''} attended
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAssignOpenName(assignOpenName === visitor.name ? null : visitor.name)
-                          setAssignSelectedCellId('')
-                        }}
-                        className="px-3 py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-xl hover:bg-violet-700 flex-shrink-0 transition-colors"
-                      >
-                        Assign {assignOpenName === visitor.name ? '▲' : '▼'}
-                      </button>
-                    </div>
 
-                    {assignOpenName === visitor.name && (
-                      <div className="absolute right-0 top-full mt-1 w-60 bg-white border border-slate-200 rounded-2xl shadow-xl z-10 overflow-hidden">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wide px-3 py-2 border-b border-slate-100">
-                          Choose a cell group
-                        </p>
-                        <div className="max-h-48 overflow-y-auto">
-                          {activeCells.map((cell) => (
+                      {assignOpenName === item.name && (
+                        <div className="absolute right-0 top-full mt-1 w-60 bg-white border border-slate-200 rounded-2xl shadow-xl z-10 overflow-hidden">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wide px-3 py-2 border-b border-slate-100">
+                            Choose a cell group
+                          </p>
+                          <div className="max-h-48 overflow-y-auto">
+                            {activeCells.map((cell) => (
+                              <button
+                                key={cell.id}
+                                type="button"
+                                onClick={() => setAssignSelectedCellId(cell.id)}
+                                className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
+                                  assignSelectedCellId === cell.id
+                                    ? isPCS
+                                      ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                                      : 'bg-violet-50 text-violet-700 font-semibold'
+                                    : 'text-slate-700 hover:bg-slate-50'
+                                }`}
+                              >
+                                <span>{cell.cellName || cell.id}</span>
+                                {assignSelectedCellId === cell.id && (
+                                  <span className={isPCS ? 'text-indigo-600' : 'text-violet-600'}>✓</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="p-3 border-t border-slate-100">
                             <button
-                              key={cell.id}
                               type="button"
-                              onClick={() => setAssignSelectedCellId(cell.id)}
-                              className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
-                                assignSelectedCellId === cell.id
-                                  ? 'bg-violet-50 text-violet-700 font-semibold'
-                                  : 'text-slate-700 hover:bg-slate-50'
+                              onClick={() => handleAssign(item)}
+                              disabled={!assignSelectedCellId || assigning}
+                              className={`w-full py-2 text-white text-xs font-bold rounded-xl disabled:opacity-40 transition-colors ${
+                                isPCS
+                                  ? 'bg-indigo-600 hover:bg-indigo-700'
+                                  : 'bg-violet-600 hover:bg-violet-700'
                               }`}
                             >
-                              <span>{cell.cellName || cell.id}</span>
-                              {assignSelectedCellId === cell.id && <span className="text-violet-600">✓</span>}
+                              {assigning
+                                ? 'Adding…'
+                                : assignSelectedCellId
+                                ? `Add to ${activeCells.find((c) => c.id === assignSelectedCellId)?.cellName || 'Cell'}`
+                                : 'Select a cell first'}
                             </button>
-                          ))}
+                          </div>
                         </div>
-                        <div className="p-3 border-t border-slate-100">
-                          <button
-                            type="button"
-                            onClick={() => handleAssign(visitor.name)}
-                            disabled={!assignSelectedCellId || assigning}
-                            className="w-full py-2 bg-violet-600 text-white text-xs font-bold rounded-xl hover:bg-violet-700 disabled:opacity-40 transition-colors"
-                          >
-                            {assigning
-                              ? 'Adding…'
-                              : assignSelectedCellId
-                              ? `Add to ${activeCells.find((c) => c.id === assignSelectedCellId)?.cellName || 'Cell'}`
-                              : 'Select a cell first'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))
+                      )}
+                    </div>
+                  )
+                })
               )}
 
               <p className="text-xs text-slate-400 text-center pt-2">
-                Updated each Sunday when the Sunday Report is saved.
+                Sunday visitors update when a Sunday Report is saved. Caring referrals appear when the Caring Director notifies from PCS.
               </p>
             </div>
           </div>

@@ -11,11 +11,11 @@ import {
   addSundayProgramLog,
   getSundayProgramLogsByDate,
   updateSundayProgramLog,
+  getDelightVisitors,
 } from '../services/firestore'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 
 const MANUAL_ONLY_KEYS = [
-  { key: 'newComers', title: 'New Comers' },
   { key: 'others', title: 'Others' },
   { key: 'secondWeekAttendeesNames', title: 'Second Week Attendees' },
   { key: 'riverKids', title: 'River Kids' },
@@ -65,10 +65,45 @@ function migrateLegacyCellAttendance(report, cellGroups) {
   return sca
 }
 
-function NameListSection({ title, names, canEdit, onAdd, onEdit, onRemove, className = '' }) {
+function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, className = '' }) {
+  const nameSet = useMemo(() => new Set((names || []).map(n => n.trim().toLowerCase())), [names])
+  const unusedSuggestions = useMemo(
+    () => suggestions.filter(s => !nameSet.has(s.trim().toLowerCase())),
+    [suggestions, nameSet]
+  )
+
   return (
     <div className={`rounded-xl border p-4 shadow-sm ${className || 'bg-white border-slate-200'}`}>
       <h3 className="font-semibold text-slate-800 mb-3">{title}</h3>
+
+      {/* D-Light visitor suggestions */}
+      {canEdit && (loadingSuggestions || unusedSuggestions.length > 0) && (
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+            From D-Light this week — tap to add
+          </p>
+          {loadingSuggestions ? (
+            <p className="text-xs text-slate-400">Loading visitors…</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {unusedSuggestions.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => onAddValue?.(name)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-medium hover:bg-indigo-100 transition-colors"
+                >
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                    <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <ul className="space-y-2">
         {(names || []).map((name, idx) => (
           <li key={idx} className="flex items-center gap-2">
@@ -157,6 +192,8 @@ export default function SundayReport() {
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [programLogs, setProgramLogs] = useState([])
   const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [dlightSuggestions, setDlightSuggestions] = useState([])
+  const [loadingDlight, setLoadingDlight] = useState(false)
   const [editingLogIdx, setEditingLogIdx] = useState(null)
   const [editingLogTime, setEditingLogTime] = useState('')
   const [editingProgramIdx, setEditingProgramIdx] = useState(null)
@@ -197,7 +234,7 @@ export default function SundayReport() {
       .filter((r) => r.count > 0)
     const othersCount       = (report?.others || []).filter(Boolean).length
     const secondWeekCount   = (report?.secondWeekAttendeesNames || []).filter(Boolean).length
-    const newcomersCount    = (report?.newComers || []).filter(Boolean).length
+    const newcomersCount    = dlightSuggestions.filter(Boolean).length
     const pastoralCount     = (report?.pastoralAttendees || []).filter(Boolean).length
     const riverKidsCount    = (report?.riverKids || []).filter(Boolean).length
     const sundaySchool      = Number(report?.summary?.sundaySchool) || 0
@@ -205,7 +242,7 @@ export default function SundayReport() {
     const totalAdults       = cellTotal + othersCount + secondWeekCount + newcomersCount + pastoralCount
     const total             = totalAdults + sundaySchool + riverKidsCount
     return { cellRows, othersCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total }
-  }, [cellGroups, report])
+  }, [cellGroups, report, dlightSuggestions])
 
   /** First incomplete attendance section = “active” highlight (editors only) */
   const activeSectionId = useMemo(() => {
@@ -263,6 +300,26 @@ export default function SundayReport() {
       .catch(() => setMembersForCell([]))
       .finally(() => setLoadingMembers(false))
   }, [expandedCellId])
+
+  // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days before the Sunday)
+  useEffect(() => {
+    setLoadingDlight(true)
+    const sunday = new Date(selectedDate + 'T00:00:00')
+    const weekAgo = new Date(sunday)
+    weekAgo.setDate(sunday.getDate() - 6)
+    getDelightVisitors()
+      .then(visitors => {
+        const thisWeek = visitors.filter(v => {
+          if (!v.attendedDate) return false
+          const d = new Date(v.attendedDate + 'T00:00:00')
+          return d >= weekAgo && d <= sunday
+        })
+        const names = [...new Set(thisWeek.map(v => v.name).filter(Boolean))]
+        setDlightSuggestions(names)
+      })
+      .catch(() => setDlightSuggestions([]))
+      .finally(() => setLoadingDlight(false))
+  }, [selectedDate])
 
   // Single master load — clears stale data immediately so previous date never bleeds through
   useEffect(() => {
@@ -406,6 +463,7 @@ export default function SundayReport() {
     updateReport({ [key]: list })
   }
   const addCellName = (key) => updateReport({ [key]: [...(report?.[key] || []), ''] })
+  const addCellNameValue = (key, value) => updateReport({ [key]: [...(report?.[key] || []), value] })
   const removeCellName = (key, idx) => updateReport({ [key]: (report?.[key] || []).filter((_, i) => i !== idx) })
 
   const updateSummary = (key, value) => updateReport({ summary: { ...(report?.summary || {}), [key]: value } })
@@ -889,10 +947,40 @@ export default function SundayReport() {
               />
             </AttendanceSectionShell>
 
+            {/* ── New Comers — auto-populated from D-Light Visitors ── */}
+            <div ref={newComersSectionRef} className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-slate-800">New Comers</h3>
+                <span className="text-xs text-indigo-500 font-medium bg-indigo-100 px-2 py-0.5 rounded-full">
+                  From D-Light Visitors
+                </span>
+              </div>
+
+              {loadingDlight ? (
+                <p className="text-sm text-slate-400 py-2">Loading from D-Light visitors…</p>
+              ) : dlightSuggestions.length === 0 ? (
+                <p className="text-sm text-slate-400 py-2">
+                  No visitors recorded for this Sunday in D-Light yet.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {dlightSuggestions.map((name, idx) => (
+                    <li key={idx} className="flex items-center gap-2 text-sm text-slate-800">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <p className="text-xs text-slate-400 mt-3">
+                Names are pulled automatically from D-Light visitor entries for this week.
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {MANUAL_ONLY_KEYS.map(({ key, title }) => {
                 const refMap = {
-                  newComers: newComersSectionRef,
                   others: othersSectionRef,
                   secondWeekAttendeesNames: secondWeekSectionRef,
                   riverKids: riverKidsSectionRef,

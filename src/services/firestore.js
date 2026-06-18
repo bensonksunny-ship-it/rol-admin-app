@@ -194,6 +194,35 @@ export async function deleteTask(id) {
   await deleteDoc(doc(db, 'tasks', id))
 }
 
+// Real-time listener for cell-leader referrals sent to the Caring department
+export function subscribeCellMemberReferralTasks(onChange) {
+  if (!db) return () => {}
+  const q = query(collection(db, 'tasks'), where('department', '==', 'Caring'))
+  return onSnapshot(q, (snap) => {
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    onChange(all.filter(t =>
+      t.status !== 'Completed' &&
+      (t.cellMemberReferral === true || (t.notes && t.notes.includes('Referred from Cell')))
+    ))
+  }, () => {})
+}
+
+// Real-time listener for pending PCS referral tasks sent to the Cell department
+export function subscribePCSReferralTasks(onChange) {
+  if (!db) return () => {}
+  const q = query(
+    collection(db, 'tasks'),
+    where('department', '==', 'Cell')
+  )
+  return onSnapshot(q, (snap) => {
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    onChange(all.filter(t =>
+      t.status !== 'Completed' &&
+      (t.pcsReferral === true || (t.notes && t.notes.includes('Referred from Caring PCS')))
+    ))
+  }, () => {})
+}
+
 // Department entries (director data: team, budget, participation – same data for pastor insights)
 export async function getDepartmentEntries(department, filters = {}) {
   if (!db) return []
