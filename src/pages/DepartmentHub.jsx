@@ -718,11 +718,16 @@ export default function DepartmentHub() {
     if (newlyAllotted.length) setBoardAllottedNotifications(newlyAllotted)
   }, [boardPoints, department?.name])
 
+  const refreshAllCellMembers = useCallback(() => {
+    if (cellGroups.length === 0) return
+    Promise.all(cellGroups.map(g =>
+      getCellGroupMembers(g.id).then(members => members.map(m => ({ ...m, cellId: g.id })))
+    )).then(results => setAllCellMembers(results.flat())).catch(() => {})
+  }, [cellGroups])
+
   useEffect(() => {
-    if (department && slug === 'cell' && (activeTab === 'cellGroups' || activeTab === 'summary')) {
-      getAllCellGroupMembers().then(setAllCellMembers)
-    }
-  }, [department, slug, activeTab])
+    refreshAllCellMembers()
+  }, [refreshAllCellMembers])
 
   useEffect(() => {
     if (department && slug === 'cell' && (activeTab === 'cellGroups' || activeTab === 'summary')) {
@@ -2124,9 +2129,12 @@ export default function DepartmentHub() {
           )}
 
           {delightVisitorModalOpen && (
-            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-              <div className="bg-slate-50 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between px-6 py-4 bg-white rounded-t-2xl border-b border-slate-200">
+            <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 sm:p-4">
+              <div className="bg-slate-50 sm:rounded-2xl rounded-t-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col">
+                <div className="sm:hidden flex justify-center pt-3 pb-0 flex-shrink-0">
+                  <div className="w-10 h-1 rounded-full bg-slate-300" />
+                </div>
+                <div className="flex items-center justify-between px-5 py-4 bg-white sm:rounded-t-2xl border-b border-slate-200 flex-shrink-0">
                   <div>
                     <h3 className="text-lg font-bold text-slate-800">{editingDelightVisitorId ? 'Edit Visitor' : 'Add Visitor'}</h3>
                     <p className="text-xs text-slate-400 mt-0.5">Fill in the visitor's details below</p>
@@ -2188,7 +2196,7 @@ export default function DepartmentHub() {
                       alert('Failed to save visitor')
                     }
                   }}
-                  className="p-4 space-y-3"
+                  className="p-4 space-y-3 overflow-y-auto flex-1"
                 >
                   {/* Personal Info card */}
                   <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
@@ -2204,37 +2212,35 @@ export default function DepartmentHub() {
                         className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Birth</label>
-                        <DateSelect
-                          value={delightVisitorForm.dob}
-                          onChange={val => setDelightVisitorForm(f => ({ ...f, dob: val }))}
-                          minYear={1940}
-                          maxYear={VISITOR_CURRENT_YEAR}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Birth</label>
+                      <DateSelect
+                        value={delightVisitorForm.dob}
+                        onChange={val => setDelightVisitorForm(f => ({ ...f, dob: val }))}
+                        minYear={1940}
+                        maxYear={VISITOR_CURRENT_YEAR}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>
+                      <div className="flex rounded-xl border border-slate-200 bg-slate-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-200 focus-within:border-indigo-400 transition-colors overflow-hidden">
+                        <input
+                          type="text"
+                          placeholder="+91"
+                          value={(() => { const m = (delightVisitorForm.phone || '').match(/^(\+\d{1,4})\s*/); return m ? m[1] : '' })()}
+                          onChange={(e) => { const num = (delightVisitorForm.phone || '').replace(/^\+\d{1,4}\s*/, ''); setDelightVisitorForm((f) => ({ ...f, phone: (e.target.value + ' ' + num).trim() })) }}
+                          className="w-16 px-2 py-2.5 text-sm text-center bg-transparent border-r border-slate-200 focus:outline-none"
+                        />
+                        <input
+                          type="tel"
+                          placeholder="phone number"
+                          value={(() => { const m = (delightVisitorForm.phone || '').match(/^\+\d{1,4}\s*(.*)/); return m ? m[1] : (delightVisitorForm.phone || '') })()}
+                          onChange={(e) => { const code = ((delightVisitorForm.phone || '').match(/^(\+\d{1,4})/) || ['', ''])[1]; setDelightVisitorForm((f) => ({ ...f, phone: code ? (code + ' ' + e.target.value).trim() : e.target.value })) }}
+                          className="flex-1 px-3 py-2.5 text-sm focus:outline-none bg-transparent"
                         />
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>
-                        <div className="flex rounded-xl border border-slate-200 bg-slate-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-200 focus-within:border-indigo-400 transition-colors overflow-hidden">
-                          <input
-                            type="text"
-                            placeholder="+91"
-                            value={(() => { const m = (delightVisitorForm.phone || '').match(/^(\+\d{1,4})\s*/); return m ? m[1] : '' })()}
-                            onChange={(e) => { const num = (delightVisitorForm.phone || '').replace(/^\+\d{1,4}\s*/, ''); setDelightVisitorForm((f) => ({ ...f, phone: (e.target.value + ' ' + num).trim() })) }}
-                            className="w-16 px-2 py-2.5 text-sm text-center bg-transparent border-r border-slate-200 focus:outline-none"
-                          />
-                          <input
-                            type="tel"
-                            placeholder="phone number"
-                            value={(() => { const m = (delightVisitorForm.phone || '').match(/^\+\d{1,4}\s*(.*)/); return m ? m[1] : (delightVisitorForm.phone || '') })()}
-                            onChange={(e) => { const code = ((delightVisitorForm.phone || '').match(/^(\+\d{1,4})/) || ['', ''])[1]; setDelightVisitorForm((f) => ({ ...f, phone: code ? (code + ' ' + e.target.value).trim() : e.target.value })) }}
-                            className="flex-1 px-3 py-2.5 text-sm focus:outline-none bg-transparent"
-                          />
-                        </div>
-                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
                         <input
@@ -2271,19 +2277,19 @@ export default function DepartmentHub() {
                         className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Attending <span className="text-red-400">*</span></label>
-                        <DateSelect
-                          value={delightVisitorForm.attendedDate}
-                          onChange={val => {
-                            const yr = val ? new Date(val).getFullYear() : null
-                            setDelightVisitorForm(f => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
-                          }}
-                          minYear={VISITOR_START_YEAR}
-                          maxYear={VISITOR_CURRENT_YEAR}
-                        />
-                      </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Attending <span className="text-red-400">*</span></label>
+                      <DateSelect
+                        value={delightVisitorForm.attendedDate}
+                        onChange={val => {
+                          const yr = val ? new Date(val).getFullYear() : null
+                          setDelightVisitorForm(f => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
+                        }}
+                        minYear={VISITOR_START_YEAR}
+                        maxYear={VISITOR_CURRENT_YEAR}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1.5">Service Attended</label>
                         <select
@@ -2299,8 +2305,6 @@ export default function DepartmentHub() {
                           <option value="Special Meeting">Special Meeting</option>
                         </select>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1.5">How did they find us?</label>
                         <select
@@ -2331,14 +2335,14 @@ export default function DepartmentHub() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex gap-3 pt-1">
-                    <button type="submit" className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm">
+                  <div className="flex gap-3 pt-1 pb-2">
+                    <button type="submit" className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm">
                       {editingDelightVisitorId ? 'Update Visitor' : 'Add Visitor'}
                     </button>
                     <button
                       type="button"
                       onClick={() => { setDelightVisitorModalOpen(false); setEditingDelightVisitorId(null) }}
-                      className="px-5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
+                      className="px-5 py-3 rounded-xl border border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
                     >
                       Cancel
                     </button>
@@ -5364,15 +5368,17 @@ export default function DepartmentHub() {
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 bg-white">
-                                      {cellMembers.filter((m) => m.status !== 'inactive').map((m, idx) => (
-                                        <tr key={m.id} className="hover:bg-slate-50">
+                                      {cellMembers.filter((m) => m.status !== 'inactive').map((m, idx) => {
+                                        const isDuplicate = duplicateCellMemberKeys.has(m.visitorId || ('name:' + (m.name || '').toLowerCase().trim()))
+                                        return (
+                                        <tr key={m.id} className={isDuplicate ? 'bg-red-50 border-l-4 border-red-400 hover:bg-red-100' : 'hover:bg-slate-50'}>
                                           <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
                                           <td className="px-3 py-2">
                                             <div className="flex items-center gap-1.5">
-                                              {duplicateCellMemberKeys.has(m.visitorId || ('name:' + (m.name || '').toLowerCase().trim())) && (
+                                              {isDuplicate && (
                                                 <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="This person is in multiple cell groups" />
                                               )}
-                                              <span className="text-slate-800">{m.name || '—'}</span>
+                                              <span className={isDuplicate ? 'text-red-800 font-semibold' : 'text-slate-800'}>{m.name || '—'}</span>
                                               {m.visitorId
                                                 ? <span title="Linked to visitor entry" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
                                                 : <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
@@ -5405,12 +5411,13 @@ export default function DepartmentHub() {
                                                 setCellMemberModalOpen(true)
                                               }} className="text-blue-600 hover:underline">Edit</button>
                                               <button type="button" onClick={() => setCellMemberLinking({ member: m, cellId: cell.id })} className="text-indigo-600 hover:underline">{m.visitorId ? 'Relink' : 'Link'}</button>
-                                              <button type="button" onClick={async () => { if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); getAllCellGroupMembers().then(setAllCellMembers) }} className="text-red-600 hover:underline">Delete</button>
-                                              <button type="button" onClick={async () => { await updateCellGroupMember(cell.id, m.id, { status: 'inactive' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); getAllCellGroupMembers().then(setAllCellMembers) }} className="text-amber-600 hover:underline">Make Inactive</button>
+                                              <button type="button" onClick={async () => { if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="text-red-600 hover:underline">Delete</button>
+                                              <button type="button" onClick={async () => { await updateCellGroupMember(cell.id, m.id, { status: 'inactive' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() }} className="text-amber-600 hover:underline">Make Inactive</button>
                                             </td>
                                           )}
                                         </tr>
-                                      ))}
+                                        )
+                                      })}
                                       {cellMembers.filter((m) => m.status !== 'inactive').length === 0 && (
                                         <tr><td colSpan={canEdit ? 8 : 7} className="px-3 py-4 text-center text-slate-500">No active members.</td></tr>
                                       )}
@@ -5710,10 +5717,8 @@ export default function DepartmentHub() {
                 const phone = member.phone || visitor.phone || ''
                 const birthday = member.birthday || (visitor.dob ? String(visitor.dob).slice(0, 10) : '')
                 const cellUpdate = { name, phone, birthday, visitorId: visitor.id }
-                await Promise.all([
-                  updateCellGroupMember(cellMemberLinking.cellId, member.id, cellUpdate),
-                  syncVisitorDataEverywhere(visitor.id, { name, phone, dob: birthday }),
-                ])
+                await updateCellGroupMember(cellMemberLinking.cellId, member.id, cellUpdate)
+                syncVisitorDataEverywhere(visitor.id, { name, phone, dob: birthday }).catch(() => {})
                 setCellMembers(prev => prev.map(m => m.id === member.id ? { ...m, ...cellUpdate } : m))
                 setCellMemberLinking(null)
                 // Open the edit modal immediately so the user can see and confirm the merged details
@@ -5808,7 +5813,7 @@ export default function DepartmentHub() {
                           const list = await getCellGroupMembers(expandedCellId)
                           setCellMembers(list)
                           setCellGroups((prev) => prev.map((c) => (c.id === expandedCellId ? { ...c, memberCount: list.length } : c)))
-                          getAllCellGroupMembers().then(setAllCellMembers)
+                          refreshAllCellMembers()
                         }
                         setCellMemberModalOpen(false)
                         setEditingCellMemberId(null)
@@ -6614,7 +6619,7 @@ function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
                   disabled={linking}
                   onClick={async () => {
                     setLinking(true)
-                    await onLink(v)
+                    try { await onLink(v) } catch (e) { console.error(e) }
                     setLinking(false)
                   }}
                   className={`w-full text-left px-4 py-3 flex items-center gap-3 border-b border-slate-50 transition-colors
