@@ -1571,6 +1571,7 @@ export async function addCellGroupMember(cellId, data) {
     occupation:  data.occupation  || '',
     role:        data.role        || '',
     notes:       data.notes       || '',
+    visitorId:   data.visitorId   || '',
     status: data.status === 'inactive' ? 'inactive' : 'active',
     createdAt: Timestamp.now(),
   })

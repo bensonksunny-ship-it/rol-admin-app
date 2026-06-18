@@ -2143,11 +2143,9 @@ export default function DepartmentHub() {
                     try {
                       if (editingDelightVisitorId) {
                         const before = delightVisitors.find((x) => x.id === editingDelightVisitorId) || null
-                        await Promise.all([
-                          updateDelightVisitor(editingDelightVisitorId, delightVisitorForm),
-                          updateCellMembersByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone, birthday: delightVisitorForm.dob }),
-                          updatePCSEntriesByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone }),
-                        ])
+                        await updateDelightVisitor(editingDelightVisitorId, delightVisitorForm)
+                        updateCellMembersByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone, birthday: delightVisitorForm.dob }).catch(() => {})
+                        updatePCSEntriesByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone }).catch(() => {})
                         setDelightVisitors((prev) =>
                           prev.map((x) => (x.id === editingDelightVisitorId ? { ...x, ...delightVisitorForm } : x))
                         )
@@ -2208,11 +2206,11 @@ export default function DepartmentHub() {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Birth</label>
-                        <input
-                          type="date"
+                        <DateSelect
                           value={delightVisitorForm.dob}
-                          onChange={(e) => setDelightVisitorForm((f) => ({ ...f, dob: e.target.value }))}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                          onChange={val => setDelightVisitorForm(f => ({ ...f, dob: val }))}
+                          minYear={1940}
+                          maxYear={VISITOR_CURRENT_YEAR}
                         />
                       </div>
                       <div>
@@ -2275,15 +2273,14 @@ export default function DepartmentHub() {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Attending <span className="text-red-400">*</span></label>
-                        <input
-                          type="date"
+                        <DateSelect
                           value={delightVisitorForm.attendedDate}
-                          onChange={(e) => {
-                            const val = e.target.value
+                          onChange={val => {
                             const yr = val ? new Date(val).getFullYear() : null
-                            setDelightVisitorForm((f) => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
+                            setDelightVisitorForm(f => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
                           }}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                          minYear={VISITOR_START_YEAR}
+                          maxYear={VISITOR_CURRENT_YEAR}
                         />
                       </div>
                       <div>
@@ -3426,9 +3423,11 @@ export default function DepartmentHub() {
                             await Promise.all([
                               updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, year: resolvedYear }),
                               entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),
-                              entry.visitorId ? updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }) : Promise.resolve(),
-                              entry.visitorId ? updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }) : Promise.resolve(),
                             ])
+                            if (entry.visitorId) {
+                              updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
+                              updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
+                            }
                             setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, attendedDate, membershipNumber, year: resolvedYear ? Number(resolvedYear) : null } : e))
                           } catch { alert('Failed to save') }
                           setPcsExpandedSaving(false)
@@ -5212,7 +5211,7 @@ export default function DepartmentHub() {
                                   type="button"
                                   onClick={() => {
                                     setEditingCellMemberId(null)
-                                    setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
+                                    setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: new Date().toISOString().slice(0, 10), status: 'active', visitorId: '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
                                     setCellMemberVisitorSearch('')
                                     setCellMemberModalOpen(true)
                                     if (cellMemberVisitors.length === 0) {
@@ -5696,15 +5695,37 @@ export default function DepartmentHub() {
               member={cellMemberLinking.member}
               cellId={cellMemberLinking.cellId}
               onLink={async (visitor) => {
-                const updated = {
-                  name: visitor.name,
-                  phone: visitor.phone || cellMemberLinking.member.phone,
-                  birthday: visitor.dob ? String(visitor.dob).slice(0, 10) : cellMemberLinking.member.birthday,
-                  visitorId: visitor.id,
-                }
-                await updateCellGroupMember(cellMemberLinking.cellId, cellMemberLinking.member.id, updated)
-                setCellMembers(prev => prev.map(m => m.id === cellMemberLinking.member.id ? { ...m, ...updated } : m))
+                const member = cellMemberLinking.member
+                // Cell member's data takes priority; visitor fills any gaps
+                const name = member.name || visitor.name
+                const phone = member.phone || visitor.phone || ''
+                const birthday = member.birthday || (visitor.dob ? String(visitor.dob).slice(0, 10) : '')
+                const cellUpdate = { name, phone, birthday, visitorId: visitor.id }
+                await Promise.all([
+                  updateCellGroupMember(cellMemberLinking.cellId, member.id, cellUpdate),
+                  syncVisitorDataEverywhere(visitor.id, { name, phone, dob: birthday }),
+                ])
+                setCellMembers(prev => prev.map(m => m.id === member.id ? { ...m, ...cellUpdate } : m))
                 setCellMemberLinking(null)
+                // Open the edit modal immediately so the user can see and confirm the merged details
+                setEditingCellMemberId(member.id)
+                setCellMemberForm({
+                  name,
+                  phone,
+                  birthday,
+                  anniversary: member.anniversary ? String(member.anniversary).slice(0, 10) : '',
+                  locality: member.locality || '',
+                  since: member.since ? String(member.since).slice(0, 10) : '',
+                  status: member.status || 'active',
+                  visitorId: visitor.id,
+                  baptismDate: '',
+                  baptismPlace: '',
+                  marriageDate: '',
+                  spouseName: '',
+                })
+                setCellMemberLinkedVisitorForm({ email: visitor.email || '', nativity: visitor.nativity || '', currentPlace: visitor.currentPlace || '', serviceAttended: visitor.serviceAttended || '', attendedDate: visitor.attendedDate || '', howKnown: visitor.howKnown || '' })
+                setCellMemberLinkedVisitor({ ...visitor, name, phone })
+                setCellMemberModalOpen(true)
               }}
               onClose={() => setCellMemberLinking(null)}
             />
@@ -5751,11 +5772,11 @@ export default function DepartmentHub() {
                           await updateCellGroupMember(expandedCellId, editingCellMemberId, cellMemberForm)
                           setCellMembers((prev) => prev.map((m) => (m.id === editingCellMemberId ? { ...m, ...cellMemberForm } : m)))
                           if (cellMemberForm.visitorId) {
-                            await syncVisitorDataEverywhere(cellMemberForm.visitorId, {
+                            syncVisitorDataEverywhere(cellMemberForm.visitorId, {
                               name: cellMemberForm.name,
                               phone: cellMemberForm.phone,
                               dob: cellMemberForm.birthday,
-                            })
+                            }).catch(() => {})
                             if (cellMemberLinkedVisitorForm.email || cellMemberLinkedVisitorForm.nativity || cellMemberLinkedVisitorForm.currentPlace) {
                               await updateDelightVisitor(cellMemberForm.visitorId, { ...cellMemberLinkedVisitorForm })
                             }
@@ -5783,7 +5804,7 @@ export default function DepartmentHub() {
                         setCellMemberModalOpen(false)
                         setEditingCellMemberId(null)
                         setCellMemberLinkedVisitor(null)
-                        setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active', visitorId: '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
+                        setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: new Date().toISOString().slice(0, 10), status: 'active', visitorId: '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
                       } catch (err) {
                         console.error(err)
                         alert('Failed to save')
@@ -6469,9 +6490,11 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 await Promise.all([
                   updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, leadershipPosition, year }),
                   entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),
-                  entry.visitorId ? updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }) : Promise.resolve(),
-                  entry.visitorId ? updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }) : Promise.resolve(),
                 ]).catch(() => {})
+                if (entry.visitorId) {
+                  updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
+                  updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
+                }
                 setSaving(false)
               }}
               className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
@@ -6480,6 +6503,37 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
         </div>
       </div>
     </>
+  )
+}
+
+// ─── Convenience date picker (day / month / year selects) ────────────────────
+function DateSelect({ value, onChange, minYear, maxYear }) {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const parts = (value || '').split('-')
+  const y = parts[0] || ''
+  const m = parts[1] ? String(Number(parts[1])) : ''
+  const d = parts[2] ? String(Number(parts[2])) : ''
+  const update = (ny, nm, nd) => {
+    onChange(ny && nm && nd ? `${ny}-${String(nm).padStart(2,'0')}-${String(nd).padStart(2,'0')}` : '')
+  }
+  const sel = 'flex-1 px-2 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 text-sm transition-colors'
+  return (
+    <div className="flex gap-1.5">
+      <select value={d} onChange={e => update(y, m, e.target.value)} className={sel}>
+        <option value="">Day</option>
+        {Array.from({length: 31}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+      </select>
+      <select value={m} onChange={e => update(y, e.target.value, d)} className={sel}>
+        <option value="">Month</option>
+        {MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
+      </select>
+      <select value={y} onChange={e => update(e.target.value, m, d)} className={sel}>
+        <option value="">Year</option>
+        {Array.from({length: maxYear - minYear + 1}, (_, i) => maxYear - i).map(yr => (
+          <option key={yr} value={yr}>{yr}</option>
+        ))}
+      </select>
+    </div>
   )
 }
 
