@@ -284,6 +284,7 @@ export default function DepartmentHub() {
   const [pasteText, setPasteText] = useState('')
   const [visitorSearch, setVisitorSearch] = useState('')
   const [visitorSearchOpen, setVisitorSearchOpen] = useState(false)
+  const [visitorMenuOpenId, setVisitorMenuOpenId] = useState(null)
   const [visitorSubPage, setVisitorSubPage] = useState('current')
   const [visitorPrevYear, setVisitorPrevYear] = useState(VISITOR_CURRENT_YEAR - 1)
   const [yearSelectorOpen, setYearSelectorOpen] = useState(false)
@@ -987,7 +988,10 @@ export default function DepartmentHub() {
         ? getVisitorYear(v) === VISITOR_CURRENT_YEAR
         : getVisitorYear(v) === visitorPrevYear
     )
-    .sort((a, b) => (a.attendedDate || '').localeCompare(b.attendedDate || ''))
+    .sort((a, b) => visitorSubPage === 'current'
+      ? (b.attendedDate || '').localeCompare(a.attendedDate || '')
+      : (a.attendedDate || '').localeCompare(b.attendedDate || '')
+    )
   const visitorSearchResults = visitorSearch.trim().length > 0
     ? delightVisitors
         .filter((v) => {
@@ -1824,74 +1828,58 @@ export default function DepartmentHub() {
               ) : filteredDelightVisitors.length === 0 ? (
                 <div className="px-5 py-8 text-center text-slate-500">No visitor entries yet.</div>
               ) : (
-                <>
-                  {/* Mobile cards */}
-                  <div className="sm:hidden divide-y divide-slate-100">
-                    {filteredDelightVisitors.map((v) => (
-                      <div key={v.id} className="p-4 space-y-1.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="font-semibold text-slate-800">{v.name || '—'}</p>
-                          {v.attendedDate && <span className="text-xs text-slate-500 shrink-0">{formatDMY(v.attendedDate)}</span>}
-                        </div>
-                        {v.dob && <p className="text-sm text-slate-500">DOB: {formatDMY(v.dob)}</p>}
-                        {(v.phone || v.email) && (
-                          <p className="text-sm text-slate-600">{[v.phone, v.email].filter(Boolean).join(' · ')}</p>
-                        )}
-                        {(v.nativity || v.currentPlace) && (
-                          <p className="text-sm text-slate-500">{[v.nativity, v.currentPlace].filter(Boolean).join(' → ')}</p>
-                        )}
-                        {v.serviceAttended && <p className="text-sm text-slate-500">Service: {fmtService(v.serviceAttended)}</p>}
-                        {(v.source || v.howKnown) && <p className="text-xs text-slate-400">How: {v.source || v.howKnown}</p>}
-                        {canEditDelightVisitors && (
-                          <div className="flex gap-3 pt-1">
-                            <button type="button" onClick={() => { setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '', year: getVisitorYear(v) }); setDelightVisitorModalOpen(true) }} className="text-sm text-blue-600 font-medium hover:underline">Edit</button>
-                            <button type="button" onClick={async () => { if (!window.confirm('Delete this visitor entry?')) return; try { await deleteDelightVisitor(v.id); setDelightVisitors((prev) => prev.filter((x) => x.id !== v.id)) } catch (err) { console.error(err); alert('Failed to delete') } }} className="text-sm text-red-500 hover:underline">Delete</button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {/* Desktop table */}
-                  <div className="hidden sm:block overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-600">Date of Birth</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-600">Ph. Number</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-600">Email</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-600">Nativity</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-600">Current Place</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-600">Service Attended</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-600">Date of Attending</th>
-                          <th className="text-left px-4 py-3 font-medium text-slate-600">How did you know about church?</th>
-                          {canEditDelightVisitors && <th className="text-left px-4 py-3 font-medium text-slate-600 w-20">Actions</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {filteredDelightVisitors.map((v) => (
-                          <tr key={v.id}>
-                            <td className="px-4 py-3 text-slate-800">{v.name || '—'}</td>
-                            <td className="px-4 py-3 text-slate-600">{v.dob ? formatDMY(v.dob) : '—'}</td>
-                            <td className="px-4 py-3 text-slate-600">{v.phone || '—'}</td>
-                            <td className="px-4 py-3 text-slate-600">{v.email || '—'}</td>
-                            <td className="px-4 py-3 text-slate-600">{v.nativity || '—'}</td>
-                            <td className="px-4 py-3 text-slate-600">{v.currentPlace || '—'}</td>
-                            <td className="px-4 py-3 text-slate-600">{fmtService(v.serviceAttended)}</td>
-                            <td className="px-4 py-3 text-slate-600">{v.attendedDate ? formatDMY(v.attendedDate) : '—'}</td>
-                            <td className="px-4 py-3 text-slate-600">{v.source || v.howKnown || '—'}</td>
-                            {canEditDelightVisitors && (
-                              <td className="px-4 py-3 space-x-2">
-                                <button type="button" onClick={() => { setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '', year: getVisitorYear(v) }); setDelightVisitorModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
-                                <button type="button" onClick={async () => { if (!window.confirm('Delete this visitor entry?')) return; try { await deleteDelightVisitor(v.id); setDelightVisitors((prev) => prev.filter((x) => x.id !== v.id)) } catch (err) { console.error(err); alert('Failed to delete') } }} className="text-red-600 hover:underline">Delete</button>
-                              </td>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="text-left px-6 py-3 font-semibold text-slate-700 text-base">Name</th>
+                        <th className="text-left px-6 py-3 font-medium text-slate-500 w-28">Month</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredDelightVisitors.map((v) => {
+                        const monthPalette = ['bg-blue-50','bg-emerald-50','bg-amber-50','bg-violet-50','bg-rose-50','bg-teal-50','bg-orange-50','bg-cyan-50','bg-pink-50','bg-lime-50','bg-sky-50','bg-indigo-50']
+                        const open = visitorMenuOpenId === v.id
+                        const d = v.attendedDate ? new Date(v.attendedDate) : null
+                        const rowBg = d ? monthPalette[d.getMonth()] : ''
+                        const monthLabel = d ? d.toLocaleDateString('en-US', { month: 'short' }) : '—'
+                        return (
+                          <Fragment key={v.id}>
+                            <tr
+                              className={`cursor-pointer transition-colors border-b border-white/60 ${rowBg} ${open ? 'opacity-80' : 'hover:opacity-90'}`}
+                              onClick={() => setVisitorMenuOpenId(open ? null : v.id)}
+                            >
+                              <td className="px-6 py-3 font-semibold text-base text-slate-900">{v.name || '—'}</td>
+                              <td className="px-6 py-3 text-sm text-slate-400">{monthLabel}</td>
+                            </tr>
+                            {open && (
+                              <tr className={rowBg}>
+                                <td colSpan={2} className="px-6 py-3 border-b border-slate-200">
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1.5 text-sm mb-3">
+                                    {v.phone && <div><span className="text-slate-500">Phone: </span><span className="text-slate-800">{v.phone}</span></div>}
+                                    {v.dob && <div><span className="text-slate-500">DOB: </span><span className="text-slate-800">{formatDMY(v.dob)}</span></div>}
+                                    {v.email && <div><span className="text-slate-500">Email: </span><span className="text-slate-800">{v.email}</span></div>}
+                                    {v.nativity && <div><span className="text-slate-500">Nativity: </span><span className="text-slate-800">{v.nativity}</span></div>}
+                                    {v.currentPlace && <div><span className="text-slate-500">Current Place: </span><span className="text-slate-800">{v.currentPlace}</span></div>}
+                                    {v.serviceAttended && <div><span className="text-slate-500">Service: </span><span className="text-slate-800">{fmtService(v.serviceAttended)}</span></div>}
+                                    {v.attendedDate && <div><span className="text-slate-500">Date: </span><span className="text-slate-800">{formatDMY(v.attendedDate)}</span></div>}
+                                    {(v.source || v.howKnown) && <div><span className="text-slate-500">How Known: </span><span className="text-slate-800">{v.source || v.howKnown}</span></div>}
+                                  </div>
+                                  {canEditDelightVisitors && (
+                                    <div className="flex gap-3">
+                                      <button type="button" onClick={(e) => { e.stopPropagation(); setVisitorMenuOpenId(null); setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '', year: getVisitorYear(v) }); setDelightVisitorModalOpen(true) }} className="text-xs font-medium text-blue-600 hover:underline">Edit</button>
+                                      <button type="button" onClick={async (e) => { e.stopPropagation(); setVisitorMenuOpenId(null); if (!window.confirm('Delete this visitor entry?')) return; try { await deleteDelightVisitor(v.id); setDelightVisitors((prev) => prev.filter((x) => x.id !== v.id)) } catch (err) { console.error(err); alert('Failed to delete') } }} className="text-xs font-medium text-red-500 hover:underline">Delete</button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
                             )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
+                          </Fragment>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           )}
@@ -2117,8 +2105,8 @@ export default function DepartmentHub() {
 
           {delightVisitorModalOpen && (
             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div className="bg-slate-50 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between px-6 py-4 bg-white rounded-t-2xl border-b border-slate-200">
                   <div>
                     <h3 className="text-lg font-bold text-slate-800">{editingDelightVisitorId ? 'Edit Visitor' : 'Add Visitor'}</h3>
                     <p className="text-xs text-slate-400 mt-0.5">Fill in the visitor's details below</p>
@@ -2178,145 +2166,158 @@ export default function DepartmentHub() {
                       alert('Failed to save visitor')
                     }
                   }}
-                  className="px-6 py-5 space-y-5"
+                  className="p-4 space-y-3"
                 >
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Personal Info</p>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Name <span className="text-red-400">*</span></label>
-                    <input
-                      required
-                      type="text"
-                      placeholder="Full name"
-                      value={delightVisitorForm.name}
-                      onChange={(e) => setDelightVisitorForm((f) => ({ ...f, name: e.target.value }))}
-                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
-                    />
+                  {/* Personal Info card */}
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+                    <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wider">Personal Info</p>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Name <span className="text-red-400">*</span></label>
+                      <input
+                        required
+                        type="text"
+                        placeholder="Full name"
+                        value={delightVisitorForm.name}
+                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, name: e.target.value }))}
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Birth</label>
+                        <input
+                          type="date"
+                          value={delightVisitorForm.dob}
+                          onChange={(e) => setDelightVisitorForm((f) => ({ ...f, dob: e.target.value }))}
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>
+                        <div className="flex rounded-xl border border-slate-200 bg-slate-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-200 focus-within:border-indigo-400 transition-colors overflow-hidden">
+                          <input
+                            type="text"
+                            placeholder="+91"
+                            value={(() => { const m = (delightVisitorForm.phone || '').match(/^(\+\d{1,4})\s*/); return m ? m[1] : '' })()}
+                            onChange={(e) => { const num = (delightVisitorForm.phone || '').replace(/^\+\d{1,4}\s*/, ''); setDelightVisitorForm((f) => ({ ...f, phone: (e.target.value + ' ' + num).trim() })) }}
+                            className="w-16 px-2 py-2.5 text-sm text-center bg-transparent border-r border-slate-200 focus:outline-none"
+                          />
+                          <input
+                            type="tel"
+                            placeholder="phone number"
+                            value={(() => { const m = (delightVisitorForm.phone || '').match(/^\+\d{1,4}\s*(.*)/); return m ? m[1] : (delightVisitorForm.phone || '') })()}
+                            onChange={(e) => { const code = ((delightVisitorForm.phone || '').match(/^(\+\d{1,4})/) || ['', ''])[1]; setDelightVisitorForm((f) => ({ ...f, phone: code ? (code + ' ' + e.target.value).trim() : e.target.value })) }}
+                            className="flex-1 px-3 py-2.5 text-sm focus:outline-none bg-transparent"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+                        <input
+                          type="email"
+                          placeholder="email@example.com"
+                          value={delightVisitorForm.email}
+                          onChange={(e) => setDelightVisitorForm((f) => ({ ...f, email: e.target.value }))}
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Nativity</label>
+                        <input
+                          type="text"
+                          placeholder="Hometown"
+                          value={delightVisitorForm.nativity}
+                          onChange={(e) => setDelightVisitorForm((f) => ({ ...f, nativity: e.target.value }))}
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+
+                  {/* Visit Details card */}
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+                    <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wider">Visit Details</p>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Birth</label>
-                      <input
-                        type="date"
-                        value={delightVisitorForm.dob}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, dob: e.target.value }))}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>
-                      <input
-                        type="tel"
-                        placeholder="+91 XXXXX XXXXX"
-                        value={delightVisitorForm.phone}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, phone: e.target.value }))}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
-                      <input
-                        type="email"
-                        placeholder="email@example.com"
-                        value={delightVisitorForm.email}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, email: e.target.value }))}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Nativity</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Current Place</label>
                       <input
                         type="text"
-                        placeholder="Hometown"
-                        value={delightVisitorForm.nativity}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, nativity: e.target.value }))}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        placeholder="City / Area"
+                        value={delightVisitorForm.currentPlace}
+                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, currentPlace: e.target.value }))}
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                       />
                     </div>
-                  </div>
-                  <div className="border-t border-slate-100 pt-1">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Visit Details</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Current Place</label>
-                    <input
-                      type="text"
-                      placeholder="City / Area"
-                      value={delightVisitorForm.currentPlace}
-                      onChange={(e) => setDelightVisitorForm((f) => ({ ...f, currentPlace: e.target.value }))}
-                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Attending <span className="text-red-400">*</span></label>
-                      <input
-                        type="date"
-                        value={delightVisitorForm.attendedDate}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          const yr = val ? new Date(val).getFullYear() : null
-                          setDelightVisitorForm((f) => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
-                        }}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Attending <span className="text-red-400">*</span></label>
+                        <input
+                          type="date"
+                          value={delightVisitorForm.attendedDate}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            const yr = val ? new Date(val).getFullYear() : null
+                            setDelightVisitorForm((f) => ({ ...f, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) }))
+                          }}
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Service Attended</label>
+                        <select
+                          value={delightVisitorForm.serviceAttended}
+                          onChange={(e) => setDelightVisitorForm((f) => ({ ...f, serviceAttended: e.target.value }))}
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        >
+                          <option value="">— Select —</option>
+                          <option value="English Service">English Service</option>
+                          <option value="Tamil Service">Tamil Service</option>
+                          <option value="Youth Service">Youth Service</option>
+                          <option value="Cell Group">Cell Group</option>
+                          <option value="Special Meeting">Special Meeting</option>
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Service Attended</label>
-                      <select
-                        value={delightVisitorForm.serviceAttended}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, serviceAttended: e.target.value }))}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm bg-white"
-                      >
-                        <option value="">— Select —</option>
-                        <option value="English Service">English Service</option>
-                        <option value="Tamil Service">Tamil Service</option>
-                        <option value="Youth Service">Youth Service</option>
-                        <option value="Cell Group">Cell Group</option>
-                        <option value="Special Meeting">Special Meeting</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">How did they find us?</label>
-                      <select
-                        value={delightVisitorForm.source || ''}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, source: e.target.value }))}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm bg-white"
-                      >
-                        <option value="">— Select —</option>
-                        <option value="Friend">Friend</option>
-                        <option value="Family">Family</option>
-                        <option value="Social Media">Social Media</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Year</label>
-                      <select
-                        value={delightVisitorForm.year || ''}
-                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, year: Number(e.target.value) }))}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm bg-white"
-                      >
-                        {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR + 1 }, (_, i) => VISITOR_CURRENT_YEAR - i).map((yr) => (
-                          <option key={yr} value={yr}>{yr}</option>
-                        ))}
-                      </select>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">How did they find us?</label>
+                        <select
+                          value={delightVisitorForm.source || ''}
+                          onChange={(e) => setDelightVisitorForm((f) => ({ ...f, source: e.target.value }))}
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        >
+                          <option value="">— Select —</option>
+                          <option value="Friend">Friend</option>
+                          <option value="Family">Family</option>
+                          <option value="Social Media">Social Media</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Year</label>
+                        <select
+                          value={delightVisitorForm.year || ''}
+                          onChange={(e) => setDelightVisitorForm((f) => ({ ...f, year: Number(e.target.value) }))}
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        >
+                          {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR + 1 }, (_, i) => VISITOR_CURRENT_YEAR - i).map((yr) => (
+                            <option key={yr} value={yr}>{yr}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Actions */}
                   <div className="flex gap-3 pt-1">
-                    <button type="submit" className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors">
+                    <button type="submit" className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm">
                       {editingDelightVisitorId ? 'Update Visitor' : 'Add Visitor'}
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setDelightVisitorModalOpen(false)
-                        setEditingDelightVisitorId(null)
-                      }}
-                      className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
+                      onClick={() => { setDelightVisitorModalOpen(false); setEditingDelightVisitorId(null) }}
+                      className="px-5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
                     >
                       Cancel
                     </button>
@@ -5123,7 +5124,7 @@ export default function DepartmentHub() {
                   <div className="py-8 text-center text-slate-500">No cell groups yet.</div>
                 ) : (
                   <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
                     {cellGroups.filter((c) => c.status !== 'inactive').map((cell, idx) => {
                       const tileStyle = [
                         { bg: 'bg-blue-500', text: 'text-white' },
@@ -5135,7 +5136,7 @@ export default function DepartmentHub() {
                       ][idx % 6]
                       const yearsSince = cell.launchDate ? differenceInYears(new Date(), new Date(cell.launchDate)) : null
                       return (
-                      <div key={cell.id} className={`${tileStyle.bg} ${tileStyle.text} rounded-xl overflow-hidden shadow-lg border border-white/20`}>
+                      <div key={cell.id} className={`${expandedCellId === cell.id ? 'col-span-full' : ''} ${tileStyle.bg} ${tileStyle.text} rounded-xl overflow-hidden shadow-lg border ${expandedCellId === cell.id ? 'border-white/60 ring-2 ring-white/40' : 'border-white/20'} transition`}>
                         <button
                           type="button"
                           onClick={() => setExpandedCellId(expandedCellId === cell.id ? null : cell.id)}
@@ -5162,7 +5163,7 @@ export default function DepartmentHub() {
                           <p className="text-2xl font-bold mt-2">{cell.memberCount ?? 0} Members</p>
                         </button>
                         {expandedCellId === cell.id && (
-                          <div className="border-t border-slate-200 p-4 bg-slate-50/50">
+                          <div className="border-t border-slate-200 p-4 bg-white">
                             {canEdit && (
                               <div className="flex justify-end gap-2 mb-3">
                                 <button

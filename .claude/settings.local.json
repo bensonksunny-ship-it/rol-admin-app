@@ -19,7 +19,10 @@
       "PowerShell(node -e \"require\\('playwright'\\)\" 2>&1; npx playwright --version 2>&1)",
       "PowerShell(npx playwright install chromium 2>&1 | Select-Object -Last 5)",
       "Bash(grep -n \"^\\\\s*<\\\\/>\" \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\\\\src\\\\pages\\\\DepartmentHub.jsx\")",
-      "Bash(npx firebase-tools *)"
+      "Bash(npx firebase-tools *)",
+      "Skill(run)",
+      "PowerShell(Start-Process powershell -ArgumentList \"-NoExit\", \"-Command\", \"cd 'C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app'; npm run dev\")",
+      "Bash(grep -r \"three dots\\\\|dropdown\\\\|menu\\\\|\\\\\\\\.\\\\\\\\.\\\\\\\\.\\\\|IconButton\" --include=\"*.jsx\" --include=\"*.js\" -i)"
     ]
   }
 }
