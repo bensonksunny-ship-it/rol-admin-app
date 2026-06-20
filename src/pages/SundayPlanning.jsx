@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan, getSundayProgramDefault } from '../services/firestore'
+import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan, getSundayProgramDefault, getSundayPreServiceEntry } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
@@ -165,6 +165,38 @@ function WorshipPlanSummary({ selectedDate }) {
   )
 }
 
+const DESIGN_TYPE_ICON = { Video: '🎬', Slide: '🖥️', Audio: '🎵', Light: '💡' }
+
+function MediaDesignBlock({ plan }) {
+  const items = plan?.mediaDesignProgram
+  if (!items?.length) return null
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-emerald-500 p-3 shadow-sm">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-semibold text-slate-800 text-sm">Media Program</h3>
+        <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">✓ Pushed by Media</span>
+      </div>
+      <div className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
+        {items.map((item, idx) => (
+          <div key={item.id || idx} className="flex flex-wrap items-center gap-2 px-3 py-2">
+            <span className="text-xs text-slate-400 w-5 text-right shrink-0">{idx + 1}.</span>
+            <span className="text-sm font-medium text-slate-800 flex-1 min-w-[80px]">{item.name}</span>
+            {(item.types || []).map((t) => (
+              <span key={t} className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{DESIGN_TYPE_ICON[t] || ''} {t}</span>
+            ))}
+            {item.assignedPerson && (
+              <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">{item.assignedPerson}</span>
+            )}
+            {!item.assignedPerson && item.designer && (
+              <span className="text-xs text-slate-500">{item.designer}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
   const [form, setForm] = useState(data || { notes: '' })
   useEffect(() => setForm(data || { notes: '' }), [data])
@@ -215,6 +247,137 @@ const DEFAULT_SEED = [
   { programName: 'Prayer & Benediction', order: 5 },
 ]
 
+// Maps each default program item to the plan section key that owns it
+const PROGRAM_SECTION_MAP = {
+  'Pre Worship Talk': '__preservice__',
+  'Worship': 'worship',
+  'Leader Prayer': 'sundayLeader',
+  'Announcements': 'announcements',
+  'Sermon': 'sundayMinistry',
+  'Prayer & Benediction': 'sundayLeader',
+  'D-Lite': 'dLite',
+  'River Kids': 'riverKids',
+  'Media': 'media',
+}
+
+const SECTION_DEPT_LABEL = {
+  worship: 'Worship',
+  sundayLeader: 'Sunday Leader',
+  announcements: 'Announcements',
+  sundayMinistry: 'Sunday Ministry',
+  dLite: 'D-Lite',
+  riverKids: 'River Kids',
+  media: 'Media',
+}
+
+function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
+  const [items, setItems] = useState([])
+  const [loadingItems, setLoadingItems] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setLoadingItems(true)
+    getSundayProgramDefault()
+      .then((doc) => {
+        const list = doc?.items?.length ? doc.items : [...DEFAULT_SEED]
+        const sorted = [...list].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        // Apply per-Sunday order override if saved
+        const savedOrder = plan?.programOrder
+        if (Array.isArray(savedOrder) && savedOrder.length) {
+          const nameToItem = Object.fromEntries(sorted.map((i) => [i.programName, i]))
+          const ordered = savedOrder.map((name) => nameToItem[name]).filter(Boolean)
+          // Append any items not in savedOrder
+          const savedSet = new Set(savedOrder)
+          sorted.forEach((i) => { if (!savedSet.has(i.programName)) ordered.push(i) })
+          setItems(ordered)
+        } else {
+          setItems(sorted)
+        }
+      })
+      .catch(() => setItems([...DEFAULT_SEED]))
+      .finally(() => setLoadingItems(false))
+  }, [plan?.programOrder])
+
+  const moveItem = async (idx, dir) => {
+    const next = [...items]
+    const swapIdx = idx + dir
+    if (swapIdx < 0 || swapIdx >= next.length) return
+    ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
+    setItems(next)
+    setSaving(true)
+    try {
+      await setSundayPlanSection(selectedDate, 'programOrder', next.map((i) => i.programName))
+    } catch (e) { console.error(e) }
+    setSaving(false)
+  }
+
+  const getAssignment = (programName) => {
+    const sectionKey = PROGRAM_SECTION_MAP[programName]
+    if (!sectionKey) return null
+    if (sectionKey === '__preservice__') {
+      const speakers = preServiceEntry?.speakers
+      if (speakers?.length) return { text: speakers.join(', '), dept: 'Pre-Service' }
+      return null
+    }
+    const notes = plan?.[sectionKey]?.notes?.trim()
+    if (!notes) return null
+    return { text: notes, dept: SECTION_DEPT_LABEL[sectionKey] || sectionKey }
+  }
+
+  return (
+    <div style={{ background: '#fff', border: '2px solid #e0e7ff', borderRadius: 14, padding: '14px 16px', marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 16 }}>📋</span>
+        <h2 style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', margin: 0, flex: 1 }}>Sunday Program</h2>
+        {saving && <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 500 }}>Saving…</span>}
+        <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600, background: '#eef2ff', padding: '2px 10px', borderRadius: 20 }}>
+          {items.length} items
+        </span>
+      </div>
+
+      {loadingItems ? (
+        <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>Loading…</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {items.map((item, idx) => {
+            const assignment = getAssignment(item.programName)
+            return (
+              <div key={item.programName} style={{ background: assignment ? '#fafafe' : '#f8fafc', border: assignment ? '1px solid #c7d2fe' : '1px solid #e2e8f0', borderRadius: 10, padding: '9px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+                  <span style={{ width: 24, height: 24, borderRadius: '50%', background: '#6366f1', color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                  <span style={{ fontWeight: 600, color: '#1e293b', fontSize: 13, flex: 1, minWidth: 80 }}>{item.programName}</span>
+                  {assignment && (
+                    <span style={{ fontSize: 12, background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', padding: '2px 10px', borderRadius: 20, fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {assignment.text}
+                      <span style={{ fontWeight: 400, opacity: 0.65 }}> · {assignment.dept}</span>
+                    </span>
+                  )}
+                  {canEdit && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginLeft: 'auto', flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => moveItem(idx, -1)}
+                        disabled={idx === 0 || saving}
+                        style={{ width: 22, height: 18, border: '1px solid #e2e8f0', borderRadius: 4, background: idx === 0 ? '#f8fafc' : '#fff', color: idx === 0 ? '#cbd5e1' : '#6366f1', fontSize: 10, cursor: idx === 0 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
+                      >▲</button>
+                      <button
+                        type="button"
+                        onClick={() => moveItem(idx, 1)}
+                        disabled={idx === items.length - 1 || saving}
+                        style={{ width: 22, height: 18, border: '1px solid #e2e8f0', borderRadius: 4, background: idx === items.length - 1 ? '#f8fafc' : '#fff', color: idx === items.length - 1 ? '#cbd5e1' : '#6366f1', fontSize: 10, cursor: idx === items.length - 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
+                      >▼</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SundayProgramView() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -249,6 +412,7 @@ export default function SundayPlanning() {
   const { hasPermission, userProfile } = useAuth()
   const [selectedDate, setSelectedDate] = useState(() => dateFromUrl || nextSundayISO())
   const [plan, setPlan] = useState(null)
+  const [preServiceEntry, setPreServiceEntry] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
@@ -262,10 +426,14 @@ export default function SundayPlanning() {
   }, [dateFromUrl])
 
   useEffect(() => {
+    setLoading(true)
     getSundayPlan(selectedDate).then((p) => {
       setPlan(p || {})
       setLoading(false)
     })
+    getSundayPreServiceEntry(selectedDate)
+      .then(setPreServiceEntry)
+      .catch(() => setPreServiceEntry(null))
   }, [selectedDate])
 
   const handleDateChange = (nextDate) => {
@@ -405,6 +573,8 @@ export default function SundayPlanning() {
         <SundayProgramView />
       ) : (
         <div className="space-y-2">
+          <SundayProgramBlock plan={plan} preServiceEntry={preServiceEntry} canEdit={canEdit} selectedDate={selectedDate} />
+          <MediaDesignBlock plan={plan} />
           <WorshipPlanSummary selectedDate={selectedDate} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {SECTION_ORDER.filter((key) => key !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) => (

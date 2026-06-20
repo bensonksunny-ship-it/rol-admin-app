@@ -17,6 +17,7 @@ function getTabLabel(tab) {
     case 'reports':           return 'Reports'
     case 'leaderEntry':       return 'Leader Entry'
     case 'operations':        return 'Operations'
+    case 'design':            return 'Design'
     case 'members':           return 'Members'
     case 'dataBackup':        return 'Data Backup'
     case 'sundayReport':      return 'Live Control'

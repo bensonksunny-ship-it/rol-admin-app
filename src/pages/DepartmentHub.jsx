@@ -82,11 +82,13 @@ import {
   getMemberProfile,
   getMemberProfileWithContext,
   upsertMemberProfile,
+  getSundayPlan,
+  setSundayPlanSection,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
-import { differenceInDays, differenceInYears, differenceInMonths, format, startOfWeek, endOfWeek } from 'date-fns'
+import { differenceInDays, differenceInYears, differenceInMonths, format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, formatDMYTime, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
@@ -101,6 +103,7 @@ import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import CellOperationsToggle from './cell/CellOperationsToggle'
 import SundayOperationsToggle from './sunday/SundayOperationsToggle'
 import MediaOperationsToggle from './media/MediaOperationsToggle'
+import MediaDesign from './media/MediaDesign'
 import RiverKidsOperationsToggle from './river-kids/RiverKidsOperationsToggle'
 import AdministrationOperationsToggle from './administration/AdministrationOperationsToggle'
 import AccountsOperationsToggle from './accounts/AccountsOperationsToggle'
@@ -191,6 +194,10 @@ export default function DepartmentHub() {
   const [loadingTeam, setLoadingTeam] = useState(false)
   const [teamError, setTeamError] = useState('')
   const [editingMember, setEditingMember] = useState(null)
+  const [teamMemberSearch, setTeamMemberSearch] = useState('')
+  const [teamMemberSearchOpen, setTeamMemberSearchOpen] = useState(false)
+  const [teamVisitors, setTeamVisitors] = useState([])
+  const [teamVisitorsLoading, setTeamVisitorsLoading] = useState(false)
   const [memberForm, setMemberForm] = useState({
     name: '',
     role: '',
@@ -340,6 +347,18 @@ export default function DepartmentHub() {
   const [delightAssignmentsBefore, setDelightAssignmentsBefore] = useState(null)
   const [mediaAssignments, setMediaAssignments] = useState({})
   const [savingMediaAssign, setSavingMediaAssign] = useState(false)
+  const [mediaSundayDate, setMediaSundayDate] = useState(() => {
+    const today = new Date(); const day = today.getDay()
+    const next = new Date(today); next.setDate(today.getDate() + (day === 0 ? 0 : 7 - day))
+    return format(next, 'yyyy-MM-dd')
+  })
+  const [mediaSundayAssign, setMediaSundayAssign] = useState({})
+  const [mediaSundayDesignProgram, setMediaSundayDesignProgram] = useState([])
+  const [mediaSundaySelected, setMediaSundaySelected] = useState(new Set())
+  const [mediaSundayLoading, setMediaSundayLoading] = useState(false)
+  const [mediaSundaySaving, setMediaSundaySaving] = useState(false)
+  const [mediaSundayPushed, setMediaSundayPushed] = useState(false)
+  const [mediaSundayPushing, setMediaSundayPushing] = useState(false)
   const [updateModalOpen, setUpdateModalOpen] = useState(false)
   const [editingUpdateId, setEditingUpdateId] = useState(null)
   const [updateForm, setUpdateForm] = useState({
@@ -799,11 +818,33 @@ export default function DepartmentHub() {
   }, [slug, activeTab])
 
   useEffect(() => {
+    const isTeamSection = activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team')
+    if (!isTeamSection) return
+    setTeamVisitorsLoading(true)
+    getDelightVisitors().then(setTeamVisitors).catch(() => setTeamVisitors([])).finally(() => setTeamVisitorsLoading(false))
+  }, [slug, activeTab, opsSubTab])
+
+  useEffect(() => {
     if (slug !== 'media' || activeTab !== 'summary') return
     getDepartmentAssignments('media').then((doc) => {
       if (doc?.assignments && typeof doc.assignments === 'object') setMediaAssignments(doc.assignments)
     }).catch(() => {})
   }, [slug, activeTab])
+
+  useEffect(() => {
+    if (slug !== 'media' || activeTab !== 'summary') return
+    setMediaSundayLoading(true)
+    getSundayPlan(mediaSundayDate)
+      .then((plan) => {
+        setMediaSundayAssign(plan?.mediaSundayProgram || {})
+        const prog = plan?.mediaDesignProgram || []
+        setMediaSundayDesignProgram(prog)
+        setMediaSundaySelected(new Set(prog.map((i) => i.id || i.name)))
+        setMediaSundayPushed(!!plan?.mediaHubPushed)
+      })
+      .catch(() => { setMediaSundayAssign({}); setMediaSundayDesignProgram([]); setMediaSundaySelected(new Set()); setMediaSundayPushed(false) })
+      .finally(() => setMediaSundayLoading(false))
+  }, [slug, activeTab, mediaSundayDate])
 
   useEffect(() => {
     if (slug === 'd-light' && activeTab === 'assign') {
@@ -1113,6 +1154,42 @@ export default function DepartmentHub() {
     }
   }
 
+  async function saveMediaSundayProgram() {
+    setMediaSundaySaving(true)
+    try {
+      await setSundayPlanSection(mediaSundayDate, 'mediaSundayProgram', mediaSundayAssign)
+    } catch (e) {
+      console.error(e)
+      alert('Failed to save.')
+    } finally {
+      setMediaSundaySaving(false)
+    }
+  }
+
+  async function pushMediaHubToSundayPlan() {
+    const itemsToPush = mediaSundayDesignProgram.filter((item) => mediaSundaySelected.has(item.id || item.name))
+    if (itemsToPush.length === 0) return
+    setMediaSundayPushing(true)
+    try {
+      const merged = itemsToPush.map((item) => ({
+        ...item,
+        assignedPerson: mediaSundayAssign[item.name] || '',
+      }))
+      const notes = merged.map((p, i) =>
+        `${i + 1}. ${p.name}${p.types?.length ? ' [' + p.types.join(', ') + ']' : ''}${p.assignedPerson ? ' — ' + p.assignedPerson : ''}`
+      ).join('\n')
+      await setSundayPlanSection(mediaSundayDate, 'mediaDesignProgram', merged)
+      await setSundayPlanSection(mediaSundayDate, 'media', { notes })
+      await setSundayPlanSection(mediaSundayDate, 'mediaHubPushed', true)
+      setMediaSundayPushed(true)
+    } catch (e) {
+      console.error(e)
+      alert('Failed to push to Sunday Plan.')
+    } finally {
+      setMediaSundayPushing(false)
+    }
+  }
+
   function formatTeamSubDepartmentCell(m) {
     const names =
       Array.isArray(m.subDepartments) && m.subDepartments.length
@@ -1403,6 +1480,7 @@ export default function DepartmentHub() {
               ) : slug === 'sec-core' ? (
                 <SecCoreSummary />
               ) : slug === 'media' ? (
+                <>
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
                     <div>
@@ -1454,6 +1532,124 @@ export default function DepartmentHub() {
                     </table>
                   )}
                 </div>
+
+                {/* ── Sunday Program ── */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-4">
+                  <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="font-semibold text-slate-800">Sunday Program</h2>
+                      <p className="text-xs text-slate-500 mt-0.5">Assign a person to each media program item for this Sunday</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setMediaSundayDate(format(subWeeks(new Date(mediaSundayDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">← Prev</button>
+                      <span className="text-sm font-semibold text-slate-700 min-w-[140px] text-center">{format(new Date(mediaSundayDate), 'EEE, dd MMM yyyy')}</span>
+                      <button type="button" onClick={() => setMediaSundayDate(format(addWeeks(new Date(mediaSundayDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next →</button>
+                    </div>
+                  </div>
+                  {mediaSundayLoading ? (
+                    <div className="p-6 text-center text-slate-500 text-sm">Loading…</div>
+                  ) : mediaSundayDesignProgram.length === 0 ? (
+                    <div className="p-6 text-center text-slate-500 text-sm">
+                      No design program pushed for this Sunday yet.{' '}
+                      <button type="button" onClick={() => setActiveTab('design')} className="text-indigo-600 hover:underline">Go to Design tab →</button>
+                    </div>
+                  ) : (
+                    <>
+                      <table className="w-full">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="px-3 py-2.5 w-10">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                                checked={mediaSundayDesignProgram.length > 0 && mediaSundayDesignProgram.every((i) => mediaSundaySelected.has(i.id || i.name))}
+                                onChange={(e) => {
+                                  if (e.target.checked) setMediaSundaySelected(new Set(mediaSundayDesignProgram.map((i) => i.id || i.name)))
+                                  else setMediaSundaySelected(new Set())
+                                }}
+                              />
+                            </th>
+                            <th className="text-left px-2 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">#</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Program Item</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Types</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Assigned Person</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {mediaSundayDesignProgram.map((item, idx) => {
+                            const key = item.id || item.name
+                            const isChecked = mediaSundaySelected.has(key)
+                            return (
+                              <tr key={key} className={`hover:bg-slate-50/50 transition-colors ${isChecked ? 'bg-indigo-50/40' : ''}`}>
+                                <td className="px-3 py-2.5">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const next = new Set(mediaSundaySelected)
+                                      if (e.target.checked) next.add(key)
+                                      else next.delete(key)
+                                      setMediaSundaySelected(next)
+                                    }}
+                                  />
+                                </td>
+                                <td className="px-2 py-2.5 text-xs text-slate-400">{idx + 1}</td>
+                                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{item.name}</td>
+                                <td className="px-3 py-2">
+                                  <div className="flex gap-1 flex-wrap">
+                                    {(item.types || []).map((t) => (
+                                      <span key={t} className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-full font-medium">{t}</span>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <select
+                                    value={mediaSundayAssign[item.name] || ''}
+                                    onChange={(e) => setMediaSundayAssign((prev) => ({ ...prev, [item.name]: e.target.value }))}
+                                    className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
+                                  >
+                                    <option value="">— Not assigned</option>
+                                    {team.filter((m) => !m.isFormer && m.status !== 'former').map((m) => (
+                                      <option key={m.id} value={m.name}>{m.name}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                      <div className="px-4 py-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          {mediaSundayPushed && (
+                            <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">✓ Pushed to Sunday Plan</span>
+                          )}
+                          <span className="text-xs text-slate-400">{mediaSundaySelected.size} of {mediaSundayDesignProgram.length} selected</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={saveMediaSundayProgram}
+                            disabled={mediaSundaySaving}
+                            className="px-4 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                          >
+                            {mediaSundaySaving ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={pushMediaHubToSundayPlan}
+                            disabled={mediaSundayPushing || mediaSundaySelected.size === 0}
+                            className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 shadow-sm"
+                          >
+                            {mediaSundayPushing ? 'Pushing…' : `Push${mediaSundaySelected.size > 0 && mediaSundaySelected.size < mediaSundayDesignProgram.length ? ` (${mediaSundaySelected.size})` : ''} to Sunday Plan`}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                </>
               ) : (
                 <>
                   <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -2385,6 +2581,10 @@ export default function DepartmentHub() {
 
           {activeTab === 'operations' && slug === 'sunday-ministry' && (
             <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
+          {activeTab === 'design' && slug === 'media' && (
+            <MediaDesign canEdit={canEdit} />
           )}
 
           {activeTab === 'operations' && slug === 'media' && (
@@ -3850,6 +4050,7 @@ export default function DepartmentHub() {
                       }
                       setTeamError('')
                       setEditingMember(null)
+                      setTeamMemberSearch('')
                       setMemberForm({
                         name: '',
                         role: '',
@@ -3860,6 +4061,7 @@ export default function DepartmentHub() {
                         memberSince: new Date().toISOString().slice(0, 10),
                         isFormer: false,
                         notes: '',
+                        visitorId: '',
                       })
                     } catch (err) {
                       console.error(err)
@@ -3876,15 +4078,67 @@ export default function DepartmentHub() {
                       <label className="block text-xs font-medium text-slate-700 mb-1">
                         Name
                       </label>
-                      <input
-                        type="text"
-                        required
-                        value={memberForm.name}
-                        onChange={(e) =>
-                          setMemberForm((f) => ({ ...f, name: e.target.value }))
-                        }
-                        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                      />
+                      {editingMember ? (
+                        <input
+                          type="text"
+                          required
+                          value={memberForm.name}
+                          onChange={(e) => setMemberForm((f) => ({ ...f, name: e.target.value }))}
+                          className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
+                        />
+                      ) : memberForm.name ? (
+                        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-emerald-300 bg-emerald-50">
+                          <span className="w-6 h-6 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                            {memberForm.name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="flex-1 text-sm font-medium text-emerald-900">{memberForm.name}</span>
+                          <button type="button" onClick={() => { setMemberForm((f) => ({ ...f, name: '', visitorId: '' })); setTeamMemberSearch('') }} className="text-emerald-400 hover:text-red-500 text-lg leading-none">×</button>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder={teamVisitorsLoading ? 'Loading members…' : 'Search member by name…'}
+                            value={teamMemberSearch}
+                            autoComplete="off"
+                            disabled={teamVisitorsLoading}
+                            onChange={(e) => { setTeamMemberSearch(e.target.value); setTeamMemberSearchOpen(true) }}
+                            onFocus={() => setTeamMemberSearchOpen(true)}
+                            onBlur={() => setTimeout(() => setTeamMemberSearchOpen(false), 150)}
+                            className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:opacity-60"
+                          />
+                          {teamMemberSearchOpen && teamMemberSearch.trim().length > 0 && (() => {
+                            const q = teamMemberSearch.trim().toLowerCase()
+                            const matches = teamVisitors.filter((v) => v.name && v.name.toLowerCase().includes(q)).slice(0, 8)
+                            return (
+                              <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-lg border border-slate-200 shadow-lg z-20 overflow-hidden max-h-52 overflow-y-auto">
+                                {matches.length === 0 ? (
+                                  <p className="px-4 py-3 text-sm text-slate-400">No members found.</p>
+                                ) : matches.map((v) => (
+                                  <button
+                                    key={v.id}
+                                    type="button"
+                                    onMouseDown={() => {
+                                      setMemberForm((f) => ({ ...f, name: v.name, visitorId: v.id, phone: f.phone || v.phone || '' }))
+                                      setTeamMemberSearch('')
+                                      setTeamMemberSearchOpen(false)
+                                    }}
+                                    className="w-full flex items-center gap-3 px-3 py-2 hover:bg-indigo-50 text-left transition-colors"
+                                  >
+                                    <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                      {v.name.charAt(0).toUpperCase()}
+                                    </span>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium text-slate-800 truncate">{v.name}</p>
+                                      {v.phone && <p className="text-xs text-slate-400 truncate">{v.phone}</p>}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      )}
                     </div>
                     {slug === 'd-light' && (
                     <div>
@@ -3960,7 +4214,8 @@ export default function DepartmentHub() {
                   </div>
                   <button
                     type="submit"
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+                    disabled={!editingMember && !memberForm.name}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-40"
                   >
                     {editingMember ? 'Update member' : 'Add member'}
                   </button>
