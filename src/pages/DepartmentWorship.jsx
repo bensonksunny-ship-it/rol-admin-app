@@ -1524,76 +1524,61 @@ export default function DepartmentWorship() {
             ) : activeMembers.length === 0 ? (
               <div className="p-8 text-center text-slate-500">No team members yet. Add above or use "Add demo team".</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Positions</th>
-                      {canManageWorship && <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Action</th>}
-                    </tr>
-                  </thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {activeMembers.map((m, i) => (
-                      <tr
-                        key={m.id}
-                        className={
-                          'hover:bg-slate-50 ' +
-                          (m.isWorshipDirector ? 'bg-amber-50/80' : '')
-                        }
-                      >
-                        <td className="px-4 py-2 text-slate-600">{i + 1}</td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-medium text-slate-800">{m.name}</span>
-                            {m.isWorshipDirector && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] uppercase tracking-wide">Worship director</span>
-                            )}
-                            {m.visitorId
-                              ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                              : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                            }
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
-                        <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
-                          {(() => {
-                            const since = new Date(m.memberSince)
-                            const now = new Date()
-                            const yrs = differenceInYears(now, since)
-                            const mos = differenceInMonths(now, addYears(since, yrs))
-                            const dys = differenceInDays(now, addMonths(addYears(since, yrs), mos))
-                            const total = differenceInDays(now, since)
-                            return (
-                              <span className="flex flex-col gap-0.5">
-                                <span className="flex items-center gap-1">
-                                  <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
-                                  <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
-                                  <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
-                                </span>
-                                <span className="text-xs text-slate-400">{total.toLocaleString()} days total</span>
-                              </span>
-                            )
-                          })()}
-                        </td>
-                        <td className="px-4 py-2 text-slate-600">
-                          {m.positions?.length ? (
-                            <span className="text-xs text-slate-500">{m.positions.join(', ')}</span>
-                          ) : <span className="text-xs text-slate-300">—</span>}
-                        </td>
-                        {canManageWorship && (
-                          <td className="px-4 py-2 space-x-2 whitespace-nowrap">
-                            <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
-                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="text-indigo-600 hover:underline text-sm font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {activeMembers.map((m) => {
+                  const since = new Date(m.memberSince)
+                  const now = new Date()
+                  const yrs = differenceInYears(now, since)
+                  const mos = differenceInMonths(now, addYears(since, yrs))
+                  return (
+                    <div
+                      key={m.id}
+                      className={`rounded-xl border p-3 flex flex-col gap-2 shadow-sm ${m.isWorshipDirector ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}
+                    >
+                      {/* Name + badges */}
+                      <div className="flex flex-col gap-1">
+                        <span className="font-semibold text-slate-800 text-sm leading-snug">{m.name}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {m.isWorshipDirector && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] uppercase tracking-wide font-bold">Director</span>
+                          )}
+                          {m.visitorId
+                            ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                            : <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                          }
+                        </div>
+                      </div>
+
+                      {/* Positions */}
+                      {m.positions?.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {m.positions.map(p => (
+                            <span key={p} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{p}</span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Duration */}
+                      <div className="mt-auto pt-1 border-t border-slate-100">
+                        <p className="text-[10px] text-slate-400">Since {formatDMY(m.memberSince)}</p>
+                        <p className="text-xs font-semibold text-slate-600">
+                          <span className="text-violet-700">{yrs}</span>
+                          <span className="text-slate-400 font-normal">yr </span>
+                          <span className="text-indigo-700">{mos}</span>
+                          <span className="text-slate-400 font-normal">mo</span>
+                        </p>
+                      </div>
+
+                      {/* Actions */}
+                      {canManageWorship && (
+                        <div className="flex gap-2 pt-1">
+                          <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
+                          <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -1604,60 +1589,43 @@ export default function DepartmentWorship() {
             ) : formerMembers.length === 0 ? (
               <div className="p-8 text-center text-slate-500">No former members.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Till</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Total days</th>
-                      {canManageWorship && <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Action</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {formerMembers.map((m, i) => {
-                      const since = new Date(m.memberSince)
-                      const till = m.formerSince ? new Date(m.formerSince) : new Date()
-                      const yrs = differenceInYears(till, since)
-                      const mos = differenceInMonths(till, addYears(since, yrs))
-                      const dys = differenceInDays(till, addMonths(addYears(since, yrs), mos))
-                      const totalDays = differenceInDays(till, since)
-                      return (
-                      <tr key={m.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-2 text-slate-600">{i + 1}</td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-medium text-slate-800">{m.name}</span>
-                            {m.visitorId
-                              ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                              : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                            }
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
-                        <td className="px-4 py-2 text-slate-500 text-sm">{m.formerSince ? formatDMY(m.formerSince) : <span className="text-slate-300">—</span>}</td>
-                        <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
-                          <span className="flex items-center gap-1">
-                            <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
-                            <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
-                            <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-slate-500 text-sm font-medium">{totalDays.toLocaleString()} days</td>
-                        {canManageWorship && (
-                          <td className="px-4 py-2 space-x-2 whitespace-nowrap">
-                            <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
-                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="text-indigo-600 hover:underline text-sm font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
-                          </td>
-                        )}
-                      </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {formerMembers.map((m) => {
+                  const since = new Date(m.memberSince)
+                  const till = m.formerSince ? new Date(m.formerSince) : new Date()
+                  const yrs = differenceInYears(till, since)
+                  const mos = differenceInMonths(till, addYears(since, yrs))
+                  const totalDays = differenceInDays(till, since)
+                  return (
+                    <div key={m.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-col gap-2 shadow-sm">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-semibold text-slate-700 text-sm leading-snug">{m.name}</span>
+                        {m.visitorId
+                          ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 w-fit">🔗 Linked</span>
+                          : <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 w-fit">Unlinked</span>
+                        }
+                      </div>
+
+                      <div className="mt-auto pt-1 border-t border-slate-200 text-[10px] text-slate-400 space-y-0.5">
+                        <p>{formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'}</p>
+                        <p className="text-xs font-semibold text-slate-500">
+                          <span className="text-violet-600">{yrs}</span>
+                          <span className="font-normal text-slate-400">yr </span>
+                          <span className="text-indigo-600">{mos}</span>
+                          <span className="font-normal text-slate-400">mo</span>
+                          <span className="font-normal text-slate-400"> · {totalDays.toLocaleString()} days</span>
+                        </p>
+                      </div>
+
+                      {canManageWorship && (
+                        <div className="flex gap-2 pt-1">
+                          <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
+                          <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -2405,70 +2373,54 @@ export default function DepartmentWorship() {
             ) : activeMembers.length === 0 ? (
               <div className="p-8 text-center text-slate-500">No team members yet.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Positions</th>
-                      {canManageWorship && <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Action</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {activeMembers.map((m, i) => (
-                      <tr key={m.id} className={`hover:bg-slate-50 ${m.isWorshipDirector ? 'bg-amber-50/60' : ''}`}>
-                        <td className="px-4 py-2 text-slate-600">{i + 1}</td>
-                        <td className="px-4 py-2 font-medium text-slate-800">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {m.name}
-                            {m.isWorshipDirector && (
-                              <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] uppercase tracking-wide">Director</span>
-                            )}
-                            {m.visitorId
-                              ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                              : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                            }
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
-                        <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
-                          {(() => {
-                            const since = new Date(m.memberSince)
-                            const now = new Date()
-                            const yrs = differenceInYears(now, since)
-                            const mos = differenceInMonths(now, addYears(since, yrs))
-                            const dys = differenceInDays(now, addMonths(addYears(since, yrs), mos))
-                            const total = differenceInDays(now, since)
-                            return (
-                              <span className="flex flex-col gap-0.5">
-                                <span className="flex items-center gap-1">
-                                  <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
-                                  <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
-                                  <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
-                                </span>
-                                <span className="text-xs text-slate-400">{total.toLocaleString()} days total</span>
-                              </span>
-                            )
-                          })()}
-                        </td>
-                        <td className="px-4 py-2 text-slate-600">
-                          {m.positions?.length
-                            ? <span className="text-xs text-slate-500">{m.positions.join(', ')}</span>
-                            : <span className="text-xs text-slate-300">—</span>}
-                        </td>
-                        {canManageWorship && (
-                          <td className="px-4 py-2 space-x-2 whitespace-nowrap">
-                            <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
-                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="text-indigo-600 hover:underline text-sm font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {activeMembers.map((m) => {
+                  const since = new Date(m.memberSince)
+                  const now = new Date()
+                  const yrs = differenceInYears(now, since)
+                  const mos = differenceInMonths(now, addYears(since, yrs))
+                  return (
+                    <div
+                      key={m.id}
+                      className={`rounded-xl border p-3 flex flex-col gap-2 shadow-sm ${m.isWorshipDirector ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}
+                    >
+                      <div className="flex flex-col gap-1">
+                        <span className="font-semibold text-slate-800 text-sm leading-snug">{m.name}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {m.isWorshipDirector && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] uppercase tracking-wide font-bold">Director</span>
+                          )}
+                          {m.visitorId
+                            ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                            : <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                          }
+                        </div>
+                      </div>
+                      {m.positions?.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {m.positions.map(p => (
+                            <span key={p} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{p}</span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-auto pt-1 border-t border-slate-100">
+                        <p className="text-[10px] text-slate-400">Since {formatDMY(m.memberSince)}</p>
+                        <p className="text-xs font-semibold text-slate-600">
+                          <span className="text-violet-700">{yrs}</span>
+                          <span className="text-slate-400 font-normal">yr </span>
+                          <span className="text-indigo-700">{mos}</span>
+                          <span className="text-slate-400 font-normal">mo</span>
+                        </p>
+                      </div>
+                      {canManageWorship && (
+                        <div className="flex gap-2 pt-1">
+                          <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
+                          <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -2481,60 +2433,41 @@ export default function DepartmentWorship() {
             ) : formerMembers.length === 0 ? (
               <div className="p-8 text-center text-slate-500">No former members.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-12">SL</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Member since</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Till</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Duration</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Total days</th>
-                      {canManageWorship && <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Action</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {formerMembers.map((m, i) => {
-                      const since = new Date(m.memberSince)
-                      const till = m.formerSince ? new Date(m.formerSince) : new Date()
-                      const yrs = differenceInYears(till, since)
-                      const mos = differenceInMonths(till, addYears(since, yrs))
-                      const dys = differenceInDays(till, addMonths(addYears(since, yrs), mos))
-                      const totalDays = differenceInDays(till, since)
-                      return (
-                        <tr key={m.id} className="hover:bg-slate-50">
-                          <td className="px-4 py-2 text-slate-600">{i + 1}</td>
-                          <td className="px-4 py-2 font-medium text-slate-800">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {m.name}
-                              {m.visitorId
-                                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                                : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                              }
-                            </div>
-                          </td>
-                          <td className="px-4 py-2 text-slate-600">{formatDMY(m.memberSince)}</td>
-                          <td className="px-4 py-2 text-slate-500 text-sm">{m.formerSince ? formatDMY(m.formerSince) : <span className="text-slate-300">—</span>}</td>
-                          <td className="px-4 py-2 text-slate-700 text-sm whitespace-nowrap">
-                            <span className="flex items-center gap-1">
-                              <span className="font-bold text-violet-700">{yrs}</span><span className="text-slate-400 text-xs">yr</span>
-                              <span className="font-bold text-indigo-700">{mos}</span><span className="text-slate-400 text-xs">mo</span>
-                              <span className="font-bold text-sky-700">{dys}</span><span className="text-slate-400 text-xs">days</span>
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-slate-500 text-sm font-medium">{totalDays.toLocaleString()} days</td>
-                          {canManageWorship && (
-                            <td className="px-4 py-2 space-x-2 whitespace-nowrap">
-                              <button type="button" onClick={() => setEditMember({ ...m })} className="text-blue-600 hover:underline text-sm font-medium">Edit</button>
-                              <button type="button" onClick={() => setWorshipMemberLinking(m)} className="text-indigo-600 hover:underline text-sm font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
-                            </td>
-                          )}
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {formerMembers.map((m) => {
+                  const since = new Date(m.memberSince)
+                  const till = m.formerSince ? new Date(m.formerSince) : new Date()
+                  const yrs = differenceInYears(till, since)
+                  const mos = differenceInMonths(till, addYears(since, yrs))
+                  const totalDays = differenceInDays(till, since)
+                  return (
+                    <div key={m.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-col gap-2 shadow-sm">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-semibold text-slate-700 text-sm leading-snug">{m.name}</span>
+                        {m.visitorId
+                          ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 w-fit">🔗 Linked</span>
+                          : <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 w-fit">Unlinked</span>
+                        }
+                      </div>
+                      <div className="mt-auto pt-1 border-t border-slate-200 text-[10px] text-slate-400 space-y-0.5">
+                        <p>{formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'}</p>
+                        <p className="text-xs font-semibold text-slate-500">
+                          <span className="text-violet-600">{yrs}</span>
+                          <span className="font-normal text-slate-400">yr </span>
+                          <span className="text-indigo-600">{mos}</span>
+                          <span className="font-normal text-slate-400">mo</span>
+                          <span className="font-normal text-slate-400"> · {totalDays.toLocaleString()} days</span>
+                        </p>
+                      </div>
+                      {canManageWorship && (
+                        <div className="flex gap-2 pt-1">
+                          <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
+                          <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>

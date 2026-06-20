@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -14,6 +14,8 @@ import {
   getDelightVisitors,
 } from '../services/firestore'
 import DepartmentTabBar from '../components/DepartmentTabBar'
+import LiveElapsedTimer from '../components/LiveElapsedTimer'
+import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'others', title: 'Others' },
@@ -182,6 +184,7 @@ function upcomingSunday() {
 export default function SundayReport() {
   const { userProfile, canManageDepartment, isDepartmentHead, isCellDirector } = useAuth()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [selectedDate, setSelectedDate] = useState(() => searchParams.get('date') || upcomingSunday())
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -192,6 +195,7 @@ export default function SundayReport() {
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [programLogs, setProgramLogs] = useState([])
   const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [showProgramConfirm, setShowProgramConfirm] = useState(false)
   const [dlightSuggestions, setDlightSuggestions] = useState([])
   const [loadingDlight, setLoadingDlight] = useState(false)
   const [editingLogIdx, setEditingLogIdx] = useState(null)
@@ -326,6 +330,7 @@ export default function SundayReport() {
     setLoading(true)
     setReport(null)
     setProgramLogs([])
+    setShowProgramConfirm(false)
     Promise.all([
       getSundayReport(selectedDate),
       getCellGroups('Cell'),
@@ -499,6 +504,19 @@ export default function SundayReport() {
 
   const currentProgramItem = sortedProgram.find((item) => !logForItem(item)) || null
   const allProgramsTimed = sortedProgram.length > 0 && !currentProgramItem
+
+  // The item currently running = the one just before the next-to-time item
+  const runningProgramItem = useMemo(() => {
+    if (!currentProgramItem) return null
+    const idx = sortedProgram.indexOf(currentProgramItem)
+    return idx > 0 ? sortedProgram[idx - 1] : null
+  }, [sortedProgram, currentProgramItem])
+  const runningLog = runningProgramItem ? logForItem(runningProgramItem) : null
+  const runningStartMs = useMemo(() => {
+    if (!runningLog?.startTime) return null
+    const d = runningLog.startTime instanceof Date ? runningLog.startTime : new Date(runningLog.startTime)
+    return isNaN(d.getTime()) ? null : d.getTime()
+  }, [runningLog])
 
   const updateProgramItemName = (idx, name) => {
     const updated = sortedProgram.map((item, i) => i === idx ? { ...item, programName: name } : item)
@@ -839,15 +857,34 @@ export default function SundayReport() {
                   </div>
                 )}
 
-                {canEditEffective && currentProgramItem && (
+                {/* Program confirm sheet — shown before first tap */}
+                {showProgramConfirm && (
+                  <ProgramConfirmSheet
+                    title="Sunday Program"
+                    items={sortedProgram.map(item => ({ name: item.programName }))}
+                    onConfirm={() => { setShowProgramConfirm(false); handleProgramStart() }}
+                    onEdit={() => { setShowProgramConfirm(false); navigate('/department/sunday-ministry/sunday-program') }}
+                  />
+                )}
+
+                {runningStartMs && (
+                  <div className="flex flex-col items-center gap-1 pt-1">
+                    <p className="text-xs text-slate-500 font-medium">Now running: <strong>{runningProgramItem?.programName}</strong></p>
+                    <LiveElapsedTimer startedAtMs={runningStartMs} />
+                  </div>
+                )}
+
+                {canEditEffective && !allProgramsTimed && (
                   <div className="flex flex-col items-center pt-2">
                     <button
                       type="button"
-                      onClick={handleProgramStart}
+                      onClick={() => programLogs.length === 0 ? setShowProgramConfirm(true) : handleProgramStart()}
                       className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition px-8 py-6"
                     >
                       <span className="text-2xl font-bold tracking-wide">START</span>
-                      <span className="text-sm text-white/95 mt-2 font-medium">{currentProgramItem.programName}</span>
+                      <span className="text-sm text-white/95 mt-2 font-medium">
+                        {currentProgramItem ? currentProgramItem.programName : 'Service'}
+                      </span>
                     </button>
                   </div>
                 )}

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
+import LiveElapsedTimer from '../components/LiveElapsedTimer'
+import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
@@ -134,6 +136,7 @@ export default function MidweekMinistry({ embedded = false }) {
               isDirector={effectiveIsDirector}
               isLeader={effectiveIsLeader}
               reportDate={selectedDate}
+              onSwitchToPrep={() => setSubTab('prep')}
             />
           ) : (
             <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center text-slate-400 shadow-sm">
@@ -158,7 +161,7 @@ export default function MidweekMinistry({ embedded = false }) {
 
 // ─── Live Control Tab ─────────────────────────────────────────────────────────
 
-function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
+function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitchToPrep }) {
   const today = reportDate || format(new Date(), 'yyyy-MM-dd')
 
   const [cellGroups, setCellGroups]         = useState([])
@@ -168,13 +171,18 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
   const [loadingMembers, setLoadingMembers] = useState(false)
 
   // Session state
-  const [segmentOrder, setSegmentOrder] = useState(DEFAULT_SEGMENTS)
-  const [segmentIdx, setSegmentIdx]     = useState(-1)
-  const [presentIds, setPresentIds]     = useState(new Set())
+  const [segmentOrder, setSegmentOrder]       = useState(DEFAULT_SEGMENTS)
+  const [segmentDurations, setSegmentDurations] = useState({})
+  const [segmentIdx, setSegmentIdx]           = useState(-1)
+  const [presentIds, setPresentIds]           = useState(new Set())
 
   // Timing tracking
   const segmentStartTime  = useRef(null)
   const segmentTimingsRef = useRef([])
+  const [segmentStartedAt, setSegmentStartedAt] = useState(null)
+
+  // Program confirmation before first tap
+  const [showConfirmSheet, setShowConfirmSheet] = useState(false)
 
   // End-meeting confirmation modal
   const [showEndModal, setShowEndModal]     = useState(false)
@@ -251,6 +259,11 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
     getMidweekSettings(selectedCellId).then((s) => {
       if (s?.segmentOrder?.length) setSegmentOrder(s.segmentOrder)
       else setSegmentOrder(DEFAULT_SEGMENTS)
+      if (s?.segmentDetails?.length) {
+        const map = {}
+        s.segmentDetails.forEach((d) => { if (d.name) map[d.name] = Number(d.durationMinutes) || null })
+        setSegmentDurations(map)
+      }
     })
 
     setLoadingPrayer(true)
@@ -276,8 +289,22 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
   const nextSeg    = !isEnded && segmentIdx >= 0 && segmentIdx < segmentOrder.length - 1 ? segmentOrder[segmentIdx + 1] : null
   const segStyle   = currentSeg ? (SEGMENT_STYLES[currentSeg] || SEGMENT_STYLES.Prayer) : null
 
+  const startFirstSegment = () => {
+    const now = Date.now()
+    segmentStartTime.current  = now
+    segmentTimingsRef.current = []
+    setSegmentStartedAt(now)
+    setSegmentIdx(0)
+  }
+
   const handleMasterTap = () => {
     const now = Date.now()
+
+    // First tap — show confirmation sheet instead of starting immediately
+    if (segmentIdx === -1) {
+      setShowConfirmSheet(true)
+      return
+    }
 
     if (isEnded) {
       // Reset everything
@@ -288,6 +315,8 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
       segmentStartTime.current  = null
       segmentTimingsRef.current = []
       setPendingTimings([])
+      setSegmentStartedAt(null)
+      setShowConfirmSheet(false)
       if (selectedCellId) localStorage.removeItem(`rol_live_${selectedCellId}_${today}`)
       return
     }
@@ -305,17 +334,13 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
       // All segments done — show confirmation modal before saving
       setPendingTimings(updatedTimings)
       setShowEndModal(true)
+      setSegmentStartedAt(null)
     } else {
       // Advance to next segment
       segmentTimingsRef.current = updatedTimings
       segmentStartTime.current  = now
+      setSegmentStartedAt(now)
       setSegmentIdx(nextIdx)
-    }
-
-    // When starting from idle, record start time for first segment
-    if (segmentIdx === -1) {
-      segmentStartTime.current  = now
-      segmentTimingsRef.current = []
     }
   }
 
@@ -430,6 +455,16 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
         </div>
       )}
 
+      {/* ── Program Confirmation Sheet ── */}
+      {showConfirmSheet && (
+        <ProgramConfirmSheet
+          title="Today's Cell Program"
+          items={segmentOrder.map(s => ({ name: s, detail: segmentDurations[s] ? `${segmentDurations[s]} min` : null }))}
+          onConfirm={() => { setShowConfirmSheet(false); startFirstSegment() }}
+          onEdit={() => { setShowConfirmSheet(false); onSwitchToPrep?.() }}
+        />
+      )}
+
       {/* ── Master Button ── */}
       {selectedCellId && (
         <div className="flex justify-center">
@@ -457,6 +492,17 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate }) {
               </div>
             )}
           </motion.button>
+        </div>
+      )}
+
+      {/* ── Live Elapsed Timer ── */}
+      {selectedCellId && currentSeg && !isEnded && segmentStartedAt && (
+        <div className="flex justify-center">
+          <LiveElapsedTimer
+            startedAtMs={segmentStartedAt}
+            plannedMinutes={segmentDurations[currentSeg] || null}
+            label={currentSeg}
+          />
         </div>
       )}
 

@@ -24,7 +24,13 @@
       "PowerShell(Start-Process powershell -ArgumentList \"-NoExit\", \"-Command\", \"cd 'C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app'; npm run dev\")",
       "Bash(grep -r \"three dots\\\\|dropdown\\\\|menu\\\\|\\\\\\\\.\\\\\\\\.\\\\\\\\.\\\\|IconButton\" --include=\"*.jsx\" --include=\"*.js\" -i)",
       "PowerShell(firebase projects:list *)",
-      "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; ls node_modules | Where-Object { $_.Name -match \"firebase-admin\" })"
+      "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; ls node_modules | Where-Object { $_.Name -match \"firebase-admin\" })",
+      "PowerShell(ls \"C:\\\\Users\\\\User\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\firebase-tools\\\\lib\" | Where-Object { $_.Name -match \"api|auth|cred\" } | Select-Object Name -First 10)",
+      "PowerShell(Select-String -Path \"C:\\\\Users\\\\User\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\firebase-tools\\\\lib\\\\api.js\" -Pattern \"client_id|CLIENT_ID|clientId\" | Select-Object -First 5 | ForEach-Object { $_.Line.Trim\\(\\) })",
+      "PowerShell(Select-String -Path \"C:\\\\Users\\\\User\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\firebase-tools\\\\lib\\\\api.js\" -Pattern \"clientSecret\" | Select-Object -First 3 | ForEach-Object { $_.Line.Trim\\(\\) })",
+      "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; npx vite build --mode development 2>&1 | Select-String -Pattern \"error|Error|DepartmentWorship\" | Select-Object -First 30 | ForEach-Object { $_.Line })",
+      "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; npx vite build --mode development 2>&1 | Select-String -Pattern \"error|Error|built in\" | Select-Object -First 10 | ForEach-Object { $_.Line })",
+      "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; npx vite build --mode development 2>&1 | Select-String -Pattern \"error|Error|built in\" | Select-Object -First 5 | ForEach-Object { $_.Line })"
     ]
   }
 }

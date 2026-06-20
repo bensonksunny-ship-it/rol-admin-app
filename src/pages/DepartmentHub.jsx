@@ -89,6 +89,8 @@ import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { differenceInDays, differenceInYears, differenceInMonths, format, startOfWeek, endOfWeek } from 'date-fns'
 import { formatDMY, formatDMYTime, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
+import LiveElapsedTimer from '../components/LiveElapsedTimer'
+import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import BoardPointsModal from '../components/BoardPointsModal'
 import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
@@ -375,6 +377,7 @@ export default function DepartmentHub() {
 
   // Live Control (Event Management)
   const [liveControlTab, setLiveControlTab] = useState('timer')
+  const [liveConfirmOpen, setLiveConfirmOpen] = useState(false)
   const [eventProgramModalOpen, setEventProgramModalOpen] = useState(false)
   const [eventProgramEditingId, setEventProgramEditingId] = useState(null)
   const [eventProgramForm, setEventProgramForm] = useState({
@@ -589,6 +592,8 @@ export default function DepartmentHub() {
       .catch(() => setDeptEvents([]))
       .finally(() => setEventsLoading(false))
   }, [slug, activeTab, department])
+
+  useEffect(() => { setLiveConfirmOpen(false) }, [selectedEventId])
 
   useEffect(() => {
     const ev = deptEvents.find((e) => e.id === selectedEventId)
@@ -4608,13 +4613,36 @@ export default function DepartmentHub() {
                                     <strong>next</strong> program to time — same as Cell Sunday flow.
                                   </p>
 
-                                  <div className="flex flex-col items-center">
+                                  {/* Program confirmation sheet */}
+                                  {liveConfirmOpen && (
+                                    <ProgramConfirmSheet
+                                      title="Event Program"
+                                      items={programsSorted.map(p => ({ name: p.programName, detail: p.duration ? `${p.duration} min` : null }))}
+                                      onConfirm={() => { setLiveConfirmOpen(false); recordStartAtIndex(0) }}
+                                      onEdit={() => { setLiveConfirmOpen(false); setActiveTab('events') }}
+                                    />
+                                  )}
+
+                                  <div className="flex flex-col items-center gap-4">
+                                    {/* Now-running timer */}
+                                    {nextIdx > 0 && (() => {
+                                      const running = programsSorted[nextIdx - 1]
+                                      const startMs = running?.realtime?.startAtMs
+                                      const planned = Number(running?.duration) || null
+                                      return startMs ? (
+                                        <div className="flex flex-col items-center gap-1">
+                                          <p className="text-xs text-slate-500 font-medium">Now running: <strong>{running.programName}</strong></p>
+                                          <LiveElapsedTimer startedAtMs={startMs} plannedMinutes={planned} />
+                                        </div>
+                                      ) : null
+                                    })()}
+
                                     {nextProgram ? (
                                       <>
                                         <button
                                           type="button"
                                           disabled={!canEdit}
-                                          onClick={() => recordStartAtIndex(nextIdx)}
+                                          onClick={() => nextIdx === 0 ? setLiveConfirmOpen(true) : recordStartAtIndex(nextIdx)}
                                           className={`rounded-xl shadow-lg border-2 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition ${
                                             canEdit
                                               ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700'
