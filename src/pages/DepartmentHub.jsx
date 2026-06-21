@@ -4068,14 +4068,29 @@ export default function DepartmentHub() {
                       setTeamError('Failed to save team member.')
                     }
                   }}
-                  className="mt-4 space-y-3 border-t border-slate-200 pt-4"
+                  className="mt-6"
                 >
-                  <h3 className="text-sm font-semibold text-slate-800">
-                    {editingMember ? 'Edit member' : 'Add new member'}
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Form header */}
+                  <div className="flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-indigo-50 to-violet-50 border-t-2 border-indigo-200 rounded-t-xl">
+                    <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                      </svg>
+                    </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                      <h3 className="text-sm font-bold text-indigo-900 leading-tight">
+                        {editingMember ? 'Edit Team Member' : 'Add New Team Member'}
+                      </h3>
+                      <p className="text-xs text-indigo-500 mt-0.5">
+                        {editingMember ? 'Update the details below' : 'Search from the member database'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="px-5 py-5 space-y-5 bg-white border border-t-0 border-indigo-100 rounded-b-xl shadow-sm">
+                    {/* Name / Search */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                         Name
                       </label>
                       {editingMember ? (
@@ -4084,18 +4099,27 @@ export default function DepartmentHub() {
                           required
                           value={memberForm.name}
                           onChange={(e) => setMemberForm((f) => ({ ...f, name: e.target.value }))}
-                          className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-colors"
                         />
                       ) : memberForm.name ? (
-                        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-emerald-300 bg-emerald-50">
-                          <span className="w-6 h-6 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                        <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border-2 border-emerald-200 bg-emerald-50">
+                          <span className="w-9 h-9 rounded-full bg-emerald-500 text-white text-sm font-bold flex items-center justify-center flex-shrink-0 shadow-sm">
                             {memberForm.name.charAt(0).toUpperCase()}
                           </span>
-                          <span className="flex-1 text-sm font-medium text-emerald-900">{memberForm.name}</span>
-                          <button type="button" onClick={() => { setMemberForm((f) => ({ ...f, name: '', visitorId: '' })); setTeamMemberSearch('') }} className="text-emerald-400 hover:text-red-500 text-lg leading-none">×</button>
+                          <span className="flex-1 text-sm font-semibold text-emerald-900">{memberForm.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => { setMemberForm((f) => ({ ...f, name: '', visitorId: '' })); setTeamMemberSearch('') }}
+                            className="w-7 h-7 rounded-full bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 flex items-center justify-center text-base leading-none transition-colors shadow-sm"
+                          >×</button>
                         </div>
                       ) : (
                         <div className="relative">
+                          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                            </svg>
+                          </div>
                           <input
                             type="text"
                             placeholder={teamVisitorsLoading ? 'Loading members…' : 'Search member by name…'}
@@ -4105,15 +4129,15 @@ export default function DepartmentHub() {
                             onChange={(e) => { setTeamMemberSearch(e.target.value); setTeamMemberSearchOpen(true) }}
                             onFocus={() => setTeamMemberSearchOpen(true)}
                             onBlur={() => setTimeout(() => setTeamMemberSearchOpen(false), 150)}
-                            className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:opacity-60"
+                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 focus:bg-white transition-colors disabled:opacity-60"
                           />
                           {teamMemberSearchOpen && teamMemberSearch.trim().length > 0 && (() => {
                             const q = teamMemberSearch.trim().toLowerCase()
                             const matches = teamVisitors.filter((v) => v.name && v.name.toLowerCase().includes(q)).slice(0, 8)
                             return (
-                              <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-lg border border-slate-200 shadow-lg z-20 overflow-hidden max-h-52 overflow-y-auto">
+                              <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl border border-slate-200 shadow-xl z-20 overflow-hidden max-h-56 overflow-y-auto">
                                 {matches.length === 0 ? (
-                                  <p className="px-4 py-3 text-sm text-slate-400">No members found.</p>
+                                  <p className="px-4 py-4 text-sm text-slate-400 text-center">No members found.</p>
                                 ) : matches.map((v) => (
                                   <button
                                     key={v.id}
@@ -4123,13 +4147,13 @@ export default function DepartmentHub() {
                                       setTeamMemberSearch('')
                                       setTeamMemberSearchOpen(false)
                                     }}
-                                    className="w-full flex items-center gap-3 px-3 py-2 hover:bg-indigo-50 text-left transition-colors"
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-indigo-50 text-left transition-colors border-b border-slate-50 last:border-0"
                                   >
-                                    <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                    <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
                                       {v.name.charAt(0).toUpperCase()}
                                     </span>
                                     <div className="min-w-0">
-                                      <p className="text-sm font-medium text-slate-800 truncate">{v.name}</p>
+                                      <p className="text-sm font-semibold text-slate-800 truncate">{v.name}</p>
                                       {v.phone && <p className="text-xs text-slate-400 truncate">{v.phone}</p>}
                                     </div>
                                   </button>
@@ -4140,85 +4164,98 @@ export default function DepartmentHub() {
                         </div>
                       )}
                     </div>
+
+                    {/* Sub Department (D-Light only) */}
                     {slug === 'd-light' && (
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Sub Department
-                      </label>
-                      <select
-                        multiple
-                        value={memberForm.subDepartments}
-                        onChange={(e) => {
-                          const selected = Array.from(e.target.selectedOptions, (o) => o.value)
-                          setMemberForm((f) => ({
-                            ...f,
-                            subDepartments: selected,
-                            subDepartment: selected[0] || '',
-                          }))
-                        }}
-                        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm bg-white min-h-[80px]"
-                      >
-                        {subDeptOptionList.map((sd) => (
-                          <option key={sd.id} value={sd.name}>
-                            {sd.servingArea ? `${sd.name} (${sd.servingArea})` : sd.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                          Sub Department
+                        </label>
+                        <select
+                          multiple
+                          value={memberForm.subDepartments}
+                          onChange={(e) => {
+                            const selected = Array.from(e.target.selectedOptions, (o) => o.value)
+                            setMemberForm((f) => ({ ...f, subDepartments: selected, subDepartment: selected[0] || '' }))
+                          }}
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 min-h-[88px]"
+                        >
+                          {subDeptOptionList.map((sd) => (
+                            <option key={sd.id} value={sd.name}>
+                              {sd.servingArea ? `${sd.name} (${sd.servingArea})` : sd.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     )}
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Status
-                      </label>
-                      <select
-                        value={memberForm.status}
-                        onChange={(e) =>
-                          setMemberForm((f) => ({ ...f, status: e.target.value }))
-                        }
-                        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm bg-white"
-                      >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
+
+                    {/* Status + Member Since row */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                          Status
+                        </label>
+                        <div className="flex gap-2">
+                          {['active', 'inactive'].map((s) => (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => setMemberForm((f) => ({ ...f, status: s }))}
+                              className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                                memberForm.status === s
+                                  ? s === 'active'
+                                    ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
+                                    : 'bg-slate-500 text-white border-slate-500 shadow-sm'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                              }`}
+                            >
+                              {s === 'active' ? 'Active' : 'Inactive'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                          Member Since
+                        </label>
+                        <input
+                          type="date"
+                          value={memberForm.memberSince}
+                          onChange={(e) => setMemberForm((f) => ({ ...f, memberSince: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-colors"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Member since
-                      </label>
-                      <input
-                        type="date"
-                        value={memberForm.memberSince}
-                        onChange={(e) =>
-                          setMemberForm((f) => ({ ...f, memberSince: e.target.value }))
-                        }
-                        className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2 mt-4 sm:mt-7">
-                      <input
-                        id="isFormer"
-                        type="checkbox"
-                        checked={memberForm.isFormer}
-                        onChange={(e) =>
-                          setMemberForm((f) => ({ ...f, isFormer: e.target.checked }))
-                        }
-                        className="h-4 w-4 text-indigo-600 border-slate-300 rounded"
-                      />
-                      <label
-                        htmlFor="isFormer"
-                        className="text-xs font-medium text-slate-700"
+
+                    {/* Former member toggle */}
+                    <label className="flex items-center gap-3 cursor-pointer select-none group">
+                      <div className={`w-10 h-6 rounded-full transition-colors flex-shrink-0 ${memberForm.isFormer ? 'bg-amber-400' : 'bg-slate-200'}`}
+                        onClick={() => setMemberForm((f) => ({ ...f, isFormer: !f.isFormer }))}>
+                        <div className={`w-5 h-5 bg-white rounded-full shadow-md mt-0.5 transition-transform ${memberForm.isFormer ? 'translate-x-4.5' : 'translate-x-0.5'}`} style={{ transform: memberForm.isFormer ? 'translateX(18px)' : 'translateX(2px)' }} />
+                      </div>
+                      <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900">Mark as former member</span>
+                    </label>
+
+                    {/* Actions */}
+                    <div className="flex gap-3 pt-1">
+                      <button
+                        type="submit"
+                        disabled={!editingMember && !memberForm.name}
+                        className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm transition-colors"
                       >
-                        Former member
-                      </label>
+                        {editingMember ? 'Update Member' : 'Add Member'}
+                      </button>
+                      {editingMember && (
+                        <button
+                          type="button"
+                          onClick={() => { setEditingMember(null); setTeamMemberSearch(''); setMemberForm({ name: '', role: '', subDepartment: '', subDepartments: [], phone: '', status: 'active', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, notes: '', visitorId: '' }) }}
+                          className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <button
-                    type="submit"
-                    disabled={!editingMember && !memberForm.name}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-40"
-                  >
-                    {editingMember ? 'Update member' : 'Add member'}
-                  </button>
                 </form>
               )}
             </div>

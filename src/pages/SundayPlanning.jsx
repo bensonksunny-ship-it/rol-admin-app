@@ -9,9 +9,10 @@ import { formatDMY } from '../utils/date'
 function nextSundayISO() {
   const today = new Date()
   const day = today.getDay()
-  const daysUntilSunday = (7 - day) % 7
+  // If today is Sunday (day=0) → use today. Otherwise → add days until next Sunday.
+  const daysUntilSunday = day === 0 ? 0 : 7 - day
   const next = new Date(today)
-  next.setDate(today.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday))
+  next.setDate(today.getDate() + daysUntilSunday)
   return format(next, 'yyyy-MM-dd')
 }
 
@@ -167,36 +168,6 @@ function WorshipPlanSummary({ selectedDate }) {
 
 const DESIGN_TYPE_ICON = { Video: '🎬', Slide: '🖥️', Audio: '🎵', Light: '💡' }
 
-function MediaDesignBlock({ plan }) {
-  const items = plan?.mediaDesignProgram
-  if (!items?.length) return null
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-emerald-500 p-3 shadow-sm">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="font-semibold text-slate-800 text-sm">Media Program</h3>
-        <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">✓ Pushed by Media</span>
-      </div>
-      <div className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
-        {items.map((item, idx) => (
-          <div key={item.id || idx} className="flex flex-wrap items-center gap-2 px-3 py-2">
-            <span className="text-xs text-slate-400 w-5 text-right shrink-0">{idx + 1}.</span>
-            <span className="text-sm font-medium text-slate-800 flex-1 min-w-[80px]">{item.name}</span>
-            {(item.types || []).map((t) => (
-              <span key={t} className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{DESIGN_TYPE_ICON[t] || ''} {t}</span>
-            ))}
-            {item.assignedPerson && (
-              <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">{item.assignedPerson}</span>
-            )}
-            {!item.assignedPerson && item.designer && (
-              <span className="text-xs text-slate-500">{item.designer}</span>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function SectionForm({ sectionKey, label, data, canEdit, onSave, saving }) {
   const [form, setForm] = useState(data || { notes: '' })
   useEffect(() => setForm(data || { notes: '' }), [data])
@@ -271,32 +242,55 @@ const SECTION_DEPT_LABEL = {
 }
 
 function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
-  const [items, setItems] = useState([])
+  const [items, setItems] = useState([])   // flat unified list: {key, label, kind, mediaData?}
   const [loadingItems, setLoadingItems] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [worshipPlan, setWorshipPlan] = useState(null)
 
+  useEffect(() => {
+    if (!selectedDate) return
+    getWorshipScheduleByDate('Worship', selectedDate)
+      .then(setWorshipPlan)
+      .catch(() => setWorshipPlan(null))
+  }, [selectedDate])
+
+  // Build the combined list whenever the plan or its programOrder changes
   useEffect(() => {
     setLoadingItems(true)
     getSundayProgramDefault()
       .then((doc) => {
-        const list = doc?.items?.length ? doc.items : [...DEFAULT_SEED]
-        const sorted = [...list].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-        // Apply per-Sunday order override if saved
+        const defaults = doc?.items?.length ? doc.items : [...DEFAULT_SEED]
+        const sorted = [...defaults].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+        const mediaDesign = plan?.mediaDesignProgram || []
+
+        // Build a map of all items by key
+        // Regular items: key = programName, kind = 'program'
+        // Media design items: key = 'media::<name>', kind = 'media'
+        // Remove the generic "Media" slot if media design items exist
+        const programItems = mediaDesign.length
+          ? sorted.filter((i) => i.programName !== 'Media')
+          : sorted
+        const baseList = [
+          ...programItems.map((i) => ({ key: i.programName, label: i.programName, kind: 'program' })),
+          ...mediaDesign.map((mi) => ({ key: `media::${mi.name}`, label: mi.name, kind: 'media', mediaData: mi })),
+        ]
+
+        // Apply saved order if present
         const savedOrder = plan?.programOrder
         if (Array.isArray(savedOrder) && savedOrder.length) {
-          const nameToItem = Object.fromEntries(sorted.map((i) => [i.programName, i]))
-          const ordered = savedOrder.map((name) => nameToItem[name]).filter(Boolean)
-          // Append any items not in savedOrder
+          const byKey = Object.fromEntries(baseList.map((i) => [i.key, i]))
+          const ordered = savedOrder.map((k) => byKey[k]).filter(Boolean)
           const savedSet = new Set(savedOrder)
-          sorted.forEach((i) => { if (!savedSet.has(i.programName)) ordered.push(i) })
+          baseList.forEach((i) => { if (!savedSet.has(i.key)) ordered.push(i) })
           setItems(ordered)
         } else {
-          setItems(sorted)
+          setItems(baseList)
         }
       })
-      .catch(() => setItems([...DEFAULT_SEED]))
+      .catch(() => setItems(DEFAULT_SEED.map((i) => ({ key: i.programName, label: i.programName, kind: 'program' }))))
       .finally(() => setLoadingItems(false))
-  }, [plan?.programOrder])
+  }, [plan?.programOrder, plan?.mediaDesignProgram])
 
   const moveItem = async (idx, dir) => {
     const next = [...items]
@@ -305,14 +299,24 @@ function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
     ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
     setItems(next)
     setSaving(true)
-    try {
-      await setSundayPlanSection(selectedDate, 'programOrder', next.map((i) => i.programName))
-    } catch (e) { console.error(e) }
+    try { await setSundayPlanSection(selectedDate, 'programOrder', next.map((i) => i.key)) } catch (e) { console.error(e) }
     setSaving(false)
   }
 
-  const getAssignment = (programName) => {
-    const sectionKey = PROGRAM_SECTION_MAP[programName]
+  const moveItemToPosition = async (fromIdx, toPos) => {
+    const target = Math.max(1, Math.min(items.length, toPos)) - 1
+    if (target === fromIdx) return
+    const next = [...items]
+    const [moved] = next.splice(fromIdx, 1)
+    next.splice(target, 0, moved)
+    setItems(next)
+    setSaving(true)
+    try { await setSundayPlanSection(selectedDate, 'programOrder', next.map((i) => i.key)) } catch (e) { console.error(e) }
+    setSaving(false)
+  }
+
+  const getProgramAssignment = (label) => {
+    const sectionKey = PROGRAM_SECTION_MAP[label]
     if (!sectionKey) return null
     if (sectionKey === '__preservice__') {
       const speakers = preServiceEntry?.speakers
@@ -340,36 +344,102 @@ function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
           {items.map((item, idx) => {
-            const assignment = getAssignment(item.programName)
+            const isMedia = item.kind === 'media'
+            const mi = item.mediaData
+            const assignment = isMedia ? null : getProgramAssignment(item.label)
+            const hasInfo = !!assignment || (isMedia && (mi?.assignedPerson || mi?.designer || mi?.types?.length))
+
+            const isWorship = item.label === 'Worship' && item.kind === 'program'
+            const worshipSongs = isWorship
+              ? (worshipPlan?.assignments || [])
+                  .filter((a) => a.role?.startsWith('Lead Vocal') && (a.songName || a.memberName))
+              : []
+            const hasSubRows = isWorship && worshipSongs.length > 0
+
             return (
-              <div key={item.programName} style={{ background: assignment ? '#fafafe' : '#f8fafc', border: assignment ? '1px solid #c7d2fe' : '1px solid #e2e8f0', borderRadius: 10, padding: '9px 12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
-                  <span style={{ width: 24, height: 24, borderRadius: '50%', background: '#6366f1', color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
-                  <span style={{ fontWeight: 600, color: '#1e293b', fontSize: 13, flex: 1, minWidth: 80 }}>{item.programName}</span>
-                  {assignment && (
-                    <span style={{ fontSize: 12, background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', padding: '2px 10px', borderRadius: 20, fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {assignment.text}
-                      <span style={{ fontWeight: 400, opacity: 0.65 }}> · {assignment.dept}</span>
-                    </span>
-                  )}
-                  {canEdit && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginLeft: 'auto', flexShrink: 0 }}>
-                      <button
-                        type="button"
-                        onClick={() => moveItem(idx, -1)}
-                        disabled={idx === 0 || saving}
-                        style={{ width: 22, height: 18, border: '1px solid #e2e8f0', borderRadius: 4, background: idx === 0 ? '#f8fafc' : '#fff', color: idx === 0 ? '#cbd5e1' : '#6366f1', fontSize: 10, cursor: idx === 0 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
-                      >▲</button>
-                      <button
-                        type="button"
-                        onClick={() => moveItem(idx, 1)}
-                        disabled={idx === items.length - 1 || saving}
-                        style={{ width: 22, height: 18, border: '1px solid #e2e8f0', borderRadius: 4, background: idx === items.length - 1 ? '#f8fafc' : '#fff', color: idx === items.length - 1 ? '#cbd5e1' : '#6366f1', fontSize: 10, cursor: idx === items.length - 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
-                      >▼</button>
+                  <div key={item.key} style={{
+                    background: hasInfo ? '#fafafe' : '#f8fafc',
+                    border: `1px solid ${isMedia ? '#a7f3d0' : (hasInfo || hasSubRows ? '#c7d2fe' : '#e2e8f0')}`,
+                    borderLeft: isMedia ? '3px solid #10b981' : (isWorship && hasSubRows ? '3px solid #f59e0b' : undefined),
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                  }}>
+                    {/* Main row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '9px 12px' }}>
+                      {/* Position badge — editable when canEdit */}
+                      {canEdit ? (
+                        <input
+                          type="number"
+                          min={1}
+                          max={items.length}
+                          defaultValue={idx + 1}
+                          key={`${item.key}-${idx}`}
+                          onFocus={(e) => e.target.select()}
+                          onBlur={(e) => moveItemToPosition(idx, parseInt(e.target.value, 10) || idx + 1)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+                          disabled={saving}
+                          style={{ width: 36, height: 28, borderRadius: 8, border: `1.5px solid ${isMedia ? '#6ee7b7' : '#a5b4fc'}`, background: isMedia ? '#ecfdf5' : '#eef2ff', color: isMedia ? '#065f46' : '#4338ca', fontSize: 12, fontWeight: 700, textAlign: 'center', cursor: 'text', flexShrink: 0, outline: 'none', padding: 0 }}
+                        />
+                      ) : (
+                        <span style={{ width: 24, height: 24, borderRadius: '50%', background: isMedia ? '#10b981' : '#6366f1', color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                      )}
+
+                      {/* Name */}
+                      <span style={{ fontWeight: 600, color: '#1e293b', fontSize: 13, flex: 1, minWidth: 80 }}>
+                        {item.label}
+                        {isMedia && <span style={{ fontSize: 10, color: '#10b981', fontWeight: 500, marginLeft: 5 }}>· Media</span>}
+                      </span>
+
+                      {/* Type chips for media items */}
+                      {isMedia && mi?.types?.map((t) => (
+                        <span key={t} style={{ fontSize: 10, background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '1px 7px', borderRadius: 12, fontWeight: 600 }}>{DESIGN_TYPE_ICON[t] || ''} {t}</span>
+                      ))}
+
+                      {/* Assignment / person */}
+                      {isMedia && (mi?.assignedPerson || mi?.designer) && (
+                        <span style={{ fontSize: 12, background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', padding: '2px 10px', borderRadius: 20, fontWeight: 600 }}>
+                          {mi.assignedPerson || mi.designer}
+                        </span>
+                      )}
+                      {!isMedia && !isWorship && assignment && (
+                        <span style={{ fontSize: 12, background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', padding: '2px 10px', borderRadius: 20, fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {assignment.text}<span style={{ fontWeight: 400, opacity: 0.65 }}> · {assignment.dept}</span>
+                        </span>
+                      )}
+
+                      {/* Reorder buttons */}
+                      {canEdit && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginLeft: 'auto', flexShrink: 0 }}>
+                          <button type="button" onClick={() => moveItem(idx, -1)} disabled={idx === 0 || saving}
+                            style={{ width: 22, height: 18, border: '1px solid #e2e8f0', borderRadius: 4, background: idx === 0 ? '#f8fafc' : '#fff', color: idx === 0 ? '#cbd5e1' : '#6366f1', fontSize: 10, cursor: idx === 0 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>▲</button>
+                          <button type="button" onClick={() => moveItem(idx, 1)} disabled={idx === items.length - 1 || saving}
+                            style={{ width: 22, height: 18, border: '1px solid #e2e8f0', borderRadius: 4, background: idx === items.length - 1 ? '#f8fafc' : '#fff', color: idx === items.length - 1 ? '#cbd5e1' : '#6366f1', fontSize: 10, cursor: idx === items.length - 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>▼</button>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+
+                    {/* Worship song sub-rows */}
+                    {hasSubRows && (
+                      <div style={{ borderTop: '1px solid #fde68a', background: '#fffbeb' }}>
+                        {worshipSongs.map((a, si) => (
+                          <div key={a.role} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 44px', borderTop: si > 0 ? '1px solid #fef3c7' : 'none', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 10, color: '#92400e', fontWeight: 700, background: '#fde68a', padding: '1px 7px', borderRadius: 10, flexShrink: 0 }}>
+                              {a.role.replace('Lead Vocal-', 'Lead Vocal ')}
+                            </span>
+                            {a.songName && (
+                              <span style={{ fontSize: 12, fontWeight: 600, color: '#1c1917', flex: 1, minWidth: 60 }}>{a.songName}</span>
+                            )}
+                            {a.key && (
+                              <span style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fde68a', padding: '1px 6px', borderRadius: 8 }}>{a.key}</span>
+                            )}
+                            {a.memberName && (
+                              <span style={{ fontSize: 11, color: '#78716c' }}>{a.memberName}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
             )
           })}
         </div>
@@ -566,15 +636,14 @@ export default function SundayPlanning() {
 
       {loading ? (
         <div className="py-12 text-center text-slate-500">Loading...</div>
-      ) : isPublished ? (
-        /* ── Digital Bulletin (read-only for all users) ───────────────── */
-        <DigitalBulletin plan={plan} selectedDate={selectedDate} />
       ) : activeTab === 'sundayProgram' ? (
         <SundayProgramView />
+      ) : isPublished ? (
+        /* ── Digital Bulletin (read-only for all users) ───────────────── */
+        <DigitalBulletin plan={plan} preServiceEntry={preServiceEntry} selectedDate={selectedDate} />
       ) : (
         <div className="space-y-2">
-          <SundayProgramBlock plan={plan} preServiceEntry={preServiceEntry} canEdit={canEdit} selectedDate={selectedDate} />
-          <MediaDesignBlock plan={plan} />
+          <SundayProgramBlock plan={plan} preServiceEntry={preServiceEntry} canEdit={canEditFull} selectedDate={selectedDate} />
           <WorshipPlanSummary selectedDate={selectedDate} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {SECTION_ORDER.filter((key) => key !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) => (
@@ -596,7 +665,7 @@ export default function SundayPlanning() {
 }
 
 // ── Digital Bulletin — polished read-only view shown once published ────────
-function DigitalBulletin({ plan, selectedDate }) {
+function DigitalBulletin({ plan, preServiceEntry, selectedDate }) {
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -608,6 +677,9 @@ function DigitalBulletin({ plan, selectedDate }) {
           ✓ Official Sunday Plan
         </span>
       </div>
+
+      {/* Sunday Program — same list as draft view, read-only */}
+      <SundayProgramBlock plan={plan} preServiceEntry={preServiceEntry} canEdit={false} selectedDate={selectedDate} />
 
       {/* Worship — pulls from the Worship dept schedule */}
       <WorshipPlanSummary selectedDate={selectedDate} />

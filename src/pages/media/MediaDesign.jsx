@@ -127,196 +127,176 @@ export default function MediaDesign({ canEdit }) {
         <p className="text-sm text-slate-400 py-8 text-center">Loading…</p>
       ) : (
         <>
-          {/* Program list */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            {/* List header */}
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-800 text-sm">Program Items</span>
-                {program.length > 0 && (
-                  <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                    {doneCount}/{program.length} done
-                  </span>
-                )}
-              </div>
-              {saving && <span className="text-xs text-indigo-500 font-medium">Saving…</span>}
+          {/* Header row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-800 text-sm">Program Items</span>
+              {program.length > 0 && (
+                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{doneCount}/{program.length} done</span>
+              )}
+              {saving && <span className="text-xs text-indigo-400 font-medium">Saving…</span>}
             </div>
+            {canEdit && !addingItem && (
+              <button type="button" onClick={() => setAddingItem(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 shadow-sm">
+                <span className="text-base leading-none">+</span> Add Item
+              </button>
+            )}
+          </div>
 
-            {/* Items */}
-            {program.length === 0 && !addingItem ? (
-              <div className="py-10 text-center">
-                <p className="text-sm text-slate-400">No program items yet.</p>
-                <p className="text-xs text-slate-400 mt-1">Add items like "Flash Video", "Worship Slides", etc.</p>
+          {/* Add item form */}
+          {canEdit && addingItem && (
+            <div className="bg-white rounded-xl border-2 border-indigo-200 shadow-sm p-4 space-y-3">
+              <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">New Program Item</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] text-slate-500 mb-1 font-medium">Program Name</p>
+                  <input
+                    value={newItem.name}
+                    onChange={(e) => setNewItem((f) => ({ ...f, name: e.target.value }))}
+                    onKeyDown={(e) => e.key === 'Enter' && addItem()}
+                    placeholder="e.g. Flash Video, Worship Slides…"
+                    autoFocus
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500 mb-1 font-medium">Designer</p>
+                  <select value={newItem.designer} onChange={(e) => setNewItem((f) => ({ ...f, designer: e.target.value }))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200">
+                    <option value="">— Not assigned</option>
+                    {team.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                  </select>
+                </div>
               </div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {program.map((item, idx) => {
-                  const isEditing = editingId === item.id
-                  const sOpt = STATUS_OPTS.find((s) => s.value === item.status) || STATUS_OPTS[0]
+              <div>
+                <p className="text-[10px] text-slate-500 mb-2 font-medium">Design Types</p>
+                <div className="flex gap-2 flex-wrap">
+                  {DESIGN_TYPES.map((t) => {
+                    const s = TYPE_STYLE[t]
+                    const active = newItem.types.includes(t)
+                    return (
+                      <button key={t} type="button"
+                        onClick={() => setNewItem((f) => ({ ...f, types: f.types.includes(t) ? f.types.filter((x) => x !== t) : [...f.types, t] }))}
+                        style={{ background: active ? s.bg : '#f8fafc', color: active ? s.color : '#94a3b8', border: `2px solid ${active ? s.border : '#e2e8f0'}`, borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
+                      >{s.icon} {t}</button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={addItem} disabled={!newItem.name.trim()} className="px-5 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 shadow-sm">Add</button>
+                <button type="button" onClick={() => { setAddingItem(false); setNewItem(BLANK_ITEM()) }} className="px-4 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-sm hover:bg-slate-50">Cancel</button>
+              </div>
+            </div>
+          )}
 
-                  return (
-                    <div key={item.id} className="px-4 py-3">
-                      {!isEditing ? (
-                        /* ── Read view ── */
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-slate-400 w-5 text-right shrink-0">{idx + 1}.</span>
-                          <span className="font-semibold text-slate-800 text-sm flex-1 min-w-[100px]">{item.name}</span>
+          {/* Grid of program cards */}
+          {program.length === 0 && !addingItem ? (
+            <div className="bg-white rounded-xl border border-dashed border-slate-200 py-14 text-center">
+              <p className="text-slate-400 text-sm">No program items yet.</p>
+              <p className="text-xs text-slate-300 mt-1">Add items like "Flash Video", "Worship Slides"…</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {program.map((item, idx) => {
+                const isEditing = editingId === item.id
+                const sOpt = STATUS_OPTS.find((s) => s.value === item.status) || STATUS_OPTS[0]
 
-                          {/* Type chips */}
-                          <div className="flex gap-1 flex-wrap">
+                return (
+                  <div key={item.id} className={`bg-white rounded-xl border shadow-sm overflow-hidden transition-shadow hover:shadow-md ${isEditing ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-slate-200'}`}>
+                    {!isEditing ? (
+                      /* ── Card read view ── */
+                      <div className="p-4 flex flex-col gap-2.5 h-full">
+                        {/* Top row: number + name + status */}
+                        <div className="flex items-start gap-2">
+                          <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{idx + 1}</span>
+                          <span className="font-bold text-slate-800 text-sm leading-snug flex-1">{item.name}</span>
+                          <span style={{ background: sOpt.bg, color: sOpt.color, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{sOpt.label}</span>
+                        </div>
+
+                        {/* Type chips */}
+                        {item.types.length > 0 && (
+                          <div className="flex gap-1.5 flex-wrap pl-8">
                             {item.types.map((t) => {
                               const s = TYPE_STYLE[t]
                               return (
-                                <span key={t} style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}`, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 700 }}>
-                                  {s.icon} {t}
-                                </span>
+                                <span key={t} style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}`, borderRadius: 16, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{s.icon} {t}</span>
                               )
                             })}
                           </div>
+                        )}
 
+                        {/* Designer + notes */}
+                        <div className="pl-8 space-y-1">
                           {item.designer && (
-                            <span className="text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">{item.designer}</span>
+                            <p className="text-xs text-slate-500">
+                              <span className="font-medium text-slate-600">Designer:</span> {item.designer}
+                            </p>
                           )}
-
-                          <span style={{ background: sOpt.bg, color: sOpt.color, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>
-                            {sOpt.label}
-                          </span>
-
-                          {canEdit && (
-                            <div className="flex gap-2 ml-auto">
-                              <button type="button" onClick={() => setEditingId(item.id)} className="text-xs text-blue-600 hover:underline">Edit</button>
-                              <button type="button" onClick={() => removeItem(item.id)} className="text-xs text-red-500 hover:underline">Remove</button>
-                            </div>
-                          )}
-                          {item.notes && <p className="text-xs text-slate-400 italic w-full pl-6">{item.notes}</p>}
+                          {item.notes && <p className="text-xs text-slate-400 italic">{item.notes}</p>}
                         </div>
-                      ) : (
-                        /* ── Edit view ── */
-                        <div className="space-y-3">
-                          <div className="flex flex-wrap gap-3">
-                            <div className="flex-[2] min-w-[140px]">
-                              <p className="text-[10px] text-slate-500 mb-1">Program Name</p>
-                              <input
-                                value={item.name}
-                                onChange={(e) => patchItem(item.id, { name: e.target.value })}
-                                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm"
-                                autoFocus
-                              />
-                            </div>
-                            <div className="flex-1 min-w-[120px]">
-                              <p className="text-[10px] text-slate-500 mb-1">Designer</p>
-                              <select value={item.designer} onChange={(e) => patchItem(item.id, { designer: e.target.value })} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm bg-white">
-                                <option value="">— Not assigned</option>
+
+                        {/* Actions */}
+                        {canEdit && (
+                          <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100">
+                            <button type="button" onClick={() => setEditingId(item.id)} className="flex-1 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">Edit</button>
+                            <button type="button" onClick={() => removeItem(item.id)} className="flex-1 py-1 text-xs font-semibold text-red-500 hover:bg-red-50 rounded-lg transition-colors">Remove</button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* ── Card edit view ── */
+                      <div className="p-4 space-y-3 bg-indigo-50/40">
+                        <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Editing</p>
+                        <div className="space-y-2">
+                          <div>
+                            <p className="text-[10px] text-slate-500 mb-1 font-medium">Program Name</p>
+                            <input value={item.name} onChange={(e) => patchItem(item.id, { name: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200" autoFocus />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <p className="text-[10px] text-slate-500 mb-1 font-medium">Designer</p>
+                              <select value={item.designer} onChange={(e) => patchItem(item.id, { designer: e.target.value })} className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white">
+                                <option value="">— None</option>
                                 {team.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
                               </select>
                             </div>
-                            <div className="flex-1 min-w-[110px]">
-                              <p className="text-[10px] text-slate-500 mb-1">Status</p>
-                              <select value={item.status} onChange={(e) => patchItem(item.id, { status: e.target.value })} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm bg-white">
+                            <div>
+                              <p className="text-[10px] text-slate-500 mb-1 font-medium">Status</p>
+                              <select value={item.status} onChange={(e) => patchItem(item.id, { status: e.target.value })} className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white">
                                 {STATUS_OPTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                               </select>
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] text-slate-500 mb-1.5">Design Types</p>
-                            <div className="flex gap-2 flex-wrap">
+                            <p className="text-[10px] text-slate-500 mb-1.5 font-medium">Design Types</p>
+                            <div className="flex gap-1.5 flex-wrap">
                               {DESIGN_TYPES.map((t) => {
                                 const s = TYPE_STYLE[t]
                                 const active = item.types.includes(t)
                                 return (
-                                  <button
-                                    key={t}
-                                    type="button"
-                                    onClick={() => patchItem(item.id, { types: toggleType(item, t) })}
-                                    style={{
-                                      background: active ? s.bg : '#f8fafc',
-                                      color: active ? s.color : '#94a3b8',
-                                      border: `2px solid ${active ? s.border : '#e2e8f0'}`,
-                                      borderRadius: 10, padding: '6px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s'
-                                    }}
-                                  >
-                                    {s.icon} {t}
-                                  </button>
+                                  <button key={t} type="button" onClick={() => patchItem(item.id, { types: toggleType(item, t) })}
+                                    style={{ background: active ? s.bg : '#f8fafc', color: active ? s.color : '#94a3b8', border: `2px solid ${active ? s.border : '#e2e8f0'}`, borderRadius: 7, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
+                                  >{s.icon} {t}</button>
                                 )
                               })}
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] text-slate-500 mb-1">Notes</p>
-                            <input value={item.notes || ''} onChange={(e) => patchItem(item.id, { notes: e.target.value })} placeholder="Optional notes…" className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm" />
+                            <p className="text-[10px] text-slate-500 mb-1 font-medium">Notes</p>
+                            <input value={item.notes || ''} onChange={(e) => patchItem(item.id, { notes: e.target.value })} placeholder="Optional notes…"
+                              className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                           </div>
-                          <button type="button" onClick={() => setEditingId(null)} className="px-4 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-sm font-medium hover:bg-slate-200">Done editing</button>
                         </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Add item form */}
-            {canEdit && (
-              <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/60">
-                {addingItem ? (
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap gap-3">
-                      <div className="flex-[2] min-w-[140px]">
-                        <p className="text-[10px] text-slate-500 mb-1">Program Name</p>
-                        <input
-                          value={newItem.name}
-                          onChange={(e) => setNewItem((f) => ({ ...f, name: e.target.value }))}
-                          onKeyDown={(e) => e.key === 'Enter' && addItem()}
-                          placeholder="e.g. Flash Video, Worship Slides…"
-                          autoFocus
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm"
-                        />
+                        <button type="button" onClick={() => setEditingId(null)} className="w-full py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700">Done</button>
                       </div>
-                      <div className="flex-1 min-w-[120px]">
-                        <p className="text-[10px] text-slate-500 mb-1">Designer</p>
-                        <select value={newItem.designer} onChange={(e) => setNewItem((f) => ({ ...f, designer: e.target.value }))} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm bg-white">
-                          <option value="">— Not assigned</option>
-                          {team.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-slate-500 mb-1.5">Design Types</p>
-                      <div className="flex gap-2 flex-wrap">
-                        {DESIGN_TYPES.map((t) => {
-                          const s = TYPE_STYLE[t]
-                          const active = newItem.types.includes(t)
-                          return (
-                            <button
-                              key={t}
-                              type="button"
-                              onClick={() => setNewItem((f) => ({ ...f, types: f.types.includes(t) ? f.types.filter((x) => x !== t) : [...f.types, t] }))}
-                              style={{
-                                background: active ? s.bg : '#f8fafc',
-                                color: active ? s.color : '#94a3b8',
-                                border: `2px solid ${active ? s.border : '#e2e8f0'}`,
-                                borderRadius: 10, padding: '6px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s'
-                              }}
-                            >
-                              {s.icon} {t}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={addItem} disabled={!newItem.name.trim()} className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40">Add</button>
-                      <button type="button" onClick={() => { setAddingItem(false); setNewItem(BLANK_ITEM()) }} className="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-600 text-sm hover:bg-slate-300">Cancel</button>
-                    </div>
+                    )}
                   </div>
-                ) : (
-                  <button type="button" onClick={() => setAddingItem(true)} className="flex items-center gap-2 text-sm text-indigo-600 font-semibold hover:text-indigo-700">
-                    <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#6366f1', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>+</span>
-                    Add program item
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+                )
+              })}
+            </div>
+          )}
 
         </>
       )}
