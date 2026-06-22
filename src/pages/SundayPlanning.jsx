@@ -448,34 +448,6 @@ function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
   )
 }
 
-function SundayProgramView() {
-  const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(true)
-  useEffect(() => {
-    getSundayProgramDefault()
-      .then((doc) => {
-        const list = doc?.items?.length ? doc.items : [...DEFAULT_SEED]
-        setItems([...list].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)))
-      })
-      .catch(() => setItems([...DEFAULT_SEED]))
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading) return <p className="text-sm text-slate-400">Loading…</p>
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <ul className="divide-y divide-slate-100">
-        {items.map((row, idx) => (
-          <li key={idx} className="flex items-center gap-3 px-4 py-2.5">
-            <span className="w-5 text-xs text-slate-500 text-right">{idx + 1}.</span>
-            <span className="text-sm font-medium text-slate-800">{row.programName}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 export default function SundayPlanning() {
   const [searchParams, setSearchParams] = useSearchParams()
   const dateFromUrl = searchParams.get('date')
@@ -486,7 +458,6 @@ export default function SundayPlanning() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
-  const [activeTab, setActiveTab] = useState('combined')
   const canView = hasPermission('attendance')
   const canEditFull = hasPermission('editSundayPlanFull')
   const isPublished = plan?.status === 'published'
@@ -617,27 +588,8 @@ export default function SundayPlanning() {
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-slate-200">
-        <button
-          type="button"
-          onClick={() => setActiveTab('combined')}
-          className={`px-3 py-1.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === 'combined' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-        >
-          Sunday plan
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('sundayProgram')}
-          className={`px-3 py-1.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === 'sundayProgram' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-        >
-          Sunday program
-        </button>
-      </div>
-
       {loading ? (
         <div className="py-12 text-center text-slate-500">Loading...</div>
-      ) : activeTab === 'sundayProgram' ? (
-        <SundayProgramView />
       ) : isPublished ? (
         /* ── Digital Bulletin (read-only for all users) ───────────────── */
         <DigitalBulletin plan={plan} preServiceEntry={preServiceEntry} selectedDate={selectedDate} />

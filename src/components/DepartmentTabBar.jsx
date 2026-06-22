@@ -37,6 +37,8 @@ function getTabLabel(tab) {
     case 'pcs':               return 'PCS'
     case 'events':            return 'Events'
     case 'liveControl':       return 'Live Control'
+    case 'upcomingSunday':    return 'Upcoming Sunday'
+    case 'sundayCrew':        return 'Crew'
     default:                  return tab
   }
 }
@@ -105,6 +107,8 @@ export default function DepartmentTabBar({
       return <Link key={tab} to="/department/sunday-ministry/reports" className={cls}>{label}</Link>
     if (tab === 'sundayProgram')
       return <Link key={tab} to="/department/sunday-ministry/sunday-program" className={cls}>{label}</Link>
+    if (tab === 'sundayCrew')
+      return <Link key={tab} to="/department/sunday-ministry/crew" className={cls}>{label}</Link>
     if (setActiveTab)
       return (
         <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={cls}>

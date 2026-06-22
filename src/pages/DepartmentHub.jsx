@@ -110,6 +110,7 @@ import AccountsOperationsToggle from './accounts/AccountsOperationsToggle'
 import DLightOperationsToggle from './d-light/DLightOperationsToggle'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
 import SundayPlanning from './SundayPlanning'
+import UpcomingSunday from './UpcomingSunday'
 import SecCoreSummary from './seccore/SecCoreSummary'
 
 async function mergeTasksEntriesTeam(canonicalName) {
@@ -2581,6 +2582,10 @@ export default function DepartmentHub() {
 
           {activeTab === 'operations' && slug === 'sunday-ministry' && (
             <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
+          {activeTab === 'upcomingSunday' && ['media', 'worship', 'd-light', 'administration'].includes(slug) && (
+            <UpcomingSunday slug={slug} />
           )}
 
           {activeTab === 'design' && slug === 'media' && (

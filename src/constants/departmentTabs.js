@@ -8,13 +8,13 @@ export function getDepartmentHubTabs(slug) {
     case 'caring':
       return ['summary', 'pcs', 'operations']
     case 'sunday-ministry':
-      return ['summary', 'sundayReport', 'sundayReportsHistory', 'sundayProgram', 'operations']
+      return ['summary', 'sundayReport', 'sundayReportsHistory', 'sundayProgram', 'sundayCrew', 'operations']
     case 'worship':
-      return ['summary', 'assign', 'theTeam', 'practiceRehearsal', 'archives', 'operations']
+      return ['summary', 'upcomingSunday', 'assign', 'theTeam', 'practiceRehearsal', 'archives', 'operations']
     case 'media':
-      return ['summary', 'design', 'operations']
+      return ['summary', 'upcomingSunday', 'design', 'operations']
     case 'd-light':
-      return ['summary', 'visitorEntry', 'assign', 'operations']
+      return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'operations']
     case 'event-m':
       return ['summary', 'events', 'liveControl', 'subDepartment', 'team', 'planning', 'financial']
     case 'river-kids':
@@ -22,7 +22,7 @@ export function getDepartmentHubTabs(slug) {
     case 'accounts':
       return ['summary', 'entry', 'operations']
     case 'administration':
-      return ['summary', 'operations']
+      return ['summary', 'upcomingSunday', 'operations']
     default:
       return ['summary', 'subDepartment', 'team', 'planning', 'financial']
   }
