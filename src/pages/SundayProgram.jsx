@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   getSundayProgramDefault,
+  setSundayProgramDefault,
   pushProgramToSundayReport,
   getSundayProgramDesign,
   setSundayProgramDesign,
   sendProgramNotification,
+  getProgramNotification,
+  getDeptProgramInput,
+  setDeptProgramInput,
 } from '../services/firestore'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 
@@ -28,26 +32,109 @@ const DEFAULT_SEED = [
   { programName: 'Prayer & Benediction', order: 5 },
 ]
 
+// ─── Department meta ─────────────────────────────────────────────────────────
+
+const DEPT_SLUGS = ['media', 'worship', 'd-light', 'administration']
+const DEPT_META = {
+  'media':          { name: 'Media',         accent: '#0ea5e9', light: '#e0f2fe' },
+  'worship':        { name: 'Worship',        accent: '#f59e0b', light: '#fef3c7' },
+  'd-light':        { name: 'D Light',        accent: '#10b981', light: '#d1fae5' },
+  'administration': { name: 'Administration', accent: '#8b5cf6', light: '#ede9fe' },
+}
+
+// ─── Timing helpers ──────────────────────────────────────────────────────────
+
+function addMinutes(timeStr, minutes) {
+  if (!timeStr || !minutes) return timeStr || ''
+  const [h, m] = timeStr.split(':').map(Number)
+  const total = h * 60 + m + minutes
+  const nh = Math.floor(total / 60) % 24
+  const nm = total % 60
+  return `${String(nh).padStart(2, '0')}:${String(nm).padStart(2, '0')}`
+}
+
+function fmt12(timeStr) {
+  if (!timeStr) return ''
+  const [h, m] = timeStr.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
+function timeToMins(timeStr) {
+  if (!timeStr) return 0
+  const [h, m] = timeStr.split(':').map(Number)
+  return h * 60 + m
+}
+
+function minsToTime(totalMins) {
+  const safe = Math.max(0, Math.min(totalMins, 23 * 60 + 59))
+  const h = Math.floor(safe / 60)
+  const m = safe % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
 // ─── Default Program tab ─────────────────────────────────────────────────────
 
 function DefaultProgramTab({ canEdit, userProfile, navigate }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [savedOk, setSavedOk] = useState(false)
+  const [serviceStartTime, setServiceStartTime] = useState('')
   const [pushDate, setPushDate] = useState(nextSunday)
   const [pushing, setPushing] = useState(false)
-  const [pushSuccess, setPushSuccess] = useState(false)
   const [sendingNotif, setSendingNotif] = useState(false)
   const [notifSuccess, setNotifSuccess] = useState(false)
   const [form, setForm] = useState({ programName: '', order: 1 })
   const [editingId, setEditingId] = useState(null)
   const [designedPrograms, setDesignedPrograms] = useState([])
+  const [deptInputs, setDeptInputs] = useState({})
+  const [notification, setNotification] = useState(null)
+  const [parallelPrograms, setParallelPrograms] = useState({})
+  const [dragging, setDragging] = useState(null) // { localId, pointerY, baseOffsetMins }
+  const timelineRef = useRef(null)
+  const dragRef = useRef(null)
+
+  // Reload dept inputs + notification whenever the push date changes
+  useEffect(() => {
+    if (!pushDate) return
+    Promise.all([
+      getProgramNotification(pushDate).catch(() => null),
+      ...DEPT_SLUGS.map((slug) =>
+        getDeptProgramInput(pushDate, slug)
+          .then((data) => ({ slug, data }))
+          .catch(() => ({ slug, data: { programElements: {}, customPrograms: [], customElements: [] } }))
+      ),
+    ]).then(([notif, ...results]) => {
+      setNotification(notif)
+      const map = {}
+      results.forEach(({ slug, data }) => { map[slug] = data })
+      setDeptInputs(map)
+    })
+  }, [pushDate])
 
   useEffect(() => {
     setLoading(true)
     Promise.all([getSundayProgramDefault(), getSundayProgramDesign()])
-      .then(([doc, designDoc]) => {
-        const list = doc.items?.length ? doc.items : [...DEFAULT_SEED]
-        setItems(list.map((x, i) => ({ ...x, localId: `lp-${i}-${String(x.programName || '').slice(0, 20)}` })))
+      .then(([defaultDoc, designDoc]) => {
+        const list = defaultDoc.items?.length ? defaultDoc.items : [...DEFAULT_SEED]
+        const svcStart = defaultDoc.serviceStartTime || ''
+        // Populate startTime: use saved value, or cascade-calculate from service start
+        let cascadeMins = svcStart ? timeToMins(svcStart) : 0
+        setItems(list.map((x, i) => {
+          const dur = typeof x.duration === 'number' ? x.duration : 0
+          const st = x.startTime || (svcStart ? minsToTime(cascadeMins) : '')
+          cascadeMins += dur
+          return {
+            ...x,
+            duration: dur,
+            startTime: st,
+            localId: `lp-${i}-${String(x.programName || '').slice(0, 20)}`,
+          }
+        }))
+        setServiceStartTime(svcStart)
+        setParallelPrograms(defaultDoc.parallelPrograms || {})
         const seed = DEFAULT_SEED.map((s) => s.programName)
         const custom = designDoc?.customPrograms || []
         const designs = designDoc?.designs || {}
@@ -56,7 +143,7 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
         setDesignedPrograms(all.filter((p) => (designs[p] || []).length > 0))
       })
       .catch(() => {
-        setItems(DEFAULT_SEED.map((x, i) => ({ ...x, localId: `seed-${i}` })))
+        setItems(DEFAULT_SEED.map((x, i) => ({ ...x, duration: 0, localId: `seed-${i}` })))
         setDesignedPrograms([])
       })
       .finally(() => setLoading(false))
@@ -73,93 +160,207 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
       setForm({ programName: '', order: sorted.length + 1 })
       return
     }
-    // Insert at the 1-based position the user entered, shifting items at that position and below down
     const pos = Math.max(1, Math.min(sorted.length + 1, Number(form.order) || sorted.length + 1))
-    const newItem = { programName: name, order: 0, localId: `new-${Date.now()}` }
+    const newItem = { programName: name, order: 0, duration: 0, startTime: '', localId: `new-${Date.now()}` }
     const next = [...sorted]
     next.splice(pos - 1, 0, newItem)
-    // Reindex so orders are always 0,1,2,3…
     setItems(next.map((x, i) => ({ ...x, order: i })))
     setForm({ programName: '', order: next.length + 1 })
   }
 
+  const setDuration = (localId, val) => {
+    const mins = Math.max(0, Math.min(300, Number(val) || 0))
+    setItems((prev) => prev.map((x) => (x.localId === localId ? { ...x, duration: mins } : x)))
+  }
+
+  const saveDefault = async () => {
+    setSaving(true); setSavedOk(false)
+    try {
+      await setSundayProgramDefault(
+        sorted.map((x, i) => ({ programName: x.programName, order: i, duration: x.duration || 0, startTime: x.startTime || '' })),
+        userProfile?.email || 'unknown',
+        serviceStartTime,
+        parallelPrograms
+      )
+      setSavedOk(true)
+      setTimeout(() => setSavedOk(false), 2500)
+    } catch (e) { console.error(e); alert('Failed to save') }
+    setSaving(false)
+  }
+
+  const totalMinutes = sorted.reduce((sum, r) => sum + (r.duration || 0), 0)
+
+  // When service start time changes, shift all startTimes by the delta
+  const handleServiceStartChange = (newVal) => {
+    if (serviceStartTime && newVal) {
+      const delta = timeToMins(newVal) - timeToMins(serviceStartTime)
+      if (delta !== 0) {
+        setItems((prev) => prev.map((x) => ({
+          ...x,
+          startTime: x.startTime ? minsToTime(timeToMins(x.startTime) + delta) : '',
+        })))
+      }
+    }
+    setServiceStartTime(newVal)
+  }
+
+  // Drag handlers (pointer capture — works on touch too)
+  const SNAP = 5 // snap to 5-minute grid
+  const PX_PER_MIN_DRAG = 6
+
+  const handleDragDown = (e, localId) => {
+    if (!canEdit || !serviceStartTime) return
+    e.preventDefault()
+    const row = sorted.find((r) => r.localId === localId)
+    if (!row) return
+    const baseOffsetMins = row.startTime
+      ? timeToMins(row.startTime) - timeToMins(serviceStartTime)
+      : 0
+    setDragging({ localId, pointerY: e.clientY, baseOffsetMins })
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragRef.current = { localId, pointerY: e.clientY, baseOffsetMins }
+  }
+
+  const handleDragMove = (e) => {
+    if (!dragRef.current) return
+    const { localId, pointerY, baseOffsetMins } = dragRef.current
+    const deltaY = e.clientY - pointerY
+    const deltaMins = deltaY / PX_PER_MIN_DRAG
+    const snapped = Math.round(deltaMins / SNAP) * SNAP
+    const newOffsetMins = Math.max(0, baseOffsetMins + snapped)
+    const newStart = minsToTime(timeToMins(serviceStartTime) + newOffsetMins)
+    setItems((prev) => prev.map((x) => x.localId === localId ? { ...x, startTime: newStart } : x))
+  }
+
+  const handleDragUp = () => {
+    setDragging(null)
+    dragRef.current = null
+  }
+
+  const removeDeptCustomProgram = async (slug, programName) => {
+    const current = deptInputs[slug] || {}
+    const updated = {
+      ...current,
+      customPrograms: (current.customPrograms || []).filter((p) => p.programName !== programName),
+    }
+    try {
+      await setDeptProgramInput(pushDate, slug, updated, userProfile?.email || 'unknown')
+      setDeptInputs((prev) => ({ ...prev, [slug]: updated }))
+      setParallelPrograms((prev) => { const n = { ...prev }; delete n[programName]; return n })
+    } catch (e) {
+      console.error(e)
+      alert('Failed to remove')
+    }
+  }
+
   if (loading) return <p className="text-slate-500">Loading…</p>
 
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
-      <h2 className="font-semibold text-slate-800">Program items</h2>
+  // True when departments have been notified for this date
+  const notifSent = notification !== null
 
+  // Dept custom programmes across all depts
+  const deptCustom = DEPT_SLUGS.flatMap((slug) =>
+    (deptInputs[slug]?.customPrograms || []).map((p) => ({
+      programName: p.programName,
+      elements: p.elements || [],
+      duration: p.duration || 0,
+      meta: DEPT_META[slug],
+      slug,
+    }))
+  )
+
+  // ── Timeline constants ────────────────────────────────────────────────────
+  const PX_PER_MIN = 6
+  const MIN_BLOCK_PX = 88
+  const hasTiming = !!(serviceStartTime)
+  const programColors = sorted.map((_, idx) => CARD_COLORS[idx % CARD_COLORS.length])
+  const svcStartMins = timeToMins(serviceStartTime)
+
+  // Per-block offset in minutes from service start (uses saved startTime)
+  const blockOffsets = sorted.map((row) =>
+    row.startTime ? Math.max(0, timeToMins(row.startTime) - svcStartMins) : 0
+  )
+  const blockHeights = sorted.map((row) => Math.max((row.duration || 0) * PX_PER_MIN, MIN_BLOCK_PX))
+  const blockTops = hasTiming
+    ? blockOffsets.map((off) => off * PX_PER_MIN)
+    : blockHeights.reduce((acc, h, i) => {
+        acc.push(i === 0 ? 0 : acc[i - 1] + blockHeights[i - 1] + 3)
+        return acc
+      }, [])
+
+  // Total span covers all block ends
+  const maxEndOffset = hasTiming
+    ? sorted.reduce((max, row, i) => Math.max(max, blockOffsets[i] + (row.duration || 0)), totalMinutes)
+    : totalMinutes
+  const totalTimelineHeight = hasTiming
+    ? maxEndOffset * PX_PER_MIN + MIN_BLOCK_PX + 36
+    : (blockTops.length > 0 ? blockTops[blockTops.length - 1] + blockHeights[blockHeights.length - 1] + 28 : 80)
+
+  // Clock-style time markers every 15 min (or 30 for long services)
+  const markerStep = maxEndOffset <= 90 ? 15 : maxEndOffset <= 180 ? 30 : 60
+  const timeMarkers = hasTiming ? (() => {
+    const marks = []
+    for (let m = 0; m <= maxEndOffset + markerStep - 1; m += markerStep) marks.push(m)
+    return marks
+  })() : []
+
+  const getParallelMainColor = (deptProgName) => {
+    const mainName = parallelPrograms[deptProgName]
+    if (!mainName) return null
+    const idx = sorted.findIndex((r) => r.programName === mainName)
+    return idx >= 0 ? programColors[idx] : null
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-5">
+      <h2 className="font-semibold text-slate-800">Programme</h2>
+
+      {/* ── Add / edit form ── */}
       {canEdit && (
         <div className="space-y-3 pb-1">
-          {/* Program picker grid */}
-          <div>
-            <p className="text-xs font-medium text-slate-500 mb-2">
-              {editingId ? 'Change program' : 'Select program to add'}
-            </p>
-            {(() => {
-              const available = editingId
-                ? designedPrograms
-                : designedPrograms.filter((p) => !sorted.some((x) => x.programName === p))
-              if (available.length === 0) {
-                return (
-                  <p className="text-xs text-slate-400 italic">
-                    {editingId ? 'No programs available.' : 'All designed programs are already added.'}
-                  </p>
-                )
-              }
-              return (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                  {available.map((p) => {
-                    const isSelected = form.programName === p
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setForm((f) => ({ ...f, programName: p }))}
-                        className="text-left px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all active:scale-95"
-                        style={isSelected ? {
-                          borderColor: '#6366f1',
-                          background: '#eef2ff',
-                          color: '#4338ca',
-                          boxShadow: '0 0 0 1.5px #6366f1',
-                        } : {
-                          borderColor: '#e2e8f0',
-                          background: '#f8fafc',
-                          color: '#374151',
-                        }}
-                      >
-                        {isSelected && (
-                          <span className="inline-block mr-1.5 text-indigo-500 font-bold">✓</span>
-                        )}
-                        {p}
-                      </button>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-          </div>
-
-          {/* Position + action buttons */}
+          <p className="text-xs font-medium text-slate-500">
+            {editingId ? 'Change programme' : 'Select programme to add'}
+          </p>
+          {(() => {
+            const available = editingId
+              ? designedPrograms
+              : designedPrograms.filter((p) => !sorted.some((x) => x.programName === p))
+            if (available.length === 0) return (
+              <p className="text-xs text-slate-400 italic">
+                {editingId ? 'No programmes available.' : 'All designed programmes already added.'}
+              </p>
+            )
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {available.map((p) => {
+                  const isSel = form.programName === p
+                  return (
+                    <button key={p} type="button" onClick={() => setForm((f) => ({ ...f, programName: p }))}
+                      className="text-left px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all"
+                      style={isSel ? { borderColor: '#6366f1', background: '#eef2ff', color: '#4338ca', boxShadow: '0 0 0 1.5px #6366f1' }
+                        : { borderColor: '#e2e8f0', background: '#f8fafc', color: '#374151' }}>
+                      {isSel && <span className="mr-1.5 text-indigo-500">✓</span>}{p}
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          })()}
           <div className="flex flex-wrap gap-2 items-center pt-1">
             <div className="w-24">
               <label className="block text-xs text-slate-500 mb-1">Position</label>
-              <input type="number" min={1} value={form.order} onChange={(e) => setForm((f) => ({ ...f, order: Number(e.target.value) || 1 }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+              <input type="number" min={1} value={form.order}
+                onChange={(e) => setForm((f) => ({ ...f, order: Number(e.target.value) || 1 }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
             </div>
-            <button
-              type="button"
-              onClick={addRow}
-              disabled={!form.programName}
-              className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-40 mt-4"
-            >
-              {editingId ? 'Apply edit' : 'Add Program'}
+            <button type="button" onClick={addRow} disabled={!form.programName}
+              className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-40 mt-4">
+              {editingId ? 'Apply edit' : 'Add Programme'}
             </button>
             {editingId && (
-              <button
-                type="button"
+              <button type="button"
                 onClick={() => { setEditingId(null); setForm({ programName: '', order: sorted.length + 1 }) }}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-sm mt-4"
-              >
+                className="px-3 py-2 rounded-lg border border-slate-300 text-sm mt-4">
                 Cancel
               </button>
             )}
@@ -167,84 +368,424 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
         </div>
       )}
 
-      <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
-        {sorted.map((row, idx) => (
-          <li key={row.localId || row.programName + idx} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-            <span className="text-slate-400 w-6 font-medium">{idx + 1}.</span>
-            <span className="font-medium text-slate-800 flex-1">{row.programName}</span>
-            {canEdit && (
-              <>
-                <button type="button" onClick={() => { setEditingId(row.localId); setForm({ programName: row.programName, order: idx + 1 }) }} className="text-blue-600 hover:underline text-xs">Edit</button>
-                <button type="button" onClick={() => {
-                  const next = sorted.filter((x) => x.localId !== row.localId).map((x, i) => ({ ...x, order: i }))
-                  setItems(next)
-                }} className="text-red-600 hover:underline text-xs">Remove</button>
-                {idx > 0 && <button type="button" onClick={() => {
-                  const next = [...sorted]
-                  ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
-                  setItems(next.map((x, i) => ({ ...x, order: i })))
-                }} className="text-slate-600 text-xs px-1">↑</button>}
-                {idx < sorted.length - 1 && <button type="button" onClick={() => {
-                  const next = [...sorted]
-                  ;[next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]
-                  setItems(next.map((x, i) => ({ ...x, order: i })))
-                }} className="text-slate-600 text-xs px-1">↓</button>}
-              </>
-            )}
-          </li>
-        ))}
-      </ul>
+      {/* ── Service start time ── */}
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10,
+        background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)',
+        border: '1px solid #e0e7ff', borderRadius: 14,
+        padding: '10px 16px',
+      }}>
+        <span style={{ fontSize: 18, lineHeight: 1 }}>🕐</span>
+        <label style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', letterSpacing: 0.2 }}>Service starts</label>
+        {canEdit ? (
+          <input type="time" value={serviceStartTime}
+            onChange={(e) => handleServiceStartChange(e.target.value)}
+            style={{
+              padding: '4px 10px', borderRadius: 10,
+              border: '1.5px solid #a5b4fc', fontSize: 14, fontWeight: 800,
+              color: '#3730a3', background: '#fff',
+              fontVariantNumeric: 'tabular-nums',
+              boxShadow: '0 1px 4px #6366f111',
+              outline: 'none',
+            }} />
+        ) : (
+          <span style={{ fontSize: 15, fontWeight: 900, color: '#3730a3', fontVariantNumeric: 'tabular-nums' }}>
+            {serviceStartTime ? fmt12(serviceStartTime) : '—'}
+          </span>
+        )}
+        {totalMinutes > 0 && (
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{
+              fontSize: 11, fontWeight: 700, color: '#6366f1',
+              background: '#e0e7ff', borderRadius: 20, padding: '3px 10px',
+            }}>{totalMinutes} min</span>
+            {serviceStartTime && sorted.length > 0 && (() => {
+              const last = sorted[sorted.length - 1]
+              const endMins = last.startTime && last.duration
+                ? timeToMins(last.startTime) + last.duration : null
+              return endMins ? (
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
+                  ends <span style={{ color: '#3730a3' }}>{fmt12(minsToTime(endMins))}</span>
+                </span>
+              ) : null
+            })()}
+          </div>
+        )}
+      </div>
 
+      {/* ── Visual timeline ── */}
+      {sorted.length > 0 && (
+        <div ref={timelineRef} style={{ position: 'relative', height: totalTimelineHeight || 80 }}>
+
+          {/* Time ruler */}
+          {hasTiming && timeMarkers.map((offsetMins, i) => {
+            const top = offsetMins * PX_PER_MIN
+            const timeStr = addMinutes(serviceStartTime, offsetMins)
+            const [h, min] = timeStr.split(':').map(Number)
+            const isHour = min === 0
+            return (
+              <div key={i} style={{ position: 'absolute', top, left: 0, right: 0, display: 'flex', alignItems: 'center', pointerEvents: 'none', zIndex: 0 }}>
+                <div style={{ width: 64, textAlign: 'right', paddingRight: 8, flexShrink: 0 }}>
+                  {isHour ? (
+                    <span style={{ fontSize: 11, fontWeight: 800, color: '#334155', fontVariantNumeric: 'tabular-nums' }}>
+                      {`${h % 12 || 12}:${String(min).padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+                      {`:${String(min).padStart(2,'0')}`}
+                    </span>
+                  )}
+                </div>
+                <div style={{ flex: 1, height: isHour ? 1 : 0, borderTop: isHour ? '1px solid #e2e8f0' : '1px dashed #f1f5f9' }} />
+              </div>
+            )
+          })}
+
+          {/* Spine line */}
+          <div style={{ position: 'absolute', left: 68, top: 0, bottom: 0, width: 2, background: '#e2e8f0', zIndex: 0, pointerEvents: 'none' }} />
+
+          {/* Programme blocks */}
+          <div style={{ position: 'absolute', left: 80, right: 0, top: 0 }}>
+            {sorted.map((row, idx) => {
+              const color = programColors[idx]
+              const dur = row.duration || 0
+              const top = blockTops[idx]
+              const minH = blockHeights[idx]
+              const endTime = row.startTime && dur ? addMinutes(row.startTime, dur) : ''
+              const parallelDept = deptCustom.filter((p) => parallelPrograms[p.programName] === row.programName)
+              const deptRows = DEPT_SLUGS.map((slug) => ({
+                slug, meta: DEPT_META[slug],
+                elements: deptInputs[slug]?.programElements?.[row.programName] || [],
+              })).filter((d) => d.elements.length > 0 || notifSent)
+              const isDragging = dragging?.localId === row.localId
+
+              return (
+                <div key={row.localId} style={{
+                  position: 'absolute', top, left: 0, right: 0,
+                  display: 'flex', alignItems: 'flex-start', gap: 6,
+                  minHeight: minH,
+                  transition: isDragging ? 'none' : 'top 0.2s ease',
+                  zIndex: isDragging ? 20 : 2,
+                }}>
+
+                  {/* Timeline dot */}
+                  <div style={{
+                    position: 'absolute', left: -18, top: 16,
+                    width: 10, height: 10, borderRadius: '50%',
+                    background: color.accent,
+                    boxShadow: `0 0 0 3px ${color.accent}22`,
+                    zIndex: 3, flexShrink: 0,
+                  }} />
+
+                  {/* Drag grip — outside the card, between spine and card */}
+                  {canEdit && hasTiming && (
+                    <div
+                      style={{
+                        width: 20, flexShrink: 0, minHeight: minH,
+                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                        justifyContent: 'flex-start', paddingTop: 14, gap: 3,
+                        cursor: isDragging ? 'grabbing' : 'grab',
+                        touchAction: 'none', userSelect: 'none',
+                      }}
+                      onPointerDown={(e) => handleDragDown(e, row.localId)}
+                      onPointerMove={handleDragMove}
+                      onPointerUp={handleDragUp}
+                      onPointerCancel={handleDragUp}
+                    >
+                      {[0,1,2,3,4,5].map((i) => (
+                        <div key={i} style={{
+                          width: 4, height: 4, borderRadius: '50%',
+                          background: isDragging ? color.accent : '#cbd5e1',
+                        }} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Main card */}
+                  <div style={{
+                    flex: 1, minWidth: 0,
+                    background: '#fff',
+                    borderRadius: 14,
+                    borderLeft: `4px solid ${color.accent}`,
+                    boxShadow: isDragging
+                      ? `0 8px 24px ${color.accent}33, 0 0 0 2px ${color.accent}`
+                      : '0 1px 4px #0000000d, 0 0 0 1px #e2e8f0',
+                    overflow: 'visible',
+                    marginBottom: hasTiming ? 0 : 8,
+                  }}>
+                    <div style={{ padding: '12px 14px' }}>
+
+                      {/* Name + duration on same line */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b', lineHeight: 1.3 }}>
+                          {row.programName}
+                        </p>
+                        {canEdit ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                            <input
+                              type="number" min={0} max={300}
+                              value={dur || ''}
+                              onChange={(e) => setDuration(row.localId, e.target.value)}
+                              placeholder="0"
+                              style={{
+                                width: 48, height: 32, padding: '0 6px',
+                                borderRadius: 8, textAlign: 'center',
+                                border: `2px solid ${color.accent}`,
+                                fontSize: 13, fontWeight: 700,
+                                background: color.light, color: color.accent,
+                                outline: 'none', display: 'block',
+                              }}
+                            />
+                            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>min</span>
+                          </div>
+                        ) : dur > 0 ? (
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, color: color.accent,
+                            background: color.light, borderRadius: 8,
+                            padding: '3px 8px', flexShrink: 0,
+                          }}>{dur} min</span>
+                        ) : null}
+                      </div>
+
+                      {/* Time range */}
+                      {row.startTime && (
+                        <p style={{
+                          margin: '0 0 6px', fontSize: 11, fontWeight: 600,
+                          color: color.accent, fontVariantNumeric: 'tabular-nums',
+                        }}>
+                          {fmt12(row.startTime)}{endTime ? ` → ${fmt12(endTime)}` : ''}
+                        </p>
+                      )}
+
+                      {/* Action buttons */}
+                      {canEdit && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <button type="button"
+                            onClick={() => { setEditingId(row.localId); setForm({ programName: row.programName, order: idx + 1 }) }}
+                            style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: '#f1f5f9', border: 'none', padding: '4px 10px', borderRadius: 8, cursor: 'pointer' }}>
+                            Edit
+                          </button>
+                          <button type="button"
+                            onClick={() => setItems(sorted.filter((x) => x.localId !== row.localId).map((x, i) => ({ ...x, order: i })))}
+                            style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', background: '#fef2f2', border: 'none', padding: '4px 10px', borderRadius: 8, cursor: 'pointer' }}>
+                            Remove
+                          </button>
+                          {idx > 0 && (
+                            <button type="button"
+                              onClick={() => { const n=[...sorted];[n[idx-1],n[idx]]=[n[idx],n[idx-1]];setItems(n.map((x,i)=>({...x,order:i}))) }}
+                              style={{ fontSize: 14, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}>↑</button>
+                          )}
+                          {idx < sorted.length - 1 && (
+                            <button type="button"
+                              onClick={() => { const n=[...sorted];[n[idx],n[idx+1]]=[n[idx+1],n[idx]];setItems(n.map((x,i)=>({...x,order:i}))) }}
+                              style={{ fontSize: 14, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}>↓</button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Dept chips */}
+                      {deptRows.length > 0 && (
+                        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {deptRows.map(({ slug, meta, elements }) => {
+                            const hasData = elements.length > 0
+                            if (!hasData && !notifSent) return null
+                            return (
+                              <div key={slug} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: hasData ? meta.light : '#f1f5f9', color: hasData ? meta.accent : '#94a3b8' }}>
+                                  {meta.name}
+                                </span>
+                                {hasData ? elements.map((el) => (
+                                  <span key={el} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 20, background: meta.light, color: meta.accent }}>{el}</span>
+                                )) : <span style={{ fontSize: 9, color: '#94a3b8', fontStyle: 'italic' }}>awaiting</span>}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Parallel dept blocks */}
+                  {parallelDept.map((p) => (
+                    <div key={p.programName} style={{
+                      width: 110, flexShrink: 0,
+                      background: '#fff', borderRadius: 14,
+                      borderLeft: `4px solid ${p.meta.accent}`,
+                      boxShadow: '0 1px 4px #0000000d, 0 0 0 1px #e2e8f0',
+                      padding: '12px 10px',
+                    }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: p.meta.light, color: p.meta.accent, display: 'inline-block', marginBottom: 5 }}>
+                        ∥ {p.meta.name}
+                      </span>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: '#1e293b', margin: 0 }}>{p.programName}</p>
+                      {p.duration > 0 && <p style={{ fontSize: 10, color: p.meta.accent, margin: '4px 0 0', fontWeight: 600 }}>{p.duration} min</p>}
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Save ── */}
+      {canEdit && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 4 }}>
+          <button type="button" onClick={saveDefault} disabled={saving}
+            style={{
+              padding: '9px 22px', borderRadius: 12,
+              background: saving ? '#94a3b8' : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+              color: '#fff', fontSize: 13, fontWeight: 700,
+              border: 'none', cursor: saving ? 'default' : 'pointer',
+              boxShadow: saving ? 'none' : '0 4px 14px #6366f155',
+              transition: 'all 0.2s',
+            }}>
+            {saving ? 'Saving…' : 'Save Programme & Timing'}
+          </button>
+          {savedOk && (
+            <span style={{
+              fontSize: 13, fontWeight: 700, color: '#059669',
+              background: '#d1fae5', borderRadius: 20, padding: '4px 14px',
+              border: '1px solid #6ee7b744',
+            }}>Saved!</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Department custom programmes ── */}
+      {deptCustom.length > 0 && (
+        <div className="rounded-xl border border-slate-100 overflow-hidden">
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest flex-1">Department Programmes</p>
+            <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{deptCustom.length}</span>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {deptCustom.map((item, idx) => {
+              const parallelWith = parallelPrograms[item.programName] || ''
+              const mainColor = getParallelMainColor(item.programName)
+              return (
+                <div key={`${item.slug}-${item.programName}-${idx}`} className="px-3 py-2.5 space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                      style={{ background: item.meta.light, color: item.meta.accent }}>
+                      {item.meta.name}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-800 flex-1 min-w-0">{item.programName}</span>
+                    {item.duration > 0 && (
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 20, background: '#f0f9ff', color: '#0369a1' }}>
+                        ⏱ {item.duration} min
+                      </span>
+                    )}
+                    {item.elements.length > 0 && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"
+                        style={{ background: item.meta.light, color: item.meta.accent }}>
+                        {item.elements.length}
+                      </span>
+                    )}
+                    {canEdit && (
+                      <button type="button" onClick={() => removeDeptCustomProgram(item.slug, item.programName)}
+                        className="w-5 h-5 rounded-full flex items-center justify-center text-sm hover:scale-110 transition-transform flex-shrink-0"
+                        style={{ background: '#fee2e2', color: '#ef4444' }}>×</button>
+                    )}
+                  </div>
+
+                  {/* Parallel with selector */}
+                  {canEdit ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-semibold text-slate-400 flex-shrink-0">Runs parallel with</span>
+                      <select
+                        value={parallelWith}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setParallelPrograms((prev) => {
+                            const next = { ...prev }
+                            if (val) next[item.programName] = val
+                            else delete next[item.programName]
+                            return next
+                          })
+                        }}
+                        className="flex-1 px-2 py-1 rounded-lg border text-[10px] font-semibold bg-white"
+                        style={parallelWith && mainColor ? { borderColor: mainColor.accent, color: mainColor.accent } : { borderColor: '#e2e8f0', color: '#64748b' }}>
+                        <option value="">— runs separately —</option>
+                        {sorted.map((p) => (
+                          <option key={p.programName} value={p.programName}>{p.programName}</option>
+                        ))}
+                      </select>
+                      {parallelWith && mainColor && (
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                          background: mainColor.light, color: mainColor.accent, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          ∥ {parallelWith}
+                        </span>
+                      )}
+                    </div>
+                  ) : parallelWith ? (
+                    <p className="text-[10px] text-slate-400">Runs parallel with <span className="font-bold text-slate-600">{parallelWith}</span></p>
+                  ) : null}
+
+                  {item.elements.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pl-1">
+                      {item.elements.map((el) => (
+                        <span key={el} className="text-[10px] font-medium px-2 py-0.5 rounded-full border"
+                          style={{ background: item.meta.light, color: item.meta.accent, borderColor: `${item.meta.accent}44` }}>
+                          {el}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Actions ── */}
       {canEdit && (
         <div className="space-y-3 pt-2 border-t border-slate-100">
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-sm text-slate-600 font-medium">Sunday date:</label>
-            <input
-              type="date"
-              value={pushDate}
-              onChange={(e) => { setPushDate(e.target.value); setPushSuccess(false); setNotifSuccess(false) }}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm"
-            />
+            <input type="date" value={pushDate}
+              onChange={(e) => { setPushDate(e.target.value); setNotifSuccess(false) }}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm" />
+            {notifSent && (
+              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                ✓ Notification sent
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap gap-2 items-center">
-            <button
-              type="button"
-              disabled={sendingNotif || !pushDate || sorted.length === 0}
+            <button type="button" disabled={sendingNotif || !pushDate || sorted.length === 0}
               onClick={async () => {
                 setSendingNotif(true); setNotifSuccess(false)
                 try {
                   const names = sorted.map((x) => String(x.programName || '').trim()).filter(Boolean)
                   await sendProgramNotification(pushDate, names, userProfile?.email || 'unknown')
+                  setNotification({ programs: names })
                   setNotifSuccess(true)
                   setTimeout(() => setNotifSuccess(false), 3000)
                 } catch (e) { console.error(e); alert('Failed to send notification') }
                 setSendingNotif(false)
               }}
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
-            >
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
               {sendingNotif ? 'Sending…' : 'Send Program Notification'}
             </button>
-
-            <button
-              type="button"
-              disabled={pushing || !pushDate}
+            <button type="button" disabled={pushing || !pushDate}
               onClick={async () => {
-                setPushing(true); setPushSuccess(false)
+                setPushing(true)
                 try {
-                  const payload = [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((x, i) => ({ programName: String(x.programName || '').trim(), order: typeof x.order === 'number' ? x.order : i })).filter((x) => x.programName)
+                  const payload = [...items]
+                    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+                    .map((x, i) => ({ programName: String(x.programName || '').trim(), order: i }))
+                    .filter((x) => x.programName)
                   await pushProgramToSundayReport(pushDate, payload)
                   navigate(`/department/sunday-ministry/sunday?subtab=livecontrol&date=${pushDate}`)
                 } catch (e) { console.error(e); alert('Failed to push program') }
                 setPushing(false)
               }}
-              className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
-            >
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">
               {pushing ? 'Pushing…' : 'Push to Live Control'}
             </button>
-
-            {notifSuccess && (
-              <span className="text-sm text-indigo-600 font-semibold">Notification sent to departments!</span>
-            )}
+            {notifSuccess && <span className="text-sm text-indigo-600 font-semibold">Notification sent to departments!</span>}
           </div>
         </div>
       )}

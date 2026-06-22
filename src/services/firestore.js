@@ -2325,38 +2325,46 @@ const SUNDAY_PROGRAM_COLLECTION = 'sunday_program'
 const SUNDAY_PROGRAM_DEFAULT_DOC_ID = 'default'
 
 export async function getSundayProgramDefault() {
-  if (!db) return { items: [] }
+  if (!db) return { items: [], serviceStartTime: '' }
   const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PROGRAM_DEFAULT_DOC_ID)
   const snap = await getDoc(ref)
-  if (!snap.exists()) return { items: [] }
+  if (!snap.exists()) return { items: [], serviceStartTime: '' }
   const data = snap.data()
   const items = Array.isArray(data.items)
     ? data.items.map((x, i) => ({
         programName: x.programName || x.name || '',
         order: typeof x.order === 'number' ? x.order : i,
+        duration: typeof x.duration === 'number' && x.duration >= 0 ? x.duration : 0,
+        startTime: typeof x.startTime === 'string' ? x.startTime : '',
       }))
     : []
   items.sort((a, b) => a.order - b.order)
   return {
     items,
+    serviceStartTime: data.serviceStartTime || '',
+    parallelPrograms: data.parallelPrograms && typeof data.parallelPrograms === 'object' ? data.parallelPrograms : {},
     updatedAt: toDate(data.updatedAt),
     updatedBy: data.updatedBy || '',
   }
 }
 
-export async function setSundayProgramDefault(items, updatedBy) {
+export async function setSundayProgramDefault(items, updatedBy, serviceStartTime = '', parallelPrograms = {}) {
   if (!db) return
   const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PROGRAM_DEFAULT_DOC_ID)
   const clean = (Array.isArray(items) ? items : [])
     .map((x, i) => ({
       programName: String(x.programName || x.name || '').trim(),
       order: typeof x.order === 'number' ? x.order : i,
+      duration: typeof x.duration === 'number' && x.duration >= 0 ? x.duration : 0,
+      startTime: typeof x.startTime === 'string' ? x.startTime : '',
     }))
     .filter((x) => x.programName)
   await setDoc(
     ref,
     {
       items: clean,
+      serviceStartTime: String(serviceStartTime || ''),
+      parallelPrograms: parallelPrograms && typeof parallelPrograms === 'object' ? parallelPrograms : {},
       updatedBy: updatedBy || 'unknown',
       updatedAt: serverTimestamp(),
     },
@@ -2426,23 +2434,27 @@ export async function getProgramNotification(date) {
 const SUNDAY_DEPT_INPUTS_COLLECTION = 'sunday_dept_inputs'
 
 export async function getDeptProgramInput(date, deptSlug) {
-  if (!db) return { programElements: {}, customPrograms: [] }
+  if (!db) return { programElements: {}, programDurations: {}, customPrograms: [], customElements: [] }
   const ref = doc(db, SUNDAY_DEPT_INPUTS_COLLECTION, `${date}_${deptSlug}`)
   const snap = await getDoc(ref)
-  if (!snap.exists()) return { programElements: {}, customPrograms: [] }
+  if (!snap.exists()) return { programElements: {}, programDurations: {}, customPrograms: [], customElements: [] }
   const data = snap.data()
   return {
     programElements: data.programElements || {},
+    programDurations: data.programDurations || {},
     customPrograms: Array.isArray(data.customPrograms) ? data.customPrograms : [],
+    customElements: Array.isArray(data.customElements) ? data.customElements : [],
   }
 }
 
-export async function setDeptProgramInput(date, deptSlug, { programElements, customPrograms }, updatedBy) {
+export async function setDeptProgramInput(date, deptSlug, { programElements, programDurations, customPrograms, customElements }, updatedBy) {
   if (!db) return
   const ref = doc(db, SUNDAY_DEPT_INPUTS_COLLECTION, `${date}_${deptSlug}`)
   await setDoc(ref, {
     programElements: programElements || {},
+    programDurations: programDurations || {},
     customPrograms: Array.isArray(customPrograms) ? customPrograms : [],
+    customElements: Array.isArray(customElements) ? customElements : [],
     updatedAt: serverTimestamp(),
     updatedBy: updatedBy || 'unknown',
   })
