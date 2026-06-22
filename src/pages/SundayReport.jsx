@@ -181,7 +181,7 @@ function upcomingSunday() {
   return format(d, 'yyyy-MM-dd')
 }
 
-export default function SundayReport() {
+export default function SundayReport({ embedded = false }) {
   const { userProfile, canManageDepartment, isDepartmentHead, isCellDirector } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -202,7 +202,6 @@ export default function SundayReport() {
   const [editingLogTime, setEditingLogTime] = useState('')
   const [editingProgramIdx, setEditingProgramIdx] = useState(null)
   const [editingProgramName, setEditingProgramName] = useState('')
-  const [newProgramName, setNewProgramName] = useState('')
   /** Local-only: which attendance sections are marked done (no Firestore) */
   const [completedSections, setCompletedSections] = useState({})
 
@@ -530,14 +529,6 @@ export default function SundayReport() {
     updateReport({ programList: updated })
   }
 
-  const addProgramItem = () => {
-    const name = newProgramName.trim()
-    if (!name) return
-    const current = report?.programList || []
-    const maxOrder = current.length ? Math.max(...current.map((x) => x.order ?? 0)) : -1
-    updateReport({ programList: [...current, { programName: name, order: maxOrder + 1 }] })
-    setNewProgramName('')
-  }
 
   const handleProgramStart = async () => {
     if (!canEditEffective || !currentProgramItem) return
@@ -662,73 +653,50 @@ export default function SundayReport() {
 
   return (
     <div>
-      <DepartmentTabBar slug="sunday-ministry" activeTab="sundayReport" />
+      {!embedded && <DepartmentTabBar slug="sunday-ministry" activeTab="sundayReport" />}
       <div className="space-y-6 p-4">
-        <div className="flex flex-wrap items-center gap-4">
-          <label className="text-sm font-medium text-slate-700">Date:</label>
+        {/* Date nav + actions */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
+            className="px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            ←
+          </button>
           <input
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-slate-300"
+            className="px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700 bg-white"
           />
           <button
             type="button"
-            onClick={() => setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
-            className="px-3 py-2 rounded-lg border border-slate-300 text-sm"
-          >
-            ← Prev
-          </button>
-          <button
-            type="button"
             onClick={() => setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))}
-            className="px-3 py-2 rounded-lg border border-slate-300 text-sm"
+            className="px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
           >
-            Next →
+            →
           </button>
           <button
             type="button"
             onClick={refreshAll}
             disabled={loading}
-            className="px-3 py-2 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition"
+            className="px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+            title="Refresh"
           >
-            ↻ Refresh
-          </button>
-          <button
-            type="button"
-            onClick={handleDownloadExcel}
-            className="px-4 py-2 rounded-lg border border-emerald-600 text-emerald-700 font-medium hover:bg-emerald-50 text-sm"
-          >
-            ↓ Excel
+            ↻
           </button>
           {canEdit && (
             <button
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
+              className="ml-auto px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
             >
-              {saving ? 'Saving…' : 'Save report'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
           )}
         </div>
-
-        {canEditEffective && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-medium text-slate-800">
-                Attendance checklist progress: {attendanceProgressDone} / {attendanceProgressTotal} completed
-              </span>
-              <span className="text-xs text-slate-500 tabular-nums">{attendanceProgressPct}%</span>
-            </div>
-            <div className="mt-2 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-indigo-600 transition-[width] duration-300"
-                style={{ width: `${attendanceProgressPct}%` }}
-              />
-            </div>
-          </div>
-        )}
 
         {loading ? (
           <div className="py-12 text-center text-slate-500">Loading report…</div>
@@ -738,7 +706,7 @@ export default function SundayReport() {
               <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-semibold text-slate-800">Program</h3>
-                  <Link to="/department/sunday-ministry/sunday-program" className="text-sm text-indigo-600 hover:underline">
+                  <Link to="/department/sunday-ministry/sunday?subtab=program" className="text-sm text-indigo-600 hover:underline">
                     Manage program →
                   </Link>
                 </div>
@@ -842,20 +810,6 @@ export default function SundayReport() {
                   </ul>
                 )}
 
-                {/* Add program */}
-                {canEditEffective && (
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newProgramName}
-                      onChange={(e) => setNewProgramName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && addProgramItem()}
-                      placeholder="Add program item…"
-                      className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                    />
-                    <button type="button" onClick={addProgramItem} className="px-3 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800">+ Add</button>
-                  </div>
-                )}
 
                 {/* Program confirm sheet — shown before first tap */}
                 {showProgramConfirm && (

@@ -109,9 +109,9 @@ import AdministrationOperationsToggle from './administration/AdministrationOpera
 import AccountsOperationsToggle from './accounts/AccountsOperationsToggle'
 import DLightOperationsToggle from './d-light/DLightOperationsToggle'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
-import SundayPlanning from './SundayPlanning'
 import UpcomingSunday from './UpcomingSunday'
 import SecCoreSummary from './seccore/SecCoreSummary'
+import SundayPrepTracker from '../components/SundayPrepTracker'
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -1477,7 +1477,7 @@ export default function DepartmentHub() {
                   </div>
                 )
               ) : slug === 'sunday-ministry' ? (
-                <SundayPlanning />
+                <SundayPrepTracker />
               ) : slug === 'sec-core' ? (
                 <SecCoreSummary />
               ) : slug === 'media' ? (

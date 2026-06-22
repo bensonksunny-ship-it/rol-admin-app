@@ -8,7 +8,7 @@ export function getDepartmentHubTabs(slug) {
     case 'caring':
       return ['summary', 'pcs', 'operations']
     case 'sunday-ministry':
-      return ['summary', 'sundayReport', 'sundayReportsHistory', 'sundayProgram', 'sundayCrew', 'operations']
+      return ['summary', 'sunday', 'sundayReportsHistory', 'sundayCrew', 'operations']
     case 'worship':
       return ['summary', 'upcomingSunday', 'assign', 'theTeam', 'practiceRehearsal', 'archives', 'operations']
     case 'media':

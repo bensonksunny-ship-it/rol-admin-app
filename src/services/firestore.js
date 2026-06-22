@@ -2364,6 +2364,90 @@ export async function setSundayProgramDefault(items, updatedBy) {
   )
 }
 
+// Sunday Ministry – program design (sunday_program / design_plan doc)
+const SUNDAY_PROGRAM_DESIGN_DOC_ID = 'design_plan'
+
+export async function getSundayProgramDesign() {
+  if (!db) return { designs: {}, customElements: [], customPrograms: [] }
+  const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PROGRAM_DESIGN_DOC_ID)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return { designs: {}, customElements: [], customPrograms: [] }
+  const data = snap.data()
+  return {
+    designs: data.designs || {},
+    customElements: Array.isArray(data.customElements) ? data.customElements : [],
+    customPrograms: Array.isArray(data.customPrograms) ? data.customPrograms : [],
+  }
+}
+
+export async function setSundayProgramDesign({ designs, customElements, customPrograms }, updatedBy) {
+  if (!db) return
+  const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PROGRAM_DESIGN_DOC_ID)
+  await setDoc(
+    ref,
+    {
+      designs: designs || {},
+      customElements: Array.isArray(customElements) ? customElements : [],
+      customPrograms: Array.isArray(customPrograms) ? customPrograms : [],
+      updatedBy: updatedBy || 'unknown',
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  )
+}
+
+// Sunday Ministry – programme notification (sent to departments)
+const SUNDAY_NOTIFICATIONS_COLLECTION = 'sunday_notifications'
+
+export async function sendProgramNotification(date, programs, sentBy) {
+  if (!db) return
+  const ref = doc(db, SUNDAY_NOTIFICATIONS_COLLECTION, date)
+  await setDoc(ref, {
+    programs: Array.isArray(programs) ? programs : [],
+    sentAt: serverTimestamp(),
+    sentBy: sentBy || 'unknown',
+  })
+}
+
+export async function getProgramNotification(date) {
+  if (!db) return null
+  const ref = doc(db, SUNDAY_NOTIFICATIONS_COLLECTION, date)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return null
+  const data = snap.data()
+  return {
+    programs: Array.isArray(data.programs) ? data.programs : [],
+    sentAt: toDate(data.sentAt),
+    sentBy: data.sentBy || '',
+  }
+}
+
+// Department programme inputs (elements + custom programmes per dept per date)
+const SUNDAY_DEPT_INPUTS_COLLECTION = 'sunday_dept_inputs'
+
+export async function getDeptProgramInput(date, deptSlug) {
+  if (!db) return { programElements: {}, customPrograms: [] }
+  const ref = doc(db, SUNDAY_DEPT_INPUTS_COLLECTION, `${date}_${deptSlug}`)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return { programElements: {}, customPrograms: [] }
+  const data = snap.data()
+  return {
+    programElements: data.programElements || {},
+    customPrograms: Array.isArray(data.customPrograms) ? data.customPrograms : [],
+  }
+}
+
+export async function setDeptProgramInput(date, deptSlug, { programElements, customPrograms }, updatedBy) {
+  if (!db) return
+  const ref = doc(db, SUNDAY_DEPT_INPUTS_COLLECTION, `${date}_${deptSlug}`)
+  await setDoc(ref, {
+    programElements: programElements || {},
+    customPrograms: Array.isArray(customPrograms) ? customPrograms : [],
+    updatedAt: serverTimestamp(),
+    updatedBy: updatedBy || 'unknown',
+  })
+}
+
 // Sunday Ministry – pre-service team config (sunday_program / pre_service doc)
 const SUNDAY_PRE_SERVICE_DOC_ID = 'pre_service'
 const SUNDAY_PRE_SERVICE_COLLECTION = 'sunday_pre_service'

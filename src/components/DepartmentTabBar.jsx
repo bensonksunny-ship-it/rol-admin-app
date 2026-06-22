@@ -20,6 +20,7 @@ function getTabLabel(tab) {
     case 'design':            return 'Design'
     case 'members':           return 'Members'
     case 'dataBackup':        return 'Data Backup'
+    case 'sunday':            return 'Sunday'
     case 'sundayReport':      return 'Live Control'
     case 'sundayReportsHistory': return 'Reports'
     case 'sundayProgram':     return 'Program'
@@ -101,6 +102,8 @@ export default function DepartmentTabBar({
 
     if (tab === 'entry' && slug === 'accounts')
       return <Link key={tab} to={ACCOUNTS_ENTRY_BASE_PATH} className={cls}>{label}</Link>
+    if (tab === 'sunday')
+      return <Link key={tab} to="/department/sunday-ministry/sunday" className={cls}>{label}</Link>
     if (tab === 'sundayReport')
       return <Link key={tab} to="/department/sunday-ministry/sunday-report" className={cls}>{label}</Link>
     if (tab === 'sundayReportsHistory')

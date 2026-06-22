@@ -328,5 +328,20 @@ service cloud.firestore {
       allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
       allow delete: if isSignedIn() && isFullAccess();
     }
+
+    // Sunday programme notifications (Sunday Ministry → departments)
+    match /sunday_notifications/{docId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector());
+    }
+
+    // Department programme inputs (each dept's elements per Sunday)
+    match /sunday_dept_inputs/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() ||
+        canAccessDept('Media') || canAccessDept('Worship') || canAccessDept('D Light') || canAccessDept('Administration'));
+      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() ||
+        canAccessDept('Media') || canAccessDept('Worship') || canAccessDept('D Light') || canAccessDept('Administration'));
+      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
+    }
   }
 }
