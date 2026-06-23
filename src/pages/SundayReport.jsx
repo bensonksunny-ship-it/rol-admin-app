@@ -182,7 +182,7 @@ function upcomingSunday() {
 }
 
 export default function SundayReport({ embedded = false }) {
-  const { userProfile, canManageDepartment, isDepartmentHead, isCellDirector } = useAuth()
+  const { userProfile, canManageDepartment, isDepartmentHead, isSundayMinistryDirector } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const [selectedDate, setSelectedDate] = useState(() => searchParams.get('date') || upcomingSunday())
@@ -224,7 +224,7 @@ export default function SundayReport({ embedded = false }) {
     []
   )
 
-  const canEdit = isDepartmentHead('Sunday Ministry') || isCellDirector
+  const canEdit = isSundayMinistryDirector
   const canEditEffective = canEdit
 
   const summaryComputed = useMemo(() => {
@@ -635,13 +635,13 @@ export default function SundayReport({ embedded = false }) {
     }
   }
 
-  if (!isDepartmentHead('Sunday Ministry') && !isCellDirector) {
+  if (!isSundayMinistryDirector) {
     return (
       <div className="p-8 text-slate-600">
         <Link to="/department/sunday-ministry" className="text-blue-600 hover:underline">
           ← Sunday Ministry
         </Link>
-        <p className="mt-4">You do not have permission to view the Sunday Report.</p>
+        <p className="mt-4">You do not have access to Sunday Ministry.</p>
       </div>
     )
   }

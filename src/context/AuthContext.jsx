@@ -132,6 +132,8 @@ export function AuthProvider({ children }) {
   const isAdmin = userProfile?.role === ROLES.ADMIN
   const isCellDirector = getDepartmentRole(userProfile, 'Cell') === 'DIRECTOR'
 
+  const isSundayMinistryDirector = isFounder || isSeniorPastor || getDepartmentRole(userProfile, 'Sunday Ministry') === 'DIRECTOR'
+
   const isDepartmentHead = (departmentName) => {
     if (!departmentName || !userProfile) return false
     if (isFounder || isSeniorPastor) return true
@@ -174,6 +176,7 @@ export function AuthProvider({ children }) {
     isSeniorPastor,
     isAdmin,
     isCellDirector,
+    isSundayMinistryDirector,
     isDepartmentHead,
     canManageDepartment,
     canAccessDepartment,

@@ -1,7 +1,8 @@
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import SundayReport from './SundayReport'
 import SundayProgram from './SundayProgram'
+import { useAuth } from '../context/AuthContext'
 
 function SubTabBar({ active, onChange }) {
   const tabs = [
@@ -29,8 +30,18 @@ function SubTabBar({ active, onChange }) {
 }
 
 export default function Sunday() {
+  const { isSundayMinistryDirector } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const subTab = searchParams.get('subtab') || 'livecontrol'
+
+  if (!isSundayMinistryDirector) {
+    return (
+      <div className="p-8 text-slate-600">
+        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <p className="mt-4">You do not have access to Sunday Ministry.</p>
+      </div>
+    )
+  }
 
   const setSubTab = (tab) => {
     const next = new URLSearchParams(searchParams)

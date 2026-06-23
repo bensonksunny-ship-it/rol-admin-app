@@ -633,10 +633,10 @@ function KebabMenu({ onEdit, onDelete, onDownload, canEdit, canDelete, deleting 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SundayReportsHistory() {
-  const { isFounder, canManageDepartment, userProfile } = useAuth()
+  const { isFounder, isSundayMinistryDirector, userProfile } = useAuth()
   const navigate = useNavigate()
 
-  const canEdit   = canManageDepartment('Sunday Ministry')
+  const canEdit   = isSundayMinistryDirector
   const canDelete = isFounder
 
   const [rows, setRows]             = useState([])
@@ -678,6 +678,15 @@ export default function SundayReportsHistory() {
     () => cellGroups.map((g) => ({ id: g.id, name: g.cellName || 'Unnamed' })),
     [cellGroups]
   )
+
+  if (!isSundayMinistryDirector) {
+    return (
+      <div className="p-8 text-slate-600">
+        <Link to="/department/sunday-ministry" className="text-blue-600 hover:underline">← Sunday Ministry</Link>
+        <p className="mt-4">You do not have access to Sunday Ministry.</p>
+      </div>
+    )
+  }
 
   return (
     <div>

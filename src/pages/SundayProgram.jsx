@@ -1433,16 +1433,16 @@ function DesignProgramTab({ canEdit, userProfile }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function SundayProgram({ embedded = false }) {
-  const { userProfile, canManageDepartment, isCellDirector } = useAuth()
+  const { userProfile, isSundayMinistryDirector } = useAuth()
   const navigate = useNavigate()
-  const canEdit = canManageDepartment('Sunday Ministry') || isCellDirector
+  const canEdit = isSundayMinistryDirector
   const [subTab, setSubTab] = useState('default')
 
-  if (!canManageDepartment('Sunday Ministry') && !isCellDirector) {
+  if (!isSundayMinistryDirector) {
     return (
       <div className="p-8 text-slate-600">
         <Link to="/department/sunday-ministry" className="text-blue-600 hover:underline">← Sunday Ministry</Link>
-        <p className="mt-4">You do not have permission to manage Sunday Program.</p>
+        <p className="mt-4">You do not have access to Sunday Ministry.</p>
       </div>
     )
   }

@@ -169,7 +169,7 @@ export default function DepartmentHub() {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder, isCellDirector } = useAuth()
+  const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder, isCellDirector, isSundayMinistryDirector } = useAuth()
   const department = getDepartmentBySlug(slug)
 
   // Cell access helper must be defined BEFORE any effects that reference it (avoid TDZ crashes)
@@ -307,6 +307,8 @@ export default function DepartmentHub() {
   const [loadingPCS, setLoadingPCS] = useState(false)
   const [pcsPickerOpen, setPcsPickerOpen] = useState(false)
   const [pcsManualOpen, setPcsManualOpen] = useState(false)
+  const [cellReferralOpen, setCellReferralOpen] = useState(false)
+  const [removedFromCellOpen, setRemovedFromCellOpen] = useState(false)
   const [pcsExpandedId, setPcsExpandedId] = useState(null)
   const [collapsedPCSYears, setCollapsedPCSYears] = useState(() => new Set())
   const [pcsYearTileOpen, setPcsYearTileOpen] = useState(false)
@@ -981,7 +983,17 @@ export default function DepartmentHub() {
   // Exception: Accounts entry users (Weekly Expense Manager / Weekly Entry role) must pass through
   // to reach the nested EntryPage even though they aren't department heads.
   const isAccountsEntryPassthrough = slug === 'accounts' && canAccessAccountsEntry(userProfile, hasPermission, isFounder)
-  if (!hasAccess(userProfile, department.name) && !isAccountsEntryPassthrough && !(isCellDirector && slug === 'sunday-ministry')) {
+  // Sunday Ministry: only the director (Founder / Senior Pastor included as super admins)
+  if (slug === 'sunday-ministry' && !isSundayMinistryDirector) {
+    return (
+      <div className="p-6 text-slate-600">
+        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <p className="mt-4">You do not have access to Sunday Ministry department.</p>
+      </div>
+    )
+  }
+
+  if (slug !== 'sunday-ministry' && !hasAccess(userProfile, department.name) && !isAccountsEntryPassthrough) {
     return (
       <div className="p-6 text-slate-600">
         <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
@@ -3815,19 +3827,135 @@ export default function DepartmentHub() {
                       <button
                         type="button"
                         onClick={async () => {
-                          if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
+                          if (!window.confirm(`Remove ${entry.name} from PCS? A profile JPEG will be downloaded automatically.`)) return
+                          downloadProfileAsJPEG({ ...f })
                           await deletePCSEntry(entry.id)
                           setPcsEntries(prev => prev.filter(e => e.id !== entry.id))
                           setPcsExpandedId(null)
                         }}
                         className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-colors"
-                      >Remove</button>
+                      >Remove from PCS</button>
                     </div>
 
                   </div>
                 </div>
               )
             }
+
+            // Generate and download a JPEG of the PCS profile
+            const downloadProfileAsJPEG = (data) => {
+              const W = 700, H = 500
+              const canvas = document.createElement('canvas')
+              canvas.width = W; canvas.height = H
+              const ctx = canvas.getContext('2d')
+
+              // Background
+              ctx.fillStyle = '#f8fafc'
+              ctx.fillRect(0, 0, W, H)
+
+              // Header band
+              ctx.fillStyle = '#4338ca'
+              ctx.fillRect(0, 0, W, 90)
+
+              // Church label
+              ctx.fillStyle = '#c7d2fe'
+              ctx.font = '10px Arial'
+              ctx.fillText('RIVER OF LIFE CHURCH', 20, 18)
+              ctx.fillStyle = '#ffffff'
+              ctx.font = 'bold 11px Arial'
+              ctx.fillText('PERSONAL CARING SYSTEM — PROFILE', 20, 32)
+
+              // Avatar circle
+              ctx.fillStyle = data.membershipNumber ? '#f59e0b' : '#818cf8'
+              ctx.beginPath(); ctx.arc(48, 65, 22, 0, Math.PI * 2); ctx.fill()
+              ctx.fillStyle = '#ffffff'
+              ctx.font = 'bold 22px Arial'
+              ctx.textAlign = 'center'
+              ctx.fillText((data.name || '?')[0].toUpperCase(), 48, 73)
+              ctx.textAlign = 'left'
+
+              // Name
+              ctx.fillStyle = '#ffffff'
+              ctx.font = 'bold 20px Arial'
+              ctx.fillText(data.name || '—', 82, 57)
+
+              // Sub line
+              ctx.fillStyle = '#a5b4fc'
+              ctx.font = '12px Arial'
+              const sub = [data.membershipNumber ? `Membership #${data.membershipNumber}` : '', data.leadershipPosition || '', data.year ? String(data.year) : ''].filter(Boolean).join('  ·  ')
+              ctx.fillText(sub || 'No membership number', 82, 76)
+
+              let y = 108
+              const drawSection = (title, fields) => {
+                const filled = fields.filter(([, v]) => v && String(v).trim())
+                if (!filled.length) return
+                ctx.fillStyle = '#e0e7ff'
+                ctx.fillRect(0, y - 14, W, 20)
+                ctx.fillStyle = '#3730a3'
+                ctx.font = 'bold 10px Arial'
+                ctx.fillText(title.toUpperCase(), 20, y)
+                y += 12
+                const COL_W = Math.floor((W - 40) / 3)
+                let col = 0
+                filled.forEach(([label, value]) => {
+                  const x = 20 + col * COL_W
+                  ctx.fillStyle = '#6b7280'
+                  ctx.font = '9px Arial'
+                  ctx.fillText(label.toUpperCase(), x, y + 10)
+                  ctx.fillStyle = '#111827'
+                  ctx.font = 'bold 11px Arial'
+                  let text = String(value)
+                  while (ctx.measureText(text).width > COL_W - 14 && text.length > 3) text = text.slice(0, -1)
+                  if (text !== String(value)) text += '…'
+                  ctx.fillText(text, x, y + 24)
+                  col++
+                  if (col >= 3) { col = 0; y += 40 }
+                })
+                if (col > 0) y += 40
+                y += 10
+              }
+
+              const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN') : ''
+              drawSection('Contact Info', [['Phone', data.phone], ['Email', data.email], ['How Known', data.howKnown]])
+              drawSection('Personal', [['Date of Birth', fmt(data.dob)], ['Nativity', data.nativity], ['Current Place', data.currentPlace]])
+              drawSection('Church', [['Date Attended', fmt(data.attendedDate)], ['Year', data.year ? String(data.year) : ''], ['Service Attended', data.serviceAttended]])
+              if (data.baptismDate || data.marriageDate) {
+                drawSection('Spiritual Records', [['Baptism Date', fmt(data.baptismDate)], ['Baptism Place', data.baptismPlace], ['Marriage Date', fmt(data.marriageDate)], ['Spouse', data.spouseName]])
+              }
+
+              // Footer
+              ctx.fillStyle = '#f1f5f9'
+              ctx.fillRect(0, H - 30, W, 30)
+              ctx.strokeStyle = '#e2e8f0'
+              ctx.lineWidth = 1
+              ctx.beginPath(); ctx.moveTo(0, H - 30); ctx.lineTo(W, H - 30); ctx.stroke()
+              ctx.fillStyle = '#94a3b8'
+              ctx.font = '10px Arial'
+              ctx.fillText(`Generated on ${new Date().toLocaleDateString('en-IN')}  ·  River Of Life Church`, 20, H - 10)
+
+              canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `${(data.name || 'person').replace(/[^a-zA-Z0-9]/g, '_')}_PCS_Profile.jpg`
+                document.body.appendChild(a)
+                a.click()
+                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url) }, 100)
+              }, 'image/jpeg', 0.92)
+            }
+
+            // Inactive cell members who still appear in PCS
+            const pcsVisitorIdMap = new Map(pcsEntries.filter(e => e.visitorId).map(e => [e.visitorId, e]))
+            const removedFromCellInPCS = []
+            const _seenVids = new Set()
+            allCellMembers
+              .filter(m => m.status === 'inactive' && m.visitorId && pcsVisitorIdMap.has(m.visitorId))
+              .forEach(m => {
+                if (!_seenVids.has(m.visitorId)) {
+                  _seenVids.add(m.visitorId)
+                  removedFromCellInPCS.push({ ...m, pcsEntry: pcsVisitorIdMap.get(m.visitorId) })
+                }
+              })
 
             return (
               <div className="space-y-4">
@@ -3908,13 +4036,20 @@ export default function DepartmentHub() {
                 {/* ── Pending Members from Cell Leaders ── */}
                 {cellReferralTasks.length > 0 && (
                   <div className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
-                    <div className="px-4 py-3 border-b border-orange-100 flex items-center gap-2 bg-orange-50">
+                    <button
+                      type="button"
+                      onClick={() => setCellReferralOpen(o => !o)}
+                      className="w-full px-4 py-3 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 transition-colors text-left"
+                    >
                       <span className="w-2.5 h-2.5 rounded-full bg-orange-400 flex-shrink-0" />
                       <p className="text-sm font-bold text-orange-800 flex-1">Pending Members from Cell</p>
                       <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
                         {cellReferralTasks.length}
                       </span>
-                    </div>
+                      <span className="text-orange-400 text-xs ml-1">{cellReferralOpen ? '▲' : '▼'}</span>
+                    </button>
+                    {cellReferralOpen && (
+                    <>
                     <p className="px-4 pt-3 pb-1 text-xs text-slate-400">
                       Cell leaders have flagged these members as not yet in PCS. Add them to PCS to acknowledge.
                     </p>
@@ -4024,6 +4159,72 @@ export default function DepartmentHub() {
                         )
                       })}
                     </div>
+                    </>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Removed from Cell — still in PCS ── */}
+                {removedFromCellInPCS.length > 0 && (
+                  <div className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setRemovedFromCellOpen(o => !o)}
+                      className="w-full px-4 py-3 flex items-center gap-2 bg-slate-100 hover:bg-slate-200 transition-colors text-left"
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-slate-500 flex-shrink-0" />
+                      <p className="text-sm font-bold text-slate-700 flex-1">Removed from Cell — Still in PCS</p>
+                      <span className="bg-slate-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                        {removedFromCellInPCS.length}
+                      </span>
+                      <span className="text-slate-400 text-xs ml-1">{removedFromCellOpen ? '▲' : '▼'}</span>
+                    </button>
+                    {removedFromCellOpen && (
+                      <>
+                        <p className="px-4 pt-3 pb-1 text-xs text-slate-400">
+                          These people have been made inactive in their cell group. Review and remove from PCS if no longer active in church.
+                        </p>
+                        <div className="divide-y divide-slate-50 pb-2">
+                          {removedFromCellInPCS.map(m => {
+                            const pe = m.pcsEntry
+                            return (
+                              <div key={pe.id} className="flex items-center gap-3 px-4 py-3">
+                                <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-600 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                                  {String(m.name || pe.name || '?').split(' ').slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('')}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-slate-900 text-sm truncate">{m.name || pe.name}</p>
+                                  <p className="text-xs text-slate-400 mt-0.5">
+                                    {[m.phone || pe.phone, pe.year ? `PCS ${pe.year}` : '', pe.membershipNumber ? `#${pe.membershipNumber}` : ''].filter(Boolean).join(' · ')}
+                                  </p>
+                                  <p className="text-xs text-red-400 font-medium mt-0.5">Inactive in cell</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!window.confirm(`Remove ${m.name || pe.name} from PCS? A profile JPEG will be downloaded.`)) return
+                                    downloadProfileAsJPEG({
+                                      name: m.name || pe.name || '',
+                                      phone: m.phone || pe.phone || '',
+                                      membershipNumber: pe.membershipNumber || '',
+                                      year: pe.year || '',
+                                      attendedDate: pe.attendedDate || '',
+                                      leadershipPosition: pe.leadershipPosition || '',
+                                    })
+                                    await deletePCSEntry(pe.id)
+                                    setPcsEntries(prev => prev.filter(e => e.id !== pe.id))
+                                    if (pcsExpandedId === pe.id) setPcsExpandedId(null)
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl border border-red-200 text-red-500 text-xs font-semibold hover:bg-red-50 transition-colors flex-shrink-0 whitespace-nowrap"
+                                >
+                                  Remove from PCS
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -4042,53 +4243,21 @@ export default function DepartmentHub() {
                   ) : (
                     <div className="divide-y divide-slate-100">
                       {grouped.map(({ year, entries }) => {
-                        const yearKey = year ?? 'no-year'
-                        // All years start expanded; clicking collapses into the set
-                        const isYearExpanded = !collapsedPCSYears.has(yearKey)
-                        const expandedEntry = isYearExpanded ? entries.find(e => e.id === pcsExpandedId) : null
-                        const toggleYear = () => setCollapsedPCSYears(prev => {
-                          const next = new Set(prev)
-                          if (next.has(yearKey)) next.delete(yearKey)
-                          else next.add(yearKey)
-                          return next
-                        })
+                        const expandedEntry = entries.find(e => e.id === pcsExpandedId)
                         return (
-                          <div key={yearKey}>
-                            {/* Year header — clickable tile */}
-                            <button
-                              onClick={toggleYear}
-                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
-                              style={{ userSelect: 'none' }}
-                            >
-                              <div className="flex-1 flex items-center gap-2 min-w-0">
-                                <span className="text-sm font-bold text-slate-700">{year ?? '—'}</span>
-                                <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
-                                  {entries.length} {entries.length === 1 ? 'person' : 'people'}
-                                </span>
-                              </div>
-                              {/* Mini avatar stack */}
-                              <div className="flex -space-x-1.5 shrink-0">
-                                {entries.slice(0, 5).map((e, i) => (
-                                  <div key={e.id} style={{ zIndex: 5 - i, background: ['#6366f1','#10b981','#f59e0b','#ef4444','#3b82f6'][i % 5] }}
-                                    className="w-6 h-6 rounded-full text-white text-[10px] font-bold flex items-center justify-center border-2 border-white">
-                                    {(e.name || '?').charAt(0).toUpperCase()}
-                                  </div>
-                                ))}
-                                {entries.length > 5 && (
-                                  <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-500 text-[9px] font-bold flex items-center justify-center border-2 border-white" style={{ zIndex: 0 }}>
-                                    +{entries.length - 5}
-                                  </div>
-                                )}
-                              </div>
-                              <span className="text-slate-400 text-xs shrink-0">{isYearExpanded ? '▲' : '▼'}</span>
-                            </button>
-
-                            {/* Members — only when year is expanded */}
-                            {isYearExpanded && (
-                              <div className="px-4 pb-3 flex flex-wrap gap-2 bg-slate-50/50">
-                                {entries.map(entry => <Chip key={entry.id} entry={entry} />)}
-                              </div>
-                            )}
+                          <div key={year ?? 'no-year'}>
+                            {/* Year label */}
+                            <div className="px-4 py-2 flex items-center gap-2 bg-slate-50">
+                              <span className="text-sm font-bold text-slate-700">{year ?? '—'}</span>
+                              <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                                {entries.length} {entries.length === 1 ? 'person' : 'people'}
+                              </span>
+                            </div>
+                            {/* Chips */}
+                            <div className="px-4 py-3 flex flex-wrap gap-2">
+                              {entries.map(entry => <Chip key={entry.id} entry={entry} />)}
+                            </div>
+                            {/* Profile panel — appears right below this year's chips */}
                             {expandedEntry && PCSInlineProfile({ entry: expandedEntry })}
                           </div>
                         )
@@ -4099,7 +4268,7 @@ export default function DepartmentHub() {
                   {/* Footer */}
                   {!loadingPCS && pcsEntries.length > 0 && (
                     <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 text-center">
-                      {pcsEntries.length} {pcsEntries.length === 1 ? 'person' : 'people'} across {grouped.length} {grouped.length === 1 ? 'year' : 'years'}
+                      {pcsEntries.length} {pcsEntries.length === 1 ? 'person' : 'people'} · {grouped.length} {grouped.length === 1 ? 'year' : 'years'}
                     </div>
                   )}
                 </div>
