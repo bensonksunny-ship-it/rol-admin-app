@@ -3984,15 +3984,7 @@ export default function DepartmentHub() {
                       className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white text-indigo-700 text-xs font-semibold hover:bg-indigo-50 transition-colors shadow-sm"
                     >
                       <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
-                      From List
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPcsManualOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-800 text-white text-xs font-semibold hover:bg-indigo-900 transition-colors shadow-sm"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
-                      Add Manually
+                      + Add
                     </button>
                   </div>
                 </div>
