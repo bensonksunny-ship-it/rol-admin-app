@@ -12,6 +12,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, subDays, isThisMonth, isThisYear } from 'date-fns'
 import { formatDMY } from '../utils/date'
+import { getDepartmentPath } from '../constants/departments'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -92,7 +93,34 @@ const ACCENTS = {
 
 export default function Dashboard() {
   const { isFounder, hasPermission, userProfile } = useAuth()
-  if (userProfile && !isFounder) return <Navigate to="/departments" replace />
+
+  if (userProfile && !isFounder) {
+    // Collect departments where user is Director or Coordinator
+    const positions = Array.isArray(userProfile.positions) ? userProfile.positions : []
+    const headDepts = [...new Set(
+      positions
+        .filter(p => {
+          if (!p) return false
+          const role = String(p.role || '').toUpperCase()
+          const pos  = String(p.position || '').toLowerCase()
+          return role === 'DIRECTOR' || role === 'COORDINATOR' || role === 'LEADER' ||
+                 pos  === 'director' || pos  === 'coordinator' || pos  === 'cell leader'
+        })
+        .map(p => p.department)
+        .filter(Boolean)
+    )]
+    // Legacy fallback: single top-level role + department
+    if (!headDepts.length) {
+      const legacyRole = String(userProfile.role || '').toLowerCase()
+      const legacyDept = userProfile.department
+      if (legacyDept && (legacyRole === 'director' || legacyRole === 'coordinator')) {
+        headDepts.push(legacyDept)
+      }
+    }
+    // Single department → go straight to its hub; multiple → let them pick from /departments
+    if (headDepts.length === 1) return <Navigate to={getDepartmentPath(headDepts[0])} replace />
+    return <Navigate to="/departments" replace />
+  }
 
   const year = new Date().getFullYear()
   const now = new Date()

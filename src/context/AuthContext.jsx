@@ -142,8 +142,9 @@ export function AuthProvider({ children }) {
   const canManageDepartment = (departmentName) => {
     if (!departmentName) return false
     if (isFounder || isSeniorPastor) return true
-    // Department Directors can manage their own department
-    return hasAccess(userProfile, departmentName, 'DIRECTOR')
+    // Directors and Coordinators can manage their own department
+    const role = getDepartmentRole(userProfile, departmentName)
+    return role === 'DIRECTOR' || role === 'COORDINATOR'
   }
 
   /** True if user may access the department page for this slug (role-based). */

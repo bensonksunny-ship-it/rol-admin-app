@@ -225,6 +225,20 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     }
   }
 
+  const setDeptProgField = async (slug, programName, fields) => {
+    const current = deptInputs[slug] || {}
+    const updated = {
+      ...current,
+      customPrograms: (current.customPrograms || []).map(p =>
+        p.programName === programName ? { ...p, ...fields } : p
+      ),
+    }
+    try {
+      await setDeptProgramInput(pushDate, slug, updated, userProfile?.email || 'unknown')
+      setDeptInputs(prev => ({ ...prev, [slug]: updated }))
+    } catch (e) { console.error(e) }
+  }
+
   const handleAddDeptProg = async (slug) => {
     const name = newDeptProgName.trim()
     if (!name) return
@@ -251,19 +265,14 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
       programName: p.programName,
       elements: p.elements || [],
       duration: p.duration || 0,
+      category: p.category || '',
+      startTime: p.startTime || '',
       meta: DEPT_META[slug],
       slug,
     }))
   )
 
   const programColors = sorted.map((_, idx) => CARD_COLORS[idx % CARD_COLORS.length])
-
-  const getParallelMainColor = (deptProgName) => {
-    const mainName = parallelPrograms[deptProgName]
-    if (!mainName) return null
-    const idx = sorted.findIndex((r) => r.programName === mainName)
-    return idx >= 0 ? programColors[idx] : null
-  }
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-5">
@@ -380,10 +389,58 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
         const PX_PER_MIN = 6
         const MIN_BLOCK_PX = 48
         const svcMins = serviceStartTime ? timeToMins(serviceStartTime) : 0
+
+        // Pre-compute main program time windows for overlap detection
+        let tempMins = svcMins
+        const mainWindows = sorted.map(row => {
+          const s = tempMins; tempMins += (row.duration || 0)
+          return { localId: row.localId, startMins: s, endMins: tempMins }
+        })
+
+        // Mid-event dept programs with a start time — auto-detected overlap
+        const midEventTimed = deptCustom
+          .filter(p => p.category === 'mid-event' && p.startTime)
+          .map(p => ({ ...p, startMins: timeToMins(p.startTime), endMins: timeToMins(p.startTime) + (p.duration || 0) }))
+
+        // Pre/post event programs shown outside main rows
+        const preEventProgs  = deptCustom.filter(p => p.category === 'pre-event')
+        const postEventProgs = deptCustom.filter(p => p.category === 'post-event')
+
         let cascadeMins = svcMins
+
+        const DeptEventCard = ({ p }) => {
+          const eMins = p.startTime && p.duration ? timeToMins(p.startTime) + p.duration : null
+          return (
+            <div style={{ background: '#fff', border: `1.5px solid ${p.meta.accent}`, borderRadius: 8, padding: '5px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#1e293b' }}>{p.programName}</span>
+                <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 20, background: p.meta.light, color: p.meta.accent }}>{p.meta.name}</span>
+              </div>
+              {p.startTime && (
+                <span style={{ fontSize: 9, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>
+                  {fmt12(p.startTime)}{eMins != null ? ` → ${fmt12(minsToTime(eMins))}` : ''}{p.duration ? ` · ${p.duration}m` : ''}
+                </span>
+              )}
+            </div>
+          )
+        }
+
         return (
-          <div style={{ position: 'relative' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+
+            {/* Pre-event dept programs */}
+            {preEventProgs.length > 0 && (
+              <div style={{ marginBottom: 10, background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 10, padding: '8px 12px' }}>
+                <p style={{ fontSize: 9, fontWeight: 800, color: '#92400e', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: 0.8 }}>Pre-event</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {preEventProgs.map(p => <DeptEventCard key={p.programName} p={p} />)}
+                </div>
+              </div>
+            )}
+
+            {/* Main program rows */}
             {sorted.map((row, idx) => {
+              const win = mainWindows[idx]
               const color = programColors[idx]
               const dur = row.duration || 0
               const blockH = Math.max(dur * PX_PER_MIN, MIN_BLOCK_PX)
@@ -396,7 +453,11 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                 slug, meta: DEPT_META[slug],
                 elements: deptInputs[slug]?.programElements?.[row.programName] || [],
               })).filter((d) => d.elements.length > 0 || notifSent)
-              const parallelDept = deptCustom.filter((p) => parallelPrograms[p.programName] === row.programName)
+
+              // Auto-detect mid-event programs that overlap this row's time window
+              const overlappingMidEvent = serviceStartTime
+                ? midEventTimed.filter(p => p.startMins < win.endMins && p.endMins > win.startMins)
+                : []
 
               return (
                 <div key={row.localId} style={{ display: 'flex', alignItems: 'flex-start' }}>
@@ -414,53 +475,31 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
 
                   {/* Dot + spine segment */}
                   <div style={{ width: 16, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{
-                      width: 10, height: 10, borderRadius: '50%',
-                      background: color.accent, flexShrink: 0, marginTop: 10,
-                      boxShadow: `0 0 0 3px ${color.accent}22`,
-                    }} />
-                    {!isLast && (
-                      <div style={{ flex: 1, width: 2, background: '#e2e8f0', minHeight: 12, marginTop: 3 }} />
-                    )}
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: color.accent, flexShrink: 0, marginTop: 10, boxShadow: `0 0 0 3px ${color.accent}22` }} />
+                    {!isLast && <div style={{ flex: 1, width: 2, background: '#e2e8f0', minHeight: 12, marginTop: 3 }} />}
                   </div>
 
-                  {/* Card + parallel blocks */}
+                  {/* Card + overlapping backend blocks */}
                   <div style={{ flex: 1, minWidth: 0, paddingLeft: 8, paddingBottom: isLast ? 0 : 4, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
                     {/* Main card */}
                     <div style={{
                       flex: 1, minWidth: 0, minHeight: blockH,
                       background: '#fff', borderRadius: 10,
                       borderLeft: `4px solid ${color.accent}`,
-                      boxShadow: isExpanded
-                        ? `0 4px 16px ${color.accent}22, 0 0 0 1.5px ${color.accent}55`
-                        : '0 1px 3px #0000000a, 0 0 0 1px #e9ecef',
+                      boxShadow: isExpanded ? `0 4px 16px ${color.accent}22, 0 0 0 1.5px ${color.accent}55` : '0 1px 3px #0000000a, 0 0 0 1px #e9ecef',
                     }}>
                       {/* Collapsed header */}
-                      <div
-                        onClick={() => setExpandedBlock(isExpanded ? null : row.localId)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 6,
-                          padding: '8px 10px', cursor: 'pointer', userSelect: 'none',
-                          minHeight: MIN_BLOCK_PX,
-                        }}
-                      >
+                      <div onClick={() => setExpandedBlock(isExpanded ? null : row.localId)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', cursor: 'pointer', userSelect: 'none', minHeight: MIN_BLOCK_PX }}>
                         <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: color.accent, flexShrink: 0, opacity: 0.4 }} />
                         {row.programNumber && (
-                          <span style={{ fontSize: 9, fontWeight: 800, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 6px', flexShrink: 0 }}>
-                            #{row.programNumber}
-                          </span>
+                          <span style={{ fontSize: 9, fontWeight: 800, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 6px', flexShrink: 0 }}>#{row.programNumber}</span>
                         )}
                         <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b', lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {row.programName}
                         </p>
-                        {dur > 0 && (
-                          <span style={{ fontSize: 9, fontWeight: 700, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 5px', flexShrink: 0 }}>
-                            {dur}m
-                          </span>
-                        )}
-                        {deptRows.some(d => d.elements.length > 0) && (
-                          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
-                        )}
+                        {dur > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 5px', flexShrink: 0 }}>{dur}m</span>}
+                        {deptRows.some(d => d.elements.length > 0) && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />}
                         <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0, transition: 'transform 0.15s', display: 'inline-block', transform: isExpanded ? 'rotate(180deg)' : 'none' }}>▼</span>
                       </div>
 
@@ -471,46 +510,29 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Program #</span>
-                                <input
-                                  type="text"
-                                  value={row.programNumber || ''}
-                                  onChange={(e) => setProgNumber(row.localId, e.target.value)}
-                                  placeholder="e.g. 1"
-                                  onClick={(e) => e.stopPropagation()}
-                                  style={{
-                                    width: 52, height: 28, padding: '0 6px',
-                                    borderRadius: 7, textAlign: 'center',
-                                    border: `1.5px solid ${color.accent}`,
-                                    fontSize: 12, fontWeight: 700,
-                                    background: color.light, color: color.accent, outline: 'none',
-                                  }}
-                                />
+                                <input type="text" value={row.programNumber || ''} onChange={(e) => setProgNumber(row.localId, e.target.value)}
+                                  placeholder="e.g. 1" onClick={(e) => e.stopPropagation()}
+                                  style={{ width: 52, height: 28, padding: '0 6px', borderRadius: 7, textAlign: 'center', border: `1.5px solid ${color.accent}`, fontSize: 12, fontWeight: 700, background: color.light, color: color.accent, outline: 'none' }} />
+                                <button type="button" onClick={(e) => {
+                                  e.stopPropagation()
+                                  const withNum = [...sorted].filter(x => x.programNumber && !isNaN(Number(x.programNumber))).sort((a, b) => Number(a.programNumber) - Number(b.programNumber))
+                                  const withoutNum = sorted.filter(x => !x.programNumber || isNaN(Number(x.programNumber)))
+                                  setItems([...withNum, ...withoutNum].map((x, i) => ({ ...x, order: i })))
+                                  setExpandedBlock(null)
+                                }} style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: color.accent, border: 'none', padding: '4px 10px', borderRadius: 7, cursor: 'pointer', flexShrink: 0 }}>
+                                  Apply Order
+                                </button>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Duration</span>
-                                <input
-                                  type="number" min={0} max={300}
-                                  value={dur || ''}
-                                  onChange={(e) => setDuration(row.localId, e.target.value)}
-                                  placeholder="0"
-                                  onClick={(e) => e.stopPropagation()}
-                                  style={{
-                                    width: 52, height: 28, padding: '0 6px',
-                                    borderRadius: 7, textAlign: 'center',
-                                    border: `1.5px solid ${color.accent}`,
-                                    fontSize: 12, fontWeight: 700,
-                                    background: color.light, color: color.accent, outline: 'none',
-                                  }}
-                                />
+                                <input type="number" min={0} max={300} value={dur || ''} onChange={(e) => setDuration(row.localId, e.target.value)}
+                                  placeholder="0" onClick={(e) => e.stopPropagation()}
+                                  style={{ width: 52, height: 28, padding: '0 6px', borderRadius: 7, textAlign: 'center', border: `1.5px solid ${color.accent}`, fontSize: 12, fontWeight: 700, background: color.light, color: color.accent, outline: 'none' }} />
                                 <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>min</span>
                               </div>
                             </div>
                           )}
-                          {startLabel && (
-                            <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: color.accent, fontVariantNumeric: 'tabular-nums' }}>
-                              {startLabel}{endLabel ? ` → ${endLabel}` : ''}
-                            </p>
-                          )}
+                          {startLabel && <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: color.accent, fontVariantNumeric: 'tabular-nums' }}>{startLabel}{endLabel ? ` → ${endLabel}` : ''}</p>}
                           {deptRows.length > 0 && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 10 }}>
                               {deptRows.map(({ slug, meta, elements }) => {
@@ -518,14 +540,9 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                                 if (!hasData && !notifSent) return null
                                 return (
                                   <div key={slug} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
-                                    <span style={{
-                                      fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
-                                      background: hasData ? meta.light : '#f1f5f9',
-                                      color: hasData ? meta.accent : '#94a3b8', flexShrink: 0,
-                                    }}>{meta.name}</span>
-                                    {hasData ? elements.map((el) => (
-                                      <span key={el} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 20, background: meta.light, color: meta.accent }}>{el}</span>
-                                    )) : <span style={{ fontSize: 9, color: '#94a3b8', fontStyle: 'italic' }}>awaiting</span>}
+                                    <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: hasData ? meta.light : '#f1f5f9', color: hasData ? meta.accent : '#94a3b8', flexShrink: 0 }}>{meta.name}</span>
+                                    {hasData ? elements.map((el) => <span key={el} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 20, background: meta.light, color: meta.accent }}>{el}</span>)
+                                      : <span style={{ fontSize: 9, color: '#94a3b8', fontStyle: 'italic' }}>awaiting</span>}
                                   </div>
                                 )
                               })}
@@ -533,55 +550,53 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                           )}
                           {canEdit && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                              <button type="button"
-                                onClick={(e) => { e.stopPropagation(); setEditingId(row.localId); setForm({ programName: row.programName, order: idx + 1 }); setExpandedBlock(null) }}
-                                style={{ fontSize: 10, fontWeight: 600, color: '#4f46e5', background: '#eef2ff', border: 'none', padding: '3px 9px', borderRadius: 7, cursor: 'pointer' }}>
-                                Edit name
-                              </button>
-                              <button type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setRemovedItems(prev => [...prev, row])
-                                  setItems(sorted.filter((x) => x.localId !== row.localId).map((x, i) => ({ ...x, order: i })))
-                                  setExpandedBlock(null)
-                                }}
-                                style={{ fontSize: 10, fontWeight: 600, color: '#ef4444', background: '#fef2f2', border: 'none', padding: '3px 9px', borderRadius: 7, cursor: 'pointer' }}>
-                                Remove
-                              </button>
-                              {idx > 0 && (
-                                <button type="button" onClick={(e) => { e.stopPropagation(); const n=[...sorted];[n[idx-1],n[idx]]=[n[idx],n[idx-1]];setItems(n.map((x,i)=>({...x,order:i}))) }}
-                                  style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 3px' }}>↑</button>
-                              )}
-                              {idx < sorted.length - 1 && (
-                                <button type="button" onClick={(e) => { e.stopPropagation(); const n=[...sorted];[n[idx],n[idx+1]]=[n[idx+1],n[idx]];setItems(n.map((x,i)=>({...x,order:i}))) }}
-                                  style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 3px' }}>↓</button>
-                              )}
+                              <button type="button" onClick={(e) => { e.stopPropagation(); setRemovedItems(prev => [...prev, row]); setItems(sorted.filter((x) => x.localId !== row.localId).map((x, i) => ({ ...x, order: i }))); setExpandedBlock(null) }}
+                                style={{ fontSize: 10, fontWeight: 600, color: '#ef4444', background: '#fef2f2', border: 'none', padding: '3px 9px', borderRadius: 7, cursor: 'pointer' }}>Remove</button>
+                              {idx > 0 && <button type="button" onClick={(e) => { e.stopPropagation(); const n=[...sorted];[n[idx-1],n[idx]]=[n[idx],n[idx-1]];setItems(n.map((x,i)=>({...x,order:i}))) }} style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 3px' }}>↑</button>}
+                              {idx < sorted.length - 1 && <button type="button" onClick={(e) => { e.stopPropagation(); const n=[...sorted];[n[idx],n[idx+1]]=[n[idx+1],n[idx]];setItems(n.map((x,i)=>({...x,order:i}))) }} style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 3px' }}>↓</button>}
                             </div>
                           )}
                         </div>
                       )}
                     </div>
 
-                    {/* Parallel dept blocks */}
-                    {parallelDept.map((p) => (
-                      <div key={p.programName} style={{
-                        width: 100, flexShrink: 0,
-                        background: '#fff', borderRadius: 10,
-                        borderLeft: `4px solid ${p.meta.accent}`,
-                        boxShadow: '0 1px 3px #0000000a, 0 0 0 1px #e9ecef',
-                        padding: '7px 8px', minHeight: blockH,
-                      }}>
-                        <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 20, background: p.meta.light, color: p.meta.accent, display: 'inline-block', marginBottom: 3 }}>
-                          ∥ {p.meta.name}
-                        </span>
-                        <p style={{ fontSize: 10, fontWeight: 700, color: '#1e293b', margin: 0, lineHeight: 1.3 }}>{p.programName}</p>
-                        {p.duration > 0 && <p style={{ fontSize: 9, color: p.meta.accent, margin: '2px 0 0', fontWeight: 600 }}>{p.duration}m</p>}
-                      </div>
-                    ))}
+                    {/* Mid-event backend blocks — overlapping alongside main card */}
+                    {overlappingMidEvent.map((p) => {
+                      const pEnd = p.startTime && p.duration ? timeToMins(p.startTime) + p.duration : null
+                      return (
+                        <div key={p.programName} style={{
+                          width: 96, flexShrink: 0, background: '#fff', borderRadius: 10,
+                          borderLeft: `4px solid ${p.meta.accent}`,
+                          boxShadow: `0 1px 6px ${p.meta.accent}22, 0 0 0 1px ${p.meta.accent}33`,
+                          padding: '7px 8px', minHeight: blockH,
+                        }}>
+                          <span style={{ fontSize: 7, fontWeight: 800, padding: '1px 5px', borderRadius: 20, background: p.meta.light, color: p.meta.accent, display: 'inline-block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            ∥ {p.meta.name}
+                          </span>
+                          <p style={{ fontSize: 10, fontWeight: 700, color: '#1e293b', margin: 0, lineHeight: 1.3 }}>{p.programName}</p>
+                          {p.startTime && (
+                            <p style={{ fontSize: 8, color: p.meta.accent, margin: '3px 0 0', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                              {fmt12(p.startTime)}{pEnd != null ? `→${fmt12(minsToTime(pEnd))}` : ''}
+                            </p>
+                          )}
+                          {p.duration > 0 && <p style={{ fontSize: 8, color: '#94a3b8', margin: '1px 0 0', fontWeight: 600 }}>{p.duration}m</p>}
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )
             })}
+
+            {/* Post-event dept programs */}
+            {postEventProgs.length > 0 && (
+              <div style={{ marginTop: 10, background: '#f5f3ff', border: '1.5px solid #ddd6fe', borderRadius: 10, padding: '8px 12px' }}>
+                <p style={{ fontSize: 9, fontWeight: 800, color: '#5b21b6', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: 0.8 }}>Post-event</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {postEventProgs.map(p => <DeptEventCard key={p.programName} p={p} />)}
+                </div>
+              </div>
+            )}
           </div>
         )
       })()}
@@ -665,12 +680,17 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                       const parallelWith = parallelPrograms[item.programName] || ''
                       const mainColor = getParallelMainColor(item.programName)
                       return (
-                        <div key={`${slug}-${item.programName}-${idx}`} className="px-3 py-2.5 space-y-1.5">
+                        <div key={`${slug}-${item.programName}-${idx}`} className="px-3 py-2.5 space-y-2">
+                          {/* Header row */}
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-semibold text-slate-800 flex-1 min-w-0">{item.programName}</span>
-                            {item.duration > 0 && (
-                              <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 20, background: '#f0f9ff', color: '#0369a1' }}>
-                                ⏱ {item.duration} min
+                            {item.category && (
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 20,
+                                background: item.category === 'pre-event' ? '#fef3c7' : item.category === 'post-event' ? '#ede9fe' : '#dbeafe',
+                                color: item.category === 'pre-event' ? '#92400e' : item.category === 'post-event' ? '#5b21b6' : '#1e40af',
+                              }}>
+                                {item.category === 'pre-event' ? 'Pre-event' : item.category === 'post-event' ? 'Post-event' : 'Mid-event'}
                               </span>
                             )}
                             {item.elements?.length > 0 && (
@@ -686,37 +706,67 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                             )}
                           </div>
 
-                          {/* Parallel-with selector */}
-                          {canEdit ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-semibold text-slate-400 flex-shrink-0">Runs parallel with</span>
-                              <select
-                                value={parallelWith}
-                                onChange={(e) => {
-                                  const val = e.target.value
-                                  setParallelPrograms((prev) => {
-                                    const next = { ...prev }
-                                    if (val) next[item.programName] = val
-                                    else delete next[item.programName]
-                                    return next
-                                  })
-                                }}
-                                className="flex-1 px-2 py-1 rounded-lg border text-[10px] font-semibold bg-white"
-                                style={parallelWith && mainColor ? { borderColor: mainColor.accent, color: mainColor.accent } : { borderColor: '#e2e8f0', color: '#64748b' }}>
-                                <option value="">— runs separately —</option>
-                                {sorted.map((p) => (
-                                  <option key={p.programName} value={p.programName}>{p.programName}</option>
+                          {/* Category selector */}
+                          {canEdit && (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-semibold text-slate-400 flex-shrink-0">Category</span>
+                              <div className="flex gap-1.5 flex-wrap">
+                                {[
+                                  { value: 'pre-event',  label: 'Pre-event',  bg: '#fef3c7', col: '#92400e' },
+                                  { value: 'mid-event',  label: 'Mid-event',  bg: '#dbeafe', col: '#1e40af' },
+                                  { value: 'post-event', label: 'Post-event', bg: '#ede9fe', col: '#5b21b6' },
+                                ].map(opt => (
+                                  <button key={opt.value} type="button"
+                                    onClick={() => setDeptProgField(slug, item.programName, { category: item.category === opt.value ? '' : opt.value })}
+                                    style={{
+                                      fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                                      background: item.category === opt.value ? opt.bg : '#f1f5f9',
+                                      color: item.category === opt.value ? opt.col : '#94a3b8',
+                                      border: `1.5px solid ${item.category === opt.value ? opt.col + '44' : 'transparent'}`,
+                                      cursor: 'pointer', transition: 'all 0.15s',
+                                    }}>
+                                    {opt.label}
+                                  </button>
                                 ))}
-                              </select>
-                              {parallelWith && mainColor && (
-                                <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                                  background: mainColor.light, color: mainColor.accent, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                                  ∥ {parallelWith}
-                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Timing row: start time + duration + auto end time */}
+                          {canEdit ? (
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-semibold text-slate-400">Start</span>
+                                <input type="time" value={item.startTime || ''}
+                                  onChange={e => setDeptProgField(slug, item.programName, { startTime: e.target.value })}
+                                  className="px-2 py-1 rounded-lg border text-[11px] font-semibold bg-white"
+                                  style={{ borderColor: `${meta.accent}66`, color: meta.accent, outline: 'none', width: 110 }} />
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-semibold text-slate-400">Duration</span>
+                                <input type="number" min={0} max={300} value={item.duration || ''}
+                                  onChange={e => setDeptProgField(slug, item.programName, { duration: Number(e.target.value) || 0 })}
+                                  placeholder="0"
+                                  className="px-2 py-1 rounded-lg border text-[11px] font-semibold bg-white text-center"
+                                  style={{ borderColor: `${meta.accent}66`, color: meta.accent, outline: 'none', width: 56 }} />
+                                <span className="text-[10px] text-slate-400">min</span>
+                              </div>
+                              {item.startTime && item.duration > 0 && (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-slate-400">ends</span>
+                                  <span style={{ fontSize: 10, fontWeight: 800, color: meta.accent, fontVariantNumeric: 'tabular-nums' }}>
+                                    {fmt12(minsToTime(timeToMins(item.startTime) + item.duration))}
+                                  </span>
+                                </div>
                               )}
                             </div>
-                          ) : parallelWith ? (
-                            <p className="text-[10px] text-slate-400">Runs parallel with <span className="font-bold text-slate-600">{parallelWith}</span></p>
+                          ) : (item.startTime || item.duration > 0) ? (
+                            <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                              {item.startTime && <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: meta.accent }}>{fmt12(item.startTime)}</span>}
+                              {item.startTime && item.duration > 0 && <span>→</span>}
+                              {item.startTime && item.duration > 0 && <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: meta.accent }}>{fmt12(minsToTime(timeToMins(item.startTime) + item.duration))}</span>}
+                              {item.duration > 0 && <span className="text-slate-400">· {item.duration}m</span>}
+                            </div>
                           ) : null}
 
                           {item.elements?.length > 0 && (
