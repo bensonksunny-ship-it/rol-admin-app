@@ -32,7 +32,8 @@
       "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; npx vite build --mode development 2>&1 | Select-String -Pattern \"error|Error|built in\" | Select-Object -First 10 | ForEach-Object { $_.Line })",
       "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; npx vite build --mode development 2>&1 | Select-String -Pattern \"error|Error|built in\" | Select-Object -First 5 | ForEach-Object { $_.Line })",
       "mcp__ide__getDiagnostics",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(xargs grep -l \"pcs\\\\|PCS\")"
     ]
   }
 }

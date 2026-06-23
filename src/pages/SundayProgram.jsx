@@ -92,9 +92,10 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
   const [deptInputs, setDeptInputs] = useState({})
   const [notification, setNotification] = useState(null)
   const [parallelPrograms, setParallelPrograms] = useState({})
-  const [dragging, setDragging] = useState(null) // { localId, pointerY, baseOffsetMins }
-  const timelineRef = useRef(null)
-  const dragRef = useRef(null)
+  const [expandedBlock, setExpandedBlock] = useState(null)
+  const [removedItems, setRemovedItems] = useState([])
+  const [addingDeptProg, setAddingDeptProg] = useState(null)
+  const [newDeptProgName, setNewDeptProgName] = useState('')
 
   // Reload dept inputs + notification whenever the push date changes
   useEffect(() => {
@@ -173,11 +174,15 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     setItems((prev) => prev.map((x) => (x.localId === localId ? { ...x, duration: mins } : x)))
   }
 
+  const setProgNumber = (localId, val) => {
+    setItems((prev) => prev.map((x) => (x.localId === localId ? { ...x, programNumber: val } : x)))
+  }
+
   const saveDefault = async () => {
     setSaving(true); setSavedOk(false)
     try {
       await setSundayProgramDefault(
-        sorted.map((x, i) => ({ programName: x.programName, order: i, duration: x.duration || 0, startTime: x.startTime || '' })),
+        sorted.map((x, i) => ({ programName: x.programName, order: i, duration: x.duration || 0, startTime: x.startTime || '', programNumber: x.programNumber || '' })),
         userProfile?.email || 'unknown',
         serviceStartTime,
         parallelPrograms
@@ -204,39 +209,6 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     setServiceStartTime(newVal)
   }
 
-  // Drag handlers (pointer capture — works on touch too)
-  const SNAP = 5 // snap to 5-minute grid
-  const PX_PER_MIN_DRAG = 6
-
-  const handleDragDown = (e, localId) => {
-    if (!canEdit || !serviceStartTime) return
-    e.preventDefault()
-    const row = sorted.find((r) => r.localId === localId)
-    if (!row) return
-    const baseOffsetMins = row.startTime
-      ? timeToMins(row.startTime) - timeToMins(serviceStartTime)
-      : 0
-    setDragging({ localId, pointerY: e.clientY, baseOffsetMins })
-    e.currentTarget.setPointerCapture(e.pointerId)
-    dragRef.current = { localId, pointerY: e.clientY, baseOffsetMins }
-  }
-
-  const handleDragMove = (e) => {
-    if (!dragRef.current) return
-    const { localId, pointerY, baseOffsetMins } = dragRef.current
-    const deltaY = e.clientY - pointerY
-    const deltaMins = deltaY / PX_PER_MIN_DRAG
-    const snapped = Math.round(deltaMins / SNAP) * SNAP
-    const newOffsetMins = Math.max(0, baseOffsetMins + snapped)
-    const newStart = minsToTime(timeToMins(serviceStartTime) + newOffsetMins)
-    setItems((prev) => prev.map((x) => x.localId === localId ? { ...x, startTime: newStart } : x))
-  }
-
-  const handleDragUp = () => {
-    setDragging(null)
-    dragRef.current = null
-  }
-
   const removeDeptCustomProgram = async (slug, programName) => {
     const current = deptInputs[slug] || {}
     const updated = {
@@ -251,6 +223,21 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
       console.error(e)
       alert('Failed to remove')
     }
+  }
+
+  const handleAddDeptProg = async (slug) => {
+    const name = newDeptProgName.trim()
+    if (!name) return
+    const current = deptInputs[slug] || { programElements: {}, customPrograms: [], customElements: [] }
+    if ((current.customPrograms || []).some(p => p.programName === name)) {
+      setAddingDeptProg(null); setNewDeptProgName(''); return
+    }
+    const updated = { ...current, customPrograms: [...(current.customPrograms || []), { programName: name, elements: [], duration: 0 }] }
+    try {
+      await setDeptProgramInput(pushDate, slug, updated, userProfile?.email || 'unknown')
+      setDeptInputs(prev => ({ ...prev, [slug]: updated }))
+    } catch (e) { console.error(e); alert('Failed to add programme') }
+    setAddingDeptProg(null); setNewDeptProgName('')
   }
 
   if (loading) return <p className="text-slate-500">Loading…</p>
@@ -269,40 +256,7 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     }))
   )
 
-  // ── Timeline constants ────────────────────────────────────────────────────
-  const PX_PER_MIN = 6
-  const MIN_BLOCK_PX = 88
-  const hasTiming = !!(serviceStartTime)
   const programColors = sorted.map((_, idx) => CARD_COLORS[idx % CARD_COLORS.length])
-  const svcStartMins = timeToMins(serviceStartTime)
-
-  // Per-block offset in minutes from service start (uses saved startTime)
-  const blockOffsets = sorted.map((row) =>
-    row.startTime ? Math.max(0, timeToMins(row.startTime) - svcStartMins) : 0
-  )
-  const blockHeights = sorted.map((row) => Math.max((row.duration || 0) * PX_PER_MIN, MIN_BLOCK_PX))
-  const blockTops = hasTiming
-    ? blockOffsets.map((off) => off * PX_PER_MIN)
-    : blockHeights.reduce((acc, h, i) => {
-        acc.push(i === 0 ? 0 : acc[i - 1] + blockHeights[i - 1] + 3)
-        return acc
-      }, [])
-
-  // Total span covers all block ends
-  const maxEndOffset = hasTiming
-    ? sorted.reduce((max, row, i) => Math.max(max, blockOffsets[i] + (row.duration || 0)), totalMinutes)
-    : totalMinutes
-  const totalTimelineHeight = hasTiming
-    ? maxEndOffset * PX_PER_MIN + MIN_BLOCK_PX + 36
-    : (blockTops.length > 0 ? blockTops[blockTops.length - 1] + blockHeights[blockHeights.length - 1] + 28 : 80)
-
-  // Clock-style time markers every 15 min (or 30 for long services)
-  const markerStep = maxEndOffset <= 90 ? 15 : maxEndOffset <= 180 ? 30 : 60
-  const timeMarkers = hasTiming ? (() => {
-    const marks = []
-    for (let m = 0; m <= maxEndOffset + markerStep - 1; m += markerStep) marks.push(m)
-    return marks
-  })() : []
 
   const getParallelMainColor = (deptProgName) => {
     const mainName = parallelPrograms[deptProgName]
@@ -324,14 +278,27 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
           {(() => {
             const available = editingId
               ? designedPrograms
-              : designedPrograms.filter((p) => !sorted.some((x) => x.programName === p))
-            if (available.length === 0) return (
+              : designedPrograms.filter((p) => !sorted.some((x) => x.programName === p) && !removedItems.some((r) => r.programName === p))
+            const hasAnything = available.length > 0 || (!editingId && removedItems.length > 0)
+            if (!hasAnything) return (
               <p className="text-xs text-slate-400 italic">
                 {editingId ? 'No programmes available.' : 'All designed programmes already added.'}
               </p>
             )
             return (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {!editingId && removedItems.map((item) => (
+                  <button key={item.localId} type="button"
+                    onClick={() => {
+                      setItems(prev => [...prev, { ...item, order: prev.length }])
+                      setRemovedItems(prev => prev.filter(r => r.localId !== item.localId))
+                      setForm(f => ({ ...f, programName: '' }))
+                    }}
+                    className="text-left px-3 py-2.5 rounded-xl text-xs font-semibold transition-all"
+                    style={{ borderColor: '#10b981', background: '#ecfdf5', color: '#065f46', border: '1.5px dashed #10b981' }}>
+                    <span style={{ marginRight: 4, fontWeight: 800 }}>↩</span>{item.programName}
+                  </button>
+                ))}
                 {available.map((p) => {
                   const isSel = form.programName === p
                   return (
@@ -399,236 +366,381 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
               fontSize: 11, fontWeight: 700, color: '#6366f1',
               background: '#e0e7ff', borderRadius: 20, padding: '3px 10px',
             }}>{totalMinutes} min</span>
-            {serviceStartTime && sorted.length > 0 && (() => {
-              const last = sorted[sorted.length - 1]
-              const endMins = last.startTime && last.duration
-                ? timeToMins(last.startTime) + last.duration : null
-              return endMins ? (
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
-                  ends <span style={{ color: '#3730a3' }}>{fmt12(minsToTime(endMins))}</span>
-                </span>
-              ) : null
-            })()}
+            {serviceStartTime && totalMinutes > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
+                ends <span style={{ color: '#3730a3' }}>{fmt12(minsToTime(timeToMins(serviceStartTime) + totalMinutes))}</span>
+              </span>
+            )}
           </div>
         )}
       </div>
 
-      {/* ── Visual timeline ── */}
-      {sorted.length > 0 && (
-        <div ref={timelineRef} style={{ position: 'relative', height: totalTimelineHeight || 80 }}>
-
-          {/* Time ruler */}
-          {hasTiming && timeMarkers.map((offsetMins, i) => {
-            const top = offsetMins * PX_PER_MIN
-            const timeStr = addMinutes(serviceStartTime, offsetMins)
-            const [h, min] = timeStr.split(':').map(Number)
-            const isHour = min === 0
-            return (
-              <div key={i} style={{ position: 'absolute', top, left: 0, right: 0, display: 'flex', alignItems: 'center', pointerEvents: 'none', zIndex: 0 }}>
-                <div style={{ width: 64, textAlign: 'right', paddingRight: 8, flexShrink: 0 }}>
-                  {isHour ? (
-                    <span style={{ fontSize: 11, fontWeight: 800, color: '#334155', fontVariantNumeric: 'tabular-nums' }}>
-                      {`${h % 12 || 12}:${String(min).padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`}
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
-                      {`:${String(min).padStart(2,'0')}`}
-                    </span>
-                  )}
-                </div>
-                <div style={{ flex: 1, height: isHour ? 1 : 0, borderTop: isHour ? '1px solid #e2e8f0' : '1px dashed #f1f5f9' }} />
-              </div>
-            )
-          })}
-
-          {/* Spine line */}
-          <div style={{ position: 'absolute', left: 68, top: 0, bottom: 0, width: 2, background: '#e2e8f0', zIndex: 0, pointerEvents: 'none' }} />
-
-          {/* Programme blocks */}
-          <div style={{ position: 'absolute', left: 80, right: 0, top: 0 }}>
+      {/* ── Visual timeline — fixed flowing table, height by duration ── */}
+      {sorted.length > 0 && (() => {
+        const PX_PER_MIN = 6
+        const MIN_BLOCK_PX = 48
+        const svcMins = serviceStartTime ? timeToMins(serviceStartTime) : 0
+        let cascadeMins = svcMins
+        return (
+          <div style={{ position: 'relative' }}>
             {sorted.map((row, idx) => {
               const color = programColors[idx]
               const dur = row.duration || 0
-              const top = blockTops[idx]
-              const minH = blockHeights[idx]
-              const endTime = row.startTime && dur ? addMinutes(row.startTime, dur) : ''
-              const parallelDept = deptCustom.filter((p) => parallelPrograms[p.programName] === row.programName)
+              const blockH = Math.max(dur * PX_PER_MIN, MIN_BLOCK_PX)
+              const startLabel = serviceStartTime ? fmt12(minsToTime(cascadeMins)) : ''
+              const endLabel = serviceStartTime && dur ? fmt12(minsToTime(cascadeMins + dur)) : ''
+              cascadeMins += dur
+              const isExpanded = expandedBlock === row.localId
+              const isLast = idx === sorted.length - 1
               const deptRows = DEPT_SLUGS.map((slug) => ({
                 slug, meta: DEPT_META[slug],
                 elements: deptInputs[slug]?.programElements?.[row.programName] || [],
               })).filter((d) => d.elements.length > 0 || notifSent)
-              const isDragging = dragging?.localId === row.localId
+              const parallelDept = deptCustom.filter((p) => parallelPrograms[p.programName] === row.programName)
 
               return (
-                <div key={row.localId} style={{
-                  position: 'absolute', top, left: 0, right: 0,
-                  display: 'flex', alignItems: 'flex-start', gap: 6,
-                  minHeight: minH,
-                  transition: isDragging ? 'none' : 'top 0.2s ease',
-                  zIndex: isDragging ? 20 : 2,
-                }}>
-
-                  {/* Timeline dot */}
-                  <div style={{
-                    position: 'absolute', left: -18, top: 16,
-                    width: 10, height: 10, borderRadius: '50%',
-                    background: color.accent,
-                    boxShadow: `0 0 0 3px ${color.accent}22`,
-                    zIndex: 3, flexShrink: 0,
-                  }} />
-
-                  {/* Drag grip — outside the card, between spine and card */}
-                  {canEdit && hasTiming && (
-                    <div
-                      style={{
-                        width: 20, flexShrink: 0, minHeight: minH,
-                        display: 'flex', flexDirection: 'column', alignItems: 'center',
-                        justifyContent: 'flex-start', paddingTop: 14, gap: 3,
-                        cursor: isDragging ? 'grabbing' : 'grab',
-                        touchAction: 'none', userSelect: 'none',
-                      }}
-                      onPointerDown={(e) => handleDragDown(e, row.localId)}
-                      onPointerMove={handleDragMove}
-                      onPointerUp={handleDragUp}
-                      onPointerCancel={handleDragUp}
-                    >
-                      {[0,1,2,3,4,5].map((i) => (
-                        <div key={i} style={{
-                          width: 4, height: 4, borderRadius: '50%',
-                          background: isDragging ? color.accent : '#cbd5e1',
-                        }} />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Main card */}
-                  <div style={{
-                    flex: 1, minWidth: 0,
-                    background: '#fff',
-                    borderRadius: 14,
-                    borderLeft: `4px solid ${color.accent}`,
-                    boxShadow: isDragging
-                      ? `0 8px 24px ${color.accent}33, 0 0 0 2px ${color.accent}`
-                      : '0 1px 4px #0000000d, 0 0 0 1px #e2e8f0',
-                    overflow: 'visible',
-                    marginBottom: hasTiming ? 0 : 8,
-                  }}>
-                    <div style={{ padding: '12px 14px' }}>
-
-                      {/* Name + duration on same line */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b', lineHeight: 1.3 }}>
-                          {row.programName}
-                        </p>
-                        {canEdit ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                            <input
-                              type="number" min={0} max={300}
-                              value={dur || ''}
-                              onChange={(e) => setDuration(row.localId, e.target.value)}
-                              placeholder="0"
-                              style={{
-                                width: 48, height: 32, padding: '0 6px',
-                                borderRadius: 8, textAlign: 'center',
-                                border: `2px solid ${color.accent}`,
-                                fontSize: 13, fontWeight: 700,
-                                background: color.light, color: color.accent,
-                                outline: 'none', display: 'block',
-                              }}
-                            />
-                            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>min</span>
-                          </div>
-                        ) : dur > 0 ? (
-                          <span style={{
-                            fontSize: 11, fontWeight: 700, color: color.accent,
-                            background: color.light, borderRadius: 8,
-                            padding: '3px 8px', flexShrink: 0,
-                          }}>{dur} min</span>
-                        ) : null}
-                      </div>
-
-                      {/* Time range */}
-                      {row.startTime && (
-                        <p style={{
-                          margin: '0 0 6px', fontSize: 11, fontWeight: 600,
-                          color: color.accent, fontVariantNumeric: 'tabular-nums',
-                        }}>
-                          {fmt12(row.startTime)}{endTime ? ` → ${fmt12(endTime)}` : ''}
-                        </p>
-                      )}
-
-                      {/* Action buttons */}
-                      {canEdit && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <button type="button"
-                            onClick={() => { setEditingId(row.localId); setForm({ programName: row.programName, order: idx + 1 }) }}
-                            style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: '#f1f5f9', border: 'none', padding: '4px 10px', borderRadius: 8, cursor: 'pointer' }}>
-                            Edit
-                          </button>
-                          <button type="button"
-                            onClick={() => setItems(sorted.filter((x) => x.localId !== row.localId).map((x, i) => ({ ...x, order: i })))}
-                            style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', background: '#fef2f2', border: 'none', padding: '4px 10px', borderRadius: 8, cursor: 'pointer' }}>
-                            Remove
-                          </button>
-                          {idx > 0 && (
-                            <button type="button"
-                              onClick={() => { const n=[...sorted];[n[idx-1],n[idx]]=[n[idx],n[idx-1]];setItems(n.map((x,i)=>({...x,order:i}))) }}
-                              style={{ fontSize: 14, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}>↑</button>
-                          )}
-                          {idx < sorted.length - 1 && (
-                            <button type="button"
-                              onClick={() => { const n=[...sorted];[n[idx],n[idx+1]]=[n[idx+1],n[idx]];setItems(n.map((x,i)=>({...x,order:i}))) }}
-                              style={{ fontSize: 14, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}>↓</button>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Dept chips */}
-                      {deptRows.length > 0 && (
-                        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {deptRows.map(({ slug, meta, elements }) => {
-                            const hasData = elements.length > 0
-                            if (!hasData && !notifSent) return null
-                            return (
-                              <div key={slug} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
-                                <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: hasData ? meta.light : '#f1f5f9', color: hasData ? meta.accent : '#94a3b8' }}>
-                                  {meta.name}
-                                </span>
-                                {hasData ? elements.map((el) => (
-                                  <span key={el} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 20, background: meta.light, color: meta.accent }}>{el}</span>
-                                )) : <span style={{ fontSize: 9, color: '#94a3b8', fontStyle: 'italic' }}>awaiting</span>}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
+                <div key={row.localId} style={{ display: 'flex', alignItems: 'flex-start' }}>
+                  {/* Time label */}
+                  <div style={{ width: 72, flexShrink: 0, paddingTop: 11, paddingRight: 8, textAlign: 'right' }}>
+                    {startLabel && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 800, color: '#475569',
+                        fontVariantNumeric: 'tabular-nums',
+                        background: '#f1f5f9', borderRadius: 5, padding: '1px 5px',
+                        border: '1px solid #e2e8f0', display: 'inline-block', lineHeight: 1.6,
+                      }}>{startLabel}</span>
+                    )}
                   </div>
 
-                  {/* Parallel dept blocks */}
-                  {parallelDept.map((p) => (
-                    <div key={p.programName} style={{
-                      width: 110, flexShrink: 0,
-                      background: '#fff', borderRadius: 14,
-                      borderLeft: `4px solid ${p.meta.accent}`,
-                      boxShadow: '0 1px 4px #0000000d, 0 0 0 1px #e2e8f0',
-                      padding: '12px 10px',
+                  {/* Dot + spine segment */}
+                  <div style={{ width: 16, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: color.accent, flexShrink: 0, marginTop: 10,
+                      boxShadow: `0 0 0 3px ${color.accent}22`,
+                    }} />
+                    {!isLast && (
+                      <div style={{ flex: 1, width: 2, background: '#e2e8f0', minHeight: 12, marginTop: 3 }} />
+                    )}
+                  </div>
+
+                  {/* Card + parallel blocks */}
+                  <div style={{ flex: 1, minWidth: 0, paddingLeft: 8, paddingBottom: isLast ? 0 : 4, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                    {/* Main card */}
+                    <div style={{
+                      flex: 1, minWidth: 0, minHeight: blockH,
+                      background: '#fff', borderRadius: 10,
+                      borderLeft: `4px solid ${color.accent}`,
+                      boxShadow: isExpanded
+                        ? `0 4px 16px ${color.accent}22, 0 0 0 1.5px ${color.accent}55`
+                        : '0 1px 3px #0000000a, 0 0 0 1px #e9ecef',
                     }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: p.meta.light, color: p.meta.accent, display: 'inline-block', marginBottom: 5 }}>
-                        ∥ {p.meta.name}
-                      </span>
-                      <p style={{ fontSize: 11, fontWeight: 700, color: '#1e293b', margin: 0 }}>{p.programName}</p>
-                      {p.duration > 0 && <p style={{ fontSize: 10, color: p.meta.accent, margin: '4px 0 0', fontWeight: 600 }}>{p.duration} min</p>}
+                      {/* Collapsed header */}
+                      <div
+                        onClick={() => setExpandedBlock(isExpanded ? null : row.localId)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: '8px 10px', cursor: 'pointer', userSelect: 'none',
+                          minHeight: MIN_BLOCK_PX,
+                        }}
+                      >
+                        <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: color.accent, flexShrink: 0, opacity: 0.4 }} />
+                        {row.programNumber && (
+                          <span style={{ fontSize: 9, fontWeight: 800, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 6px', flexShrink: 0 }}>
+                            #{row.programNumber}
+                          </span>
+                        )}
+                        <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b', lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {row.programName}
+                        </p>
+                        {dur > 0 && (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 5px', flexShrink: 0 }}>
+                            {dur}m
+                          </span>
+                        )}
+                        {deptRows.some(d => d.elements.length > 0) && (
+                          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+                        )}
+                        <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0, transition: 'transform 0.15s', display: 'inline-block', transform: isExpanded ? 'rotate(180deg)' : 'none' }}>▼</span>
+                      </div>
+
+                      {/* Expanded panel */}
+                      {isExpanded && (
+                        <div style={{ borderTop: `1px solid ${color.accent}18`, padding: '10px 12px 12px' }}>
+                          {canEdit && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Program #</span>
+                                <input
+                                  type="text"
+                                  value={row.programNumber || ''}
+                                  onChange={(e) => setProgNumber(row.localId, e.target.value)}
+                                  placeholder="e.g. 1"
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    width: 52, height: 28, padding: '0 6px',
+                                    borderRadius: 7, textAlign: 'center',
+                                    border: `1.5px solid ${color.accent}`,
+                                    fontSize: 12, fontWeight: 700,
+                                    background: color.light, color: color.accent, outline: 'none',
+                                  }}
+                                />
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Duration</span>
+                                <input
+                                  type="number" min={0} max={300}
+                                  value={dur || ''}
+                                  onChange={(e) => setDuration(row.localId, e.target.value)}
+                                  placeholder="0"
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    width: 52, height: 28, padding: '0 6px',
+                                    borderRadius: 7, textAlign: 'center',
+                                    border: `1.5px solid ${color.accent}`,
+                                    fontSize: 12, fontWeight: 700,
+                                    background: color.light, color: color.accent, outline: 'none',
+                                  }}
+                                />
+                                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>min</span>
+                              </div>
+                            </div>
+                          )}
+                          {startLabel && (
+                            <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: color.accent, fontVariantNumeric: 'tabular-nums' }}>
+                              {startLabel}{endLabel ? ` → ${endLabel}` : ''}
+                            </p>
+                          )}
+                          {deptRows.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 10 }}>
+                              {deptRows.map(({ slug, meta, elements }) => {
+                                const hasData = elements.length > 0
+                                if (!hasData && !notifSent) return null
+                                return (
+                                  <div key={slug} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+                                      background: hasData ? meta.light : '#f1f5f9',
+                                      color: hasData ? meta.accent : '#94a3b8', flexShrink: 0,
+                                    }}>{meta.name}</span>
+                                    {hasData ? elements.map((el) => (
+                                      <span key={el} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 20, background: meta.light, color: meta.accent }}>{el}</span>
+                                    )) : <span style={{ fontSize: 9, color: '#94a3b8', fontStyle: 'italic' }}>awaiting</span>}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                          {canEdit && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                              <button type="button"
+                                onClick={(e) => { e.stopPropagation(); setEditingId(row.localId); setForm({ programName: row.programName, order: idx + 1 }); setExpandedBlock(null) }}
+                                style={{ fontSize: 10, fontWeight: 600, color: '#4f46e5', background: '#eef2ff', border: 'none', padding: '3px 9px', borderRadius: 7, cursor: 'pointer' }}>
+                                Edit name
+                              </button>
+                              <button type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setRemovedItems(prev => [...prev, row])
+                                  setItems(sorted.filter((x) => x.localId !== row.localId).map((x, i) => ({ ...x, order: i })))
+                                  setExpandedBlock(null)
+                                }}
+                                style={{ fontSize: 10, fontWeight: 600, color: '#ef4444', background: '#fef2f2', border: 'none', padding: '3px 9px', borderRadius: 7, cursor: 'pointer' }}>
+                                Remove
+                              </button>
+                              {idx > 0 && (
+                                <button type="button" onClick={(e) => { e.stopPropagation(); const n=[...sorted];[n[idx-1],n[idx]]=[n[idx],n[idx-1]];setItems(n.map((x,i)=>({...x,order:i}))) }}
+                                  style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 3px' }}>↑</button>
+                              )}
+                              {idx < sorted.length - 1 && (
+                                <button type="button" onClick={(e) => { e.stopPropagation(); const n=[...sorted];[n[idx],n[idx+1]]=[n[idx+1],n[idx]];setItems(n.map((x,i)=>({...x,order:i}))) }}
+                                  style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 3px' }}>↓</button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ))}
+
+                    {/* Parallel dept blocks */}
+                    {parallelDept.map((p) => (
+                      <div key={p.programName} style={{
+                        width: 100, flexShrink: 0,
+                        background: '#fff', borderRadius: 10,
+                        borderLeft: `4px solid ${p.meta.accent}`,
+                        boxShadow: '0 1px 3px #0000000a, 0 0 0 1px #e9ecef',
+                        padding: '7px 8px', minHeight: blockH,
+                      }}>
+                        <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 20, background: p.meta.light, color: p.meta.accent, display: 'inline-block', marginBottom: 3 }}>
+                          ∥ {p.meta.name}
+                        </span>
+                        <p style={{ fontSize: 10, fontWeight: 700, color: '#1e293b', margin: 0, lineHeight: 1.3 }}>{p.programName}</p>
+                        {p.duration > 0 && <p style={{ fontSize: 9, color: p.meta.accent, margin: '2px 0 0', fontWeight: 600 }}>{p.duration}m</p>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )
             })}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
-      {/* ── Save ── */}
+      {/* ── Department custom programmes ── */}
+      {(canEdit || deptCustom.length > 0) && (() => {
+        // Always show D Light and Media; show others only when they have programmes
+        const visibleSlugs = DEPT_SLUGS.filter(slug =>
+          slug === 'd-light' || slug === 'media'
+            ? (canEdit || (deptInputs[slug]?.customPrograms || []).length > 0)
+            : (deptInputs[slug]?.customPrograms || []).length > 0
+        )
+        if (visibleSlugs.length === 0) return null
+        return (
+          <div className="rounded-xl border border-slate-100 overflow-hidden">
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest flex-1">Department Programmes</p>
+              <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{deptCustom.length}</span>
+            </div>
+
+            {visibleSlugs.map(slug => {
+              const meta = DEPT_META[slug]
+              const programs = deptInputs[slug]?.customPrograms || []
+              const isAdding = addingDeptProg === slug
+
+              return (
+                <div key={slug} className="border-b border-slate-100 last:border-0">
+                  {/* Dept header row */}
+                  <div className="px-3 py-2 flex items-center gap-2" style={{ background: `${meta.light}88` }}>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                      style={{ background: meta.light, color: meta.accent }}>
+                      {meta.name}
+                    </span>
+                    <span className="text-[10px] text-slate-400 flex-1">
+                      {programs.length} {programs.length === 1 ? 'programme' : 'programmes'}
+                    </span>
+                    {canEdit && !isAdding && (
+                      <button type="button"
+                        onClick={() => { setAddingDeptProg(slug); setNewDeptProgName('') }}
+                        className="text-[10px] font-bold px-2 py-0.5 rounded-lg transition-opacity hover:opacity-70"
+                        style={{ background: meta.accent, color: '#fff' }}>
+                        + Add
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Inline add form */}
+                  {isAdding && (
+                    <div className="px-3 py-2 flex items-center gap-2 bg-white border-b border-slate-100">
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Programme name…"
+                        value={newDeptProgName}
+                        onChange={e => setNewDeptProgName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleAddDeptProg(slug); if (e.key === 'Escape') setAddingDeptProg(null) }}
+                        className="flex-1 px-2 py-1 rounded-lg border text-xs font-medium"
+                        style={{ borderColor: `${meta.accent}66`, outline: 'none' }}
+                      />
+                      <button type="button" onClick={() => handleAddDeptProg(slug)}
+                        disabled={!newDeptProgName.trim()}
+                        className="text-[10px] font-bold px-2.5 py-1 rounded-lg disabled:opacity-40"
+                        style={{ background: meta.accent, color: '#fff' }}>
+                        Save
+                      </button>
+                      <button type="button" onClick={() => setAddingDeptProg(null)}
+                        className="text-[10px] text-slate-400 px-1 hover:text-slate-600">✕</button>
+                    </div>
+                  )}
+
+                  {/* Empty state */}
+                  {programs.length === 0 && !isAdding && (
+                    <div className="px-3 py-2">
+                      <span className="text-[10px] text-slate-400 italic">No programmes added yet</span>
+                    </div>
+                  )}
+
+                  {/* Programme rows */}
+                  <div className="divide-y divide-slate-50">
+                    {programs.map((item, idx) => {
+                      const parallelWith = parallelPrograms[item.programName] || ''
+                      const mainColor = getParallelMainColor(item.programName)
+                      return (
+                        <div key={`${slug}-${item.programName}-${idx}`} className="px-3 py-2.5 space-y-1.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-800 flex-1 min-w-0">{item.programName}</span>
+                            {item.duration > 0 && (
+                              <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 20, background: '#f0f9ff', color: '#0369a1' }}>
+                                ⏱ {item.duration} min
+                              </span>
+                            )}
+                            {item.elements?.length > 0 && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"
+                                style={{ background: meta.light, color: meta.accent }}>
+                                {item.elements.length}
+                              </span>
+                            )}
+                            {canEdit && (
+                              <button type="button" onClick={() => removeDeptCustomProgram(slug, item.programName)}
+                                className="w-5 h-5 rounded-full flex items-center justify-center text-sm hover:scale-110 transition-transform flex-shrink-0"
+                                style={{ background: '#fee2e2', color: '#ef4444' }}>×</button>
+                            )}
+                          </div>
+
+                          {/* Parallel-with selector */}
+                          {canEdit ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-semibold text-slate-400 flex-shrink-0">Runs parallel with</span>
+                              <select
+                                value={parallelWith}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setParallelPrograms((prev) => {
+                                    const next = { ...prev }
+                                    if (val) next[item.programName] = val
+                                    else delete next[item.programName]
+                                    return next
+                                  })
+                                }}
+                                className="flex-1 px-2 py-1 rounded-lg border text-[10px] font-semibold bg-white"
+                                style={parallelWith && mainColor ? { borderColor: mainColor.accent, color: mainColor.accent } : { borderColor: '#e2e8f0', color: '#64748b' }}>
+                                <option value="">— runs separately —</option>
+                                {sorted.map((p) => (
+                                  <option key={p.programName} value={p.programName}>{p.programName}</option>
+                                ))}
+                              </select>
+                              {parallelWith && mainColor && (
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                                  background: mainColor.light, color: mainColor.accent, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                  ∥ {parallelWith}
+                                </span>
+                              )}
+                            </div>
+                          ) : parallelWith ? (
+                            <p className="text-[10px] text-slate-400">Runs parallel with <span className="font-bold text-slate-600">{parallelWith}</span></p>
+                          ) : null}
+
+                          {item.elements?.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pl-1">
+                              {item.elements.map((el) => (
+                                <span key={el} className="text-[10px] font-medium px-2 py-0.5 rounded-full border"
+                                  style={{ background: meta.light, color: meta.accent, borderColor: `${meta.accent}44` }}>
+                                  {el}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
+
+      {/* ── Save Programme & Timing ── */}
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 4 }}>
           <button type="button" onClick={saveDefault} disabled={saving}
@@ -649,93 +761,6 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
               border: '1px solid #6ee7b744',
             }}>Saved!</span>
           )}
-        </div>
-      )}
-
-      {/* ── Department custom programmes ── */}
-      {deptCustom.length > 0 && (
-        <div className="rounded-xl border border-slate-100 overflow-hidden">
-          <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest flex-1">Department Programmes</p>
-            <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{deptCustom.length}</span>
-          </div>
-          <div className="divide-y divide-slate-50">
-            {deptCustom.map((item, idx) => {
-              const parallelWith = parallelPrograms[item.programName] || ''
-              const mainColor = getParallelMainColor(item.programName)
-              return (
-                <div key={`${item.slug}-${item.programName}-${idx}`} className="px-3 py-2.5 space-y-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0"
-                      style={{ background: item.meta.light, color: item.meta.accent }}>
-                      {item.meta.name}
-                    </span>
-                    <span className="text-sm font-semibold text-slate-800 flex-1 min-w-0">{item.programName}</span>
-                    {item.duration > 0 && (
-                      <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 20, background: '#f0f9ff', color: '#0369a1' }}>
-                        ⏱ {item.duration} min
-                      </span>
-                    )}
-                    {item.elements.length > 0 && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"
-                        style={{ background: item.meta.light, color: item.meta.accent }}>
-                        {item.elements.length}
-                      </span>
-                    )}
-                    {canEdit && (
-                      <button type="button" onClick={() => removeDeptCustomProgram(item.slug, item.programName)}
-                        className="w-5 h-5 rounded-full flex items-center justify-center text-sm hover:scale-110 transition-transform flex-shrink-0"
-                        style={{ background: '#fee2e2', color: '#ef4444' }}>×</button>
-                    )}
-                  </div>
-
-                  {/* Parallel with selector */}
-                  {canEdit ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-semibold text-slate-400 flex-shrink-0">Runs parallel with</span>
-                      <select
-                        value={parallelWith}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          setParallelPrograms((prev) => {
-                            const next = { ...prev }
-                            if (val) next[item.programName] = val
-                            else delete next[item.programName]
-                            return next
-                          })
-                        }}
-                        className="flex-1 px-2 py-1 rounded-lg border text-[10px] font-semibold bg-white"
-                        style={parallelWith && mainColor ? { borderColor: mainColor.accent, color: mainColor.accent } : { borderColor: '#e2e8f0', color: '#64748b' }}>
-                        <option value="">— runs separately —</option>
-                        {sorted.map((p) => (
-                          <option key={p.programName} value={p.programName}>{p.programName}</option>
-                        ))}
-                      </select>
-                      {parallelWith && mainColor && (
-                        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                          background: mainColor.light, color: mainColor.accent, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                          ∥ {parallelWith}
-                        </span>
-                      )}
-                    </div>
-                  ) : parallelWith ? (
-                    <p className="text-[10px] text-slate-400">Runs parallel with <span className="font-bold text-slate-600">{parallelWith}</span></p>
-                  ) : null}
-
-                  {item.elements.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pl-1">
-                      {item.elements.map((el) => (
-                        <span key={el} className="text-[10px] font-medium px-2 py-0.5 rounded-full border"
-                          style={{ background: item.meta.light, color: item.meta.accent, borderColor: `${item.meta.accent}44` }}>
-                          {el}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
         </div>
       )}
 

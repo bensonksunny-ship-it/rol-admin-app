@@ -202,6 +202,7 @@ export function subscribeCellMemberReferralTasks(onChange) {
     const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
     onChange(all.filter(t =>
       t.status !== 'Completed' &&
+      t.status !== 'Dismissed' &&
       (t.cellMemberReferral === true || (t.notes && t.notes.includes('Referred from Cell')))
     ))
   }, () => {})

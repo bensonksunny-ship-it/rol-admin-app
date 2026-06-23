@@ -306,7 +306,10 @@ export default function DepartmentHub() {
   const [pcsEntries, setPcsEntries] = useState([])
   const [loadingPCS, setLoadingPCS] = useState(false)
   const [pcsPickerOpen, setPcsPickerOpen] = useState(false)
+  const [pcsManualOpen, setPcsManualOpen] = useState(false)
   const [pcsExpandedId, setPcsExpandedId] = useState(null)
+  const [collapsedPCSYears, setCollapsedPCSYears] = useState(() => new Set())
+  const [pcsYearTileOpen, setPcsYearTileOpen] = useState(false)
   const [pcsExpandedVisitor, setPcsExpandedVisitor] = useState(null)
   const [pcsExpandedProfile, setPcsExpandedProfile] = useState(null)
   const [pcsExpandedContext, setPcsExpandedContext] = useState(null)
@@ -317,6 +320,7 @@ export default function DepartmentHub() {
   const [pcsNotifyingId, setPcsNotifyingId] = useState(null)
   const [cellReferralTasks, setCellReferralTasks] = useState([])
   const [cellReferralAdding, setCellReferralAdding] = useState(new Set())
+  const [cellReferralRemoving, setCellReferralRemoving] = useState(new Set())
   const [delightVisitorForm, setDelightVisitorForm] = useState({
     name: '',
     dob: '',
@@ -1327,33 +1331,98 @@ export default function DepartmentHub() {
                           </div>
                         </div>
 
-                        {/* ── PCS year breakdown ── */}
+                        {/* ── PCS by Year — expandable tile ── */}
                         {pcsYears.length > 0 && (
-                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">PCS by Year</p>
-                            <div className="space-y-2">
-                              {pcsYears.map(yr => {
-                                const count = pcsEntries.filter(e => e.year === yr).length
-                                const pct   = Math.round((count / maxYearCount) * 100)
-                                const isCurrent = yr === currentYear
-                                return (
-                                  <div key={yr} className="flex items-center gap-2.5">
-                                    <span className={`text-xs font-bold w-10 flex-shrink-0 ${isCurrent ? 'text-indigo-600' : 'text-slate-400'}`}>{yr}</span>
-                                    <div className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden">
-                                      <div
-                                        className={`h-full rounded-full flex items-center justify-end pr-2 ${isCurrent ? 'bg-indigo-500' : 'bg-slate-400'}`}
-                                        style={{ width: `${Math.max(pct, 10)}%` }}
-                                      >
-                                        <span className="text-[9px] font-bold text-white">{count}</span>
-                                      </div>
-                                    </div>
-                                    {isCurrent && (
-                                      <span className="text-[9px] font-bold text-indigo-500 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full flex-shrink-0">current</span>
+                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                            {/* Header — always visible, tap to expand */}
+                            <button
+                              type="button"
+                              onClick={() => setPcsYearTileOpen(o => !o)}
+                              className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors select-none"
+                            >
+                              <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0 text-lg">📊</div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-slate-800">PCS by Year</p>
+                                {/* Mini year badges shown when collapsed */}
+                                {!pcsYearTileOpen && (
+                                  <div className="flex gap-1.5 mt-1 flex-wrap">
+                                    {pcsYears.slice(0, 5).map(yr => (
+                                      <span key={yr} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                                        style={yr === currentYear
+                                          ? { background: '#e0e7ff', color: '#4338ca' }
+                                          : { background: '#f1f5f9', color: '#64748b' }}>
+                                        {yr}: {pcsEntries.filter(e => e.year === yr).length}
+                                      </span>
+                                    ))}
+                                    {pcsYears.length > 5 && (
+                                      <span className="text-[9px] text-slate-400">+{pcsYears.length - 5} more</span>
                                     )}
                                   </div>
-                                )
-                              })}
-                            </div>
+                                )}
+                              </div>
+                              <span className="text-slate-400 text-xs flex-shrink-0">
+                                {pcsYearTileOpen ? '▲' : '▼'}
+                              </span>
+                            </button>
+
+                            {/* Expanded bar chart */}
+                            {pcsYearTileOpen && (
+                              <div className="px-4 pt-2 pb-4 border-t border-slate-100 space-y-3">
+                                {pcsYears.map(yr => {
+                                  const count = pcsEntries.filter(e => e.year === yr).length
+                                  const memberCount = pcsEntries.filter(e => e.year === yr && e.membershipNumber).length
+                                  const pct = Math.round((count / maxYearCount) * 100)
+                                  const isCurrent = yr === currentYear
+                                  return (
+                                    <div key={yr}>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[11px] font-bold" style={{ color: isCurrent ? '#4338ca' : '#64748b' }}>
+                                            {yr}
+                                          </span>
+                                          {isCurrent && (
+                                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                                              style={{ background: '#e0e7ff', color: '#4338ca' }}>current</span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          {memberCount > 0 && (
+                                            <span className="text-[9px] text-slate-400">{memberCount} member{memberCount !== 1 ? 's' : ''}</span>
+                                          )}
+                                          <span className="text-xs font-black" style={{ color: isCurrent ? '#4338ca' : '#475569' }}>
+                                            {count}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="h-8 bg-slate-100 rounded-xl overflow-hidden relative">
+                                        <div
+                                          className="h-full rounded-xl flex items-center justify-end px-3"
+                                          style={{
+                                            width: `${Math.max(pct, 7)}%`,
+                                            background: isCurrent
+                                              ? 'linear-gradient(90deg, #818cf8, #4338ca)'
+                                              : 'linear-gradient(90deg, #94a3b8, #64748b)',
+                                          }}
+                                        >
+                                          {pct >= 22 && (
+                                            <span className="text-[10px] font-bold text-white">{count}</span>
+                                          )}
+                                        </div>
+                                        {pct < 22 && (
+                                          <span className="absolute right-3 top-0 bottom-0 flex items-center text-[10px] font-bold text-slate-500">{count}</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                                  <span className="text-[10px] font-semibold text-slate-400">
+                                    {pcsYears.length} year{pcsYears.length !== 1 ? 's' : ''} of PCS
+                                  </span>
+                                  <span className="text-sm font-black text-indigo-700">{pcsEntries.length} total</span>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -3731,15 +3800,13 @@ export default function DepartmentHub() {
                           try {
                             const { name, phone, attendedDate, membershipNumber, year, email, dob, nativity, currentPlace, serviceAttended, howKnown } = f
                             const resolvedYear = year || (attendedDate ? new Date(attendedDate).getFullYear() : null)
-                            await Promise.all([
-                              updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, year: resolvedYear }),
-                              entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),
-                            ])
+                            await updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, year: resolvedYear })
+                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, attendedDate, membershipNumber, year: resolvedYear ? Number(resolvedYear) : null } : e))
                             if (entry.visitorId) {
+                              updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }).catch(() => {})
                               updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
                               updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
                             }
-                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, attendedDate, membershipNumber, year: resolvedYear ? Number(resolvedYear) : null } : e))
                           } catch { alert('Failed to save') }
                           setPcsExpandedSaving(false)
                         }}
@@ -3782,15 +3849,45 @@ export default function DepartmentHub() {
                       </div>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setPcsPickerOpen(true)}
-                    className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white text-indigo-700 text-sm font-semibold hover:bg-indigo-50 transition-colors shadow-sm"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
-                    Add Person
-                  </button>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setPcsPickerOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white text-indigo-700 text-xs font-semibold hover:bg-indigo-50 transition-colors shadow-sm"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
+                      From List
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPcsManualOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-800 text-white text-xs font-semibold hover:bg-indigo-900 transition-colors shadow-sm"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
+                      Add Manually
+                    </button>
+                  </div>
                 </div>
+
+                {/* Manual PCS entry modal */}
+                {pcsManualOpen && (
+                  <PCSManualEntryModal
+                    onSave={async (data) => {
+                      const tempId = `temp_${Date.now()}`
+                      const optimistic = { id: tempId, visitorId: '', ...data, addedAt: new Date(), addedBy: userProfile?.email || '' }
+                      setPcsEntries(prev => [optimistic, ...prev])
+                      setPcsManualOpen(false)
+                      try {
+                        const realId = await addPCSEntry({ ...data, addedBy: userProfile?.email || 'unknown' })
+                        if (realId) setPcsEntries(prev => prev.map(e => e.id === tempId ? { ...e, id: realId } : e))
+                      } catch {
+                        setPcsEntries(prev => prev.filter(e => e.id !== tempId))
+                        alert('Failed to add entry. Please try again.')
+                      }
+                    }}
+                    onClose={() => setPcsManualOpen(false)}
+                  />
+                )}
 
                 {/* Picker */}
                 {pcsPickerOpen && (
@@ -3823,11 +3920,18 @@ export default function DepartmentHub() {
                     </p>
                     <div className="divide-y divide-slate-50 pb-2">
                       {cellReferralTasks.map(task => {
-                        const name     = task.memberName || task.taskTitle.replace(/^Add /, '').replace(/ to PCS$/, '')
-                        const phone    = task.memberPhone || ''
+                        const name      = task.memberName || task.taskTitle.replace(/^Add /, '').replace(/ to PCS$/, '')
+                        const phone     = task.memberPhone || ''
                         const visitorId = task.memberVisitorId || ''
-                        const cellName = task.cellName || ''
-                        const adding   = cellReferralAdding.has(task.id)
+                        const cellName  = task.cellName || ''
+                        const adding    = cellReferralAdding.has(task.id)
+                        const removing  = cellReferralRemoving.has(task.id)
+
+                        // Check if this person already exists in the visitor list
+                        const inVisitorList = visitorId
+                          ? delightVisitors.some(v => v.id === visitorId)
+                          : delightVisitors.some(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())
+
                         return (
                           <div key={task.id} className="flex items-center gap-3 px-4 py-3">
                             <div className="w-9 h-9 rounded-full bg-orange-100 text-orange-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
@@ -3838,34 +3942,84 @@ export default function DepartmentHub() {
                               <p className="text-xs text-slate-400 mt-0.5">
                                 {[phone, cellName ? `Cell: ${cellName}` : ''].filter(Boolean).join(' · ')}
                               </p>
+                              {!inVisitorList && (
+                                <p className="text-xs text-amber-600 font-medium mt-0.5">Not in visitor list yet</p>
+                              )}
                             </div>
+
+                            {/* Remove recommendation */}
                             <button
                               type="button"
-                              disabled={adding}
+                              disabled={removing || adding}
                               onClick={async () => {
-                                setCellReferralAdding(prev => new Set([...prev, task.id]))
+                                setCellReferralRemoving(prev => new Set([...prev, task.id]))
                                 try {
-                                  await addPCSEntry({
-                                    visitorId,
-                                    name,
-                                    phone,
-                                    year: new Date().getFullYear(),
-                                    addedBy: userProfile?.email || 'unknown',
-                                  })
-                                  await updateTask(task.id, { status: 'Completed' })
-                                  setPcsEntries(prev => [{
-                                    id: `ref_${task.id}`, visitorId, name, phone,
-                                    year: new Date().getFullYear(), addedAt: new Date(), addedBy: userProfile?.email || '',
-                                  }, ...prev])
-                                } catch { /* toast already shown by error boundary */ }
+                                  await updateTask(task.id, { status: 'Dismissed' })
+                                  setCellReferralTasks(prev => prev.filter(t => t.id !== task.id))
+                                } catch { /* ignore */ }
                                 finally {
-                                  setCellReferralAdding(prev => { const s = new Set(prev); s.delete(task.id); return s })
+                                  setCellReferralRemoving(prev => { const s = new Set(prev); s.delete(task.id); return s })
                                 }
                               }}
-                              className="px-3 py-1.5 bg-orange-600 text-white text-xs font-semibold rounded-xl hover:bg-orange-700 disabled:opacity-50 transition-colors flex-shrink-0"
+                              className="w-7 h-7 rounded-full flex items-center justify-center text-base hover:scale-110 transition-transform flex-shrink-0 disabled:opacity-40"
+                              style={{ background: '#fee2e2', color: '#ef4444' }}
+                              title="Remove recommendation"
                             >
-                              {adding ? 'Adding…' : 'Add to PCS'}
+                              {removing ? '…' : '×'}
                             </button>
+
+                            {inVisitorList ? (
+                              /* Already in visitor list — allow adding to PCS */
+                              <button
+                                type="button"
+                                disabled={adding}
+                                onClick={async () => {
+                                  setCellReferralAdding(prev => new Set([...prev, task.id]))
+                                  try {
+                                    const resolvedVisitorId = visitorId ||
+                                      (delightVisitors.find(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())?.id || '')
+                                    await addPCSEntry({
+                                      visitorId: resolvedVisitorId,
+                                      name,
+                                      phone,
+                                      year: new Date().getFullYear(),
+                                      addedBy: userProfile?.email || 'unknown',
+                                    })
+                                    await updateTask(task.id, { status: 'Completed' })
+                                    setPcsEntries(prev => [{
+                                      id: `ref_${task.id}`, visitorId: resolvedVisitorId, name, phone,
+                                      year: new Date().getFullYear(), addedAt: new Date(), addedBy: userProfile?.email || '',
+                                    }, ...prev])
+                                  } catch { /* ignore */ }
+                                  finally {
+                                    setCellReferralAdding(prev => { const s = new Set(prev); s.delete(task.id); return s })
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-orange-600 text-white text-xs font-semibold rounded-xl hover:bg-orange-700 disabled:opacity-50 transition-colors flex-shrink-0"
+                              >
+                                {adding ? 'Adding…' : 'Add to PCS'}
+                              </button>
+                            ) : (
+                              /* Not in visitor list — must add to visitor list first */
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingDelightVisitorId(null)
+                                  setDelightVisitorForm(f => ({
+                                    ...f,
+                                    name,
+                                    phone,
+                                    dob: '', email: '', nativity: '', currentPlace: '',
+                                    serviceAttended: '', attendedDate: '', howKnown: '', source: '',
+                                    year: new Date().getFullYear(),
+                                  }))
+                                  setDelightVisitorModalOpen(true)
+                                }}
+                                className="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 transition-colors flex-shrink-0 whitespace-nowrap"
+                              >
+                                + Add to Visitor List
+                              </button>
+                            )}
                           </div>
                         )
                       })}
@@ -3888,17 +4042,53 @@ export default function DepartmentHub() {
                   ) : (
                     <div className="divide-y divide-slate-100">
                       {grouped.map(({ year, entries }) => {
-                        const expandedEntry = entries.find(e => e.id === pcsExpandedId)
+                        const yearKey = year ?? 'no-year'
+                        // All years start expanded; clicking collapses into the set
+                        const isYearExpanded = !collapsedPCSYears.has(yearKey)
+                        const expandedEntry = isYearExpanded ? entries.find(e => e.id === pcsExpandedId) : null
+                        const toggleYear = () => setCollapsedPCSYears(prev => {
+                          const next = new Set(prev)
+                          if (next.has(yearKey)) next.delete(yearKey)
+                          else next.add(yearKey)
+                          return next
+                        })
                         return (
-                          <div key={year ?? 'no-year'}>
-                            <div className="flex items-start gap-3 px-4 py-3">
-                              <div className="flex-shrink-0 w-12 pt-2.5 text-right">
-                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">{year ?? '—'}</span>
+                          <div key={yearKey}>
+                            {/* Year header — clickable tile */}
+                            <button
+                              onClick={toggleYear}
+                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
+                              style={{ userSelect: 'none' }}
+                            >
+                              <div className="flex-1 flex items-center gap-2 min-w-0">
+                                <span className="text-sm font-bold text-slate-700">{year ?? '—'}</span>
+                                <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+                                  {entries.length} {entries.length === 1 ? 'person' : 'people'}
+                                </span>
                               </div>
-                              <div className="flex flex-wrap gap-2 flex-1">
+                              {/* Mini avatar stack */}
+                              <div className="flex -space-x-1.5 shrink-0">
+                                {entries.slice(0, 5).map((e, i) => (
+                                  <div key={e.id} style={{ zIndex: 5 - i, background: ['#6366f1','#10b981','#f59e0b','#ef4444','#3b82f6'][i % 5] }}
+                                    className="w-6 h-6 rounded-full text-white text-[10px] font-bold flex items-center justify-center border-2 border-white">
+                                    {(e.name || '?').charAt(0).toUpperCase()}
+                                  </div>
+                                ))}
+                                {entries.length > 5 && (
+                                  <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-500 text-[9px] font-bold flex items-center justify-center border-2 border-white" style={{ zIndex: 0 }}>
+                                    +{entries.length - 5}
+                                  </div>
+                                )}
+                              </div>
+                              <span className="text-slate-400 text-xs shrink-0">{isYearExpanded ? '▲' : '▼'}</span>
+                            </button>
+
+                            {/* Members — only when year is expanded */}
+                            {isYearExpanded && (
+                              <div className="px-4 pb-3 flex flex-wrap gap-2 bg-slate-50/50">
                                 {entries.map(entry => <Chip key={entry.id} entry={entry} />)}
                               </div>
-                            </div>
+                            )}
                             {expandedEntry && PCSInlineProfile({ entry: expandedEntry })}
                           </div>
                         )
@@ -7148,6 +7338,106 @@ function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
               {filtered.length} visitor{filtered.length !== 1 ? 's' : ''} shown
             </div>
           )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ─── PCS Manual Entry Modal ───────────────────────────────────────────────────
+function PCSManualEntryModal({ onSave, onClose }) {
+  const currentYear = new Date().getFullYear()
+  const [form, setForm] = useState({
+    name: '', phone: '', attendedDate: '', year: currentYear,
+    membershipNumber: '', leadershipPosition: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const set = (key, val) => setForm(p => ({ ...p, [key]: val }))
+
+  const handleDateChange = (val) => {
+    const yr = val ? new Date(val).getFullYear() : currentYear
+    setForm(p => ({ ...p, attendedDate: val, year: yr >= 2000 ? yr : p.year }))
+  }
+
+  const handleSubmit = async () => {
+    if (!form.name.trim()) { setError('Name is required'); return }
+    setSaving(true)
+    setError('')
+    await onSave({
+      name: form.name.trim(),
+      phone: form.phone.trim(),
+      attendedDate: form.attendedDate,
+      year: form.year ? Number(form.year) : null,
+      membershipNumber: form.membershipNumber.trim(),
+      leadershipPosition: form.leadershipPosition.trim(),
+      visitorId: '',
+    })
+    setSaving(false)
+  }
+
+  const inp = 'w-full px-3 py-2 rounded-xl border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400'
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[94vh]" onClick={e => e.stopPropagation()}>
+          <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+            <div>
+              <p className="font-semibold text-slate-800 text-sm">Add to PCS Manually</p>
+              <p className="text-xs text-slate-400 mt-0.5">Enter details for anyone under personal care</p>
+            </div>
+            <button type="button" onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 text-xl leading-none">×</button>
+          </div>
+
+          <div className="overflow-y-auto flex-1 px-4 py-4 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-1">Name <span className="text-red-400">*</span></p>
+              <input type="text" value={form.name} onChange={e => set('name', e.target.value)}
+                placeholder="Full name" className={inp} autoFocus />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-1">Phone</p>
+              <input type="tel" value={form.phone} onChange={e => set('phone', e.target.value)}
+                placeholder="Phone number" className={inp} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-1">Date Attended</p>
+                <input type="date" value={form.attendedDate} onChange={e => handleDateChange(e.target.value)} className={inp} />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-1">Year</p>
+                <input type="number" value={form.year} onChange={e => set('year', e.target.value)}
+                  min={2000} max={2100} className={inp} />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-amber-600 mb-1">Membership # (if applicable)</p>
+              <input type="text" value={form.membershipNumber} onChange={e => set('membershipNumber', e.target.value)}
+                placeholder="Leave blank if not a member" className="w-full px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 placeholder-slate-400" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-emerald-600 mb-1">Leadership Position (if applicable)</p>
+              <input type="text" value={form.leadershipPosition} onChange={e => set('leadershipPosition', e.target.value)}
+                placeholder="e.g. Cell Leader, Deacon" className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 placeholder-slate-400" />
+            </div>
+            {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+          </div>
+
+          <div className="px-4 pb-4 pt-2 border-t border-slate-100 flex gap-3 flex-shrink-0">
+            <button type="button" onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors">
+              Cancel
+            </button>
+            <button type="button" disabled={saving} onClick={handleSubmit}
+              className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
+              {saving ? 'Adding…' : 'Add to PCS'}
+            </button>
+          </div>
         </div>
       </div>
     </>
