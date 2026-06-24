@@ -1,0 +1,14 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Member profile photos — Caring Director and Founder can write; any signed-in user can read
+    match /member_photos/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && (
+        request.auth.token.globalRole == 'FOUNDER' ||
+        request.resource.size < 5 * 1024 * 1024 &&  // max 5 MB
+        request.resource.contentType.matches('image/.*')
+      );
+    }
+  }
+}

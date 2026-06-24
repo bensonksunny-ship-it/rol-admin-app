@@ -16,7 +16,8 @@ import {
   serverTimestamp,
   onSnapshot,
 } from 'firebase/firestore'
-import { db } from '../lib/firebase'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { db, storage } from '../lib/firebase'
 import { deriveRoleFromPositions } from '../constants/roles'
 
 function normalizeGlobalRole(v) {
@@ -3767,31 +3768,48 @@ export async function getMemberProfile(visitorId) {
   const d = snap.data()
   return {
     visitorId,
-    baptismDate:   d.baptismDate   || '',
-    baptismPlace:  d.baptismPlace  || '',
-    marriageDate:  d.marriageDate  || '',
-    spouseName:    d.spouseName    || '',
-    isDirector:    d.isDirector    || false,
-    directorOf:    d.directorOf    || '',
-    directorSince: d.directorSince || '',
-    leaderSince:   d.leaderSince   || '',
-    leaderUntil:   d.leaderUntil   || '',
-    ministryNotes: d.ministryNotes || '',
-    updatedAt:     toDate(d.updatedAt),
-    updatedBy:     d.updatedBy     || '',
+    baptismDate:      d.baptismDate      || '',
+    baptismPlace:     d.baptismPlace     || '',
+    marriageDate:     d.marriageDate     || '',
+    spouseName:       d.spouseName       || '',
+    isDirector:       d.isDirector       || false,
+    directorOf:       d.directorOf       || '',
+    directorSince:    d.directorSince    || '',
+    leaderSince:      d.leaderSince      || '',
+    leaderUntil:      d.leaderUntil      || '',
+    ministryNotes:    d.ministryNotes    || '',
+    ministryHistory:  Array.isArray(d.ministryHistory) ? d.ministryHistory : [],
+    membershipStatus: d.membershipStatus || '',
+    membershipDocs:   Array.isArray(d.membershipDocs) ? d.membershipDocs : [],
+    permanentAddress: d.permanentAddress || '',
+    photoUrl:         d.photoUrl         || '',
+    updatedAt:        toDate(d.updatedAt),
+    updatedBy:        d.updatedBy        || '',
   }
 }
 
 export async function upsertMemberProfile(visitorId, data, updatedBy = '') {
   if (!db || !visitorId) return
   const payload = {}
-  const allowed = ['baptismDate','baptismPlace','marriageDate','spouseName','isDirector','directorOf','directorSince','leaderSince','leaderUntil','ministryNotes']
+  const allowed = [
+    'baptismDate','baptismPlace','marriageDate','spouseName',
+    'isDirector','directorOf','directorSince','leaderSince','leaderUntil','ministryNotes',
+    'ministryHistory','membershipStatus','membershipDocs','permanentAddress','photoUrl',
+  ]
   for (const k of allowed) {
     if (data[k] !== undefined) payload[k] = data[k]
   }
   payload.updatedAt = Timestamp.now()
   payload.updatedBy = updatedBy
   await setDoc(doc(db, MEMBER_PROFILES_COLLECTION, visitorId), payload, { merge: true })
+}
+
+export async function uploadMemberPhoto(visitorId, file) {
+  if (!storage || !visitorId || !file) return null
+  const ext = file.type === 'image/png' ? 'png' : 'jpg'
+  const storageRef = ref(storage, `member_photos/${visitorId}.${ext}`)
+  const snap = await uploadBytes(storageRef, file, { contentType: file.type })
+  return getDownloadURL(snap.ref)
 }
 
 export async function getMemberProfileWithContext(visitorId) {

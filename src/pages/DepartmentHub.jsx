@@ -82,6 +82,7 @@ import {
   getMemberProfile,
   getMemberProfileWithContext,
   upsertMemberProfile,
+  uploadMemberPhoto,
   getSundayPlan,
   setSundayPlanSection,
 } from '../services/firestore'
@@ -318,6 +319,8 @@ export default function DepartmentHub() {
   const [pcsExpandedLoading, setPcsExpandedLoading] = useState(false)
   const [pcsExpandedForm, setPcsExpandedForm] = useState({})
   const [pcsExpandedSaving, setPcsExpandedSaving] = useState(false)
+  const [pcsPhotoFile, setPcsPhotoFile] = useState(null)
+  const [pcsPhotoPreview, setPcsPhotoPreview] = useState(null)
   const [pcsNotifiedIds, setPcsNotifiedIds] = useState(new Set())
   const [pcsNotifyingId, setPcsNotifyingId] = useState(null)
   const [cellReferralTasks, setCellReferralTasks] = useState([])
@@ -3507,16 +3510,20 @@ export default function DepartmentHub() {
             const handleChipClick = (entry) => {
               if (pcsExpandedId === entry.id) {
                 setPcsExpandedId(null); setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null); setPcsExpandedForm({})
+                setPcsPhotoFile(null); setPcsPhotoPreview(null)
                 return
               }
               setPcsExpandedId(entry.id)
               setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null)
+              setPcsPhotoFile(null); setPcsPhotoPreview(null)
               setPcsExpandedForm({
                 name: entry.name || '', phone: entry.phone || '', attendedDate: entry.attendedDate || '',
                 membershipNumber: entry.membershipNumber || '', leadershipPosition: entry.leadershipPosition || '',
-                year: entry.year || '', email: entry.email || '', dob: entry.dob || '', nativity: entry.nativity || '', currentPlace: entry.currentPlace || '', serviceAttended: entry.serviceAttended || '', howKnown: entry.howKnown || '',
-                baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '',
+                year: entry.year || '', email: entry.email || '', dob: entry.dob || '', nativity: entry.nativity || '',
+                currentPlace: entry.currentPlace || '', serviceAttended: entry.serviceAttended || '', howKnown: entry.howKnown || '',
+                baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '', ministryNotes: '',
                 isDirector: false, directorOf: '', directorSince: '', leaderSince: '', leaderUntil: '',
+                ministryHistory: [], membershipStatus: '', membershipDocs: [], permanentAddress: '', photoUrl: '',
               })
               if (entry.visitorId) {
                 setPcsExpandedLoading(true)
@@ -3531,13 +3538,21 @@ export default function DepartmentHub() {
                   if (ctx) {
                     setPcsExpandedProfile(ctx.profile)
                     setPcsExpandedContext(ctx)
+                    const p = ctx.profile || {}
                     setPcsExpandedForm(f => ({
                       ...f,
-                      baptismDate: ctx.profile?.baptismDate || '', baptismPlace: ctx.profile?.baptismPlace || '',
-                      marriageDate: ctx.profile?.marriageDate || '', spouseName: ctx.profile?.spouseName || '',
-                      isDirector: ctx.profile?.isDirector || false, directorOf: ctx.profile?.directorOf || '', directorSince: ctx.profile?.directorSince || '',
-                      leaderSince: ctx.profile?.leaderSince || '', leaderUntil: ctx.profile?.leaderUntil || '',
+                      baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '',
+                      marriageDate: p.marriageDate || '', spouseName: p.spouseName || '',
+                      ministryNotes: p.ministryNotes || '',
+                      isDirector: p.isDirector || false, directorOf: p.directorOf || '', directorSince: p.directorSince || '',
+                      leaderSince: p.leaderSince || '', leaderUntil: p.leaderUntil || '',
+                      ministryHistory: p.ministryHistory || [],
+                      membershipStatus: p.membershipStatus || '',
+                      membershipDocs: p.membershipDocs || [],
+                      permanentAddress: p.permanentAddress || '',
+                      photoUrl: p.photoUrl || '',
                     }))
+                    if (p.photoUrl) setPcsPhotoPreview(p.photoUrl)
                   }
                 }).catch(() => {}).finally(() => setPcsExpandedLoading(false))
               }
@@ -3604,74 +3619,117 @@ export default function DepartmentHub() {
               const deptTeams = ctx?.deptTeams || []
               const worshipTeams = ctx?.worshipTeams || []
 
+              // Church duration
+              const joinDate = entry.attendedDate ? new Date(entry.attendedDate) : null
+              const churchDuration = (() => {
+                if (!joinDate) return null
+                const now = new Date()
+                const totalMonths = (now.getFullYear() - joinDate.getFullYear()) * 12 + (now.getMonth() - joinDate.getMonth())
+                const y = Math.floor(totalMonths / 12), m = totalMonths % 12
+                return [y > 0 ? `${y} yr${y > 1 ? 's' : ''}` : '', m > 0 ? `${m} mo` : ''].filter(Boolean).join(' ') || 'Less than a month'
+              })()
+
+              // Ministry duration helper
+              const miniDur = (from, to) => {
+                if (!from) return ''
+                const s = new Date(from), e = to ? new Date(to) : new Date()
+                const tot = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth())
+                const y = Math.floor(tot / 12), m = tot % 12
+                return [y > 0 ? `${y}y` : '', m > 0 ? `${m}m` : ''].filter(Boolean).join(' ') || '<1m'
+              }
+
+              // Auto-detected ministry entries (read-only, from system records)
+              const autoMinistry = [
+                ...deptTeams.map(t => ({ id: `dept-${t.id}`, ministry: t.department, role: t.rolePosition || t.role || '', from: t.since || '', to: '', isAuto: true })),
+                ...worshipTeams.map(t => ({ id: `wor-${t.id}`, ministry: 'Worship', role: t.positions?.[0] || '', from: t.since || '', to: '', isAuto: true })),
+              ]
+
+              // Manual ministry history
+              const manualHistory = f.ministryHistory || []
+              const addMinistryRow = () => setF(p => ({ ...p, ministryHistory: [...(p.ministryHistory || []), { id: Date.now().toString(), ministry: '', role: '', from: '', to: '' }] }))
+              const updateMinistryRow = (id, field, val) => setF(p => ({ ...p, ministryHistory: (p.ministryHistory || []).map(r => r.id === id ? { ...r, [field]: val } : r) }))
+              const removeMinistryRow = (id) => setF(p => ({ ...p, ministryHistory: (p.ministryHistory || []).filter(r => r.id !== id) }))
+
+              // Membership docs
+              const membershipDocs = f.membershipDocs || []
+              const addDocRow = () => setF(p => ({ ...p, membershipDocs: [...(p.membershipDocs || []), { id: Date.now().toString(), type: '', number: '' }] }))
+              const updateDocRow = (id, field, val) => setF(p => ({ ...p, membershipDocs: (p.membershipDocs || []).map(r => r.id === id ? { ...r, [field]: val } : r) }))
+              const removeDocRow = (id) => setF(p => ({ ...p, membershipDocs: (p.membershipDocs || []).filter(r => r.id !== id) }))
+
+              const sectionHead = (label, color = 'text-slate-500') => (
+                <p className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${color}`}>{label}</p>
+              )
+
               return (
-                <div className="border-t-2 border-indigo-500 bg-slate-50 px-4 py-4">
+                <div className="border-t-2 border-indigo-500 bg-slate-50 px-2 py-3 sm:px-4 sm:py-4">
                   {pcsExpandedLoading && (
                     <p className="text-xs text-slate-400 text-center py-6">Loading profile…</p>
                   )}
 
                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
 
-                    {/* ── Identity header ── */}
-                    <div className="px-4 py-3 flex items-center gap-3 border-b border-slate-100">
-                      <div className={`w-10 h-10 rounded-full text-white text-base font-bold flex items-center justify-center flex-shrink-0 ${f.membershipNumber ? 'bg-amber-500' : 'bg-indigo-500'}`}>
-                        {(f.name || '?')[0].toUpperCase()}
+                    {/* ═══ Identity header ═══ */}
+                    <div className="px-4 py-3 flex items-start gap-3 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-slate-50">
+                      {/* Photo */}
+                      <div className="relative flex-shrink-0">
+                        {pcsPhotoPreview
+                          ? <img src={pcsPhotoPreview} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-indigo-200 shadow" />
+                          : <div className={`w-14 h-14 rounded-full text-white text-lg font-bold flex items-center justify-center shadow ${f.membershipNumber ? 'bg-amber-500' : 'bg-indigo-500'}`}>
+                              {(f.name || '?')[0].toUpperCase()}
+                            </div>
+                        }
+                        {/* Camera capture button */}
+                        <label title="Take photo" className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center cursor-pointer shadow transition-colors">
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M1 5a2 2 0 0 1 2-2h1.172a2 2 0 0 0 1.414-.586l.828-.828A2 2 0 0 1 7.828 1h.344a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 11.828 3H13a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5zm7 6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="currentColor"/></svg>
+                          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                            const file = e.target.files?.[0]; if (!file) return
+                            setPcsPhotoFile(file)
+                            setPcsPhotoPreview(URL.createObjectURL(file))
+                          }} />
+                        </label>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-bold text-slate-800 text-sm">{f.name || '—'}</p>
-                          {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">#{f.membershipNumber}</span>}
+                          <p className="font-bold text-slate-800">{f.name || '—'}</p>
+                          {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Member #{f.membershipNumber}</span>}
                           {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{f.leadershipPosition}</span>}
+                          {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600">{churchDuration} in church</span>}
                         </div>
-                        <p className="text-xs text-slate-400 mt-0.5 truncate">
-                          {[f.phone, f.email].filter(Boolean).join(' · ') || 'No contact info'}
-                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">{[f.phone, f.email].filter(Boolean).join(' · ') || 'No contact info'}</p>
+                        {/* Upload from gallery option */}
+                        <label className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-indigo-500 cursor-pointer hover:text-indigo-700">
+                          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
+                          Upload from gallery
+                          <input type="file" accept="image/*" className="hidden" onChange={e => {
+                            const file = e.target.files?.[0]; if (!file) return
+                            setPcsPhotoFile(file)
+                            setPcsPhotoPreview(URL.createObjectURL(file))
+                          }} />
+                        </label>
                       </div>
-                      {(deptTeams.length > 0 || worshipTeams.length > 0) && (
-                        <div className="flex gap-1.5 flex-wrap justify-end">
-                          {deptTeams.map(t => (
-                            <span key={t.id} className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-                              {t.department}{t.rolePosition ? ` · ${t.rolePosition}` : ''}
-                            </span>
-                          ))}
-                          {worshipTeams.map(t => (
-                            <span key={t.id} className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-                              Worship{t.positions?.length ? ` · ${t.positions[0]}` : ''}
-                            </span>
-                          ))}
-                        </div>
-                      )}
                     </div>
 
-                    {/* ── Personal Info ── */}
+                    {/* ═══ SECTION 1 · Visitor Data ═══ */}
                     <div className="px-4 py-3 border-b border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Personal Info</p>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
+                        {sectionHead('Visitor Data', 'text-blue-600')}
+                      </div>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {fld('Name', 'name')}
                         {fld('Phone', 'phone')}
                         {fld('Email', 'email', 'email')}
                         {fld('Date of Birth', 'dob', 'date')}
-                        {fld('Nativity', 'nativity')}
+                        {fld('Nativity / Hometown', 'nativity')}
                         {fld('Current Place', 'currentPlace')}
                         {fld('Service Attended', 'serviceAttended')}
-                        {fld('How Known', 'howKnown')}
-                      </div>
-                    </div>
-
-                    {/* ── Membership & Visit ── */}
-                    <div className="px-4 py-3 border-b border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Membership & Visit</p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {fld('How Known / Referred by', 'howKnown')}
                         <div className="space-y-0.5">
-                          <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Membership #</p>
-                          <input type="text" placeholder="Enter #" value={f.membershipNumber || ''} onChange={e => setF(p => ({ ...p, membershipNumber: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-200" />
-                        </div>
-                        <div className="space-y-0.5">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Date Attended</p>
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">First Visit Date</p>
                           <input type="date" value={f.attendedDate || ''} onChange={e => { const val = e.target.value; const yr = val ? new Date(val).getFullYear() : null; setF(p => ({ ...p, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) })) }} className={inp} />
                         </div>
                         <div className="space-y-0.5">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Year (auto)</p>
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Year</p>
                           <div className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
                             {f.year || (f.attendedDate ? new Date(f.attendedDate).getFullYear() : '—')}
                           </div>
@@ -3679,130 +3737,203 @@ export default function DepartmentHub() {
                       </div>
                     </div>
 
-                    {/* ── Leadership — read-only, only shown if set by a department ── */}
-                    {(f.leadershipPosition || f.leaderSince) && (
-                      <div className="px-4 py-3 border-b border-slate-100">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Leadership</p>
-                          <p className="text-[10px] text-slate-400">Set by department · view only</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {f.leadershipPosition && (
-                            <span className="inline-flex items-center text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
-                              {f.leadershipPosition}
-                            </span>
-                          )}
-                          {f.leaderSince && (() => {
-                            const start = new Date(f.leaderSince)
-                            const end = f.leaderUntil ? new Date(f.leaderUntil) : new Date()
-                            const totalMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth())
-                            const yrs = Math.floor(totalMonths / 12)
-                            const mos = totalMonths % 12
-                            const dur = [yrs > 0 ? `${yrs}y` : '', mos > 0 ? `${mos}m` : ''].filter(Boolean).join(' ') || '<1m'
-                            return (
-                              <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-full">
-                                Since {formatDMY(f.leaderSince)}
-                                <span className="font-semibold text-emerald-600">{dur}</span>
-                                {!f.leaderUntil && <span className="text-emerald-400">ongoing</span>}
-                                {f.leaderUntil && <span className="text-slate-400">until {formatDMY(f.leaderUntil)}</span>}
-                              </span>
-                            )
-                          })()}
-                        </div>
+                    {/* ═══ SECTION 2 · Church Journey ═══ */}
+                    <div className="px-4 py-3 border-b border-slate-100">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                        {sectionHead('Church Journey', 'text-emerald-600')}
+                        {churchDuration && <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 rounded-full ml-auto">{churchDuration}</span>}
                       </div>
-                    )}
 
-                    {/* ── Spiritual Records — read-only, only shown if set by cell leader ── */}
-                    {(f.baptismDate || f.marriageDate) && (
-                      <div className="px-4 py-3 border-b border-slate-100">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-[10px] font-bold text-violet-500 uppercase tracking-widest">Spiritual Records</p>
-                          <p className="text-[10px] text-slate-400">Set by cell leader · view only</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {f.baptismDate && (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-violet-50 border border-violet-100 px-3 py-1.5 rounded-full">
-                              Baptism: <span className="font-semibold text-violet-700">{formatDMY(f.baptismDate)}</span>
-                              {f.baptismPlace && <span className="text-violet-400">· {f.baptismPlace}</span>}
-                            </span>
-                          )}
-                          {f.marriageDate && (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-violet-50 border border-violet-100 px-3 py-1.5 rounded-full">
-                              Marriage: <span className="font-semibold text-violet-700">{formatDMY(f.marriageDate)}</span>
-                              {f.spouseName && <span className="text-violet-400">· {f.spouseName}</span>}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ── Cell Connection ── */}
-                    {(() => {
-                      const cellMember = entry.visitorId
-                        ? allCellMembers.find(m => m.visitorId === entry.visitorId && m.status !== 'inactive')
-                        : null
-                      const cg = cellMember ? cellGroups.find(g => g.id === cellMember.cellId) : null
-                      const notified = pcsNotifiedIds.has(entry.id)
-                      const notifying = pcsNotifyingId === entry.id
-                      return (
-                        <div className="px-4 py-3 border-b border-slate-100">
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Cell Group</p>
-                            {!cg && entry.visitorId && canEdit && (
-                              notified ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-                                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                  Notified
+                      {/* Cell connection */}
+                      {(() => {
+                        const cellMember = entry.visitorId ? allCellMembers.find(m => m.visitorId === entry.visitorId && m.status !== 'inactive') : null
+                        const cg = cellMember ? cellGroups.find(g => g.id === cellMember.cellId) : null
+                        const notified = pcsNotifiedIds.has(entry.id)
+                        const notifying = pcsNotifyingId === entry.id
+                        return (
+                          <div className="mb-3">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Cell Group</p>
+                              {!cg && entry.visitorId && canEdit && (
+                                notified
+                                  ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>Notified
+                                    </span>
+                                  : <button type="button" disabled={notifying} onClick={async () => {
+                                      setPcsNotifyingId(entry.id)
+                                      try {
+                                        await createTask({ taskTitle: `Add ${entry.name} to a cell group`, department: 'Cell', assignedPerson: '', priority: 'Medium', deadline: '', status: 'Pending', notes: `Referred from PCS by ${userProfile?.name || userProfile?.email || 'Caring Director'}. ${entry.name} is under personal care but has no cell group.${entry.phone ? ` Phone: ${entry.phone}` : ''}`, createdBy: userProfile?.email || '', pcsReferral: true, pcsPersonName: entry.name, pcsPersonPhone: entry.phone || '', pcsPersonVisitorId: entry.visitorId || '' })
+                                        setPcsNotifiedIds(prev => new Set([...prev, entry.id]))
+                                      } catch { alert('Failed to send notification') }
+                                      setPcsNotifyingId(null)
+                                    }} className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-100 transition-colors disabled:opacity-50">
+                                      <svg width="9" height="9" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                                      {notifying ? 'Sending…' : 'Notify Cell'}
+                                    </button>
+                              )}
+                            </div>
+                            {cg
+                              ? <span className="inline-flex items-center gap-1.5 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                                  {cg.cellName || 'Unnamed Cell'}{cg.leader ? <span className="text-emerald-500">· {cg.leader}</span> : null}
                                 </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={notifying}
-                                  onClick={async () => {
-                                    setPcsNotifyingId(entry.id)
-                                    try {
-                                      await createTask({
-                                        taskTitle: `Add ${entry.name} to a cell group`,
-                                        department: 'Cell',
-                                        assignedPerson: '',
-                                        priority: 'Medium',
-                                        deadline: '',
-                                        status: 'Pending',
-                                        notes: `Referred from Caring PCS by ${userProfile?.name || userProfile?.email || 'Caring Director'}. ${entry.name} is under personal care but is not currently part of any cell group.${entry.phone ? ` Phone: ${entry.phone}` : ''}`,
-                                        createdBy: userProfile?.email || '',
-                                        pcsReferral: true,
-                                        pcsPersonName: entry.name,
-                                        pcsPersonPhone: entry.phone || '',
-                                        pcsPersonVisitorId: entry.visitorId || '',
-                                      })
-                                      setPcsNotifiedIds(prev => new Set([...prev, entry.id]))
-                                    } catch { alert('Failed to send notification') }
-                                    setPcsNotifyingId(null)
-                                  }}
-                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full hover:bg-indigo-100 transition-colors disabled:opacity-50"
-                                >
-                                  <svg width="10" height="10" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                                  {notifying ? 'Sending…' : 'Notify Cell Director'}
-                                </button>
-                              )
-                            )}
+                              : <p className="text-xs text-slate-400">{entry.visitorId ? 'Not in a cell group' : 'Link visitor record to see cell'}</p>
+                            }
                           </div>
-                          {cg ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                              {cg.cellName || 'Unnamed Cell'}
-                              {cg.leader ? <span className="text-emerald-500">· {cg.leader}</span> : null}
-                            </span>
-                          ) : (
-                            <p className="text-xs text-slate-400">
-                              {entry.visitorId ? 'Not connected to any cell group' : 'Link to visitor record to see cell connection'}
-                            </p>
-                          )}
-                        </div>
-                      )
-                    })()}
+                        )
+                      })()}
 
-                    {/* ── Actions ── */}
+                      {/* Quick role tag */}
+                      <div className="mb-3">
+                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Primary Role / Tag</p>
+                        <input type="text" placeholder="e.g. Cell Leader, Worship, Usher…" value={f.leadershipPosition || ''} onChange={e => setF(p => ({ ...p, leadershipPosition: e.target.value }))} className={inp} />
+                      </div>
+
+                      {/* Ministry history table */}
+                      <div>
+                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Ministry History</p>
+
+                        {/* Auto-detected rows */}
+                        {autoMinistry.length > 0 && (
+                          <div className="mb-2 space-y-1">
+                            {autoMinistry.map(r => (
+                              <div key={r.id} className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5 text-xs">
+                                <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider whitespace-nowrap">Auto</span>
+                                <span className="font-semibold text-indigo-700 min-w-[80px]">{r.ministry}</span>
+                                <span className="text-indigo-500">{r.role}</span>
+                                {r.from && <span className="text-indigo-400 ml-auto whitespace-nowrap">Since {r.from} · {miniDur(r.from, r.to)}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Manual rows */}
+                        {manualHistory.length > 0 && (
+                          <div className="mb-2 space-y-1.5">
+                            {manualHistory.map(r => (
+                              <div key={r.id} className="grid grid-cols-[1fr_1fr_auto_auto_auto] gap-1.5 items-center">
+                                <input type="text" placeholder="Ministry / Dept" value={r.ministry} onChange={e => updateMinistryRow(r.id, 'ministry', e.target.value)} className={`${inp} text-xs`} />
+                                <input type="text" placeholder="Role" value={r.role} onChange={e => updateMinistryRow(r.id, 'role', e.target.value)} className={`${inp} text-xs`} />
+                                <input type="date" value={r.from} onChange={e => updateMinistryRow(r.id, 'from', e.target.value)} className={`${inp} text-xs`} title="From" />
+                                <input type="date" value={r.to} onChange={e => updateMinistryRow(r.id, 'to', e.target.value)} className={`${inp} text-xs`} title="To (leave blank = ongoing)" />
+                                <button type="button" onClick={() => removeMinistryRow(r.id)} className="w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors">×</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <button type="button" onClick={addMinistryRow} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 py-1 transition-colors">
+                          <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                          Add ministry entry
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* ═══ SECTION 3 · Spiritual Data ═══ */}
+                    <div className="px-4 py-3 border-b border-slate-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-2 h-2 rounded-full bg-violet-400 flex-shrink-0" />
+                        {sectionHead('Spiritual Data', 'text-violet-600')}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {fld('Baptism Date', 'baptismDate', 'date')}
+                        {fld('Baptism Place', 'baptismPlace', 'text', 'Location')}
+                        {fld('Marriage Date', 'marriageDate', 'date')}
+                        {fld('Spouse Name', 'spouseName', 'text', 'Spouse name')}
+                        <div className="space-y-0.5">
+                          <label className="flex items-center gap-2 cursor-pointer mt-4">
+                            <input type="checkbox" checked={!!f.isDirector} onChange={e => setF(p => ({ ...p, isDirector: e.target.checked }))} className="w-4 h-4 rounded accent-violet-600" />
+                            <span className="text-xs font-semibold text-slate-600">Is Director</span>
+                          </label>
+                        </div>
+                        {f.isDirector && (
+                          <>
+                            {fld('Director Of', 'directorOf', 'text', 'Department / Area')}
+                            {fld('Director Since', 'directorSince', 'date')}
+                          </>
+                        )}
+                        {fld('Leader Since', 'leaderSince', 'date')}
+                        {fld('Leader Until', 'leaderUntil', 'date')}
+                        <div className="space-y-0.5 sm:col-span-3">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Ministry Notes</p>
+                          <textarea rows={2} placeholder="Ministry journey, observations, prayer points…" value={f.ministryNotes || ''} onChange={e => setF(p => ({ ...p, ministryNotes: e.target.value }))} className={`${inp} resize-none`} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ═══ SECTION 4 · Membership ═══ */}
+                    <div className="px-4 py-3 border-b border-slate-100">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+                          {sectionHead('Membership', 'text-amber-600')}
+                        </div>
+                        {!f.membershipStatus && (
+                          <button type="button" onClick={() => setF(p => ({ ...p, membershipStatus: 'applying' }))}
+                            className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full hover:bg-amber-100 transition-colors">
+                            + Begin Application
+                          </button>
+                        )}
+                        {f.membershipStatus && (
+                          <select value={f.membershipStatus} onChange={e => setF(p => ({ ...p, membershipStatus: e.target.value }))}
+                            className="text-xs border border-amber-200 rounded-lg px-2 py-1 bg-amber-50 text-amber-700 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-200">
+                            <option value="applying">Applying</option>
+                            <option value="member">Member</option>
+                          </select>
+                        )}
+                      </div>
+
+                      {f.membershipStatus ? (
+                        <div className="space-y-3">
+                          {/* Membership number */}
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Membership #</p>
+                              <input type="text" placeholder="Assign number" value={f.membershipNumber || ''} onChange={e => setF(p => ({ ...p, membershipNumber: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-200" />
+                            </div>
+                          </div>
+
+                          {/* Permanent address */}
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Permanent Address</p>
+                            <textarea rows={2} placeholder="Full permanent address for membership records…" value={f.permanentAddress || ''} onChange={e => setF(p => ({ ...p, permanentAddress: e.target.value }))} className={`${inp} resize-none`} />
+                          </div>
+
+                          {/* Documents submitted */}
+                          <div>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Documents Submitted</p>
+                            {membershipDocs.length > 0 && (
+                              <div className="space-y-1.5 mb-2">
+                                {membershipDocs.map(d => (
+                                  <div key={d.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                                    <select value={d.type} onChange={e => updateDocRow(d.id, 'type', e.target.value)} className={`${inp} text-xs`}>
+                                      <option value="">Document type…</option>
+                                      <option>Aadhaar Card</option>
+                                      <option>Passport</option>
+                                      <option>Driving License</option>
+                                      <option>Voter ID</option>
+                                      <option>PAN Card</option>
+                                      <option>Other</option>
+                                    </select>
+                                    <input type="text" placeholder="Document number" value={d.number} onChange={e => updateDocRow(d.id, 'number', e.target.value)} className={`${inp} text-xs`} />
+                                    <button type="button" onClick={() => removeDocRow(d.id)} className="w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors">×</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <button type="button" onClick={addDocRow} className="text-xs text-amber-600 hover:text-amber-800 flex items-center gap-1 py-1 transition-colors">
+                              <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                              Add document
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400">No membership application yet. Click "+ Begin Application" to start.</p>
+                      )}
+                    </div>
+
+                    {/* ═══ Actions ═══ */}
                     <div className="px-4 py-3 flex items-center gap-2">
                       <button
                         type="button"
@@ -3810,19 +3941,39 @@ export default function DepartmentHub() {
                         onClick={async () => {
                           setPcsExpandedSaving(true)
                           try {
-                            const { name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown } = f
+                            const { name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown,
+                              baptismDate, baptismPlace, marriageDate, spouseName, ministryNotes,
+                              isDirector, directorOf, directorSince, leaderSince, leaderUntil,
+                              ministryHistory, membershipStatus, membershipDocs, permanentAddress } = f
                             const resolvedYear = year || (attendedDate ? new Date(attendedDate).getFullYear() : null)
+
+                            // Upload photo if a new one was selected
+                            let savedPhotoUrl = f.photoUrl || ''
+                            if (pcsPhotoFile && entry.visitorId) {
+                              try { savedPhotoUrl = await uploadMemberPhoto(entry.visitorId, pcsPhotoFile) || savedPhotoUrl } catch { /* non-fatal */ }
+                              setPcsPhotoFile(null)
+                            }
+
                             await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear })
                             setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear ? Number(resolvedYear) : null } : e))
                             if (entry.visitorId) {
                               updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }).catch(() => {})
                               updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
                               updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
+                              upsertMemberProfile(entry.visitorId, {
+                                baptismDate, baptismPlace, marriageDate, spouseName, ministryNotes,
+                                isDirector, directorOf, directorSince, leaderSince, leaderUntil,
+                                ministryHistory, membershipStatus,
+                                membershipDocs: membershipDocs || [],
+                                permanentAddress,
+                                ...(savedPhotoUrl ? { photoUrl: savedPhotoUrl } : {}),
+                              }, userProfile?.email || '').catch(() => {})
                             }
+                            if (savedPhotoUrl) setF(p => ({ ...p, photoUrl: savedPhotoUrl }))
                           } catch { alert('Failed to save') }
                           setPcsExpandedSaving(false)
                         }}
-                        className="flex-1 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                        className="flex-1 min-h-[44px] py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-60 transition-colors"
                       >{pcsExpandedSaving ? 'Saving…' : 'Save Changes'}</button>
                       <button
                         type="button"
