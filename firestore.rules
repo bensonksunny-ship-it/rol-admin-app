@@ -224,6 +224,14 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
+    // PCS profile-fill invitations: Caring Director sends → Cell Leader fills
+    match /pcs_fill_invitations/{docId} {
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow read:   if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
+      allow update: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
+      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+    }
+
     match /cell_attendance/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));

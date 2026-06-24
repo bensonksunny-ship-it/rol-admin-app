@@ -70,6 +70,8 @@ import {
   addPCSEntry,
   updatePCSEntry,
   deletePCSEntry,
+  deactivatePCSEntry,
+  getInactivePCSEntries,
   getDelightVisitorById,
   migrateSundayServiceToEnglish,
   syncVisitorDataEverywhere,
@@ -85,6 +87,10 @@ import {
   uploadMemberPhoto,
   getSundayPlan,
   setSundayPlanSection,
+  sendPCSFillInvitation,
+  getPCSFillInvitationByEntry,
+  subscribePCSFillInvitationsByCellId,
+  completePCSFillInvitation,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -323,6 +329,55 @@ export default function DepartmentHub() {
   const [pcsPhotoPreview, setPcsPhotoPreview] = useState(null)
   const [pcsNotifiedIds, setPcsNotifiedIds] = useState(new Set())
   const [pcsNotifyingId, setPcsNotifyingId] = useState(null)
+  const [pcsSpouseFocused, setPcsSpouseFocused] = useState(false)
+  const [pcsShowFormer, setPcsShowFormer] = useState(false)
+  const [pcsInactiveEntries, setPcsInactiveEntries] = useState([])
+  const [pcsLoadingFormer, setPcsLoadingFormer] = useState(false)
+  const [pcsFormDirty, setPcsFormDirty] = useState(false)
+  const pcsSavedRef = useRef(null)
+  const [pcsInviteStatus, setPcsInviteStatus] = useState({})
+  const [pcsInvitingId, setPcsInvitingId] = useState(null)
+  const [pendingFillInvitations, setPendingFillInvitations] = useState([])
+  const [fillInviteOpen, setFillInviteOpen] = useState(null)
+  const [fillInviteForm, setFillInviteForm] = useState({})
+  const [fillInviteSaving, setFillInviteSaving] = useState(false)
+
+  // Capture baseline after load completes; reset dirty flag
+  useEffect(() => {
+    if (pcsExpandedId && !pcsExpandedLoading) {
+      pcsSavedRef.current = JSON.stringify(pcsExpandedForm)
+      setPcsFormDirty(false)
+    }
+    if (!pcsExpandedId) {
+      pcsSavedRef.current = null
+      setPcsFormDirty(false)
+    }
+  }, [pcsExpandedLoading, pcsExpandedId])
+
+  // Mark dirty whenever form changes after baseline is set
+  useEffect(() => {
+    if (!pcsExpandedId || pcsSavedRef.current === null) return
+    setPcsFormDirty(JSON.stringify(pcsExpandedForm) !== pcsSavedRef.current)
+  }, [pcsExpandedForm])
+
+  // Load invitation status when a PCS entry is opened (Caring Director view)
+  useEffect(() => {
+    if (!pcsExpandedId) return
+    getPCSFillInvitationByEntry(pcsExpandedId).then(inv => {
+      if (inv) setPcsInviteStatus(prev => ({ ...prev, [pcsExpandedId]: { id: inv.id, status: inv.status, cellLeaderName: inv.cellLeaderName || '' } }))
+    }).catch(() => {})
+  }, [pcsExpandedId])
+
+  // Subscribe to pending fill invitations for Cell Leaders
+  // cellGroupId is preferred (set by director); cellId is the fallback — mirrors userLinkedCellId() in Firestore rules
+  useEffect(() => {
+    if (slug !== 'cell') return
+    const cellId = userProfile?.cellGroupId || userProfile?.cellId
+    if (!cellId) return
+    const unsub = subscribePCSFillInvitationsByCellId(cellId, setPendingFillInvitations)
+    return unsub
+  }, [slug, userProfile?.cellGroupId, userProfile?.cellId])
+
   const [cellReferralTasks, setCellReferralTasks] = useState([])
   const [cellReferralAdding, setCellReferralAdding] = useState(new Set())
   const [cellReferralRemoving, setCellReferralRemoving] = useState(new Set())
@@ -1533,15 +1588,57 @@ export default function DepartmentHub() {
               )}
 
               {slug === 'cell' ? (
-                <CellDirectorCockpit
-                  userProfile={userProfile}
-                  cellGroups={cellGroups}
-                  cellPendingChanges={cellPendingChanges}
-                  loadingCellPending={loadingCellPending}
-                  onChangeResolved={handleCellChangeResolved}
-                  tasks={tasks}
-                  onTaskUpdated={(id, patch) => setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))}
-                />
+                <>
+                  {/* Profile Fill Requests banner — visible to non-Director Cell Leaders on the summary tab */}
+                  {!canViewAllCells && pendingFillInvitations.length > 0 && (
+                    <div className="bg-white rounded-xl border border-violet-200 shadow-sm overflow-hidden mb-4">
+                      <div className="px-4 py-3 bg-violet-50 border-b border-violet-100 flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-violet-500 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-violet-800">Profile Fill Requests</p>
+                          <p className="text-xs text-violet-500">The Caring Director has asked you to provide profile details for {pendingFillInvitations.length === 1 ? 'a person' : `${pendingFillInvitations.length} people`} in your cell.</p>
+                        </div>
+                        <span className="bg-violet-500 text-white text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0">{pendingFillInvitations.length}</span>
+                      </div>
+                      <div className="divide-y divide-slate-50">
+                        {pendingFillInvitations.map(inv => (
+                          <div key={inv.id} className="flex items-center gap-3 px-4 py-3">
+                            <div className="w-9 h-9 rounded-full bg-violet-100 text-violet-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                              {String(inv.personName || '?').split(' ').slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('')}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-slate-900 text-sm truncate">{inv.personName || 'Unknown'}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">{inv.cellName ? `Cell: ${inv.cellName}` : 'Profile details requested'}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFillInviteOpen(inv)
+                                setFillInviteForm({
+                                  phone: '', dob: '', nativity: '', currentPlace: '',
+                                  baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
+                                  maritalStatus: '', marriageDate: '', spouseName: '',
+                                })
+                              }}
+                              className="px-3 py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-xl hover:bg-violet-700 transition-colors flex-shrink-0"
+                            >
+                              Fill Profile
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <CellDirectorCockpit
+                    userProfile={userProfile}
+                    cellGroups={cellGroups}
+                    cellPendingChanges={cellPendingChanges}
+                    loadingCellPending={loadingCellPending}
+                    onChangeResolved={handleCellChangeResolved}
+                    tasks={tasks}
+                    onTaskUpdated={(id, patch) => setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))}
+                  />
+                </>
               ) : slug === 'd-light' ? (
                 canEditDelightVisitors ? (
                   <DLightDirectorDashboard
@@ -3521,9 +3618,9 @@ export default function DepartmentHub() {
                 membershipNumber: entry.membershipNumber || '', leadershipPosition: entry.leadershipPosition || '',
                 year: entry.year || '', email: entry.email || '', dob: entry.dob || '', nativity: entry.nativity || '',
                 currentPlace: entry.currentPlace || '', serviceAttended: entry.serviceAttended || '', howKnown: entry.howKnown || '',
-                baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '', ministryNotes: '',
-                isDirector: false, directorOf: '', directorSince: '', leaderSince: '', leaderUntil: '',
-                ministryHistory: [], membershipStatus: '', membershipDocs: [], permanentAddress: '', photoUrl: '',
+                baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
+                maritalStatus: '', marriageDate: '', spouseName: '', spouseVisitorId: '',
+                membershipStatus: '', membershipDocs: [], permanentAddress: '', photoUrl: '',
               })
               if (entry.visitorId) {
                 setPcsExpandedLoading(true)
@@ -3541,12 +3638,12 @@ export default function DepartmentHub() {
                     const p = ctx.profile || {}
                     setPcsExpandedForm(f => ({
                       ...f,
+                      baptised: p.baptised || '',
                       baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '',
-                      marriageDate: p.marriageDate || '', spouseName: p.spouseName || '',
-                      ministryNotes: p.ministryNotes || '',
-                      isDirector: p.isDirector || false, directorOf: p.directorOf || '', directorSince: p.directorSince || '',
-                      leaderSince: p.leaderSince || '', leaderUntil: p.leaderUntil || '',
-                      ministryHistory: p.ministryHistory || [],
+                      baptismChurch: p.baptismChurch || '',
+                      baptismChurchIsOther: !!p.baptismChurch && p.baptismChurch !== 'River Of Life Christian Church',
+                      maritalStatus: p.maritalStatus || '',
+                      marriageDate: p.marriageDate || '', spouseName: p.spouseName || '', spouseVisitorId: p.spouseVisitorId || '',
                       membershipStatus: p.membershipStatus || '',
                       membershipDocs: p.membershipDocs || [],
                       permanentAddress: p.permanentAddress || '',
@@ -3644,20 +3741,51 @@ export default function DepartmentHub() {
                 ...worshipTeams.map(t => ({ id: `wor-${t.id}`, ministry: 'Worship', role: t.positions?.[0] || '', from: t.since || '', to: '', isAuto: true })),
               ]
 
-              // Manual ministry history
-              const manualHistory = f.ministryHistory || []
-              const addMinistryRow = () => setF(p => ({ ...p, ministryHistory: [...(p.ministryHistory || []), { id: Date.now().toString(), ministry: '', role: '', from: '', to: '' }] }))
-              const updateMinistryRow = (id, field, val) => setF(p => ({ ...p, ministryHistory: (p.ministryHistory || []).map(r => r.id === id ? { ...r, [field]: val } : r) }))
-              const removeMinistryRow = (id) => setF(p => ({ ...p, ministryHistory: (p.ministryHistory || []).filter(r => r.id !== id) }))
-
               // Membership docs
               const membershipDocs = f.membershipDocs || []
               const addDocRow = () => setF(p => ({ ...p, membershipDocs: [...(p.membershipDocs || []), { id: Date.now().toString(), type: '', number: '' }] }))
               const updateDocRow = (id, field, val) => setF(p => ({ ...p, membershipDocs: (p.membershipDocs || []).map(r => r.id === id ? { ...r, [field]: val } : r) }))
               const removeDocRow = (id) => setF(p => ({ ...p, membershipDocs: (p.membershipDocs || []).filter(r => r.id !== id) }))
 
-              const sectionHead = (label, color = 'text-slate-500') => (
-                <p className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${color}`}>{label}</p>
+              const sectionHead = (label, color = 'text-slate-600') => (
+                <p className={`text-sm font-bold tracking-tight ${color}`}>{label}</p>
+              )
+
+              // ── Fill-percentage helpers ──────────────────────────────────────
+              const countFilled = (keys) => keys.filter(k => {
+                const v = f[k]; return v !== '' && v !== null && v !== undefined && v !== false
+              }).length
+
+              const s1Keys = ['name','phone','email','dob','nativity','currentPlace','serviceAttended','howKnown','attendedDate']
+              const s1Fill = countFilled(s1Keys) / s1Keys.length
+
+              const s2Checks = [autoMinistry.length > 0]
+              const s2Fill = s2Checks.filter(Boolean).length / s2Checks.length
+
+              const s3BaseKeys = ['baptised', 'maritalStatus']
+              const s3BaptismKeys = f.baptised === 'yes' ? ['baptismDate','baptismPlace','baptismChurch'] : []
+              const s3MarriageKeys = f.maritalStatus === 'Married' ? ['marriageDate','spouseName'] : []
+              const s3AllKeys = [...s3BaseKeys, ...s3BaptismKeys, ...s3MarriageKeys]
+              const s3Fill = countFilled(s3AllKeys) / s3AllKeys.length
+
+              const s4Checks = f.membershipStatus ? [!!f.membershipNumber, !!f.permanentAddress, membershipDocs.length > 0] : []
+              const s4Fill = s4Checks.length > 0 ? s4Checks.filter(Boolean).length / s4Checks.length : 0
+
+              // Overall = average of all 4 sections
+              const overallFill = (s1Fill + s3Fill) / 2
+
+              // Colour scale: 0=slate, 1-49=red, 50-99=amber, 100=emerald
+              const dotCls = (p) => p === 0 ? 'bg-slate-300' : p < 0.5 ? 'bg-red-400' : p < 1 ? 'bg-amber-400' : 'bg-emerald-500'
+              const barCls = (p) => p === 0 ? 'bg-slate-200' : p < 0.5 ? 'bg-red-400' : p < 1 ? 'bg-amber-400' : 'bg-emerald-500'
+              const pctCls = (p) => p === 0 ? 'text-slate-400' : p < 0.5 ? 'text-red-500' : p < 1 ? 'text-amber-500' : 'text-emerald-600'
+              const pctStr = (p) => `${Math.round(p * 100)}%`
+
+              const SecHeader = ({ label, fill, labelColor, headerBg, extra }) => (
+                <div className={`-mx-4 -mt-3 mb-4 px-4 py-3 flex items-center gap-3 ${headerBg}`}>
+                  <span className={`w-3 h-3 rounded-full flex-shrink-0 transition-colors duration-300 ${dotCls(fill)}`} />
+                  <p className={`text-sm font-bold tracking-tight ${labelColor}`}>{label}</p>
+                  {extra}
+                </div>
               )
 
               return (
@@ -3678,15 +3806,17 @@ export default function DepartmentHub() {
                               {(f.name || '?')[0].toUpperCase()}
                             </div>
                         }
-                        {/* Camera capture button */}
-                        <label title="Take photo" className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center cursor-pointer shadow transition-colors">
-                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M1 5a2 2 0 0 1 2-2h1.172a2 2 0 0 0 1.414-.586l.828-.828A2 2 0 0 1 7.828 1h.344a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 11.828 3H13a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5zm7 6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="currentColor"/></svg>
-                          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
-                            const file = e.target.files?.[0]; if (!file) return
-                            setPcsPhotoFile(file)
-                            setPcsPhotoPreview(URL.createObjectURL(file))
-                          }} />
-                        </label>
+                        {/* Camera capture button — only for members */}
+                        {!!f.membershipNumber && (
+                          <label title="Take member photo" className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center cursor-pointer shadow transition-colors">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M1 5a2 2 0 0 1 2-2h1.172a2 2 0 0 0 1.414-.586l.828-.828A2 2 0 0 1 7.828 1h.344a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 11.828 3H13a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5zm7 6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="currentColor"/></svg>
+                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                              const file = e.target.files?.[0]; if (!file) return
+                              setPcsPhotoFile(file)
+                              setPcsPhotoPreview(URL.createObjectURL(file))
+                            }} />
+                          </label>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -3696,28 +3826,81 @@ export default function DepartmentHub() {
                           {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600">{churchDuration} in church</span>}
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">{[f.phone, f.email].filter(Boolean).join(' · ') || 'No contact info'}</p>
-                        {/* Upload from gallery option */}
-                        <label className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-indigo-500 cursor-pointer hover:text-indigo-700">
-                          <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
-                          Upload from gallery
-                          <input type="file" accept="image/*" className="hidden" onChange={e => {
-                            const file = e.target.files?.[0]; if (!file) return
-                            setPcsPhotoFile(file)
-                            setPcsPhotoPreview(URL.createObjectURL(file))
-                          }} />
-                        </label>
+                        {/* Overall completeness bar */}
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all duration-500 ${barCls(overallFill)}`} style={{ width: `${Math.round(overallFill * 100)}%` }} />
+                          </div>
+                          <span className={`text-[10px] font-bold tabular-nums whitespace-nowrap ${pctCls(overallFill)}`}>{pctStr(overallFill)} complete</span>
+                        </div>
+                        {/* Upload from gallery — only for members */}
+                        {!!f.membershipNumber && (
+                          <label className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-amber-600 cursor-pointer hover:text-amber-800">
+                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
+                            Upload member photo
+                            <input type="file" accept="image/*" className="hidden" onChange={e => {
+                              const file = e.target.files?.[0]; if (!file) return
+                              setPcsPhotoFile(file)
+                              setPcsPhotoPreview(URL.createObjectURL(file))
+                            }} />
+                          </label>
+                        )}
                       </div>
                     </div>
 
                     {/* ═══ SECTION 1 · Visitor Data ═══ */}
-                    <div className="px-4 py-3 border-b border-slate-100">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
-                        {sectionHead('Visitor Data', 'text-blue-600')}
-                      </div>
+                    <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-blue-300">
+                      <SecHeader label="Visitor Data" fill={s1Fill} labelColor="text-blue-700" headerBg="bg-blue-50 border-b border-blue-100" />
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {fld('Name', 'name')}
-                        {fld('Phone', 'phone')}
+                        {/* Phone — country code + number */}
+                        {(() => {
+                          const CODES = [
+                            { code: '+91',  label: '🇮🇳 +91'  },
+                            { code: '+971', label: '🇦🇪 +971' },
+                            { code: '+1',   label: '🇺🇸 +1'   },
+                            { code: '+44',  label: '🇬🇧 +44'  },
+                            { code: '+61',  label: '🇦🇺 +61'  },
+                            { code: '+65',  label: '🇸🇬 +65'  },
+                            { code: '+60',  label: '🇲🇾 +60'  },
+                            { code: '+966', label: '🇸🇦 +966' },
+                            { code: '+974', label: '🇶🇦 +974' },
+                            { code: '+965', label: '🇰🇼 +965' },
+                            { code: '+973', label: '🇧🇭 +973' },
+                            { code: '+64',  label: '🇳🇿 +64'  },
+                            { code: '+49',  label: '🇩🇪 +49'  },
+                          ]
+                          const parsePhone = (val) => {
+                            const v = (val || '').trim()
+                            for (const { code } of CODES) {
+                              if (v.startsWith(code + ' ')) return { code, number: v.slice(code.length + 1) }
+                              if (v.startsWith(code) && v.length > code.length) return { code, number: v.slice(code.length) }
+                            }
+                            return { code: '+91', number: v }
+                          }
+                          const { code: cc, number: num } = parsePhone(f.phone)
+                          return (
+                            <div className="space-y-0.5">
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Phone</p>
+                              <div className="flex gap-1">
+                                <select
+                                  value={cc}
+                                  onChange={e => setF(p => ({ ...p, phone: e.target.value + ' ' + num }))}
+                                  className="px-1.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 flex-shrink-0"
+                                >
+                                  {CODES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+                                </select>
+                                <input
+                                  type="tel"
+                                  placeholder="Number"
+                                  value={num}
+                                  onChange={e => setF(p => ({ ...p, phone: cc + ' ' + e.target.value }))}
+                                  className={`${inp} flex-1 min-w-0`}
+                                />
+                              </div>
+                            </div>
+                          )
+                        })()}
                         {fld('Email', 'email', 'email')}
                         {fld('Date of Birth', 'dob', 'date')}
                         {fld('Nativity / Hometown', 'nativity')}
@@ -3738,11 +3921,11 @@ export default function DepartmentHub() {
                     </div>
 
                     {/* ═══ SECTION 2 · Church Journey ═══ */}
-                    <div className="px-4 py-3 border-b border-slate-100">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-                        {sectionHead('Church Journey', 'text-emerald-600')}
-                        {churchDuration && <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 rounded-full ml-auto">{churchDuration}</span>}
+                    <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-emerald-300">
+                      <div className="-mx-4 -mt-3 mb-4 px-4 py-3 flex items-center gap-3 bg-emerald-50 border-b border-emerald-100">
+                        <span className={`w-3 h-3 rounded-full flex-shrink-0 transition-colors duration-300 ${dotCls(s2Fill)}`} />
+                        <p className="text-sm font-bold tracking-tight text-emerald-700">Church Journey</p>
+                        {churchDuration && <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">{churchDuration}</span>}
                       </div>
 
                       {/* Cell connection */}
@@ -3774,114 +3957,252 @@ export default function DepartmentHub() {
                               )}
                             </div>
                             {cg
-                              ? <span className="inline-flex items-center gap-1.5 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
-                                  <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                                  {cg.cellName || 'Unnamed Cell'}{cg.leader ? <span className="text-emerald-500">· {cg.leader}</span> : null}
-                                </span>
+                              ? <>
+                                  <span className="inline-flex items-center gap-1.5 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                                    {cg.cellName || 'Unnamed Cell'}{cg.leader ? <span className="text-emerald-500">· {cg.leader}</span> : null}
+                                  </span>
+                                  {canEdit && (() => {
+                                    const inv = pcsInviteStatus[entry.id]
+                                    const inviting = pcsInvitingId === entry.id
+                                    if (inv?.status === 'completed') {
+                                      return (
+                                        <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                          <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                          Profile filled by cell leader
+                                        </span>
+                                      )
+                                    }
+                                    if (inv?.status === 'pending') {
+                                      return (
+                                        <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-500 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                                          Form sent to {inv.cellLeaderName || 'cell leader'}
+                                        </span>
+                                      )
+                                    }
+                                    return (
+                                      <button
+                                        type="button"
+                                        disabled={inviting}
+                                        onClick={async () => {
+                                          setPcsInvitingId(entry.id)
+                                          try {
+                                            const invId = await sendPCSFillInvitation({
+                                              pcsEntryId: entry.id,
+                                              visitorId: entry.visitorId || '',
+                                              personName: entry.name || '',
+                                              cellId: cellMember.cellId,
+                                              cellName: cg.cellName || '',
+                                              cellLeaderName: cg.leader || '',
+                                              sentBy: userProfile?.email || '',
+                                            })
+                                            setPcsInviteStatus(prev => ({ ...prev, [entry.id]: { id: invId, status: 'pending', cellLeaderName: cg.leader || '' } }))
+                                          } catch { alert('Failed to send invitation') }
+                                          setPcsInvitingId(null)
+                                        }}
+                                        className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full hover:bg-violet-100 transition-colors disabled:opacity-50"
+                                      >
+                                        <svg width="9" height="9" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                        {inviting ? 'Sending…' : 'Send profile form to cell leader'}
+                                      </button>
+                                    )
+                                  })()}
+                                </>
                               : <p className="text-xs text-slate-400">{entry.visitorId ? 'Not in a cell group' : 'Link visitor record to see cell'}</p>
                             }
                           </div>
                         )
                       })()}
 
-                      {/* Quick role tag */}
-                      <div className="mb-3">
-                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Primary Role / Tag</p>
-                        <input type="text" placeholder="e.g. Cell Leader, Worship, Usher…" value={f.leadershipPosition || ''} onChange={e => setF(p => ({ ...p, leadershipPosition: e.target.value }))} className={inp} />
-                      </div>
-
                       {/* Ministry history table */}
                       <div>
                         <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Ministry History</p>
 
-                        {/* Auto-detected rows */}
-                        {autoMinistry.length > 0 && (
-                          <div className="mb-2 space-y-1">
-                            {autoMinistry.map(r => (
-                              <div key={r.id} className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5 text-xs">
-                                <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider whitespace-nowrap">Auto</span>
-                                <span className="font-semibold text-indigo-700 min-w-[80px]">{r.ministry}</span>
-                                <span className="text-indigo-500">{r.role}</span>
-                                {r.from && <span className="text-indigo-400 ml-auto whitespace-nowrap">Since {r.from} · {miniDur(r.from, r.to)}</span>}
-                              </div>
-                            ))}
+                        {/* Auto-detected ministry from department/worship records */}
+                        {autoMinistry.length > 0 ? (
+                          <div className="space-y-2">
+                            {autoMinistry.map(r => {
+                              const fmt = (dateStr) => {
+                                const d = new Date(dateStr)
+                                return isNaN(d) ? dateStr : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                              }
+                              const dur = r.from ? miniDur(r.from, r.to) : null
+                              return (
+                                <div key={r.id} className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2.5">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                      <span className="text-xs font-bold text-indigo-700">{r.ministry}</span>
+                                      {r.role ? <span className="ml-1.5 text-xs text-indigo-500">· {r.role}</span> : null}
+                                    </div>
+                                    {dur && (
+                                      <span className="text-[11px] font-bold text-indigo-600 bg-indigo-100 rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0">
+                                        {dur}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                                    {r.from && (
+                                      <span className="text-[10px] text-indigo-400">
+                                        Joined {fmt(r.from)}
+                                      </span>
+                                    )}
+                                    {r.to
+                                      ? <span className="text-[10px] text-indigo-400">Until {fmt(r.to)}</span>
+                                      : r.from && <span className="text-[10px] font-semibold text-emerald-500">Ongoing</span>
+                                    }
+                                    {dur && (
+                                      <span className="text-[10px] text-indigo-500 font-semibold">Duration: {dur}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
                           </div>
+                        ) : (
+                          <p className="text-xs text-slate-400 py-1">No ministry records found. Ministry is recorded automatically when a person is added as a team member in any department.</p>
                         )}
-
-                        {/* Manual rows */}
-                        {manualHistory.length > 0 && (
-                          <div className="mb-2 space-y-1.5">
-                            {manualHistory.map(r => (
-                              <div key={r.id} className="grid grid-cols-[1fr_1fr_auto_auto_auto] gap-1.5 items-center">
-                                <input type="text" placeholder="Ministry / Dept" value={r.ministry} onChange={e => updateMinistryRow(r.id, 'ministry', e.target.value)} className={`${inp} text-xs`} />
-                                <input type="text" placeholder="Role" value={r.role} onChange={e => updateMinistryRow(r.id, 'role', e.target.value)} className={`${inp} text-xs`} />
-                                <input type="date" value={r.from} onChange={e => updateMinistryRow(r.id, 'from', e.target.value)} className={`${inp} text-xs`} title="From" />
-                                <input type="date" value={r.to} onChange={e => updateMinistryRow(r.id, 'to', e.target.value)} className={`${inp} text-xs`} title="To (leave blank = ongoing)" />
-                                <button type="button" onClick={() => removeMinistryRow(r.id)} className="w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors">×</button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        <button type="button" onClick={addMinistryRow} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 py-1 transition-colors">
-                          <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                          Add ministry entry
-                        </button>
                       </div>
+
                     </div>
 
                     {/* ═══ SECTION 3 · Spiritual Data ═══ */}
-                    <div className="px-4 py-3 border-b border-slate-100">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-violet-400 flex-shrink-0" />
-                        {sectionHead('Spiritual Data', 'text-violet-600')}
-                      </div>
+                    <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-violet-300">
+                      <SecHeader label="Spiritual Data" fill={s3Fill} labelColor="text-violet-700" headerBg="bg-violet-50 border-b border-violet-100" />
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {fld('Baptism Date', 'baptismDate', 'date')}
-                        {fld('Baptism Place', 'baptismPlace', 'text', 'Location')}
-                        {fld('Marriage Date', 'marriageDate', 'date')}
-                        {fld('Spouse Name', 'spouseName', 'text', 'Spouse name')}
-                        <div className="space-y-0.5">
-                          <label className="flex items-center gap-2 cursor-pointer mt-4">
-                            <input type="checkbox" checked={!!f.isDirector} onChange={e => setF(p => ({ ...p, isDirector: e.target.checked }))} className="w-4 h-4 rounded accent-violet-600" />
-                            <span className="text-xs font-semibold text-slate-600">Is Director</span>
-                          </label>
+                        {/* Baptised? gate question */}
+                        <div className="space-y-1 sm:col-span-3">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Baptised?</p>
+                          <select
+                            value={f.baptised}
+                            onChange={e => setF(p => ({ ...p, baptised: e.target.value }))}
+                            className={inp}>
+                            <option value="">— Select —</option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                          </select>
                         </div>
-                        {f.isDirector && (
-                          <>
-                            {fld('Director Of', 'directorOf', 'text', 'Department / Area')}
-                            {fld('Director Since', 'directorSince', 'date')}
-                          </>
+
+                        {f.baptised === 'no' && (
+                          <div className="sm:col-span-3 py-1">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-3 py-1">
+                              <span className="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0" />
+                              Not Baptised
+                            </span>
+                          </div>
                         )}
-                        {fld('Leader Since', 'leaderSince', 'date')}
-                        {fld('Leader Until', 'leaderUntil', 'date')}
-                        <div className="space-y-0.5 sm:col-span-3">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Ministry Notes</p>
-                          <textarea rows={2} placeholder="Ministry journey, observations, prayer points…" value={f.ministryNotes || ''} onChange={e => setF(p => ({ ...p, ministryNotes: e.target.value }))} className={`${inp} resize-none`} />
+
+                        {f.baptised === 'yes' && (<>
+                          {fld('Baptism Date', 'baptismDate', 'date')}
+                          {fld('Baptism Place', 'baptismPlace', 'text', 'Location')}
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Baptism Church</p>
+                            <select
+                              value={f.baptismChurchIsOther ? 'other' : f.baptismChurch}
+                              onChange={e => {
+                                if (e.target.value === 'other') {
+                                  setF(p => ({ ...p, baptismChurchIsOther: true, baptismChurch: p.baptismChurch === 'River Of Life Christian Church' ? '' : p.baptismChurch }))
+                                } else {
+                                  setF(p => ({ ...p, baptismChurch: e.target.value, baptismChurchIsOther: false }))
+                                }
+                              }}
+                              className={inp}>
+                              <option value="">— Select —</option>
+                              <option value="River Of Life Christian Church">River Of Life Christian Church</option>
+                              <option value="other">Other</option>
+                            </select>
+                            {f.baptismChurchIsOther && (
+                              <input type="text" placeholder="Specify church name…"
+                                value={f.baptismChurch}
+                                onChange={e => setF(p => ({ ...p, baptismChurch: e.target.value }))}
+                                className={`${inp} mt-1`} />
+                            )}
+                          </div>
+                        </>)}
+                        {/* Marital status */}
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Marital Status</p>
+                          <select
+                            value={f.maritalStatus}
+                            onChange={e => setF(p => ({ ...p, maritalStatus: e.target.value }))}
+                            className={inp}>
+                            <option value="">— Select —</option>
+                            {['Single','Married','Widowed','Divorced'].map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
                         </div>
+
+                        {/* Marriage details — only when Married */}
+                        {f.maritalStatus === 'Married' && (<>
+                          {fld('Marriage Date', 'marriageDate', 'date')}
+                          <div className="space-y-0.5 relative">
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Spouse Name</p>
+                            <input
+                              type="text"
+                              placeholder="Search or type name…"
+                              value={f.spouseName}
+                              onChange={e => {
+                                setF(p => ({ ...p, spouseName: e.target.value, spouseVisitorId: '' }))
+                                setPcsSpouseFocused(true)
+                              }}
+                              onFocus={() => setPcsSpouseFocused(true)}
+                              onBlur={() => setTimeout(() => setPcsSpouseFocused(false), 150)}
+                              className={inp}
+                            />
+                            {/* Linked badge */}
+                            {f.spouseVisitorId && (
+                              <span className="absolute right-2 top-7 text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">linked</span>
+                            )}
+                            {/* Typeahead dropdown */}
+                            {pcsSpouseFocused && f.spouseName.trim().length >= 2 && (() => {
+                              const q = f.spouseName.trim().toLowerCase()
+                              const matches = pcsEntries
+                                .filter(e => e.id !== entry.id && e.name && e.name.toLowerCase().includes(q))
+                                .slice(0, 6)
+                              if (!matches.length) return null
+                              return (
+                                <div className="absolute z-20 top-full left-0 right-0 mt-0.5 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                                  {matches.map(m => (
+                                    <button key={m.id} type="button"
+                                      onMouseDown={() => {
+                                        setF(p => ({ ...p, spouseName: m.name, spouseVisitorId: m.visitorId || m.id }))
+                                        setPcsSpouseFocused(false)
+                                      }}
+                                      className="w-full text-left px-3 py-2 text-xs hover:bg-violet-50 flex items-center gap-2">
+                                      <span className="font-semibold text-slate-800 flex-1">{m.name}</span>
+                                      {m.phone && <span className="text-slate-400">{m.phone}</span>}
+                                      <span className="text-[9px] font-bold text-violet-500 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5 flex-shrink-0">ROL</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        </>)}
+
                       </div>
                     </div>
 
                     {/* ═══ SECTION 4 · Membership ═══ */}
-                    <div className="px-4 py-3 border-b border-slate-100">
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
-                          {sectionHead('Membership', 'text-amber-600')}
+                    <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-amber-300">
+                      <div className="-mx-4 -mt-3 mb-4 px-4 py-3 flex items-center gap-3 bg-amber-50 border-b border-amber-100">
+                        <span className={`w-3 h-3 rounded-full flex-shrink-0 transition-colors duration-300 ${f.membershipStatus ? dotCls(s4Fill) : 'bg-slate-300'}`} />
+                        <p className="text-sm font-bold tracking-tight text-amber-700">Membership</p>
+                        <div className="ml-auto flex-shrink-0">
+                          {!f.membershipStatus && (
+                            <button type="button" onClick={() => setF(p => ({ ...p, membershipStatus: 'applying' }))}
+                              className="text-xs font-bold text-amber-600 bg-amber-100 border border-amber-300 px-2.5 py-1 rounded-full hover:bg-amber-200 transition-colors">
+                              + Begin Application
+                            </button>
+                          )}
+                          {f.membershipStatus && (
+                            <select value={f.membershipStatus} onChange={e => setF(p => ({ ...p, membershipStatus: e.target.value }))}
+                              className="text-xs border border-amber-200 rounded-lg px-2 py-1 bg-amber-100 text-amber-700 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-200">
+                              <option value="applying">Applying</option>
+                              <option value="member">Member</option>
+                            </select>
+                          )}
                         </div>
-                        {!f.membershipStatus && (
-                          <button type="button" onClick={() => setF(p => ({ ...p, membershipStatus: 'applying' }))}
-                            className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full hover:bg-amber-100 transition-colors">
-                            + Begin Application
-                          </button>
-                        )}
-                        {f.membershipStatus && (
-                          <select value={f.membershipStatus} onChange={e => setF(p => ({ ...p, membershipStatus: e.target.value }))}
-                            className="text-xs border border-amber-200 rounded-lg px-2 py-1 bg-amber-50 text-amber-700 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-200">
-                            <option value="applying">Applying</option>
-                            <option value="member">Member</option>
-                          </select>
-                        )}
                       </div>
 
                       {f.membershipStatus ? (
@@ -3935,16 +4256,15 @@ export default function DepartmentHub() {
 
                     {/* ═══ Actions ═══ */}
                     <div className="px-4 py-3 flex items-center gap-2">
-                      <button
+                      {pcsFormDirty && <button
                         type="button"
                         disabled={pcsExpandedSaving}
                         onClick={async () => {
                           setPcsExpandedSaving(true)
                           try {
                             const { name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown,
-                              baptismDate, baptismPlace, marriageDate, spouseName, ministryNotes,
-                              isDirector, directorOf, directorSince, leaderSince, leaderUntil,
-                              ministryHistory, membershipStatus, membershipDocs, permanentAddress } = f
+                              baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
+                              membershipStatus, membershipDocs, permanentAddress } = f
                             const resolvedYear = year || (attendedDate ? new Date(attendedDate).getFullYear() : null)
 
                             // Upload photo if a new one was selected
@@ -3961,27 +4281,29 @@ export default function DepartmentHub() {
                               updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
                               updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
                               upsertMemberProfile(entry.visitorId, {
-                                baptismDate, baptismPlace, marriageDate, spouseName, ministryNotes,
-                                isDirector, directorOf, directorSince, leaderSince, leaderUntil,
-                                ministryHistory, membershipStatus,
+                                baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
+                                membershipStatus,
                                 membershipDocs: membershipDocs || [],
                                 permanentAddress,
                                 ...(savedPhotoUrl ? { photoUrl: savedPhotoUrl } : {}),
                               }, userProfile?.email || '').catch(() => {})
                             }
                             if (savedPhotoUrl) setF(p => ({ ...p, photoUrl: savedPhotoUrl }))
+                            pcsSavedRef.current = JSON.stringify(savedPhotoUrl ? { ...pcsExpandedForm, photoUrl: savedPhotoUrl } : pcsExpandedForm)
+                            setPcsFormDirty(false)
                           } catch { alert('Failed to save') }
                           setPcsExpandedSaving(false)
                         }}
                         className="flex-1 min-h-[44px] py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-60 transition-colors"
-                      >{pcsExpandedSaving ? 'Saving…' : 'Save Changes'}</button>
+                      >{pcsExpandedSaving ? 'Saving…' : 'Save Changes'}</button>}
                       <button
                         type="button"
                         onClick={async () => {
                           if (!window.confirm(`Remove ${entry.name} from PCS? A profile JPEG will be downloaded automatically.`)) return
                           downloadProfileAsJPEG({ ...f })
-                          await deletePCSEntry(entry.id)
+                          await deactivatePCSEntry(entry.id, userProfile?.email || '')
                           setPcsEntries(prev => prev.filter(e => e.id !== entry.id))
+                          setPcsInactiveEntries(prev => [{ ...entry, status: 'inactive', removedAt: new Date(), removedBy: userProfile?.email || '' }, ...prev])
                           setPcsExpandedId(null)
                         }}
                         className="px-4 min-h-[44px] py-2 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 hover:border-red-300 active:bg-red-100 transition-colors"
@@ -4110,34 +4432,31 @@ export default function DepartmentHub() {
 
             return (
               <div className="space-y-4">
-                {/* Header */}
-                <div className="bg-gradient-to-r from-indigo-600 to-indigo-500 rounded-xl px-5 py-5 flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-white font-bold text-lg leading-tight">Personal Caring System</h2>
-                    <p className="text-indigo-200 text-xs mt-1">Active people coming to church under personal care</p>
-                    {!loadingPCS && (
-                      <div className="mt-3 flex items-center gap-2 flex-wrap">
-                        <span className="bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full">
-                          {pcsEntries.length} {pcsEntries.length === 1 ? 'Person' : 'People'}
-                        </span>
-                        {pcsYears.map(yr => (
-                          <span key={yr} className="bg-white/15 text-indigo-100 text-xs px-2 py-0.5 rounded-full">
-                            {yr}: {pcsEntries.filter(e => e.year === yr).length}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setPcsPickerOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white text-indigo-700 text-xs font-semibold hover:bg-indigo-50 transition-colors shadow-sm"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
-                      + Add
-                    </button>
-                  </div>
+                {/* Top bar */}
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const next = !pcsShowFormer
+                      setPcsShowFormer(next)
+                      if (next && pcsInactiveEntries.length === 0) {
+                        setPcsLoadingFormer(true)
+                        try { setPcsInactiveEntries(await getInactivePCSEntries()) } catch { /* ignore */ }
+                        setPcsLoadingFormer(false)
+                      }
+                    }}
+                    className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-colors ${pcsShowFormer ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'}`}
+                  >
+                    {pcsShowFormer ? 'Active' : 'Former'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPcsPickerOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
+                    + Add
+                  </button>
                 </div>
 
                 {/* Manual PCS entry modal */}
@@ -4358,8 +4677,9 @@ export default function DepartmentHub() {
                                       attendedDate: pe.attendedDate || '',
                                       leadershipPosition: pe.leadershipPosition || '',
                                     })
-                                    await deletePCSEntry(pe.id)
+                                    await deactivatePCSEntry(pe.id, userProfile?.email || '')
                                     setPcsEntries(prev => prev.filter(e => e.id !== pe.id))
+                                    setPcsInactiveEntries(prev => [{ ...pe, status: 'inactive', removedAt: new Date(), removedBy: userProfile?.email || '' }, ...prev])
                                     if (pcsExpandedId === pe.id) setPcsExpandedId(null)
                                   }}
                                   className="px-3 py-1.5 rounded-xl border border-red-200 text-red-500 text-xs font-semibold hover:bg-red-50 transition-colors flex-shrink-0 whitespace-nowrap"
@@ -4378,8 +4698,42 @@ export default function DepartmentHub() {
                   </div>
                 )}
 
+                {/* Former (inactive) panel */}
+                {pcsShowFormer && (
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-700">Former Members</span>
+                      <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{pcsInactiveEntries.length}</span>
+                    </div>
+                    {pcsLoadingFormer ? (
+                      <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
+                    ) : pcsInactiveEntries.length === 0 ? (
+                      <div className="py-10 text-center text-slate-400 text-sm">No former members.</div>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {pcsInactiveEntries.map(e => (
+                          <div key={e.id} className="px-4 py-3 flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-700">{e.name}</p>
+                              {e.phone && <p className="text-xs text-slate-400">{e.phone}</p>}
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              {e.year && <span className="text-[10px] text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{e.year}</span>}
+                              {e.removedAt && (
+                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                  Removed {e.removedAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Main card — all years on one page */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                {!pcsShowFormer && <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   {loadingPCS ? (
                     <div className="py-14 text-center text-slate-400 text-sm">Loading…</div>
                   ) : pcsEntries.length === 0 ? (
@@ -4431,7 +4785,7 @@ export default function DepartmentHub() {
                       {pcsEntries.length} {pcsEntries.length === 1 ? 'person' : 'people'} · {grouped.length} {grouped.length === 1 ? 'year' : 'years'}
                     </div>
                   )}
-                </div>
+                </div>}
               </div>
             )
           })()}
@@ -6017,6 +6371,50 @@ export default function DepartmentHub() {
 
           {activeTab === 'cellGroups' && slug === 'cell' && (
             <div className="space-y-6">
+
+              {/* Profile Fill Requests — visible to Cell Leaders (non-Directors) */}
+              {!canViewAllCells && pendingFillInvitations.length > 0 && (
+                <div className="bg-white rounded-xl border border-violet-200 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 bg-violet-50 border-b border-violet-100 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-violet-500 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-violet-800">Profile Fill Requests</p>
+                      <p className="text-xs text-violet-500">The Caring Director has asked you to provide profile details for these people.</p>
+                    </div>
+                    <span className="bg-violet-500 text-white text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0">
+                      {pendingFillInvitations.length}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-slate-50">
+                    {pendingFillInvitations.map(inv => (
+                      <div key={inv.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="w-9 h-9 rounded-full bg-violet-100 text-violet-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                          {String(inv.personName || '?').split(' ').slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('')}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-slate-900 text-sm truncate">{inv.personName || 'Unknown'}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{inv.cellName ? `Cell: ${inv.cellName}` : 'Profile details requested'}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFillInviteOpen(inv)
+                            setFillInviteForm({
+                              phone: '', dob: '', nativity: '', currentPlace: '',
+                              baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
+                              maritalStatus: '', marriageDate: '', spouseName: '',
+                            })
+                          }}
+                          className="px-3 py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-xl hover:bg-violet-700 transition-colors flex-shrink-0"
+                        >
+                          Fill Profile
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Pending Actions (Cell Director) */}
               {canViewAllCells && (
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -7303,6 +7701,204 @@ export default function DepartmentHub() {
         </>
       )}
       </div>
+
+      {/* ─── Cell Leader Profile Fill Modal ───────────────────────────────── */}
+      {fillInviteOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
+
+            {/* Header */}
+            <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-start justify-between gap-3 flex-shrink-0">
+              <div>
+                <p className="font-bold text-slate-800 text-sm">Fill Profile Details</p>
+                <p className="text-xs text-violet-500 font-medium mt-0.5">{fillInviteOpen.personName}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Requested by Caring Director — fill in what you know</p>
+              </div>
+              <button type="button" onClick={() => setFillInviteOpen(null)} className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors text-xl flex-shrink-0">×</button>
+            </div>
+
+            {/* Form */}
+            <div className="overflow-y-auto flex-1 px-4 py-4 space-y-4">
+              {(() => {
+                const ff = fillInviteForm
+                const setFf = setFillInviteForm
+                const inp = 'w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-200'
+                const lbl = 'block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1'
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="col-span-2">
+                        <label className={lbl}>Phone</label>
+                        {(() => {
+                          const CODES = [
+                            { code: '+91',  label: '🇮🇳 +91'  },
+                            { code: '+971', label: '🇦🇪 +971' },
+                            { code: '+1',   label: '🇺🇸 +1'   },
+                            { code: '+44',  label: '🇬🇧 +44'  },
+                            { code: '+61',  label: '🇦🇺 +61'  },
+                            { code: '+65',  label: '🇸🇬 +65'  },
+                            { code: '+60',  label: '🇲🇾 +60'  },
+                            { code: '+966', label: '🇸🇦 +966' },
+                            { code: '+974', label: '🇶🇦 +974' },
+                            { code: '+965', label: '🇰🇼 +965' },
+                            { code: '+973', label: '🇧🇭 +973' },
+                            { code: '+64',  label: '🇳🇿 +64'  },
+                            { code: '+49',  label: '🇩🇪 +49'  },
+                          ]
+                          const parsePhone = (val) => {
+                            const v = (val || '').trim()
+                            for (const { code } of CODES) {
+                              if (v.startsWith(code + ' ')) return { code, number: v.slice(code.length + 1) }
+                              if (v.startsWith(code) && v.length > code.length) return { code, number: v.slice(code.length) }
+                            }
+                            return { code: '+91', number: v }
+                          }
+                          const { code: cc, number: num } = parsePhone(ff.phone)
+                          return (
+                            <div className="flex gap-1">
+                              <select
+                                value={cc}
+                                onChange={e => setFf(p => ({ ...p, phone: e.target.value + ' ' + num }))}
+                                className="px-1.5 py-2 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-violet-200 flex-shrink-0"
+                              >
+                                {CODES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+                              </select>
+                              <input
+                                type="tel"
+                                placeholder="Number"
+                                value={num}
+                                onChange={e => setFf(p => ({ ...p, phone: cc + ' ' + e.target.value }))}
+                                className={`${inp} flex-1 min-w-0`}
+                              />
+                            </div>
+                          )
+                        })()}
+                      </div>
+                      <div>
+                        <label className={lbl}>Date of Birth</label>
+                        <input type="date" value={ff.dob} onChange={e => setFf(p => ({...p, dob: e.target.value}))} className={inp} />
+                      </div>
+                      <div>
+                        <label className={lbl}>Nativity</label>
+                        <input type="text" value={ff.nativity} onChange={e => setFf(p => ({...p, nativity: e.target.value}))} placeholder="Hometown" className={inp} />
+                      </div>
+                      <div>
+                        <label className={lbl}>Current Place</label>
+                        <input type="text" value={ff.currentPlace} onChange={e => setFf(p => ({...p, currentPlace: e.target.value}))} placeholder="Current city" className={inp} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={lbl}>Baptised?</label>
+                      <select value={ff.baptised} onChange={e => setFf(p => ({...p, baptised: e.target.value}))} className={inp}>
+                        <option value="">— Select —</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    </div>
+
+                    {ff.baptised === 'yes' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={lbl}>Baptism Date</label>
+                          <input type="date" value={ff.baptismDate} onChange={e => setFf(p => ({...p, baptismDate: e.target.value}))} className={inp} />
+                        </div>
+                        <div>
+                          <label className={lbl}>Baptism Place</label>
+                          <input type="text" value={ff.baptismPlace} onChange={e => setFf(p => ({...p, baptismPlace: e.target.value}))} placeholder="Location" className={inp} />
+                        </div>
+                        <div className="col-span-2">
+                          <label className={lbl}>Baptism Church</label>
+                          <select
+                            value={ff.baptismChurchIsOther ? 'other' : ff.baptismChurch}
+                            onChange={e => {
+                              if (e.target.value === 'other') setFf(p => ({...p, baptismChurch: '', baptismChurchIsOther: true}))
+                              else setFf(p => ({...p, baptismChurch: e.target.value, baptismChurchIsOther: false}))
+                            }}
+                            className={inp}
+                          >
+                            <option value="">— Select —</option>
+                            <option value="River Of Life Christian Church">River Of Life Christian Church</option>
+                            <option value="other">Other</option>
+                          </select>
+                          {ff.baptismChurchIsOther && (
+                            <input type="text" placeholder="Specify church name…" value={ff.baptismChurch} onChange={e => setFf(p => ({...p, baptismChurch: e.target.value}))} className={`${inp} mt-2`} />
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className={lbl}>Marital Status</label>
+                      <select value={ff.maritalStatus} onChange={e => setFf(p => ({...p, maritalStatus: e.target.value}))} className={inp}>
+                        <option value="">— Select —</option>
+                        {['Single','Married','Widowed','Divorced'].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    </div>
+
+                    {ff.maritalStatus === 'Married' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={lbl}>Marriage Date</label>
+                          <input type="date" value={ff.marriageDate} onChange={e => setFf(p => ({...p, marriageDate: e.target.value}))} className={inp} />
+                        </div>
+                        <div>
+                          <label className={lbl}>Spouse Name</label>
+                          <input type="text" value={ff.spouseName} onChange={e => setFf(p => ({...p, spouseName: e.target.value}))} placeholder="Spouse name" className={inp} />
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 pb-4 pt-3 border-t border-slate-100 flex-shrink-0 space-y-2">
+              <button
+                type="button"
+                disabled={fillInviteSaving}
+                onClick={async () => {
+                  setFillInviteSaving(true)
+                  try {
+                    const ff = fillInviteForm
+                    const pcsPayload = {}
+                    if (ff.phone)        pcsPayload.phone        = ff.phone
+                    if (ff.dob)         pcsPayload.dob          = ff.dob
+                    if (ff.nativity)    pcsPayload.nativity     = ff.nativity
+                    if (ff.currentPlace) pcsPayload.currentPlace = ff.currentPlace
+                    if (Object.keys(pcsPayload).length) {
+                      await updatePCSEntry(fillInviteOpen.pcsEntryId, pcsPayload)
+                    }
+                    if (fillInviteOpen.visitorId) {
+                      const profilePayload = {}
+                      if (ff.baptised)      profilePayload.baptised      = ff.baptised
+                      if (ff.baptismDate)   profilePayload.baptismDate   = ff.baptismDate
+                      if (ff.baptismPlace)  profilePayload.baptismPlace  = ff.baptismPlace
+                      if (ff.baptismChurch) profilePayload.baptismChurch = ff.baptismChurch
+                      if (ff.maritalStatus) profilePayload.maritalStatus = ff.maritalStatus
+                      if (ff.marriageDate)  profilePayload.marriageDate  = ff.marriageDate
+                      if (ff.spouseName)    profilePayload.spouseName    = ff.spouseName
+                      if (Object.keys(profilePayload).length) {
+                        await upsertMemberProfile(fillInviteOpen.visitorId, profilePayload, userProfile?.email || '')
+                      }
+                    }
+                    await completePCSFillInvitation(fillInviteOpen.id, userProfile?.email || '')
+                    setPendingFillInvitations(prev => prev.filter(i => i.id !== fillInviteOpen.id))
+                    setFillInviteOpen(null)
+                  } catch { alert('Failed to save profile details') }
+                  setFillInviteSaving(false)
+                }}
+                className="w-full min-h-[44px] py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 active:bg-violet-800 transition-colors disabled:opacity-60"
+              >
+                {fillInviteSaving ? 'Submitting…' : 'Submit Profile Details'}
+              </button>
+              <button type="button" onClick={() => setFillInviteOpen(null)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -7396,7 +7992,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 type="button"
                 onClick={async () => {
                   if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
-                  await deletePCSEntry(entry.id)
+                  await deactivatePCSEntry(entry.id, '')
                   onRemove(entry.id)
                 }}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"

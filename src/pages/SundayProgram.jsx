@@ -677,8 +677,6 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                   {/* Programme rows */}
                   <div className="divide-y divide-slate-50">
                     {programs.map((item, idx) => {
-                      const parallelWith = parallelPrograms[item.programName] || ''
-                      const mainColor = getParallelMainColor(item.programName)
                       return (
                         <div key={`${slug}-${item.programName}-${idx}`} className="px-3 py-2.5 space-y-2">
                           {/* Header row */}

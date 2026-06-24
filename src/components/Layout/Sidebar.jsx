@@ -2,13 +2,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Crown, Building2, CalendarCheck,
-  UserCog, FolderOpen, Leaf, PenLine, LogOut,
+  UserCog, FolderOpen, Leaf, PenLine, LogOut, Bell,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { ROLES } from '../../constants/roles'
 import { getDepartmentRole } from '../../utils/access'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
+import { subscribePCSFillInvitationsByCellId } from '../../services/firestore'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard', founderOnly: true },
@@ -52,6 +53,51 @@ function getInitials(profile) {
   const parts = name.trim().split(/\s+/)
   if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
   return name.slice(0, 2).toUpperCase()
+}
+
+function NotifPanel({ isDay, notifications, mobile }) {
+  const fmtDate = (d) => {
+    if (!d) return ''
+    try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) } catch { return '' }
+  }
+  return (
+    <div
+      className={`absolute ${mobile ? 'top-full right-0 mt-1' : 'top-full right-0 mt-2'} w-72 rounded-2xl overflow-hidden`}
+      style={{
+        zIndex: 70,
+        maxWidth: 'calc(100vw - 24px)',
+        background: isDay ? 'rgba(255,255,255,0.97)' : 'rgba(15,23,42,0.97)',
+        backdropFilter: 'blur(28px)',
+        WebkitBackdropFilter: 'blur(28px)',
+        border: isDay ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)',
+        boxShadow: '0 16px 48px rgba(0,0,0,0.22)',
+      }}
+    >
+      <div className={`px-4 py-2.5 flex items-center justify-between border-b ${isDay ? 'border-slate-100' : 'border-slate-700/60'}`}>
+        <p className={`text-sm font-bold ${isDay ? 'text-slate-800' : 'text-slate-100'}`}>Notifications</p>
+        {notifications.length > 0 && (
+          <span className="text-xs font-semibold text-indigo-500">{notifications.length} pending</span>
+        )}
+      </div>
+      {notifications.length === 0 ? (
+        <div className={`px-4 py-6 text-center ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>
+          <Bell size={24} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm">No new notifications</p>
+        </div>
+      ) : (
+        <div className={`overflow-y-auto max-h-72 divide-y ${isDay ? 'divide-slate-100' : 'divide-slate-700/50'}`}>
+          {notifications.map((n) => (
+            <div key={n.id} className={`px-4 py-3 transition-colors ${isDay ? 'hover:bg-slate-50' : 'hover:bg-slate-800/50'}`}>
+              <p className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isDay ? 'text-violet-600' : 'text-violet-400'}`}>{n.title}</p>
+              <p className={`text-sm ${isDay ? 'text-slate-700' : 'text-slate-200'}`}>{n.body}</p>
+              {n.cellName && <p className={`text-xs mt-0.5 ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>{n.cellName}</p>}
+              {n.sentAt && <p className={`text-[10px] mt-1 ${isDay ? 'text-slate-300' : 'text-slate-600'}`}>{fmtDate(n.sentAt)}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen }) {
@@ -294,6 +340,39 @@ export default function Sidebar() {
     [theme]
   )
 
+  // ── Notifications ───────────────────────────────────────────────────────────
+  const [notifOpen, setNotifOpen] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const notifDesktopRef = useRef(null)
+  const notifMobileRef = useRef(null)
+
+  useEffect(() => {
+    const cellId = userProfile?.cellGroupId || userProfile?.cellId
+    if (!cellId) return
+    return subscribePCSFillInvitationsByCellId(cellId, (invites) => {
+      setNotifications(invites.map((inv) => ({
+        id: inv.id,
+        type: 'pcs_fill',
+        title: 'Profile Fill Request',
+        body: `Fill profile for ${inv.personName || 'a member'}`,
+        cellName: inv.cellName || '',
+        sentAt: inv.sentAt,
+      })))
+    })
+  }, [userProfile?.cellGroupId, userProfile?.cellId])
+
+  useEffect(() => {
+    if (!notifOpen) return
+    const close = (e) => {
+      const d = notifDesktopRef.current
+      const m = notifMobileRef.current
+      if ((!d || !d.contains(e.target)) && (!m || !m.contains(e.target))) setNotifOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('touchstart', close)
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('touchstart', close) }
+  }, [notifOpen])
+
   const displayDeptName = (deptName) => {
     if (deptName === 'Event M') return 'Event Management'
     return deptName
@@ -348,7 +427,7 @@ export default function Sidebar() {
             R
           </span>
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1
             className="font-black leading-tight truncate"
             style={{
@@ -369,6 +448,23 @@ export default function Sidebar() {
           >
             ADMIN PORTAL
           </p>
+        </div>
+        <div className="relative flex-shrink-0" ref={notifDesktopRef}>
+          <button
+            type="button"
+            onClick={() => setNotifOpen((v) => !v)}
+            className="relative p-1.5 rounded-lg transition-colors hover:bg-white/10"
+            style={{ color: isDay ? '#64748b' : '#94a3b8' }}
+            aria-label="Notifications"
+          >
+            <Bell size={18} strokeWidth={1.5} />
+            {notifications.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+                {notifications.length > 9 ? '9+' : notifications.length}
+              </span>
+            )}
+          </button>
+          {notifOpen && <NotifPanel isDay={isDay} notifications={notifications} mobile={false} />}
         </div>
       </div>
     </div>
@@ -431,14 +527,33 @@ export default function Sidebar() {
           }}
         >River Of Life</span>
       </div>
-      <button
-        type="button"
-        onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
-        aria-label={themeToggleLabel}
-        className="p-2 rounded-xl text-base"
-      >
-        {theme === 'night' ? '🌙' : '☀️'}
-      </button>
+      <div className="flex items-center gap-0.5">
+        <div className="relative" ref={notifMobileRef}>
+          <button
+            type="button"
+            onClick={() => setNotifOpen((v) => !v)}
+            className="relative p-2 rounded-xl"
+            style={{ color: isDay ? '#475569' : '#94a3b8' }}
+            aria-label="Notifications"
+          >
+            <Bell size={20} strokeWidth={1.5} />
+            {notifications.length > 0 && (
+              <span className="absolute top-1.5 right-1.5 min-w-[14px] h-3.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+                {notifications.length > 9 ? '9+' : notifications.length}
+              </span>
+            )}
+          </button>
+          {notifOpen && <NotifPanel isDay={isDay} notifications={notifications} mobile />}
+        </div>
+        <button
+          type="button"
+          onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
+          aria-label={themeToggleLabel}
+          className="p-2 rounded-xl text-base"
+        >
+          {theme === 'night' ? '🌙' : '☀️'}
+        </button>
+      </div>
     </div>
   )
 

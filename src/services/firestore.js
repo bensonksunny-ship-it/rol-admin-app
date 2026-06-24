@@ -2234,30 +2234,51 @@ export async function deleteDelightVisitor(id) {
 // Caring – PCS (caring_pcs)
 const CARING_PCS_COLLECTION = 'caring_pcs'
 
+function mapPCSDoc(d) {
+  const data = d.data()
+  return {
+    id: d.id,
+    visitorId: data.visitorId || '',
+    name: data.name || '',
+    phone: data.phone || '',
+    email: data.email || '',
+    dob: data.dob || '',
+    nativity: data.nativity || '',
+    currentPlace: data.currentPlace || '',
+    serviceAttended: data.serviceAttended || '',
+    howKnown: data.howKnown || '',
+    attendedDate: data.attendedDate || '',
+    year: data.year ? Number(data.year) : null,
+    membershipNumber: data.membershipNumber || '',
+    leadershipPosition: data.leadershipPosition || '',
+    addedAt: toDate(data.addedAt),
+    addedBy: data.addedBy || '',
+    status: data.status || 'active',
+    removedAt: toDate(data.removedAt),
+    removedBy: data.removedBy || '',
+  }
+}
+
 export async function getPCSEntries() {
   if (!db) return []
   const q = query(collection(db, CARING_PCS_COLLECTION), orderBy('addedAt', 'desc'))
   const snap = await getDocs(q)
-  return snap.docs.map((d) => {
-    const data = d.data()
-    return {
-      id: d.id,
-      visitorId: data.visitorId || '',
-      name: data.name || '',
-      phone: data.phone || '',
-      email: data.email || '',
-      dob: data.dob || '',
-      nativity: data.nativity || '',
-      currentPlace: data.currentPlace || '',
-      serviceAttended: data.serviceAttended || '',
-      howKnown: data.howKnown || '',
-      attendedDate: data.attendedDate || '',
-      year: data.year ? Number(data.year) : null,
-      membershipNumber: data.membershipNumber || '',
-      leadershipPosition: data.leadershipPosition || '',
-      addedAt: toDate(data.addedAt),
-      addedBy: data.addedBy || '',
-    }
+  return snap.docs.map(mapPCSDoc).filter(e => e.status !== 'inactive')
+}
+
+export async function getInactivePCSEntries() {
+  if (!db) return []
+  const q = query(collection(db, CARING_PCS_COLLECTION), orderBy('addedAt', 'desc'))
+  const snap = await getDocs(q)
+  return snap.docs.map(mapPCSDoc).filter(e => e.status === 'inactive')
+}
+
+export async function deactivatePCSEntry(id, removedBy = '') {
+  if (!db || !id) return
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, id), {
+    status: 'inactive',
+    removedAt: Timestamp.now(),
+    removedBy,
   })
 }
 
@@ -3768,10 +3789,14 @@ export async function getMemberProfile(visitorId) {
   const d = snap.data()
   return {
     visitorId,
+    baptised:         d.baptised         || '',
     baptismDate:      d.baptismDate      || '',
     baptismPlace:     d.baptismPlace     || '',
+    baptismChurch:    d.baptismChurch    || '',
+    maritalStatus:    d.maritalStatus    || '',
     marriageDate:     d.marriageDate     || '',
     spouseName:       d.spouseName       || '',
+    spouseVisitorId:  d.spouseVisitorId  || '',
     isDirector:       d.isDirector       || false,
     directorOf:       d.directorOf       || '',
     directorSince:    d.directorSince    || '',
@@ -3792,7 +3817,7 @@ export async function upsertMemberProfile(visitorId, data, updatedBy = '') {
   if (!db || !visitorId) return
   const payload = {}
   const allowed = [
-    'baptismDate','baptismPlace','marriageDate','spouseName',
+    'baptised','baptismDate','baptismPlace','baptismChurch','maritalStatus','marriageDate','spouseName','spouseVisitorId',
     'isDirector','directorOf','directorSince','leaderSince','leaderUntil','ministryNotes',
     'ministryHistory','membershipStatus','membershipDocs','permanentAddress','photoUrl',
   ]
@@ -3825,4 +3850,60 @@ export async function getMemberProfileWithContext(visitorId) {
     deptTeams:   deptSnap   ? deptSnap.docs.map(d   => ({ id: d.id,   ...d.data() }))   : [],
     worshipTeams: worshipSnap ? worshipSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [],
   }
+}
+
+// ─── PCS Fill Invitations ─────────────────────────────────────────────────────
+// Caring Director sends a profile-fill invitation to the Cell Leader of a PCS person.
+
+const PCS_FILL_INVITATIONS = 'pcs_fill_invitations'
+
+export async function sendPCSFillInvitation({ pcsEntryId, visitorId, personName, cellId, cellName, cellLeaderName, sentBy }) {
+  if (!db || !pcsEntryId || !cellId) return null
+  const ref = await addDoc(collection(db, PCS_FILL_INVITATIONS), {
+    pcsEntryId,
+    visitorId:       visitorId       || '',
+    personName:      personName      || '',
+    cellId,
+    cellName:        cellName        || '',
+    cellLeaderName:  cellLeaderName  || '',
+    sentBy:          sentBy          || '',
+    sentAt:          Timestamp.now(),
+    status:          'pending',
+  })
+  return ref.id
+}
+
+export async function getPCSFillInvitationByEntry(pcsEntryId) {
+  if (!db || !pcsEntryId) return null
+  // Check for any invitation (pending or completed) for this entry
+  const q = query(collection(db, PCS_FILL_INVITATIONS), where('pcsEntryId', '==', pcsEntryId), limit(1))
+  const snap = await getDocs(q)
+  if (snap.empty) return null
+  const d = snap.docs[0]
+  const data = d.data()
+  return { id: d.id, ...data, sentAt: toDate(data.sentAt), completedAt: toDate(data.completedAt) }
+}
+
+export function subscribePCSFillInvitationsByCellId(cellId, onChange) {
+  if (!db || !cellId) return () => {}
+  const q = query(
+    collection(db, PCS_FILL_INVITATIONS),
+    where('cellId', '==', cellId),
+    where('status', '==', 'pending')
+  )
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map(d => {
+      const data = d.data()
+      return { id: d.id, ...data, sentAt: toDate(data.sentAt) }
+    }))
+  }, () => {})
+}
+
+export async function completePCSFillInvitation(id, filledBy = '') {
+  if (!db || !id) return
+  await updateDoc(doc(db, PCS_FILL_INVITATIONS, id), {
+    status:      'completed',
+    completedAt: Timestamp.now(),
+    filledBy,
+  })
 }
