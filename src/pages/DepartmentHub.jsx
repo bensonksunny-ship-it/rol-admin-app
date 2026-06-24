@@ -1789,7 +1789,7 @@ export default function DepartmentHub() {
                       })
                       setCaringMemberModalOpen(true)
                     }}
-                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
                   >
                     Add Member
                   </button>
@@ -2057,7 +2057,7 @@ export default function DepartmentHub() {
                         setDelightVisitorForm({ name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '', source: '', year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear })
                         setDelightVisitorModalOpen(true)
                       }}
-                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                      className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
                     >
                       Add Visitor
                     </button>
@@ -2290,8 +2290,8 @@ export default function DepartmentHub() {
                     </div>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>
-                    <button type="button" onClick={() => { setCaringMemberModalOpen(false); setEditingCaringId(null) }} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">Save</button>
+                    <button type="button" onClick={() => { setCaringMemberModalOpen(false); setEditingCaringId(null) }} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -2319,7 +2319,7 @@ export default function DepartmentHub() {
                   />
                 </div>
                 <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
-                  <button type="button" onClick={() => setPasteImportOpen(false)} className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+                  <button type="button" onClick={() => setPasteImportOpen(false)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 transition-colors">Cancel</button>
                   <button
                     type="button"
                     disabled={!pasteText.trim()}
@@ -2389,7 +2389,7 @@ export default function DepartmentHub() {
                   </table>
                 </div>
                 <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
-                  <button type="button" onClick={() => setImportPreviewOpen(false)} className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+                  <button type="button" onClick={() => setImportPreviewOpen(false)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 transition-colors">Cancel</button>
                   <button
                     type="button"
                     onClick={async () => {
@@ -2757,7 +2757,7 @@ export default function DepartmentHub() {
                         <label className="block text-sm font-medium text-slate-700 mb-1">Content</label>
                         <textarea value={btbForm.content} onChange={(e) => setBtbForm((f) => ({ ...f, content: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[100px]" placeholder="Teaching content..." />
                       </div>
-                      <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Add Back to the Bible</button>
+                      <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">Add Back to the Bible</button>
                     </form>
                   )}
                   <div className="overflow-x-auto">
@@ -2948,7 +2948,7 @@ export default function DepartmentHub() {
                         })
                         setUpdateModalOpen(true)
                       }}
-                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                      className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
                     >
                       Add Update
                     </button>
@@ -3204,7 +3204,7 @@ export default function DepartmentHub() {
                       setSubDeptForm({ name: '', servingArea: '' })
                       setGenericSubDeptModalOpen(true)
                     }}
-                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
                   >
                     Add Sub Department
                   </button>
@@ -3337,7 +3337,7 @@ export default function DepartmentHub() {
                     />
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">
                       Save
                     </button>
                     <button
@@ -3347,7 +3347,7 @@ export default function DepartmentHub() {
                         setEditingSubDept(null)
                         setSubDeptForm({ name: '', servingArea: '' })
                       }}
-                      className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                      className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
                     >
                       Cancel
                     </button>
@@ -3368,7 +3368,7 @@ export default function DepartmentHub() {
                       setDlightSubDeptForm({ name: '', servingArea: '' })
                       setDlightSubDeptModalOpen(true)
                     }}
-                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
                   >
                     Add Sub Department
                   </button>
@@ -3480,13 +3480,13 @@ export default function DepartmentHub() {
                     />
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">
                       Save
                     </button>
                     <button
                       type="button"
                       onClick={() => setDlightSubDeptModalOpen(false)}
-                      className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                      className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
                     >
                       Cancel
                     </button>
@@ -3833,7 +3833,7 @@ export default function DepartmentHub() {
                           setPcsEntries(prev => prev.filter(e => e.id !== entry.id))
                           setPcsExpandedId(null)
                         }}
-                        className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 transition-colors"
+                        className="px-4 min-h-[44px] py-2 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 hover:border-red-300 active:bg-red-100 transition-colors"
                       >Remove from PCS</button>
                     </div>
 
@@ -4674,7 +4674,7 @@ export default function DepartmentHub() {
                       placeholder="Add child"
                     />
                   </div>
-                  <button type="submit" className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium">
+                  <button type="submit" className="px-3 py-1.5 min-h-[44px] bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">
                     Add child
                   </button>
                 </form>
@@ -4733,7 +4733,7 @@ export default function DepartmentHub() {
                       setNewEventName('')
                       setNewEventModalOpen(true)
                     }}
-                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                    className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
                   >
                     Add Event
                   </button>
@@ -4784,7 +4784,7 @@ export default function DepartmentHub() {
                         required
                       />
                       <div className="flex gap-2">
-                        <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">
+                        <button type="submit" className="px-4 min-h-[44px] py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">
                           Create
                         </button>
                         <button
@@ -4871,7 +4871,7 @@ export default function DepartmentHub() {
                                     setEventProgramEditingId(null)
                                     setEventProgramModalOpen(true)
                                   }}
-                                  className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                                  className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
                                 >
                                   Add Program
                                 </button>
@@ -5148,7 +5148,7 @@ export default function DepartmentHub() {
                                 alert('Failed to save')
                               }
                             }}
-                            className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium"
+                            className="mt-4 px-4 min-h-[44px] py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
                           >
                             Save
                           </button>
@@ -6415,8 +6415,8 @@ export default function DepartmentHub() {
                         <input type="number" min="0" value={cellAttendanceForm.totalAttendance} onChange={(e) => setCellAttendanceForm((f) => ({ ...f, totalAttendance: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
                       </div>
                       <div className="flex gap-2 pt-2">
-                        <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>
-                        <button type="button" onClick={() => setCellAttendanceModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+                        <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">Save</button>
+                        <button type="button" onClick={() => setCellAttendanceModalOpen(false)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
                       </div>
                     </form>
                   </div>
@@ -6486,8 +6486,8 @@ export default function DepartmentHub() {
                     </select>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>
-                    <button type="button" onClick={() => setCellGroupModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">Save</button>
+                    <button type="button" onClick={() => setCellGroupModalOpen(false)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -6544,8 +6544,8 @@ export default function DepartmentHub() {
                     </select>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">Save</button>
-                    <button type="button" onClick={() => { setCellGroupEditModalOpen(false); setEditingCellGroupId(null) }} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">Save</button>
+                    <button type="button" onClick={() => { setCellGroupEditModalOpen(false); setEditingCellGroupId(null) }} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -6907,7 +6907,7 @@ export default function DepartmentHub() {
                   <button
                     type="button"
                     onClick={() => { setCellImportModalOpen(false); setCellImportPreview([]) }}
-                    className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                    className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
                   >
                     Cancel
                   </button>
@@ -6936,7 +6936,7 @@ export default function DepartmentHub() {
                       }
                       setCellImportSaving(false)
                     }}
-                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
+                    className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors"
                   >
                     {cellImportSaving ? 'Importing…' : 'Confirm Import'}
                   </button>
@@ -7128,7 +7128,7 @@ export default function DepartmentHub() {
                   <div className="flex gap-2 pt-2">
                     <button
                       type="submit"
-                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+                      className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
                     >
                       Save
                     </button>
@@ -7138,7 +7138,7 @@ export default function DepartmentHub() {
                         setUpdateModalOpen(false)
                         setEditingUpdateId(null)
                       }}
-                      className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                      className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
                     >
                       Cancel
                     </button>
@@ -7250,7 +7250,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 }}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
               >Remove from PCS</button>
-              <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-white/80 text-xl">×</button>
+              <button type="button" onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:bg-white/80 hover:text-slate-600 active:bg-white/60 transition-colors text-xl">×</button>
             </div>
           </div>
 
@@ -7447,7 +7447,7 @@ function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
                 Linking <span className="font-medium text-slate-600">{member.name}</span> — pick the matching visitor record
               </p>
             </div>
-            <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
+            <button type="button" onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:bg-slate-200 transition-colors text-xl flex-shrink-0">×</button>
           </div>
 
           {/* Search */}

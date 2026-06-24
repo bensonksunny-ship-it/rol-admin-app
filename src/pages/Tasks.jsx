@@ -332,7 +332,7 @@ export default function Tasks() {
                 <button
                   type="button"
                   onClick={() => setModal(null)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
                 >
                   Cancel
                 </button>

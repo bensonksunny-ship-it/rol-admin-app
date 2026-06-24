@@ -318,7 +318,7 @@ export default function Finance() {
                   })
                   setModal('form')
                 }}
-                className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700"
+                className="px-4 min-h-[44px] py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 active:bg-red-800 transition-colors"
               >
                 + Expense
               </button>
@@ -993,7 +993,7 @@ export default function Finance() {
                 <button
                   type="button"
                   onClick={() => { setModal(null); setEditingBudgetId(null) }}
-                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
                 >
                   Cancel
                 </button>
@@ -1114,7 +1114,7 @@ export default function Finance() {
                 <button
                   type="button"
                   onClick={() => setModal(null)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
                 >
                   Cancel
                 </button>
@@ -1207,7 +1207,7 @@ export default function Finance() {
                 <button
                   type="button"
                   onClick={() => setVoucherModal(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
                 >
                   Cancel
                 </button>

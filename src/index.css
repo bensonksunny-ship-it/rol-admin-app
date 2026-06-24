@@ -165,13 +165,173 @@ body {
   box-shadow: 0 16px 40px rgba(0,0,0,0.1), 0 0 0 1px rgba(99,102,241,0.18), inset 0 1px 0 rgba(255,255,255,1) !important;
 }
 
-/* ─── Touch targets: ensure primary action buttons are tall enough ────────── */
-@media (max-width: 639px) {
-  .btn-touch {
-    min-height: 2.75rem; /* 44 px */
-    padding-top: 0.625rem;
-    padding-bottom: 0.625rem;
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUTTON SYSTEM — baseline + utility classes
+   Every <button> gets: cursor, transition, focus ring, disabled style,
+   and active press feedback. No colours overridden — only behaviour.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Global baseline: applies to every <button> in the app ───────────── */
+@layer base {
+  button {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color 140ms ease,
+      color            140ms ease,
+      border-color     140ms ease,
+      box-shadow       140ms ease,
+      opacity          140ms ease,
+      transform         80ms ease;
   }
+
+  /* Keyboard-navigation focus ring — only shows on keyboard, not mouse click */
+  button:focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: 2px;
+    border-radius: inherit;
+  }
+
+  /* Disabled: dim + block interaction + show intent clearly */
+  button:disabled,
+  button[aria-disabled="true"] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  /* Active / press feedback — subtle scale for tactile feel */
+  button:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: scale(0.96);
+  }
+}
+
+/* ── 2. Base .btn: shared geometry for all named variants ───────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;   /* 44 px minimum tap target */
+  padding: 0.5rem 1.125rem;
+  border-radius: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  border: 1.5px solid transparent;
+  user-select: none;
+}
+
+/* ── 3. Colour variants ─────────────────────────────────────────────────── */
+
+/* Primary — indigo filled */
+.btn-primary {
+  background-color: #4f46e5;
+  color: #ffffff;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: #4338ca;
+  box-shadow: 0 2px 8px rgba(79,70,229,0.35);
+}
+.btn-primary:active:not(:disabled)  { background-color: #3730a3; }
+.btn-primary:focus-visible          { outline-color: #4f46e5; box-shadow: 0 0 0 3px rgba(99,102,241,0.35); }
+.dark .btn-primary                  { background-color: #6366f1; }
+.dark .btn-primary:hover:not(:disabled) { background-color: #4f46e5; }
+
+/* Secondary — slate outline */
+.btn-secondary {
+  background-color: transparent;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+.btn-secondary:hover:not(:disabled) {
+  background-color: #f8fafc;
+  border-color: #94a3b8;
+  color: #334155;
+}
+.btn-secondary:active:not(:disabled) { background-color: #f1f5f9; }
+.btn-secondary:focus-visible          { outline-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.20); }
+.dark .btn-secondary                  { color: #94a3b8; border-color: #334155; }
+.dark .btn-secondary:hover:not(:disabled) { background-color: rgba(30,41,59,0.6); color: #e2e8f0; border-color: #475569; }
+
+/* Danger — red filled */
+.btn-danger {
+  background-color: #dc2626;
+  color: #ffffff;
+}
+.btn-danger:hover:not(:disabled)  { background-color: #b91c1c; box-shadow: 0 2px 8px rgba(220,38,38,0.30); }
+.btn-danger:active:not(:disabled) { background-color: #991b1b; }
+.btn-danger:focus-visible         { outline-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.30); }
+
+/* Danger outline — red border, no fill */
+.btn-danger-outline {
+  background-color: transparent;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+.btn-danger-outline:hover:not(:disabled)  { background-color: #fef2f2; border-color: #dc2626; }
+.btn-danger-outline:active:not(:disabled) { background-color: #fee2e2; }
+.btn-danger-outline:focus-visible         { outline-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.20); }
+.dark .btn-danger-outline                 { color: #fca5a5; border-color: rgba(220,38,38,0.40); }
+.dark .btn-danger-outline:hover:not(:disabled) { background-color: rgba(220,38,38,0.12); }
+
+/* Success — emerald filled */
+.btn-success {
+  background-color: #059669;
+  color: #ffffff;
+}
+.btn-success:hover:not(:disabled)  { background-color: #047857; box-shadow: 0 2px 8px rgba(5,150,105,0.30); }
+.btn-success:active:not(:disabled) { background-color: #065f46; }
+.btn-success:focus-visible         { outline-color: #059669; box-shadow: 0 0 0 3px rgba(5,150,105,0.30); }
+
+/* Ghost — text-only, no border or fill until hovered */
+.btn-ghost {
+  background-color: transparent;
+  color: #4f46e5;
+  border-color: transparent;
+}
+.btn-ghost:hover:not(:disabled)  { background-color: rgba(99,102,241,0.08); }
+.btn-ghost:active:not(:disabled) { background-color: rgba(99,102,241,0.16); }
+.btn-ghost:focus-visible         { box-shadow: 0 0 0 3px rgba(99,102,241,0.20); }
+.dark .btn-ghost                 { color: #a5b4fc; }
+.dark .btn-ghost:hover:not(:disabled) { background-color: rgba(99,102,241,0.15); }
+
+/* Icon button — square, 44×44 tap target, no background until hovered */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  min-width:  2.75rem;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  background-color: transparent;
+  border: 1.5px solid transparent;
+  color: inherit;
+}
+.btn-icon:hover:not(:disabled)  { background-color: rgba(99,102,241,0.08); }
+.btn-icon:active:not(:disabled) { background-color: rgba(99,102,241,0.16); }
+.btn-icon:focus-visible         { outline-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.20); }
+.dark .btn-icon:hover:not(:disabled) { background-color: rgba(99,102,241,0.18); }
+
+/* ── 4. Size modifiers ──────────────────────────────────────────────────── */
+.btn-sm {
+  min-height: 2.25rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  border-radius: 0.5rem;
+}
+.btn-xs {
+  min-height: 1.875rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  border-radius: 0.375rem;
+}
+
+/* ── 5. Legacy touch-target helper (kept for backwards compatibility) ────── */
+.btn-touch {
+  min-height: 2.75rem;
 }
 
 @keyframes rolAccordionSlideIn {

@@ -163,7 +163,7 @@ function AttendanceSectionShell({
           <button
             type="button"
             onClick={() => (isCompleted ? onUndo() : onDone())}
-            className="px-4 py-2 rounded-lg text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 text-slate-800"
+            className="px-4 min-h-[44px] py-2 rounded-lg text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 text-slate-800 transition-colors"
           >
             {isCompleted ? 'Undo' : 'Done'}
           </button>
@@ -691,7 +691,7 @@ export default function SundayReport({ embedded = false }) {
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="ml-auto px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+              className="ml-auto px-5 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors"
             >
               {saving ? 'Saving…' : 'Save'}
             </button>

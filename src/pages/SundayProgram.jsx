@@ -841,7 +841,7 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                 } catch (e) { console.error(e); alert('Failed to send notification') }
                 setSendingNotif(false)
               }}
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
+              className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors">
               {sendingNotif ? 'Sending…' : 'Send Program Notification'}
             </button>
             <button type="button" disabled={pushing || !pushDate}
@@ -1419,7 +1419,7 @@ function DesignProgramTab({ canEdit, userProfile }) {
             type="button"
             onClick={save}
             disabled={saving}
-            className="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+            className="px-5 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors"
           >
             {saving ? 'Saving…' : 'Save Design'}
           </button>

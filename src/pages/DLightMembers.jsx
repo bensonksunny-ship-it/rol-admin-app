@@ -327,7 +327,7 @@ export default function DLightMembers() {
             </label>
             <button
               onClick={openAdd}
-              className="px-3 py-1.5 text-sm font-medium rounded bg-indigo-600 hover:bg-indigo-700 transition text-white"
+              className="px-3 min-h-[44px] py-1.5 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 transition-colors text-white"
             >
               + Add
             </button>
@@ -374,7 +374,7 @@ export default function DLightMembers() {
                 <button
                   onClick={handleImport}
                   disabled={importing || !importRows.some((r) => r._valid)}
-                  className="px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition text-white"
+                  className="px-3 min-h-[44px] py-1.5 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors text-white"
                 >
                   {importing ? 'Importing…' : 'Confirm Import'}
                 </button>
@@ -552,7 +552,7 @@ export default function DLightMembers() {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-4 py-2 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium transition"
+                className="px-4 min-h-[44px] py-2 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 text-white font-medium transition-colors"
               >
                 {saving ? 'Saving…' : 'Save'}
               </button>
@@ -577,7 +577,7 @@ export default function DLightMembers() {
               <button
                 onClick={handleDeleteAll}
                 disabled={deletingAll}
-                className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium transition"
+                className="px-4 min-h-[44px] py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:opacity-50 text-white font-medium transition-colors"
               >
                 {deletingAll ? 'Deleting…' : `Delete All ${members.length}`}
               </button>
@@ -600,7 +600,7 @@ export default function DLightMembers() {
               <button
                 onClick={handleDelete}
                 disabled={deleting}
-                className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium transition"
+                className="px-4 min-h-[44px] py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:opacity-50 text-white font-medium transition-colors"
               >
                 {deleting ? 'Deleting…' : 'Delete'}
               </button>

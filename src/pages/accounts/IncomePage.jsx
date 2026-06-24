@@ -374,7 +374,7 @@ export default function IncomePage() {
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold disabled:opacity-50 transition shadow-sm"
+              className="px-5 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold disabled:opacity-50 transition-colors shadow-sm"
             >
               {saving ? 'Saving…' : editingId ? 'Update' : 'Save'}
             </button>
@@ -415,7 +415,7 @@ export default function IncomePage() {
                 type="button"
                 onClick={handleSavePending}
                 disabled={savingImports}
-                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold disabled:opacity-50 transition"
+                className="px-3 min-h-[44px] py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold disabled:opacity-50 transition-colors"
               >
                 {savingImports ? 'Saving…' : `Save ${pendingImports.length} ${pendingImports.length === 1 ? 'entry' : 'entries'}`}
               </button>
@@ -609,14 +609,14 @@ export default function IncomePage() {
                 Hint: columns — <span className="font-mono">Date, Income Type, Given By, Amount</span>
               </p>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setXlsxRows(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50">
+                <button type="button" onClick={() => setXlsxRows(null)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleLoadPending}
                   disabled={!xlsxRows.some(r => r._valid)}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50 transition"
+                  className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                 >
                   Load to table →
                 </button>

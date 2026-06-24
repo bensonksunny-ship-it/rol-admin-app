@@ -719,7 +719,7 @@ export default function CellReport() {
               placeholder="Type name and press Enter or click Add"
               className="px-2 py-1.5 rounded border border-slate-300 min-w-[180px] flex-1"
             />
-            <button type="button" onClick={() => { const n = visitorInput.trim(); if (n) { handleAddVisitor(n); setVisitorInput(''); } }} className="px-3 py-1.5 rounded bg-indigo-600 text-white text-sm">Add visitor</button>
+            <button type="button" onClick={() => { const n = visitorInput.trim(); if (n) { handleAddVisitor(n); setVisitorInput(''); } }} className="px-3 min-h-[44px] py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Add visitor</button>
           </div>
           <ul className="text-sm text-slate-700 divide-y divide-slate-100">
             {(report.visitorsList || []).length === 0 ? <li className="py-2 text-slate-500">No visitors added.</li> : (report.visitorsList || []).map((name, i) => (
@@ -748,7 +748,7 @@ export default function CellReport() {
               placeholder="Type name and press Enter or click Add"
               className="px-2 py-1.5 rounded border border-slate-300 min-w-[180px] flex-1"
             />
-            <button type="button" onClick={() => { const n = childInput.trim(); if (n) { handleAddChild(n); setChildInput(''); } }} className="px-3 py-1.5 rounded bg-indigo-600 text-white text-sm">Add child</button>
+            <button type="button" onClick={() => { const n = childInput.trim(); if (n) { handleAddChild(n); setChildInput(''); } }} className="px-3 min-h-[44px] py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Add child</button>
           </div>
           <ul className="text-sm text-slate-700 divide-y divide-slate-100">
             {(report.childrenList || []).length === 0 ? <li className="py-2 text-slate-500">No children added.</li> : (report.childrenList || []).map((name, i) => (
@@ -987,7 +987,7 @@ export default function CellReport() {
                                                       setVisitorInput('')
                                                     }
                                                   }}
-                                                  className="px-3 py-2 rounded bg-indigo-600 text-white text-sm"
+                                                  className="px-3 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors"
                                                 >
                                                   Add
                                                 </button>
@@ -1044,7 +1044,7 @@ export default function CellReport() {
                                                       setChildInput('')
                                                     }
                                                   }}
-                                                  className="px-3 py-2 rounded bg-indigo-600 text-white text-sm"
+                                                  className="px-3 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors"
                                                 >
                                                   Add
                                                 </button>
@@ -1108,7 +1108,7 @@ export default function CellReport() {
                                                     setSaving(false)
                                                   }
                                                 }}
-                                                className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+                                                className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                                               >
                                                 <span className="inline-flex items-center gap-2">
                                                   Save
@@ -1436,7 +1436,7 @@ export default function CellReport() {
                                                   setVisitorInput('')
                                                 }
                                               }}
-                                              className="px-3 py-2 rounded bg-indigo-600 text-white text-sm"
+                                              className="px-3 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors"
                                             >
                                               Add
                                             </button>
@@ -1490,7 +1490,7 @@ export default function CellReport() {
                                                   setChildInput('')
                                                 }
                                               }}
-                                              className="px-3 py-2 rounded bg-indigo-600 text-white text-sm"
+                                              className="px-3 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors"
                                             >
                                               Add
                                             </button>
@@ -1552,7 +1552,7 @@ export default function CellReport() {
                                                 setSaving(false)
                                               }
                                             }}
-                                            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+                                            className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                                           >
                                             <span className="inline-flex items-center gap-2">
                                               Save
@@ -1855,7 +1855,7 @@ export default function CellReport() {
                   <form onSubmit={async (e) => { e.preventDefault(); if (!canEditCurrentReport || !effectiveCellId) return; const name = (programForm.programName || '').trim(); if (!name) return; try { if (editingProgramId) { await updateCellProgramItem(effectiveCellId, editingProgramId, { programName: name, order: programForm.order }); setProgramItems((prev) => prev.map((p) => p.id === editingProgramId ? { ...p, programName: name, order: programForm.order } : p)); setEditingProgramId(null); } else { await addCellProgramItem(effectiveCellId, { programName: name, order: programForm.order }); const list = await getCellProgramItems(effectiveCellId); setProgramItems(list); } setProgramForm({ programName: '', order: programItems.length }); } catch (err) { alert('Failed'); } }} className="flex flex-wrap gap-2 mb-4">
                     <input type="text" placeholder="Program name" value={programForm.programName} onChange={(e) => setProgramForm((f) => ({ ...f, programName: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300 flex-1 min-w-[120px]" />
                     <input type="number" min="0" placeholder="Order" value={programForm.order} onChange={(e) => setProgramForm((f) => ({ ...f, order: Number(e.target.value) || 0 }))} className="w-16 px-2 py-2 rounded-lg border border-slate-300" />
-                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">{editingProgramId ? 'Update' : 'Add'}</button>
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">{editingProgramId ? 'Update' : 'Add'}</button>
                     {editingProgramId && <button type="button" onClick={() => { setEditingProgramId(null); setProgramForm({ programName: '', order: programItems.length }); }} className="px-3 py-2 rounded-lg border border-slate-300 text-sm">Cancel</button>}
                   </form>
                   <ul className="space-y-2">
@@ -1954,8 +1954,8 @@ export default function CellReport() {
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <input type="text" value={editCellSearch} onChange={(e) => setEditCellSearch(e.target.value)} placeholder="Search member" className="px-3 py-2 rounded-lg border border-slate-300 min-w-[180px]" />
-                    <button type="button" onClick={() => setEditCellSortAsc((v) => !v)} className="px-3 py-2 rounded-lg border border-slate-300 text-sm text-slate-700">Sort by name {editCellSortAsc ? 'A→Z' : 'Z→A'}</button>
-                    <button type="button" onClick={() => { setLeaderAddMemberOpen(true); setLeaderAddMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' }); }} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">Add Member</button>
+                    <button type="button" onClick={() => setEditCellSortAsc((v) => !v)} className="px-3 min-h-[44px] py-2 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Sort by name {editCellSortAsc ? 'A→Z' : 'Z→A'}</button>
+                    <button type="button" onClick={() => { setLeaderAddMemberOpen(true); setLeaderAddMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' }); }} className="px-3 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Add Member</button>
                   </div>
                   <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                     <h3 className="font-semibold text-slate-800 mb-2">Active Members</h3>
@@ -2093,8 +2093,8 @@ export default function CellReport() {
                             <input type="date" value={editCellForm.since} onChange={(e) => setEditCellForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" title="First Sunday the person started attending the church" />
                           </div>
                           <div className="flex gap-2 pt-2">
-                            <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">Submit for approval</button>
-                            <button type="button" onClick={() => setEditCellEditModal(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm">Cancel</button>
+                            <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Submit for approval</button>
+                            <button type="button" onClick={() => setEditCellEditModal(null)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
                           </div>
                         </form>
                       </div>
@@ -2168,8 +2168,8 @@ export default function CellReport() {
                       </select>
                     </div>
                     <div className="flex gap-2 pt-2">
-                      <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">Submit for approval</button>
-                      <button type="button" onClick={() => setLeaderAddMemberOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm">Cancel</button>
+                      <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Submit for approval</button>
+                      <button type="button" onClick={() => setLeaderAddMemberOpen(false)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
                     </div>
                   </form>
                 </div>
@@ -2217,10 +2217,10 @@ export default function CellReport() {
                       </select>
                     </div>
                     <div className="flex flex-wrap gap-2 pt-2">
-                      <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">Save Changes</button>
+                      <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Save Changes</button>
                       <button type="button" onClick={async () => { if (!canEditCurrentReport) return; try { await addCellMemberPendingChange({ changeType: 'deactivate', cellId: myCellId, cellName: cell?.cellName || '', memberId: leaderEditMember.id, memberData: null, requestedBy: userProfile?.email || userProfile?.displayName || 'Leader' }); setLeaderEditMember(null); alert('Make Inactive submitted for approval.'); } catch (e) { alert('Failed'); } }} className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium">Make Inactive</button>
                       <button type="button" onClick={async () => { if (!canEditCurrentReport) return; if (!window.confirm('Request to delete this member?')) return; try { await addCellMemberPendingChange({ changeType: 'delete', cellId: myCellId, cellName: cell?.cellName || '', memberId: leaderEditMember.id, memberData: null, requestedBy: userProfile?.email || userProfile?.displayName || 'Leader' }); setLeaderEditMember(null); alert('Delete submitted for approval.'); } catch (e) { alert('Failed'); } }} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium">Delete Member</button>
-                      <button type="button" onClick={() => setLeaderEditMember(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm">Cancel</button>
+                      <button type="button" onClick={() => setLeaderEditMember(null)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
                     </div>
                   </form>
                 </div>

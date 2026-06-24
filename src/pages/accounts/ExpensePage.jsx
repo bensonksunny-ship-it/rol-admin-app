@@ -342,7 +342,7 @@ export default function ExpensePage() {
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50 transition"
+            className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium disabled:opacity-50 transition-colors"
           >
             {saving ? 'Saving…' : editingId ? 'Update' : 'Save'}
           </button>
@@ -522,14 +522,14 @@ export default function ExpensePage() {
                 Hint: columns — <span className="font-mono">Date, Department, Item, Bill No, Amount</span>
               </p>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setXlsxRows(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50">
+                <button type="button" onClick={() => setXlsxRows(null)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleImportAll}
                   disabled={importingXlsx || !xlsxRows.some(r => r._valid)}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50 transition"
+                  className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                 >
                   {importingXlsx ? 'Importing…' : `Import ${xlsxRows.filter(r => r._valid).length} rows`}
                 </button>
