@@ -3514,7 +3514,7 @@ export default function DepartmentHub() {
               setPcsExpandedForm({
                 name: entry.name || '', phone: entry.phone || '', attendedDate: entry.attendedDate || '',
                 membershipNumber: entry.membershipNumber || '', leadershipPosition: entry.leadershipPosition || '',
-                year: entry.year || '', email: '', dob: '', nativity: '', currentPlace: '', serviceAttended: '', howKnown: '',
+                year: entry.year || '', email: entry.email || '', dob: entry.dob || '', nativity: entry.nativity || '', currentPlace: entry.currentPlace || '', serviceAttended: entry.serviceAttended || '', howKnown: entry.howKnown || '',
                 baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '',
                 isDirector: false, directorOf: '', directorSince: '', leaderSince: '', leaderUntil: '',
               })
@@ -3810,10 +3810,10 @@ export default function DepartmentHub() {
                         onClick={async () => {
                           setPcsExpandedSaving(true)
                           try {
-                            const { name, phone, attendedDate, membershipNumber, year, email, dob, nativity, currentPlace, serviceAttended, howKnown } = f
+                            const { name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown } = f
                             const resolvedYear = year || (attendedDate ? new Date(attendedDate).getFullYear() : null)
-                            await updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, year: resolvedYear })
-                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, attendedDate, membershipNumber, year: resolvedYear ? Number(resolvedYear) : null } : e))
+                            await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear })
+                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear ? Number(resolvedYear) : null } : e))
                             if (entry.visitorId) {
                               updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }).catch(() => {})
                               updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
@@ -4242,7 +4242,6 @@ export default function DepartmentHub() {
                   ) : (
                     <div className="divide-y divide-slate-100">
                       {grouped.map(({ year, entries }) => {
-                        const expandedEntry = entries.find(e => e.id === pcsExpandedId)
                         return (
                           <div key={year ?? 'no-year'}>
                             {/* Year label */}
@@ -4252,12 +4251,23 @@ export default function DepartmentHub() {
                                 {entries.length} {entries.length === 1 ? 'person' : 'people'}
                               </span>
                             </div>
-                            {/* Chips */}
+                            {/* Chips — profile panel injected inline right after the clicked chip */}
                             <div className="px-4 py-3 flex flex-wrap gap-2">
-                              {entries.map(entry => <Chip key={entry.id} entry={entry} />)}
+                              {entries.map(entry => (
+                                <Fragment key={entry.id}>
+                                  <Chip entry={entry} />
+                                  {pcsExpandedId === entry.id && (
+                                    <>
+                                      {/* Force a full-width break so profile starts on its own row */}
+                                      <div className="w-full -mx-4" />
+                                      <div className="w-full -mx-4">
+                                        {PCSInlineProfile({ entry })}
+                                      </div>
+                                    </>
+                                  )}
+                                </Fragment>
+                              ))}
                             </div>
-                            {/* Profile panel — appears right below this year's chips */}
-                            {expandedEntry && PCSInlineProfile({ entry: expandedEntry })}
                           </div>
                         )
                       })}

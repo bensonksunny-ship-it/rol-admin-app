@@ -2244,6 +2244,12 @@ export async function getPCSEntries() {
       visitorId: data.visitorId || '',
       name: data.name || '',
       phone: data.phone || '',
+      email: data.email || '',
+      dob: data.dob || '',
+      nativity: data.nativity || '',
+      currentPlace: data.currentPlace || '',
+      serviceAttended: data.serviceAttended || '',
+      howKnown: data.howKnown || '',
       attendedDate: data.attendedDate || '',
       year: data.year ? Number(data.year) : null,
       membershipNumber: data.membershipNumber || '',
@@ -2260,6 +2266,12 @@ export async function addPCSEntry(data) {
     visitorId: data.visitorId || '',
     name: data.name || '',
     phone: data.phone || '',
+    email: data.email || '',
+    dob: data.dob || '',
+    nativity: data.nativity || '',
+    currentPlace: data.currentPlace || '',
+    serviceAttended: data.serviceAttended || '',
+    howKnown: data.howKnown || '',
     attendedDate: data.attendedDate || '',
     year: data.year ? Number(data.year) : null,
     membershipNumber: data.membershipNumber || '',
@@ -2275,6 +2287,12 @@ export async function updatePCSEntry(id, data) {
   const payload = {}
   if (data.name !== undefined) payload.name = String(data.name)
   if (data.phone !== undefined) payload.phone = String(data.phone)
+  if (data.email !== undefined) payload.email = String(data.email)
+  if (data.dob !== undefined) payload.dob = String(data.dob).slice(0, 10)
+  if (data.nativity !== undefined) payload.nativity = String(data.nativity)
+  if (data.currentPlace !== undefined) payload.currentPlace = String(data.currentPlace)
+  if (data.serviceAttended !== undefined) payload.serviceAttended = String(data.serviceAttended)
+  if (data.howKnown !== undefined) payload.howKnown = String(data.howKnown)
   if (data.attendedDate !== undefined) payload.attendedDate = String(data.attendedDate).slice(0, 10)
   if (data.year !== undefined) payload.year = data.year ? Number(data.year) : null
   if (data.membershipNumber !== undefined) payload.membershipNumber = String(data.membershipNumber)

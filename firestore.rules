@@ -70,9 +70,15 @@ service cloud.firestore {
     }
 
     match /department_team_members/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) || canAccessDept('Caring'));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+    }
+
+    // Church member profiles (baptism, marriage, leadership history) — Caring holds highest authority
+    match /member_profiles/{visitorId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
     match /department_sub_departments/{docId} {
@@ -125,8 +131,9 @@ service cloud.firestore {
     }
 
     match /delight_visitors/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
-      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring'));
+      allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
+      allow update: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring'));
     }
 
     match /dlight_sub_departments/{docId} {
