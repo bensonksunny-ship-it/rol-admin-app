@@ -135,7 +135,7 @@ service cloud.firestore {
     }
 
     match /dlight_members/{docId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || getUserRole() == 'Admin');
+      allow read, write: if isSignedIn() && (isFullAccess() || getUserRole() == 'Admin' || canAccessDept('D Light'));
     }
 
     match /sunday_program/{docId} {
@@ -149,14 +149,14 @@ service cloud.firestore {
     }
 
     match /cell_groups/{cellId} {
-      // Sunday Ministry needs read access to show cell-based attendance in Sunday Report.
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry'));
+      // Sunday Ministry and Caring need read access (attendance + PCS cell connections).
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring'));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
     }
 
     match /cell_groups/{cellId}/members/{memberId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry'));
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring'));
       // Write is restricted: Founder/Admin full access; Cell Director can write any cell;
       // Cell Leader can only write members within their own linked cell.
       allow create, update, delete: if isSignedIn() && (
@@ -210,11 +210,11 @@ service cloud.firestore {
     }
 
     match /caring_members/{docId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || userDepartment() == 'Caring');
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
     match /caring_pcs/{docId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || userDepartment() == 'Caring');
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
     match /cell_attendance/{docId} {
@@ -224,9 +224,9 @@ service cloud.firestore {
     }
 
     match /finance_budget/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || !('department' in resource.data) || resource.data.department == userDepartment());
-      allow create: if isSignedIn() && (isFullAccess() || !('department' in request.resource.data) || request.resource.data.department == userDepartment());
-      allow update, delete: if isSignedIn() && (isFullAccess() || !('department' in resource.data) || resource.data.department == userDepartment());
+      allow read: if isSignedIn() && (isFullAccess() || !('department' in resource.data) || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || !('department' in request.resource.data) || canAccessDept(request.resource.data.department));
+      allow update, delete: if isSignedIn() && (isFullAccess() || !('department' in resource.data) || canAccessDept(resource.data.department));
     }
 
     match /pastor_department_remarks/{docId} {

@@ -4025,21 +4025,25 @@ export default function DepartmentHub() {
                   />
                 )}
 
-                {/* ── Pending Members from Cell Leaders ── */}
-                {cellReferralTasks.length > 0 && (
-                  <div className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => setCellReferralOpen(o => !o)}
-                      className="w-full px-4 py-3 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 transition-colors text-left"
-                    >
-                      <span className="w-2.5 h-2.5 rounded-full bg-orange-400 flex-shrink-0" />
-                      <p className="text-sm font-bold text-orange-800 flex-1">Pending Members from Cell</p>
-                      <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                        {cellReferralTasks.length}
-                      </span>
-                      <span className="text-orange-400 text-xs ml-1">{cellReferralOpen ? '▲' : '▼'}</span>
-                    </button>
+                {/* ── Cell dropdowns — side by side ── */}
+                {(cellReferralTasks.length > 0 || removedFromCellInPCS.length > 0) && (
+                  <div className="flex gap-3 items-start">
+
+                    {/* ── Pending Members from Cell Leaders ── */}
+                    {cellReferralTasks.length > 0 && (
+                    <div className="flex-1 min-w-0 bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setCellReferralOpen(o => !o)}
+                        className="w-full px-4 py-3 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 transition-colors text-left"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-orange-400 flex-shrink-0" />
+                        <p className="text-sm font-bold text-orange-800 flex-1">Pending from Cell</p>
+                        <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                          {cellReferralTasks.length}
+                        </span>
+                        <span className="text-orange-400 text-xs ml-1">{cellReferralOpen ? '▲' : '▼'}</span>
+                      </button>
                     {cellReferralOpen && (
                     <>
                     <p className="px-4 pt-3 pb-1 text-xs text-slate-400">
@@ -4151,27 +4155,27 @@ export default function DepartmentHub() {
                         )
                       })}
                     </div>
-                    </>
+                      </>
+                      )}
+                    </div>
                     )}
-                  </div>
-                )}
 
-                {/* ── Removed from Cell — still in PCS ── */}
-                {removedFromCellInPCS.length > 0 && (
-                  <div className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => setRemovedFromCellOpen(o => !o)}
-                      className="w-full px-4 py-3 flex items-center gap-2 bg-slate-100 hover:bg-slate-200 transition-colors text-left"
-                    >
-                      <span className="w-2.5 h-2.5 rounded-full bg-slate-500 flex-shrink-0" />
-                      <p className="text-sm font-bold text-slate-700 flex-1">Removed from Cell — Still in PCS</p>
+                    {/* ── Removed from Cell — still in PCS ── */}
+                    {removedFromCellInPCS.length > 0 && (
+                    <div className="flex-1 min-w-0 bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setRemovedFromCellOpen(o => !o)}
+                        className="w-full px-4 py-3 flex items-center gap-2 bg-slate-100 hover:bg-slate-200 transition-colors text-left"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full bg-slate-500 flex-shrink-0" />
+                        <p className="text-sm font-bold text-slate-700 flex-1">Removed from Cell</p>
                       <span className="bg-slate-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
                         {removedFromCellInPCS.length}
                       </span>
                       <span className="text-slate-400 text-xs ml-1">{removedFromCellOpen ? '▲' : '▼'}</span>
                     </button>
-                    {removedFromCellOpen && (
+                      {removedFromCellOpen && (
                       <>
                         <p className="px-4 pt-3 pb-1 text-xs text-slate-400">
                           These people have been made inactive in their cell group. Review and remove from PCS if no longer active in church.
@@ -4216,7 +4220,10 @@ export default function DepartmentHub() {
                           })}
                         </div>
                       </>
+                      )}
+                    </div>
                     )}
+
                   </div>
                 )}
 
