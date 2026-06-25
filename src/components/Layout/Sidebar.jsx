@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Crown, Building2, CalendarCheck,
   UserCog, FolderOpen, Leaf, PenLine, LogOut, Bell,
@@ -55,22 +55,24 @@ function getInitials(profile) {
   return name.slice(0, 2).toUpperCase()
 }
 
-function NotifPanel({ isDay, notifications, mobile }) {
+function NotifPanel({ isDay, notifications, posStyle, onAction }) {
   const fmtDate = (d) => {
     if (!d) return ''
     try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) } catch { return '' }
   }
   return (
     <div
-      className={`absolute ${mobile ? 'top-full right-0 mt-1' : 'top-full right-0 mt-2'} w-72 rounded-2xl overflow-hidden`}
+      className="w-72 rounded-2xl overflow-hidden"
       style={{
-        zIndex: 70,
+        position: 'fixed',
+        zIndex: 9999,
         maxWidth: 'calc(100vw - 24px)',
         background: isDay ? 'rgba(255,255,255,0.97)' : 'rgba(15,23,42,0.97)',
         backdropFilter: 'blur(28px)',
         WebkitBackdropFilter: 'blur(28px)',
         border: isDay ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)',
         boxShadow: '0 16px 48px rgba(0,0,0,0.22)',
+        ...posStyle,
       }}
     >
       <div className={`px-4 py-2.5 flex items-center justify-between border-b ${isDay ? 'border-slate-100' : 'border-slate-700/60'}`}>
@@ -87,12 +89,18 @@ function NotifPanel({ isDay, notifications, mobile }) {
       ) : (
         <div className={`overflow-y-auto max-h-72 divide-y ${isDay ? 'divide-slate-100' : 'divide-slate-700/50'}`}>
           {notifications.map((n) => (
-            <div key={n.id} className={`px-4 py-3 transition-colors ${isDay ? 'hover:bg-slate-50' : 'hover:bg-slate-800/50'}`}>
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => onAction && onAction(n)}
+              className={`w-full text-left px-4 py-3 transition-colors ${isDay ? 'hover:bg-violet-50' : 'hover:bg-slate-800/50'}`}
+            >
               <p className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isDay ? 'text-violet-600' : 'text-violet-400'}`}>{n.title}</p>
               <p className={`text-sm ${isDay ? 'text-slate-700' : 'text-slate-200'}`}>{n.body}</p>
               {n.cellName && <p className={`text-xs mt-0.5 ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>{n.cellName}</p>}
               {n.sentAt && <p className={`text-[10px] mt-1 ${isDay ? 'text-slate-300' : 'text-slate-600'}`}>{fmtDate(n.sentAt)}</p>}
-            </div>
+              <p className={`text-xs font-semibold mt-1.5 ${isDay ? 'text-violet-600' : 'text-violet-400'}`}>Tap to fill →</p>
+            </button>
           ))}
         </div>
       )}
@@ -341,10 +349,18 @@ export default function Sidebar() {
   )
 
   // ── Notifications ───────────────────────────────────────────────────────────
+  const navigate = useNavigate()
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifications, setNotifications] = useState([])
   const notifDesktopRef = useRef(null)
   const notifMobileRef = useRef(null)
+
+  const handleNotifAction = (n) => {
+    setNotifOpen(false)
+    if (n.type === 'pcs_fill') {
+      navigate('/department/cell?tab=leaderEntry&openFillInvite=' + (n.inviteId || ''))
+    }
+  }
 
   useEffect(() => {
     const cellId = userProfile?.cellGroupId || userProfile?.cellId
@@ -352,6 +368,7 @@ export default function Sidebar() {
     return subscribePCSFillInvitationsByCellId(cellId, (invites) => {
       setNotifications(invites.map((inv) => ({
         id: inv.id,
+        inviteId: inv.id,
         type: 'pcs_fill',
         title: 'Profile Fill Request',
         body: `Fill profile for ${inv.personName || 'a member'}`,
@@ -464,7 +481,11 @@ export default function Sidebar() {
               </span>
             )}
           </button>
-          {notifOpen && <NotifPanel isDay={isDay} notifications={notifications} mobile={false} />}
+          {notifOpen && (() => {
+            const r = notifDesktopRef.current?.getBoundingClientRect()
+            return <NotifPanel isDay={isDay} notifications={notifications} onAction={handleNotifAction}
+              posStyle={{ top: (r?.bottom ?? 60) + 8, left: Math.min(r?.left ?? 0, window.innerWidth - 300) }} />
+          })()}
         </div>
       </div>
     </div>
@@ -543,7 +564,13 @@ export default function Sidebar() {
               </span>
             )}
           </button>
-          {notifOpen && <NotifPanel isDay={isDay} notifications={notifications} mobile />}
+          {notifOpen && (() => {
+            const r = notifMobileRef.current?.getBoundingClientRect()
+            const panelW = Math.min(288, window.innerWidth - 24)
+            const rightEdge = r ? window.innerWidth - r.right : 8
+            return <NotifPanel isDay={isDay} notifications={notifications} onAction={handleNotifAction}
+              posStyle={{ top: (r?.bottom ?? 60) + 8, right: Math.max(rightEdge, 8), maxWidth: panelW }} />
+          })()}
         </div>
         <button
           type="button"

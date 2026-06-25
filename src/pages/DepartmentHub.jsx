@@ -67,6 +67,7 @@ import {
   updateDepartmentEvent,
   deleteDepartmentEvent,
   getPCSEntries,
+  syncAllPCSToLookup,
   addPCSEntry,
   updatePCSEntry,
   deletePCSEntry,
@@ -962,7 +963,7 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (slug === 'caring' && (activeTab === 'pcs' || activeTab === 'summary')) {
       setLoadingPCS(true)
-      getPCSEntries().then(setPcsEntries).catch(() => setPcsEntries([])).finally(() => setLoadingPCS(false))
+      getPCSEntries().then(entries => { setPcsEntries(entries); syncAllPCSToLookup(entries).catch(() => {}) }).catch(() => setPcsEntries([])).finally(() => setLoadingPCS(false))
       getCellGroups('Cell').then(groups => {
         setCellGroups(groups)
         if (!groups.length) return

@@ -15,12 +15,17 @@ import {
   addCellMemberPendingChange,
   getCellMemberPendingChanges,
   getPCSLookup,
+  getMemberProfile,
+  upsertMemberProfile,
+  subscribePCSFillInvitationsByCellId,
+  completePCSFillInvitation,
   createTask,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useViewAs } from '../context/ViewAsContext'
+import { useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -113,7 +118,15 @@ function isUpcomingSoon(dateStr, days = 7) {
 
 export default function ShepherdView({ embedded = false }) {
   const { userProfile } = useAuth()
+  const [searchParamsRoot, setSearchParamsRoot] = useSearchParams()
   const [tab, setTab] = useState('members')
+
+  // When a fill-invite notification is tapped, the URL gains openFillInvite=<id>.
+  // Switch to My Fellowship immediately so MyFellowshipTab mounts and can open the form.
+  const openFillInviteId = searchParamsRoot.get('openFillInvite') || null
+  useEffect(() => {
+    if (openFillInviteId) setTab('fellowship')
+  }, [openFillInviteId])
 
   const isDirector = useMemo(() => isCellDirectorInPositions(userProfile), [userProfile])
   const isLeader   = useMemo(() => isCellLeaderInPositions(userProfile),   [userProfile])
@@ -189,6 +202,10 @@ export default function ShepherdView({ embedded = false }) {
             isDirector={effectiveIsDirector}
             isLeader={isLeader}
             cellGroups={[]}
+            autoFillInviteId={openFillInviteId}
+            onAutoFillInviteConsumed={() =>
+              setSearchParamsRoot(prev => { const n = new URLSearchParams(prev); n.delete('openFillInvite'); return n }, { replace: true })
+            }
           />
         )}
       </div>
@@ -329,6 +346,11 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [prayerMember, setPrayerMember]   = useState(null) // member object
   const [prayerSubject, setPrayerSubject] = useState('')
   const [savingPrayer, setSavingPrayer]   = useState(false)
+
+  // Member detail sheet
+  const [detailMember, setDetailMember]   = useState(null)
+  const [detailProfile, setDetailProfile] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
 
   // PCS lookup — names + visitorIds of people already in PCS
   const [pcsNames, setPcsNames]     = useState(new Set())
@@ -638,13 +660,27 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                   <div className="p-5">
                   {/* ── Header row ── */}
                   <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <button
+                      type="button"
+                      className="flex items-center gap-2 min-w-0 text-left"
+                      onClick={() => {
+                        setDetailMember(member)
+                        setDetailProfile(null)
+                        if (member.visitorId) {
+                          setDetailLoading(true)
+                          getMemberProfile(member.visitorId)
+                            .then(p => setDetailProfile(p))
+                            .catch(() => {})
+                            .finally(() => setDetailLoading(false))
+                        }
+                      }}
+                    >
                       <span className={`w-3 h-3 rounded-full flex-shrink-0 mt-0.5 ${GLOW_DOT[glow]}`} />
                       <div className="min-w-0">
-                        <p className="font-bold text-slate-900 text-sm truncate">{member.name}</p>
+                        <p className="font-bold text-slate-900 text-sm truncate underline-offset-2 hover:underline">{member.name}</p>
                         <p className={`text-xs font-medium ${GLOW_TEXT[glow]}`}>{GLOW_LABEL[glow]}</p>
                       </div>
-                    </div>
+                    </button>
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0 ml-1">
                       {/* Sunday Pulse */}
                       <div className="flex items-center gap-1.5">
@@ -862,6 +898,169 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
           </div>
         </div>
       )}
+
+      {/* Member Detail Sheet */}
+      {detailMember && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => setDetailMember(null)}>
+          <div className="absolute inset-0 bg-black/50" />
+          <div
+            className="relative bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[88vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-slate-100 flex-shrink-0">
+              <div className={`w-11 h-11 rounded-full flex items-center justify-center text-white text-lg font-bold flex-shrink-0 ${GLOW_DOT[getGlow(detailMember.name, heatmap)].replace('bg-', 'bg-')}`}
+                style={{ background: getGlow(detailMember.name, heatmap) === 'green' ? '#4ade80' : getGlow(detailMember.name, heatmap) === 'amber' ? '#fbbf24' : getGlow(detailMember.name, heatmap) === 'red' ? '#f87171' : '#94a3b8' }}
+              >
+                {detailMember.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-slate-900 text-base truncate">{detailMember.name}</p>
+                <p className={`text-xs font-medium ${GLOW_TEXT[getGlow(detailMember.name, heatmap)]}`}>{GLOW_LABEL[getGlow(detailMember.name, heatmap)]}</p>
+              </div>
+              <button type="button" onClick={() => setDetailMember(null)} className="w-9 h-9 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
+            </div>
+
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+
+              {/* Contact */}
+              {(detailMember.phone || detailMember.email) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Contact</p>
+                  <div className="space-y-2">
+                    {detailMember.phone && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-sm">📞</span>
+                        <a href={`tel:${detailMember.phone}`} className="text-sm text-slate-800 hover:text-indigo-600">{detailMember.phone}</a>
+                      </div>
+                    )}
+                    {detailMember.email && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-sm">✉</span>
+                        <a href={`mailto:${detailMember.email}`} className="text-sm text-slate-800 hover:text-indigo-600 break-all">{detailMember.email}</a>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Location */}
+              {(detailMember.locality || detailMember.address) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Location</p>
+                  {detailMember.locality && <p className="text-sm text-slate-800">📍 {detailMember.locality}</p>}
+                  {detailMember.address && <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{detailMember.address}</p>}
+                </section>
+              )}
+
+              {/* Personal */}
+              {(detailMember.birthday || detailMember.anniversary || detailMember.occupation) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Personal</p>
+                  <div className="space-y-1.5">
+                    {detailMember.birthday && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">🎂</span>
+                        <span className="text-sm text-slate-800">{detailMember.birthday}</span>
+                        {isUpcomingSoon(detailMember.birthday) && <span className="text-xs text-pink-500 font-semibold">Soon!</span>}
+                      </div>
+                    )}
+                    {detailMember.anniversary && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">💍</span>
+                        <span className="text-sm text-slate-800">{detailMember.anniversary}</span>
+                        {isUpcomingSoon(detailMember.anniversary) && <span className="text-xs text-rose-500 font-semibold">Soon!</span>}
+                      </div>
+                    )}
+                    {detailMember.occupation && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">💼</span>
+                        <span className="text-sm text-slate-800">{detailMember.occupation}</span>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Cell Involvement */}
+              {(detailMember.role || detailMember.since) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Cell Involvement</p>
+                  <div className="space-y-1.5">
+                    {detailMember.role && <p className="text-sm text-slate-800">🏷 {detailMember.role}</p>}
+                    {detailMember.since && <p className="text-sm text-slate-800">⏳ Member since {detailMember.since}</p>}
+                  </div>
+                </section>
+              )}
+
+              {/* Faith background — from member_profiles (public read) */}
+              {detailLoading && (
+                <p className="text-xs text-slate-400 text-center py-2">Loading faith details…</p>
+              )}
+              {!detailLoading && detailProfile && (detailProfile.baptised || detailProfile.maritalStatus) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Faith Background</p>
+                  <div className="space-y-1.5">
+                    {detailProfile.baptised === 'yes' && (
+                      <div>
+                        <p className="text-sm text-slate-800">✝ Baptised</p>
+                        {detailProfile.baptismDate && <p className="text-xs text-slate-500 ml-5">{detailProfile.baptismDate}{detailProfile.baptismPlace ? ` · ${detailProfile.baptismPlace}` : ''}</p>}
+                        {detailProfile.baptismChurch && <p className="text-xs text-slate-500 ml-5">{detailProfile.baptismChurch}</p>}
+                      </div>
+                    )}
+                    {detailProfile.baptised === 'no' && <p className="text-sm text-slate-800">✝ Not yet baptised</p>}
+                    {detailProfile.maritalStatus && (
+                      <div>
+                        <p className="text-sm text-slate-800">💑 {detailProfile.maritalStatus}</p>
+                        {detailProfile.spouseName && <p className="text-xs text-slate-500 ml-5">Spouse: {detailProfile.spouseName}</p>}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Membership status */}
+              {!detailLoading && detailProfile?.membershipStatus && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Membership</p>
+                  <p className="text-sm text-slate-800">🪪 {detailProfile.membershipStatus}</p>
+                </section>
+              )}
+
+              {/* Shepherd Notes */}
+              {detailMember.notes && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Shepherd Notes</p>
+                  <p className="text-sm text-slate-700 leading-relaxed italic">{detailMember.notes}</p>
+                </section>
+              )}
+
+            </div>
+
+            {/* Footer actions */}
+            <div className="px-5 py-4 border-t border-slate-100 flex gap-2 flex-shrink-0">
+              {detailMember.phone && (() => { const ph = normalisePhone(detailMember.phone); return ph ? (
+                <a
+                  href={`https://wa.me/91${ph}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-green-50 text-green-700 text-sm font-semibold hover:bg-green-100 transition"
+                >
+                  WhatsApp
+                </a>
+              ) : null })()}
+              <button
+                type="button"
+                onClick={() => { setPrayerMember(detailMember); setPrayerSubject(''); setDetailMember(null) }}
+                className="flex-1 px-4 py-2.5 rounded-2xl bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition"
+              >
+                🙏 Add Prayer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -890,7 +1089,7 @@ function calcAttendanceDuration(sinceDate) {
   return 'Less than a week'
 }
 
-function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
+function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, onAutoFillInviteConsumed }) {
   const [allCellGroups, setAllCellGroups]   = useState([])
   const [selectedCellId, setSelectedCellId] = useState(null)
   const [members, setMembers]               = useState([])
@@ -917,9 +1116,49 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
     setTimeout(() => setToast(null), 3500)
   }, [])
 
+  const [detailMember, setDetailMember]   = useState(null)
+  const [detailProfile, setDetailProfile] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  // Profile fill invitations sent by Caring Director
+  const [pendingInvitations, setPendingInvitations] = useState([])
+  const [fillInviteOpen, setFillInviteOpen]         = useState(null)
+  const [fillInviteForm, setFillInviteForm]         = useState({})
+  const [fillInviteSaving, setFillInviteSaving]     = useState(false)
+
+  const openDetail = (member) => {
+    setDetailMember(member)
+    setDetailProfile(null)
+    if (member.visitorId) {
+      setDetailLoading(true)
+      getMemberProfile(member.visitorId)
+        .then(p => setDetailProfile(p))
+        .catch(() => {})
+        .finally(() => setDetailLoading(false))
+    }
+  }
+
   useEffect(() => {
     getCellGroups('Cell').then(setAllCellGroups).finally(() => setLoadingGroups(false))
   }, [])
+
+  // Subscribe to pending fill invitations for this cell leader
+  useEffect(() => {
+    const cellId = userProfile?.cellGroupId || userProfile?.cellId
+    if (!cellId) return
+    const unsub = subscribePCSFillInvitationsByCellId(cellId, setPendingInvitations)
+    return unsub
+  }, [userProfile?.cellGroupId, userProfile?.cellId])
+
+  // Auto-open fill form when parent passes an invite ID (from sidebar notification click)
+  useEffect(() => {
+    if (!autoFillInviteId || !pendingInvitations.length || fillInviteOpen) return
+    const inv = pendingInvitations.find(i => i.id === autoFillInviteId)
+    if (!inv) return
+    setFillInviteOpen(inv)
+    setFillInviteForm({ phone: '', dob: '', nativity: '', currentPlace: '', baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false, maritalStatus: '', marriageDate: '', spouseName: '' })
+    onAutoFillInviteConsumed?.()
+  }, [autoFillInviteId, pendingInvitations, fillInviteOpen, onAutoFillInviteConsumed])
 
   useEffect(() => {
     if (!allCellGroups.length || !userProfile) return
@@ -963,6 +1202,20 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
   const activeMembers   = useMemo(() => members.filter((m) => m.status !== 'inactive'), [members])
   const inactiveMembers = useMemo(() => members.filter((m) => m.status === 'inactive'),  [members])
   const canEdit = isDirector || isLeader
+
+  // Map each pending fill invitation to members by visitorId or normalised name
+  const inviteMap = useMemo(() => {
+    const m = new Map()
+    pendingInvitations.forEach(inv => {
+      if (inv.visitorId) m.set(inv.visitorId, inv)
+      if (inv.personName) m.set(String(inv.personName).trim().toLowerCase().replace(/\s+/g, ' '), inv)
+    })
+    return m
+  }, [pendingInvitations])
+
+  const getInviteForMember = (member) =>
+    inviteMap.get(member.visitorId) ||
+    inviteMap.get(String(member.name || '').trim().toLowerCase().replace(/\s+/g, ' '))
 
   const handleAddMember = async (e) => {
     e.preventDefault()
@@ -1064,11 +1317,12 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
             <h3 className="font-bold text-gray-800 text-base">
-              Request Deactivation — {deactivateTarget.name}
+              Remove from Cell — {deactivateTarget.name}
             </h3>
+            <p className="text-xs text-amber-600 bg-amber-50 rounded-xl px-3 py-2">This request will be sent to the Cell Director for approval.</p>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">
-                Reason for deactivation <span className="text-red-500">*</span>
+                Reason for removal <span className="text-red-500">*</span>
               </label>
               <textarea
                 rows={3}
@@ -1178,7 +1432,10 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
                       </div>
                     </>
                   ) : (
-                    <div className="flex items-start justify-between gap-3">
+                    <div
+                      className="flex items-start justify-between gap-3 cursor-pointer"
+                      onClick={() => openDetail(member)}
+                    >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-0.5">
                           <p className="font-bold text-slate-900">{member.name}</p>
@@ -1188,8 +1445,10 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
                           {pendingDeactivationIds.has(member.id) && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">⏳ Pending Deactivation</span>
                           )}
+                          {getInviteForMember(member) && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">📋 Profile requested</span>
+                          )}
                         </div>
-                        {/* Attendance duration */}
                         {member.since && (
                           <p className="text-xs text-emerald-600 font-semibold mb-1.5">
                             ⏳ Attending for {calcAttendanceDuration(member.since) || '—'}
@@ -1198,23 +1457,34 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
                         )}
                         <div className="flex flex-wrap gap-1.5">
                           {member.phone && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📞 {member.phone}</span>}
-                          {member.email && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">✉ {member.email}</span>}
                           {member.locality && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📍 {member.locality}</span>}
-                          {member.occupation && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">💼 {member.occupation}</span>}
                           {member.birthday && <span className="text-xs text-pink-600 bg-pink-50 px-2 py-0.5 rounded-full">🎂 {formatShortDate(member.birthday)}</span>}
                           {member.anniversary && <span className="text-xs text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">💍 {formatShortDate(member.anniversary)}</span>}
-                          {member.address && <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">🏠 {member.address}</span>}
                         </div>
-                        {member.notes && (
-                          <p className="text-xs text-slate-500 mt-1.5 italic leading-relaxed">{member.notes}</p>
-                        )}
                       </div>
-                      {canEdit && (
-                        <div className="flex gap-1.5 flex-shrink-0">
+                      <div className="flex gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                        {(() => {
+                          const inv = getInviteForMember(member)
+                          return inv ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFillInviteOpen(inv)
+                                setFillInviteForm({ phone: member.phone || '', dob: '', nativity: '', currentPlace: '', baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false, maritalStatus: '', marriageDate: '', spouseName: '' })
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 transition"
+                            >
+                              Fill Profile
+                            </button>
+                          ) : null
+                        })()}
+                        {isDirector && (
                           <button type="button" onClick={() => startEdit(member)}
                             className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition">
                             Edit
                           </button>
+                        )}
+                        {canEdit && (
                           <button
                             type="button"
                             onClick={() => handleDeactivate(member)}
@@ -1225,10 +1495,10 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
                                 : 'bg-red-50 text-red-600 hover:bg-red-100'
                             }`}
                           >
-                            {pendingDeactivationIds.has(member.id) ? 'Pending…' : 'Deactivate'}
+                            {pendingDeactivationIds.has(member.id) ? 'Pending…' : isDirector ? 'Deactivate' : 'Remove'}
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1240,6 +1510,370 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader }) {
             <InactiveSection members={inactiveMembers} canEdit={canEdit} onReactivate={handleReactivate} />
           )}
         </>
+      )}
+
+      {/* Profile Fill Sheet — shown when Caring Director has sent a fill request */}
+      {fillInviteOpen && (() => {
+        const ff = fillInviteForm
+        const setFf = setFillInviteForm
+        const inp = 'w-full px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-200'
+        const lbl = 'block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1'
+        const CODES = [
+          { code: '+91',  label: '🇮🇳 +91'  },
+          { code: '+971', label: '🇦🇪 +971' },
+          { code: '+1',   label: '🇺🇸 +1'   },
+          { code: '+44',  label: '🇬🇧 +44'  },
+          { code: '+61',  label: '🇦🇺 +61'  },
+          { code: '+65',  label: '🇸🇬 +65'  },
+          { code: '+60',  label: '🇲🇾 +60'  },
+          { code: '+966', label: '🇸🇦 +966' },
+          { code: '+974', label: '🇶🇦 +974' },
+        ]
+        const parsePhone = (val) => {
+          const v = (val || '').trim()
+          for (const { code } of CODES) {
+            if (v.startsWith(code + ' ')) return { code, number: v.slice(code.length + 1) }
+            if (v.startsWith(code) && v.length > code.length) return { code, number: v.slice(code.length) }
+          }
+          return { code: '+91', number: v }
+        }
+        const { code: cc, number: num } = parsePhone(ff.phone)
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+            <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh]">
+
+              {/* Header */}
+              <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-start justify-between gap-3 flex-shrink-0">
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">Fill Profile Details</p>
+                  <p className="text-xs text-violet-600 font-medium mt-0.5">{fillInviteOpen.personName}</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Requested by Caring Director — fill in what you know</p>
+                </div>
+                <button type="button" onClick={() => setFillInviteOpen(null)} className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
+              </div>
+
+              {/* Form */}
+              <div className="overflow-y-auto flex-1 px-4 py-4 space-y-4">
+
+                <div>
+                  <label className={lbl}>Phone</label>
+                  <div className="flex gap-1">
+                    <select value={cc} onChange={e => setFf(p => ({ ...p, phone: e.target.value + ' ' + num }))}
+                      className="px-1.5 py-2 rounded-xl border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-violet-200 flex-shrink-0">
+                      {CODES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+                    </select>
+                    <input type="tel" placeholder="Number" value={num}
+                      onChange={e => setFf(p => ({ ...p, phone: cc + ' ' + e.target.value }))}
+                      className={`${inp} flex-1 min-w-0`} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={lbl}>Date of Birth</label>
+                    <input type="date" value={ff.dob} onChange={e => setFf(p => ({...p, dob: e.target.value}))} className={inp} />
+                  </div>
+                  <div>
+                    <label className={lbl}>Nativity</label>
+                    <input type="text" value={ff.nativity} onChange={e => setFf(p => ({...p, nativity: e.target.value}))} placeholder="Hometown" className={inp} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className={lbl}>Current Place</label>
+                    <input type="text" value={ff.currentPlace} onChange={e => setFf(p => ({...p, currentPlace: e.target.value}))} placeholder="Current city" className={inp} />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={lbl}>Baptised?</label>
+                  <select value={ff.baptised} onChange={e => setFf(p => ({...p, baptised: e.target.value}))} className={inp}>
+                    <option value="">— Select —</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+
+                {ff.baptised === 'yes' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={lbl}>Baptism Date</label>
+                      <input type="date" value={ff.baptismDate} onChange={e => setFf(p => ({...p, baptismDate: e.target.value}))} className={inp} />
+                    </div>
+                    <div>
+                      <label className={lbl}>Baptism Place</label>
+                      <input type="text" value={ff.baptismPlace} onChange={e => setFf(p => ({...p, baptismPlace: e.target.value}))} placeholder="City / Location" className={inp} />
+                    </div>
+                    <div className="col-span-2">
+                      <label className={lbl}>Baptism Church</label>
+                      <select
+                        value={ff.baptismChurchIsOther ? 'other' : ff.baptismChurch}
+                        onChange={e => {
+                          if (e.target.value === 'other') setFf(p => ({...p, baptismChurch: '', baptismChurchIsOther: true}))
+                          else setFf(p => ({...p, baptismChurch: e.target.value, baptismChurchIsOther: false}))
+                        }}
+                        className={inp}>
+                        <option value="">— Select —</option>
+                        <option value="River Of Life Christian Church">River Of Life Christian Church</option>
+                        <option value="other">Other</option>
+                      </select>
+                      {ff.baptismChurchIsOther && (
+                        <input type="text" placeholder="Specify church name…" value={ff.baptismChurch}
+                          onChange={e => setFf(p => ({...p, baptismChurch: e.target.value}))} className={`${inp} mt-2`} />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className={lbl}>Marital Status</label>
+                  <select value={ff.maritalStatus} onChange={e => setFf(p => ({...p, maritalStatus: e.target.value}))} className={inp}>
+                    <option value="">— Select —</option>
+                    {['Single','Married','Widowed','Divorced'].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                </div>
+
+                {ff.maritalStatus === 'Married' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={lbl}>Marriage Date</label>
+                      <input type="date" value={ff.marriageDate} onChange={e => setFf(p => ({...p, marriageDate: e.target.value}))} className={inp} />
+                    </div>
+                    <div>
+                      <label className={lbl}>Spouse Name</label>
+                      <input type="text" value={ff.spouseName} onChange={e => setFf(p => ({...p, spouseName: e.target.value}))} placeholder="Spouse name" className={inp} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-4 pb-4 pt-3 border-t border-slate-100 flex-shrink-0 space-y-2">
+                <button
+                  type="button"
+                  disabled={fillInviteSaving}
+                  onClick={async () => {
+                    setFillInviteSaving(true)
+                    try {
+                      if (fillInviteOpen.visitorId) {
+                        const profilePayload = {}
+                        if (ff.baptised)      profilePayload.baptised      = ff.baptised
+                        if (ff.baptismDate)   profilePayload.baptismDate   = ff.baptismDate
+                        if (ff.baptismPlace)  profilePayload.baptismPlace  = ff.baptismPlace
+                        if (ff.baptismChurch) profilePayload.baptismChurch = ff.baptismChurch
+                        if (ff.maritalStatus) profilePayload.maritalStatus = ff.maritalStatus
+                        if (ff.marriageDate)  profilePayload.marriageDate  = ff.marriageDate
+                        if (ff.spouseName)    profilePayload.spouseName    = ff.spouseName
+                        if (ff.dob)           profilePayload.dob           = ff.dob
+                        if (ff.nativity)      profilePayload.nativity      = ff.nativity
+                        if (ff.currentPlace)  profilePayload.currentPlace  = ff.currentPlace
+                        if (ff.phone)         profilePayload.phone         = ff.phone
+                        if (Object.keys(profilePayload).length) {
+                          await upsertMemberProfile(fillInviteOpen.visitorId, profilePayload, userProfile?.email || '')
+                        }
+                      }
+                      await completePCSFillInvitation(fillInviteOpen.id, userProfile?.email || '')
+                      setPendingInvitations(prev => prev.filter(i => i.id !== fillInviteOpen.id))
+                      setFillInviteOpen(null)
+                      showToastMsg('Profile details submitted. Thank you!')
+                    } catch { showToastMsg('Failed to save profile details.', 'error') }
+                    setFillInviteSaving(false)
+                  }}
+                  className="w-full min-h-[44px] py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 disabled:opacity-60 transition-colors"
+                >
+                  {fillInviteSaving ? 'Submitting…' : 'Submit Profile Details'}
+                </button>
+                <button type="button" onClick={() => setFillInviteOpen(null)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Member Detail Sheet */}
+      {detailMember && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => setDetailMember(null)}>
+          <div className="absolute inset-0 bg-black/50" />
+          <div
+            className="relative bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[88vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-slate-100 flex-shrink-0">
+              {detailProfile?.photoUrl
+                ? <img src={detailProfile.photoUrl} alt={detailMember.name} className="w-11 h-11 rounded-full object-cover flex-shrink-0" />
+                : <div className="w-11 h-11 rounded-full flex items-center justify-center text-white text-lg font-bold flex-shrink-0 bg-indigo-400">{detailMember.name.charAt(0).toUpperCase()}</div>
+              }
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-slate-900 text-base truncate">{detailMember.name}</p>
+                {detailMember.role && <p className="text-xs text-indigo-600 font-medium">{detailMember.role}</p>}
+              </div>
+              <button type="button" onClick={() => setDetailMember(null)} className="w-9 h-9 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
+            </div>
+
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+
+              {/* Contact */}
+              {(detailMember.phone || detailMember.email) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Contact</p>
+                  <div className="space-y-2">
+                    {detailMember.phone && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-sm">📞</span>
+                        <a href={`tel:${detailMember.phone}`} className="text-sm text-slate-800 hover:text-indigo-600">{detailMember.phone}</a>
+                      </div>
+                    )}
+                    {detailMember.email && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-sm">✉</span>
+                        <a href={`mailto:${detailMember.email}`} className="text-sm text-slate-800 hover:text-indigo-600 break-all">{detailMember.email}</a>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Location */}
+              {(detailMember.locality || detailMember.address || detailProfile?.permanentAddress) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Location</p>
+                  <div className="space-y-1">
+                    {detailMember.locality && <p className="text-sm text-slate-800">📍 {detailMember.locality}</p>}
+                    {detailMember.address && <p className="text-xs text-slate-500 leading-relaxed">Current: {detailMember.address}</p>}
+                    {detailProfile?.permanentAddress && <p className="text-xs text-slate-500 leading-relaxed">Permanent: {detailProfile.permanentAddress}</p>}
+                  </div>
+                </section>
+              )}
+
+              {/* Personal */}
+              {(detailMember.birthday || detailMember.anniversary || detailMember.occupation) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Personal</p>
+                  <div className="space-y-1.5">
+                    {detailMember.birthday && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">🎂</span>
+                        <span className="text-sm text-slate-800">{detailMember.birthday}</span>
+                        {isUpcomingSoon(detailMember.birthday) && <span className="text-xs text-pink-500 font-semibold">Soon!</span>}
+                      </div>
+                    )}
+                    {detailMember.anniversary && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">💍</span>
+                        <span className="text-sm text-slate-800">{detailMember.anniversary}</span>
+                        {isUpcomingSoon(detailMember.anniversary) && <span className="text-xs text-rose-500 font-semibold">Soon!</span>}
+                      </div>
+                    )}
+                    {detailMember.occupation && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">💼</span>
+                        <span className="text-sm text-slate-800">{detailMember.occupation}</span>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Cell Involvement */}
+              {(detailMember.role || detailMember.since) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Cell Involvement</p>
+                  <div className="space-y-1.5">
+                    {detailMember.role && <p className="text-sm text-slate-800">🏷 {detailMember.role}</p>}
+                    {detailMember.since && <p className="text-sm text-slate-800">⏳ Attending since {detailMember.since} · {calcAttendanceDuration(detailMember.since) || '—'}</p>}
+                  </div>
+                </section>
+              )}
+
+              {detailLoading && (
+                <p className="text-xs text-slate-400 text-center py-2">Loading profile…</p>
+              )}
+
+              {/* Faith Background */}
+              {!detailLoading && detailProfile && (detailProfile.baptised || detailProfile.maritalStatus) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Faith Background</p>
+                  <div className="space-y-1.5">
+                    {detailProfile.baptised === 'yes' && (
+                      <div>
+                        <p className="text-sm text-slate-800">✝ Baptised</p>
+                        {detailProfile.baptismDate && <p className="text-xs text-slate-500 ml-5">{detailProfile.baptismDate}{detailProfile.baptismPlace ? ` · ${detailProfile.baptismPlace}` : ''}</p>}
+                        {detailProfile.baptismChurch && <p className="text-xs text-slate-500 ml-5">{detailProfile.baptismChurch}</p>}
+                      </div>
+                    )}
+                    {detailProfile.baptised === 'no' && <p className="text-sm text-slate-800">✝ Not yet baptised</p>}
+                    {detailProfile.maritalStatus && (
+                      <div>
+                        <p className="text-sm text-slate-800">💑 {detailProfile.maritalStatus}</p>
+                        {detailProfile.marriageDate && <p className="text-xs text-slate-500 ml-5">Since {detailProfile.marriageDate}</p>}
+                        {detailProfile.spouseName && <p className="text-xs text-slate-500 ml-5">Spouse: {detailProfile.spouseName}</p>}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Ministry */}
+              {!detailLoading && detailProfile && (detailProfile.ministryNotes || detailProfile.ministryHistory?.length > 0) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Ministry</p>
+                  <div className="space-y-1.5">
+                    {detailProfile.ministryHistory?.map((h, i) => (
+                      <p key={i} className="text-sm text-slate-800">• {h}</p>
+                    ))}
+                    {detailProfile.ministryNotes && <p className="text-xs text-slate-500 leading-relaxed italic">{detailProfile.ministryNotes}</p>}
+                  </div>
+                </section>
+              )}
+
+              {/* Leadership */}
+              {!detailLoading && detailProfile && (detailProfile.leaderSince || detailProfile.directorOf || detailProfile.isDirector) && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Leadership</p>
+                  <div className="space-y-1">
+                    {detailProfile.isDirector && detailProfile.directorOf && (
+                      <p className="text-sm text-slate-800">👑 Director — {detailProfile.directorOf}{detailProfile.directorSince ? ` (since ${detailProfile.directorSince})` : ''}</p>
+                    )}
+                    {detailProfile.leaderSince && (
+                      <p className="text-sm text-slate-800">🏷 Leader since {detailProfile.leaderSince}{detailProfile.leaderUntil ? ` to ${detailProfile.leaderUntil}` : ''}</p>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Membership status (no number) */}
+              {!detailLoading && detailProfile?.membershipStatus && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Membership</p>
+                  <p className="text-sm text-slate-800">🪪 {detailProfile.membershipStatus}</p>
+                </section>
+              )}
+
+              {/* Shepherd Notes */}
+              {detailMember.notes && (
+                <section>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Shepherd Notes</p>
+                  <p className="text-sm text-slate-700 leading-relaxed italic">{detailMember.notes}</p>
+                </section>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            {detailMember.phone && (() => { const ph = normalisePhone(detailMember.phone); return ph ? (
+              <div className="px-5 py-4 border-t border-slate-100 flex-shrink-0">
+                <a
+                  href={`https://wa.me/91${ph}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-green-50 text-green-700 text-sm font-semibold hover:bg-green-100 transition"
+                >
+                  WhatsApp
+                </a>
+              </div>
+            ) : null })()}
+          </div>
+        </div>
       )}
     </div>
   )

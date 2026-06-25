@@ -76,9 +76,10 @@ service cloud.firestore {
     }
 
     // Church member profiles (baptism, marriage, leadership history) — Caring holds highest authority
+    // Cell leaders may also write when a Caring Director has sent them a profile-fill invitation
     match /member_profiles/{visitorId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
     }
 
     match /department_sub_departments/{docId} {
@@ -221,7 +222,12 @@ service cloud.firestore {
     }
 
     match /caring_pcs/{docId} {
-      allow read:  if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+    }
+
+    // Lightweight PCS membership lookup — any signed-in user can read, Caring writes
+    match /pcs_lookup/{docId} {
+      allow read: if isSignedIn();
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 

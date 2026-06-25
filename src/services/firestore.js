@@ -2233,6 +2233,7 @@ export async function deleteDelightVisitor(id) {
 
 // Caring – PCS (caring_pcs)
 const CARING_PCS_COLLECTION = 'caring_pcs'
+const PCS_LOOKUP_COLLECTION = 'pcs_lookup'
 
 function mapPCSDoc(d) {
   const data = d.data()
@@ -2266,21 +2267,36 @@ export async function getPCSEntries() {
   return snap.docs.map(mapPCSDoc).filter(e => e.status !== 'inactive')
 }
 
-// Lookup-only: no orderBy so entries missing addedAt are NOT excluded
+// Lightweight lookup readable by any signed-in user (no sensitive PCS data)
 export async function getPCSLookup() {
   if (!db) return []
-  const snap = await getDocs(collection(db, CARING_PCS_COLLECTION))
-  return snap.docs
-    .map(d => {
-      const data = d.data()
-      return {
-        visitorId: data.visitorId || '',
-        name: data.name || '',
-        phone: data.phone || '',
-        status: data.status || 'active',
-      }
-    })
-    .filter(e => e.status !== 'inactive')
+  const snap = await getDocs(collection(db, PCS_LOOKUP_COLLECTION))
+  return snap.docs.map(d => {
+    const data = d.data()
+    return { id: d.id, visitorId: data.visitorId || '', name: data.name || '', phone: data.phone || '' }
+  })
+}
+
+// Bulk-sync all active PCS entries into pcs_lookup (run by Caring Director on tab load)
+export async function syncAllPCSToLookup(pcsEntries) {
+  if (!db) return
+  const existing = await getDocs(collection(db, PCS_LOOKUP_COLLECTION))
+  const existingIds = new Set(existing.docs.map(d => d.id))
+  const activeIds = new Set(pcsEntries.map(e => e.id))
+  const batch = writeBatch(db)
+  // Add/update entries that are missing from lookup
+  pcsEntries.forEach(e => {
+    if (!existingIds.has(e.id)) {
+      batch.set(doc(db, PCS_LOOKUP_COLLECTION, e.id), {
+        visitorId: e.visitorId || '', name: e.name || '', phone: e.phone || '',
+      })
+    }
+  })
+  // Remove stale entries no longer active
+  existing.docs.forEach(d => {
+    if (!activeIds.has(d.id)) batch.delete(d.ref)
+  })
+  await batch.commit()
 }
 
 export async function getInactivePCSEntries() {
@@ -2297,6 +2313,7 @@ export async function deactivatePCSEntry(id, removedBy = '') {
     removedAt: Timestamp.now(),
     removedBy,
   })
+  deleteDoc(doc(db, PCS_LOOKUP_COLLECTION, id)).catch(() => {})
 }
 
 export async function addPCSEntry(data) {
@@ -2318,6 +2335,11 @@ export async function addPCSEntry(data) {
     addedAt: Timestamp.now(),
     addedBy: data.addedBy || 'unknown',
   })
+  setDoc(doc(db, PCS_LOOKUP_COLLECTION, ref.id), {
+    visitorId: data.visitorId || '',
+    name: data.name || '',
+    phone: data.phone || '',
+  }).catch(() => {})
   return ref.id
 }
 
