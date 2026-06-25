@@ -14,7 +14,7 @@ import {
   saveMidweekPrayerPoints,
   addCellMemberPendingChange,
   getCellMemberPendingChanges,
-  getPCSEntries,
+  getPCSLookup,
   createTask,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
@@ -67,6 +67,11 @@ const GLOW_TEXT = {
   amber: 'text-amber-500',
   red:   'text-red-500',
   grey:  'text-slate-400',
+}
+
+// Normalise name for comparison — lowercase, collapse whitespace
+function normName(raw) {
+  return String(raw || '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
 // Normalise phone to 10 digits
@@ -371,14 +376,16 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   // Load PCS entries to determine which members are already in PCS
   useEffect(() => {
     setPcsLoading(true)
-    getPCSEntries()
+    getPCSLookup()
       .then(entries => {
-        const names = new Set()
+        const keys = new Set()
         entries.forEach(e => {
-          if (e.name) names.add(e.name.trim().toLowerCase())
-          if (e.visitorId) names.add(`vid:${e.visitorId}`)
+          if (e.name) keys.add(normName(e.name))
+          if (e.visitorId) keys.add(`vid:${e.visitorId}`)
+          const ph = normalisePhone(e.phone)
+          if (ph && ph.length >= 10) keys.add(`ph:${ph}`)
         })
-        setPcsNames(names)
+        setPcsNames(keys)
       })
       .catch(() => setPcsNames(new Set()))
       .finally(() => setPcsLoading(false))
@@ -391,7 +398,10 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
 
   const isInPCS = (member) => {
     if (member.visitorId && pcsNames.has(`vid:${member.visitorId}`)) return true
-    return pcsNames.has((member.name || '').trim().toLowerCase())
+    if (pcsNames.has(normName(member.name))) return true
+    const ph = normalisePhone(member.phone)
+    if (ph && ph.length >= 10 && pcsNames.has(`ph:${ph}`)) return true
+    return false
   }
 
   const handleNotifyCaring = async (member) => {

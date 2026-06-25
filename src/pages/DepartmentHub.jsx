@@ -337,6 +337,7 @@ export default function DepartmentHub() {
   const pcsSavedRef = useRef(null)
   const [pcsInviteStatus, setPcsInviteStatus] = useState({})
   const [pcsInvitingId, setPcsInvitingId] = useState(null)
+  const [pcsMenuOpenId, setPcsMenuOpenId] = useState(null)
   const [pendingFillInvitations, setPendingFillInvitations] = useState([])
   const [fillInviteOpen, setFillInviteOpen] = useState(null)
   const [fillInviteForm, setFillInviteForm] = useState({})
@@ -3657,46 +3658,93 @@ export default function DepartmentHub() {
 
             const cellVisitorIds = new Set(allCellMembers.filter(m => m.status !== 'inactive' && m.visitorId).map(m => m.visitorId))
 
+            const handleRemoveFromPCS = async (entry) => {
+              if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
+              try {
+                await deactivatePCSEntry(entry.id, userProfile?.email || '')
+                setPcsEntries(prev => prev.filter(e => e.id !== entry.id))
+                setPcsInactiveEntries(prev => [{ ...entry, status: 'inactive', removedAt: new Date(), removedBy: userProfile?.email || '' }, ...prev])
+                if (pcsExpandedId === entry.id) setPcsExpandedId(null)
+              } catch { alert('Failed to remove. Please try again.') }
+              setPcsMenuOpenId(null)
+            }
+
             const Chip = ({ entry }) => {
               const hasMember = !!entry.membershipNumber
               const hasLeadership = !!entry.leadershipPosition
               const isExpanded = pcsExpandedId === entry.id
               const isInCell = !!(entry.visitorId && cellVisitorIds.has(entry.visitorId))
+              const menuOpen = pcsMenuOpenId === entry.id
               return (
-                <div
-                  className={`flex items-center gap-2 rounded-2xl pl-2 pr-2.5 py-2 border transition-all cursor-pointer
-                    ${isExpanded
-                      ? 'bg-indigo-600 border-indigo-600 shadow-md'
-                      : hasMember
-                        ? 'bg-amber-50 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
-                        : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300'}`}
-                  onClick={() => handleChipClick(entry)}
-                >
-                  <div className="relative flex-shrink-0">
-                    <div className={`w-8 h-8 rounded-full text-white text-sm font-bold flex items-center justify-center
-                      ${isExpanded ? 'bg-white/25' : hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
-                      {entry.name.charAt(0).toUpperCase()}
-                    </div>
-                    {isInCell && (
-                      <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" title="In a cell group" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${isExpanded ? 'text-white' : hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
-                        {entry.name}
-                      </p>
-                      {hasLeadership && (
-                        <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
-                          {entry.leadershipPosition}
-                        </span>
+                <div className="relative">
+                  {menuOpen && (
+                    <div className="fixed inset-0 z-10" onClick={() => setPcsMenuOpenId(null)} />
+                  )}
+                  <div
+                    className={`flex items-center gap-2 rounded-2xl pl-2 pr-1 py-2 border transition-all cursor-pointer
+                      ${isExpanded
+                        ? 'bg-indigo-600 border-indigo-600 shadow-md'
+                        : hasMember
+                          ? 'bg-amber-50 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
+                          : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300'}`}
+                    onClick={() => handleChipClick(entry)}
+                  >
+                    <div className="relative flex-shrink-0">
+                      <div className={`w-8 h-8 rounded-full text-white text-sm font-bold flex items-center justify-center
+                        ${isExpanded ? 'bg-white/25' : hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
+                        {entry.name.charAt(0).toUpperCase()}
+                      </div>
+                      {isInCell && (
+                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" title="In a cell group" />
                       )}
                     </div>
-                    {hasMember
-                      ? <p className={`text-xs font-medium leading-tight ${isExpanded ? 'text-indigo-200' : 'text-amber-600'}`}>#{entry.membershipNumber}</p>
-                      : <p className={`text-xs leading-tight ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>No member #</p>
-                    }
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${isExpanded ? 'text-white' : hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
+                          {entry.name}
+                        </p>
+                        {hasLeadership && (
+                          <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {entry.leadershipPosition}
+                          </span>
+                        )}
+                      </div>
+                      {hasMember
+                        ? <p className={`text-xs font-medium leading-tight ${isExpanded ? 'text-indigo-200' : 'text-amber-600'}`}>#{entry.membershipNumber}</p>
+                        : <p className={`text-xs leading-tight ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>No member #</p>
+                      }
+                    </div>
+                    {/* Three-dots menu button */}
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); setPcsMenuOpenId(menuOpen ? null : entry.id) }}
+                      className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors ${
+                        isExpanded ? 'text-white/70 hover:bg-white/20' : 'text-slate-400 hover:bg-slate-200/70'
+                      }`}
+                      title="More options"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 4 16" fill="currentColor">
+                        <circle cx="2" cy="2" r="1.5"/>
+                        <circle cx="2" cy="8" r="1.5"/>
+                        <circle cx="2" cy="14" r="1.5"/>
+                      </svg>
+                    </button>
                   </div>
+                  {/* Dropdown menu */}
+                  {menuOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[160px]">
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); handleRemoveFromPCS(entry) }}
+                        className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium flex items-center gap-2"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                        </svg>
+                        Remove from PCS
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             }
@@ -4296,18 +4344,6 @@ export default function DepartmentHub() {
                         }}
                         className="flex-1 min-h-[44px] py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-60 transition-colors"
                       >{pcsExpandedSaving ? 'Saving…' : 'Save Changes'}</button>}
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!window.confirm(`Remove ${entry.name} from PCS? A profile JPEG will be downloaded automatically.`)) return
-                          downloadProfileAsJPEG({ ...f })
-                          await deactivatePCSEntry(entry.id, userProfile?.email || '')
-                          setPcsEntries(prev => prev.filter(e => e.id !== entry.id))
-                          setPcsInactiveEntries(prev => [{ ...entry, status: 'inactive', removedAt: new Date(), removedBy: userProfile?.email || '' }, ...prev])
-                          setPcsExpandedId(null)
-                        }}
-                        className="px-4 min-h-[44px] py-2 rounded-xl border border-red-200 text-red-500 text-sm font-medium hover:bg-red-50 hover:border-red-300 active:bg-red-100 transition-colors"
-                      >Remove from PCS</button>
                     </div>
 
                   </div>
@@ -4495,204 +4531,178 @@ export default function DepartmentHub() {
                   />
                 )}
 
-                {/* ── Cell dropdowns — side by side ── */}
+                {/* ── Cell alerts — stacked on mobile, side-by-side on desktop ── */}
                 {(cellReferralTasks.length > 0 || removedFromCellInPCS.length > 0) && (
-                  <div className="flex gap-3 items-start">
+                  <div className="space-y-3 sm:space-y-0 sm:flex sm:gap-3 sm:items-start">
 
-                    {/* ── Pending Members from Cell Leaders ── */}
+                    {/* Pending from Cell */}
                     {cellReferralTasks.length > 0 && (
-                    <div className="flex-1 min-w-0 bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setCellReferralOpen(o => !o)}
-                        className="w-full px-4 py-3 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 transition-colors text-left"
-                      >
-                        <span className="w-2.5 h-2.5 rounded-full bg-orange-400 flex-shrink-0" />
-                        <p className="text-sm font-bold text-orange-800 flex-1">Pending from Cell</p>
-                        <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                          {cellReferralTasks.length}
-                        </span>
-                        <span className="text-orange-400 text-xs ml-1">{cellReferralOpen ? '▲' : '▼'}</span>
-                      </button>
-                    {cellReferralOpen && (
-                    <>
-                    <p className="px-4 pt-3 pb-1 text-xs text-slate-400">
-                      Cell leaders have flagged these members as not yet in PCS. Add them to PCS to acknowledge.
-                    </p>
-                    <div className="divide-y divide-slate-50 pb-2">
-                      {cellReferralTasks.map(task => {
-                        const name      = task.memberName || task.taskTitle.replace(/^Add /, '').replace(/ to PCS$/, '')
-                        const phone     = task.memberPhone || ''
-                        const visitorId = task.memberVisitorId || ''
-                        const cellName  = task.cellName || ''
-                        const adding    = cellReferralAdding.has(task.id)
-                        const removing  = cellReferralRemoving.has(task.id)
+                      <div className="bg-white rounded-2xl border border-orange-200 shadow-sm overflow-hidden sm:flex-1 sm:min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setCellReferralOpen(o => !o)}
+                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-orange-50 transition-colors text-left"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+                          <p className="text-sm font-bold text-orange-800 flex-1">Pending from Cell</p>
+                          <span className="bg-orange-100 text-orange-700 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                            {cellReferralTasks.length}
+                          </span>
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-orange-400 transition-transform flex-shrink-0 ${cellReferralOpen ? 'rotate-180' : ''}`}>
+                            <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </button>
 
-                        // Check if this person already exists in the visitor list
-                        const inVisitorList = visitorId
-                          ? delightVisitors.some(v => v.id === visitorId)
-                          : delightVisitors.some(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())
+                        {cellReferralOpen && (
+                          <>
+                            <p className="px-4 pb-2 text-xs text-slate-400 border-t border-orange-100 pt-3">
+                              Cell leaders flagged these members as not yet in PCS.
+                            </p>
+                            <div className="divide-y divide-slate-100">
+                              {cellReferralTasks.map(task => {
+                                const name      = task.memberName || task.taskTitle.replace(/^Add /, '').replace(/ to PCS$/, '')
+                                const phone     = task.memberPhone || ''
+                                const visitorId = task.memberVisitorId || ''
+                                const cellName  = task.cellName || ''
+                                const adding    = cellReferralAdding.has(task.id)
+                                const removing  = cellReferralRemoving.has(task.id)
+                                const inVisitorList = visitorId
+                                  ? delightVisitors.some(v => v.id === visitorId)
+                                  : delightVisitors.some(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())
 
-                        return (
-                          <div key={task.id} className="flex items-center gap-3 px-4 py-3">
-                            <div className="w-9 h-9 rounded-full bg-orange-100 text-orange-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
-                              {String(name || '?').split(' ').slice(0,2).map(w => (w[0]||'').toUpperCase()).join('')}
+                                return (
+                                  <div key={task.id} className="flex items-center gap-3 px-4 py-3">
+                                    <div className="w-9 h-9 rounded-full bg-orange-100 text-orange-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                                      {String(name || '?').split(' ').slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('')}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-semibold text-slate-900 text-sm truncate">{name}</p>
+                                      <p className="text-xs text-slate-400 mt-0.5 truncate">
+                                        {[phone, cellName ? `Cell: ${cellName}` : ''].filter(Boolean).join(' · ')}
+                                      </p>
+                                      {!inVisitorList && (
+                                        <p className="text-xs text-amber-600 font-medium mt-0.5">Not in visitor list yet</p>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      <button
+                                        type="button"
+                                        disabled={removing || adding}
+                                        onClick={async () => {
+                                          setCellReferralRemoving(prev => new Set([...prev, task.id]))
+                                          try {
+                                            await updateTask(task.id, { status: 'Dismissed' })
+                                            setCellReferralTasks(prev => prev.filter(t => t.id !== task.id))
+                                          } catch { /* ignore */ }
+                                          finally {
+                                            setCellReferralRemoving(prev => { const s = new Set(prev); s.delete(task.id); return s })
+                                          }
+                                        }}
+                                        className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-500 flex items-center justify-center text-base transition-colors disabled:opacity-40"
+                                        title="Dismiss"
+                                      >
+                                        {removing ? '…' : '×'}
+                                      </button>
+                                      {inVisitorList ? (
+                                        <button
+                                          type="button"
+                                          disabled={adding}
+                                          onClick={async () => {
+                                            setCellReferralAdding(prev => new Set([...prev, task.id]))
+                                            try {
+                                              const resolvedVisitorId = visitorId ||
+                                                (delightVisitors.find(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())?.id || '')
+                                              await addPCSEntry({
+                                                visitorId: resolvedVisitorId, name, phone,
+                                                year: new Date().getFullYear(), addedBy: userProfile?.email || 'unknown',
+                                              })
+                                              await updateTask(task.id, { status: 'Completed' })
+                                              setPcsEntries(prev => [{
+                                                id: `ref_${task.id}`, visitorId: resolvedVisitorId, name, phone,
+                                                year: new Date().getFullYear(), addedAt: new Date(), addedBy: userProfile?.email || '',
+                                              }, ...prev])
+                                            } catch { /* ignore */ }
+                                            finally {
+                                              setCellReferralAdding(prev => { const s = new Set(prev); s.delete(task.id); return s })
+                                            }
+                                          }}
+                                          className="px-3 py-1.5 bg-orange-500 text-white text-xs font-semibold rounded-xl hover:bg-orange-600 disabled:opacity-50 transition-colors whitespace-nowrap"
+                                        >
+                                          {adding ? 'Adding…' : 'Add to PCS'}
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingDelightVisitorId(null)
+                                            setDelightVisitorForm(f => ({
+                                              ...f, name, phone,
+                                              dob: '', email: '', nativity: '', currentPlace: '',
+                                              serviceAttended: '', attendedDate: '', howKnown: '', source: '',
+                                              year: new Date().getFullYear(),
+                                            }))
+                                            setDelightVisitorModalOpen(true)
+                                          }}
+                                          className="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 transition-colors whitespace-nowrap"
+                                        >
+                                          + Visitor List
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-semibold text-slate-900 text-sm truncate">{name}</p>
-                              <p className="text-xs text-slate-400 mt-0.5">
-                                {[phone, cellName ? `Cell: ${cellName}` : ''].filter(Boolean).join(' · ')}
-                              </p>
-                              {!inVisitorList && (
-                                <p className="text-xs text-amber-600 font-medium mt-0.5">Not in visitor list yet</p>
-                              )}
-                            </div>
-
-                            {/* Remove recommendation */}
-                            <button
-                              type="button"
-                              disabled={removing || adding}
-                              onClick={async () => {
-                                setCellReferralRemoving(prev => new Set([...prev, task.id]))
-                                try {
-                                  await updateTask(task.id, { status: 'Dismissed' })
-                                  setCellReferralTasks(prev => prev.filter(t => t.id !== task.id))
-                                } catch { /* ignore */ }
-                                finally {
-                                  setCellReferralRemoving(prev => { const s = new Set(prev); s.delete(task.id); return s })
-                                }
-                              }}
-                              className="w-7 h-7 rounded-full flex items-center justify-center text-base hover:scale-110 transition-transform flex-shrink-0 disabled:opacity-40"
-                              style={{ background: '#fee2e2', color: '#ef4444' }}
-                              title="Remove recommendation"
-                            >
-                              {removing ? '…' : '×'}
-                            </button>
-
-                            {inVisitorList ? (
-                              /* Already in visitor list — allow adding to PCS */
-                              <button
-                                type="button"
-                                disabled={adding}
-                                onClick={async () => {
-                                  setCellReferralAdding(prev => new Set([...prev, task.id]))
-                                  try {
-                                    const resolvedVisitorId = visitorId ||
-                                      (delightVisitors.find(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())?.id || '')
-                                    await addPCSEntry({
-                                      visitorId: resolvedVisitorId,
-                                      name,
-                                      phone,
-                                      year: new Date().getFullYear(),
-                                      addedBy: userProfile?.email || 'unknown',
-                                    })
-                                    await updateTask(task.id, { status: 'Completed' })
-                                    setPcsEntries(prev => [{
-                                      id: `ref_${task.id}`, visitorId: resolvedVisitorId, name, phone,
-                                      year: new Date().getFullYear(), addedAt: new Date(), addedBy: userProfile?.email || '',
-                                    }, ...prev])
-                                  } catch { /* ignore */ }
-                                  finally {
-                                    setCellReferralAdding(prev => { const s = new Set(prev); s.delete(task.id); return s })
-                                  }
-                                }}
-                                className="px-3 py-1.5 bg-orange-600 text-white text-xs font-semibold rounded-xl hover:bg-orange-700 disabled:opacity-50 transition-colors flex-shrink-0"
-                              >
-                                {adding ? 'Adding…' : 'Add to PCS'}
-                              </button>
-                            ) : (
-                              /* Not in visitor list — must add to visitor list first */
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingDelightVisitorId(null)
-                                  setDelightVisitorForm(f => ({
-                                    ...f,
-                                    name,
-                                    phone,
-                                    dob: '', email: '', nativity: '', currentPlace: '',
-                                    serviceAttended: '', attendedDate: '', howKnown: '', source: '',
-                                    year: new Date().getFullYear(),
-                                  }))
-                                  setDelightVisitorModalOpen(true)
-                                }}
-                                className="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 transition-colors flex-shrink-0 whitespace-nowrap"
-                              >
-                                + Add to Visitor List
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                      </>
-                      )}
-                    </div>
+                          </>
+                        )}
+                      </div>
                     )}
 
-                    {/* ── Removed from Cell — still in PCS ── */}
+                    {/* Removed from Cell — still in PCS */}
                     {removedFromCellInPCS.length > 0 && (
-                    <div className="flex-1 min-w-0 bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setRemovedFromCellOpen(o => !o)}
-                        className="w-full px-4 py-3 flex items-center gap-2 bg-slate-100 hover:bg-slate-200 transition-colors text-left"
-                      >
-                        <span className="w-2.5 h-2.5 rounded-full bg-slate-500 flex-shrink-0" />
-                        <p className="text-sm font-bold text-slate-700 flex-1">Removed from Cell</p>
-                      <span className="bg-slate-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                        {removedFromCellInPCS.length}
-                      </span>
-                      <span className="text-slate-400 text-xs ml-1">{removedFromCellOpen ? '▲' : '▼'}</span>
-                    </button>
-                      {removedFromCellOpen && (
-                      <>
-                        <p className="px-4 pt-3 pb-1 text-xs text-slate-400">
-                          These people have been made inactive in their cell group. Review and remove from PCS if no longer active in church.
-                        </p>
-                        <div className="divide-y divide-slate-50 pb-2">
-                          {removedFromCellInPCS.map(m => {
-                            const pe = m.pcsEntry
-                            return (
-                              <div key={pe.id} className="flex items-center gap-3 px-4 py-3">
-                                <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-600 text-sm font-bold flex items-center justify-center flex-shrink-0">
-                                  {String(m.name || pe.name || '?').split(' ').slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('')}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-semibold text-slate-900 text-sm truncate">{m.name || pe.name}</p>
-                                  <p className="text-xs text-slate-400 mt-0.5">
-                                    {[m.phone || pe.phone, pe.year ? `PCS ${pe.year}` : '', pe.membershipNumber ? `#${pe.membershipNumber}` : ''].filter(Boolean).join(' · ')}
-                                  </p>
-                                  <p className="text-xs text-red-400 font-medium mt-0.5">Inactive in cell</p>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (!window.confirm(`Remove ${m.name || pe.name} from PCS? A profile JPEG will be downloaded.`)) return
-                                    downloadProfileAsJPEG({
-                                      name: m.name || pe.name || '',
-                                      phone: m.phone || pe.phone || '',
-                                      membershipNumber: pe.membershipNumber || '',
-                                      year: pe.year || '',
-                                      attendedDate: pe.attendedDate || '',
-                                      leadershipPosition: pe.leadershipPosition || '',
-                                    })
-                                    await deactivatePCSEntry(pe.id, userProfile?.email || '')
-                                    setPcsEntries(prev => prev.filter(e => e.id !== pe.id))
-                                    setPcsInactiveEntries(prev => [{ ...pe, status: 'inactive', removedAt: new Date(), removedBy: userProfile?.email || '' }, ...prev])
-                                    if (pcsExpandedId === pe.id) setPcsExpandedId(null)
-                                  }}
-                                  className="px-3 py-1.5 rounded-xl border border-red-200 text-red-500 text-xs font-semibold hover:bg-red-50 transition-colors flex-shrink-0 whitespace-nowrap"
-                                >
-                                  Remove from PCS
-                                </button>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </>
-                      )}
-                    </div>
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden sm:flex-1 sm:min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setRemovedFromCellOpen(o => !o)}
+                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-left"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0" />
+                          <p className="text-sm font-bold text-slate-700 flex-1">Removed from Cell</p>
+                          <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                            {removedFromCellInPCS.length}
+                          </span>
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-slate-400 transition-transform flex-shrink-0 ${removedFromCellOpen ? 'rotate-180' : ''}`}>
+                            <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </button>
+
+                        {removedFromCellOpen && (
+                          <>
+                            <p className="px-4 pb-2 text-xs text-slate-400 border-t border-slate-100 pt-3">
+                              These people are inactive in their cell group. Remove from PCS if no longer active in church.
+                            </p>
+                            <div className="divide-y divide-slate-100">
+                              {removedFromCellInPCS.map(m => {
+                                const pe = m.pcsEntry
+                                return (
+                                  <div key={pe.id} className="flex items-center gap-3 px-4 py-3">
+                                    <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-500 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                                      {String(m.name || pe.name || '?').split(' ').slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('')}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-semibold text-slate-900 text-sm truncate">{m.name || pe.name}</p>
+                                      <p className="text-xs text-slate-400 mt-0.5 truncate">
+                                        {[m.phone || pe.phone, pe.year ? `PCS ${pe.year}` : '', pe.membershipNumber ? `#${pe.membershipNumber}` : ''].filter(Boolean).join(' · ')}
+                                      </p>
+                                      <p className="text-xs text-red-400 font-medium mt-0.5">Inactive in cell</p>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     )}
 
                   </div>

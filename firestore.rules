@@ -221,7 +221,8 @@ service cloud.firestore {
     }
 
     match /caring_pcs/{docId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow read:  if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
     // PCS profile-fill invitations: Caring Director sends → Cell Leader fills

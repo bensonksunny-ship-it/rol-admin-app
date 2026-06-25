@@ -2266,6 +2266,23 @@ export async function getPCSEntries() {
   return snap.docs.map(mapPCSDoc).filter(e => e.status !== 'inactive')
 }
 
+// Lookup-only: no orderBy so entries missing addedAt are NOT excluded
+export async function getPCSLookup() {
+  if (!db) return []
+  const snap = await getDocs(collection(db, CARING_PCS_COLLECTION))
+  return snap.docs
+    .map(d => {
+      const data = d.data()
+      return {
+        visitorId: data.visitorId || '',
+        name: data.name || '',
+        phone: data.phone || '',
+        status: data.status || 'active',
+      }
+    })
+    .filter(e => e.status !== 'inactive')
+}
+
 export async function getInactivePCSEntries() {
   if (!db) return []
   const q = query(collection(db, CARING_PCS_COLLECTION), orderBy('addedAt', 'desc'))
