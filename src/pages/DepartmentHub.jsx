@@ -4836,57 +4836,47 @@ export default function DepartmentHub() {
               ) : team.length === 0 ? (
                 <div className="py-4 text-sm text-slate-500"></div>
               ) : slug === 'd-light' ? (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                  {team.map((m) => {
-                    const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
-                      ? m.subDepartments
-                      : (m.subDepartment ? [m.subDepartment] : [])
-                    const isActive = (m.status || 'active') === 'active' && !m.isFormer
-                    return (
-                      <div key={m.id} className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1.5 flex flex-col">
-                        {/* Avatar + name */}
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                <>
+                  {/* Mobile: list rows */}
+                  <div className="sm:hidden divide-y divide-slate-100 -mx-5 border-t border-b border-slate-100">
+                    {team.map((m) => {
+                      const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
+                        ? m.subDepartments
+                        : (m.subDepartment ? [m.subDepartment] : [])
+                      const isActive = (m.status || 'active') === 'active' && !m.isFormer
+                      return (
+                        <div key={m.id} className="flex items-center gap-3 px-5 py-3">
+                          <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
                             {(m.name || '?').charAt(0).toUpperCase()}
                           </div>
-                          <p className="text-[11px] font-semibold text-slate-800 leading-tight truncate">{m.name}</p>
-                        </div>
-
-                        {/* Sub-department chips */}
-                        {subDepts.length > 0 && (
-                          <div className="flex flex-wrap gap-0.5">
-                            {subDepts.map((s) => (
-                              <span key={s} className="text-[9px] font-medium px-1 py-px rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100 leading-tight">
-                                {s}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 truncate">{m.name}</p>
+                            <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                              <span className={`text-[10px] font-semibold px-1.5 py-px rounded-full ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                                {m.isFormer ? 'Former' : 'Active'}
                               </span>
-                            ))}
+                              {subDepts.map((s) => (
+                                <span key={s} className="text-[10px] font-medium px-1.5 py-px rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
+                                  {s}
+                                </span>
+                              ))}
+                            </div>
                           </div>
-                        )}
-
-                        {/* Status + actions row */}
-                        <div className="flex items-center gap-1 mt-auto">
-                          <span className={`text-[9px] font-semibold px-1 py-px rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                            {m.isFormer ? 'Former' : 'Active'}
-                          </span>
                           {canEdit && (
-                            <>
+                            <div className="flex items-center gap-2 flex-shrink-0">
                               <button
                                 type="button"
                                 onClick={() => {
                                   setEditingMember(m)
                                   setMemberForm({
-                                    name: m.name || '',
-                                    role: m.role || '',
-                                    subDepartment: m.subDepartment || '',
-                                    subDepartments: subDepts,
-                                    phone: m.phone || '',
-                                    status: m.status || 'active',
+                                    name: m.name || '', role: m.role || '',
+                                    subDepartment: m.subDepartment || '', subDepartments: subDepts,
+                                    phone: m.phone || '', status: m.status || 'active',
                                     memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
-                                    isFormer: !!m.isFormer,
-                                    notes: m.notes || '',
+                                    isFormer: !!m.isFormer, notes: m.notes || '',
                                   })
                                 }}
-                                className="ml-auto text-[9px] font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+                                className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 active:bg-indigo-100"
                               >Edit</button>
                               <button
                                 type="button"
@@ -4895,15 +4885,73 @@ export default function DepartmentHub() {
                                   await deleteDepartmentTeamMember(m.id)
                                   setTeam((prev) => prev.filter((x) => x.id !== m.id))
                                 }}
-                                className="text-[9px] font-medium text-red-300 hover:text-red-500 transition-colors"
-                              >✕</button>
-                            </>
+                                className="px-3 py-1.5 text-xs font-medium text-red-500 border border-red-100 rounded-lg hover:bg-red-50 active:bg-red-100"
+                              >Remove</button>
+                            </div>
                           )}
                         </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                      )
+                    })}
+                  </div>
+                  {/* Desktop: card grid */}
+                  <div className="hidden sm:grid sm:grid-cols-3 md:grid-cols-4 gap-2">
+                    {team.map((m) => {
+                      const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
+                        ? m.subDepartments
+                        : (m.subDepartment ? [m.subDepartment] : [])
+                      const isActive = (m.status || 'active') === 'active' && !m.isFormer
+                      return (
+                        <div key={m.id} className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1.5 flex flex-col">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                              {(m.name || '?').charAt(0).toUpperCase()}
+                            </div>
+                            <p className="text-[11px] font-semibold text-slate-800 leading-tight truncate">{m.name}</p>
+                          </div>
+                          {subDepts.length > 0 && (
+                            <div className="flex flex-wrap gap-0.5">
+                              {subDepts.map((s) => (
+                                <span key={s} className="text-[9px] font-medium px-1 py-px rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100 leading-tight">{s}</span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-1 mt-auto">
+                            <span className={`text-[9px] font-semibold px-1 py-px rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                              {m.isFormer ? 'Former' : 'Active'}
+                            </span>
+                            {canEdit && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingMember(m)
+                                    setMemberForm({
+                                      name: m.name || '', role: m.role || '',
+                                      subDepartment: m.subDepartment || '', subDepartments: subDepts,
+                                      phone: m.phone || '', status: m.status || 'active',
+                                      memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
+                                      isFormer: !!m.isFormer, notes: m.notes || '',
+                                    })
+                                  }}
+                                  className="ml-auto text-[9px] font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+                                >Edit</button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!window.confirm('Remove this member from team?')) return
+                                    await deleteDepartmentTeamMember(m.id)
+                                    setTeam((prev) => prev.filter((x) => x.id !== m.id))
+                                  }}
+                                  className="text-[9px] font-medium text-red-300 hover:text-red-500 transition-colors"
+                                >✕</button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
               ) : (
                 <>
                 <div className="overflow-x-auto">

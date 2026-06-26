@@ -12,6 +12,7 @@ import {
   updateWorshipScheduleById,
   setWorshipScheduleByDate,
   getWorshipRehearsals,
+  getWorshipRehearsalByDate,
   addWorshipRehearsal,
   updateWorshipRehearsal,
   deleteWorshipRehearsal,
@@ -33,6 +34,7 @@ import { format, subMonths, subDays, differenceInDays, differenceInYears, differ
 import { formatDMY } from '../utils/date'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import BoardPointsModal from '../components/BoardPointsModal'
+import UpcomingSunday from './UpcomingSunday'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -525,15 +527,19 @@ export default function DepartmentWorship() {
     setLoadingWeekBoxes(true)
     getAllWorshipSchedules(DEPARTMENT)
       .then((all) => {
-        const sundays = upcomingSundays(3)
-        const boxes = sundays.map((sundayDate) => {
-          const sundayObj = new Date(sundayDate + 'T12:00:00')
-          const fridayDate = format(subDays(sundayObj, 2), 'yyyy-MM-dd')
-          const saturdayDate = format(subDays(sundayObj, 1), 'yyyy-MM-dd')
-          const schedule = all.find((s) => s.date === sundayDate) || null
-          return { sundayDate, fridayDate, saturdayDate, schedule }
-        })
-        setWeekBoxSchedules(boxes)
+        const today = format(new Date(), 'yyyy-MM-dd')
+        const upcomingPlans = all
+          .filter((s) => s.date >= today)
+          .sort((a, b) => b.date.localeCompare(a.date))
+        // Show the latest saved upcoming plan, or fall back to next Sunday if none exists
+        const activeSunday = upcomingPlans[0]?.date || upcomingSundays(1)[0]
+        const sundayObj = new Date(activeSunday + 'T12:00:00')
+        setWeekBoxSchedules([{
+          sundayDate: activeSunday,
+          fridayDate: format(subDays(sundayObj, 2), 'yyyy-MM-dd'),
+          saturdayDate: format(subDays(sundayObj, 1), 'yyyy-MM-dd'),
+          schedule: upcomingPlans[0] || null,
+        }])
       })
       .catch(() => setWeekBoxSchedules([]))
       .finally(() => setLoadingWeekBoxes(false))
@@ -544,13 +550,14 @@ export default function DepartmentWorship() {
     setLoadingRecords(true)
     getAllWorshipSchedules(DEPARTMENT)
       .then(all => {
-        const complete = all
-          .filter(s => {
-            const pa = s.practiceAttendance || {}
-            return !!(pa.fridaySession?.endOfPractice && pa.saturdaySession?.endOfPractice && pa.saturdaySession?.beginRehearsal && pa.saturdaySession?.endRehearsal)
-          })
+        const today = format(new Date(), 'yyyy-MM-dd')
+        const upcomingPlans = all.filter((s) => s.date >= today).sort((a, b) => b.date.localeCompare(a.date))
+        const activeSunday = upcomingPlans[0]?.date
+        // Records = every week except the currently active one, that has at least one assigned member
+        const records = all
+          .filter(s => s.date !== activeSunday && (s.assignments || []).some(a => a.memberId))
           .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-        setRecordsSchedules(complete)
+        setRecordsSchedules(records)
       })
       .catch(() => setRecordsSchedules([]))
       .finally(() => setLoadingRecords(false))
@@ -609,6 +616,52 @@ export default function DepartmentWorship() {
       setStampOpen(false)
       if (selectedDate === getForthcomingSunday()) {
         setForthcomingSchedule(prev => ({ ...(prev || {}), date: selectedDate, assignments: [...localAssignments] }))
+      }
+
+      // Update the Schedule box to show only this Sunday; move old box to Records
+      const prevBox = weekBoxSchedules[0]
+      const sundayObj = new Date(selectedDate + 'T12:00:00')
+      const newBox = {
+        sundayDate: selectedDate,
+        fridayDate: format(subDays(sundayObj, 2), 'yyyy-MM-dd'),
+        saturdayDate: format(subDays(sundayObj, 1), 'yyyy-MM-dd'),
+        schedule: {
+          ...(prevBox?.sundayDate === selectedDate ? prevBox.schedule : scheduleForDate) || {},
+          date: selectedDate,
+          assignments: localAssignments,
+        },
+      }
+      setWeekBoxSchedules([newBox])
+      if (prevBox && prevBox.sundayDate !== selectedDate && (prevBox.schedule?.assignments || []).some(a => a.memberId)) {
+        setRecordsSchedules(prev =>
+          [prevBox.schedule, ...prev.filter(s => s.date !== prevBox.sundayDate)]
+            .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        )
+      }
+
+      // Auto-create or update practice session for the Saturday before this Sunday
+      const practiceDateStr = format(subDays(new Date(selectedDate + 'T12:00:00'), 1), 'yyyy-MM-dd')
+      const songLines = localAssignments
+        .filter((a) => a.songName)
+        .map((a) => `${a.role}: ${a.songName}${a.key ? ` (${a.key})` : ''}`)
+      const notes = [
+        `Practice for Sunday ${format(new Date(selectedDate + 'T12:00:00'), 'd MMM yyyy')}`,
+        ...(songLines.length ? ['', ...songLines] : []),
+      ].join('\n')
+      const existing = await getWorshipRehearsalByDate(DEPARTMENT, practiceDateStr)
+      if (existing) {
+        await updateWorshipRehearsal(existing.id, { notes })
+        setRehearsals((prev) =>
+          prev.map((r) => r.id === existing.id ? { ...r, notes } : r)
+        )
+      } else {
+        const id = await addWorshipRehearsal(DEPARTMENT, {
+          date: practiceDateStr, time: '', location: '', notes,
+        }, userProfile?.email)
+        setRehearsals((prev) =>
+          [...prev, { id, department: DEPARTMENT, date: practiceDateStr, time: '', location: '', notes }]
+            .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+        )
       }
     } catch (e) {
       console.error(e)
@@ -865,6 +918,10 @@ export default function DepartmentWorship() {
         />
       )}
       <div className="space-y-4 p-4">
+      {activeTab === 'upcomingSunday' && (
+        <UpcomingSunday slug="worship" />
+      )}
+
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
 
@@ -2666,15 +2723,6 @@ export default function DepartmentWorship() {
                 {label}
               </button>
             ))}
-            {canManageWorship && practiceSubPage === 'schedule' && (
-              <button
-                type="button"
-                onClick={() => { setEditingRehearsal(null); setRehearsalForm({ date: '', time: '', location: '', notes: '' }); setRehearsalModalOpen(true) }}
-                className="ml-auto mb-1 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-medium hover:bg-violet-700"
-              >
-                + Add Session
-              </button>
-            )}
           </div>
 
           {/* ── Schedule sub-page ── */}
@@ -2684,8 +2732,8 @@ export default function DepartmentWorship() {
               {loadingWeekBoxes ? (
                 <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {weekBoxSchedules.filter(w => {
+                <div className="grid grid-cols-1 gap-4">
+                  {weekBoxSchedules.slice(0, 1).filter(w => {
                     const pa = w.schedule?.practiceAttendance || {}
                     return !(pa.fridaySession?.endOfPractice && pa.saturdaySession?.endOfPractice && pa.saturdaySession?.beginRehearsal && pa.saturdaySession?.endRehearsal)
                   }).map(({ sundayDate, fridayDate, saturdayDate, schedule }) => {
@@ -2821,7 +2869,7 @@ export default function DepartmentWorship() {
               {loadingRecords ? (
                 <div className="py-10 text-center text-slate-400 text-sm">Loading records…</div>
               ) : recordsSchedules.length === 0 ? (
-                <div className="py-10 text-center text-slate-400 text-sm">No completed sessions yet. Records appear here once both Friday and Saturday timings are fully saved.</div>
+                <div className="py-10 text-center text-slate-400 text-sm">No records yet. Previous weeks move here when a new week's plan is saved.</div>
               ) : recordsSchedules.map(s => {
                 const pa = s.practiceAttendance || {}
                 let fmtSunday = s.date
@@ -2829,6 +2877,7 @@ export default function DepartmentWorship() {
                 const fridayArrived = Object.values(pa.friday || {}).filter(v => v.arrivedAt).length
                 const satArrived = Object.values(pa.saturday || {}).filter(v => v.arrivedAt).length
                 const total = (s.assignments || []).filter(a => a.memberId).length
+                const isComplete = !!(pa.fridaySession?.endOfPractice && pa.saturdaySession?.endOfPractice && pa.saturdaySession?.beginRehearsal && pa.saturdaySession?.endRehearsal)
                 return (
                   <div key={s.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
@@ -2836,7 +2885,10 @@ export default function DepartmentWorship() {
                         <p className="font-semibold text-slate-800 text-sm">{fmtSunday}</p>
                         <p className="text-xs text-slate-400 mt-0.5">Fri: {fridayArrived}/{total} · Sat: {satArrived}/{total}</p>
                       </div>
-                      <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2.5 py-0.5 font-semibold">Complete</span>
+                      {isComplete
+                        ? <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2.5 py-0.5 font-semibold">Complete</span>
+                        : <span className="text-xs bg-slate-100 text-slate-500 border border-slate-200 rounded-full px-2.5 py-0.5 font-medium">Archived</span>
+                      }
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
                       <div className="px-5 py-4 space-y-1.5">
@@ -2867,7 +2919,16 @@ export default function DepartmentWorship() {
             <div className="py-10 text-center text-slate-400 text-sm">No rehearsals scheduled yet.</div>
           ) : (() => {
             const today = format(new Date(), 'yyyy-MM-dd')
-            const upcoming = rehearsals.filter(r => (r.date || '') >= today)
+            // Only show custom sessions that fall within the current active week (Mon–Sun of active Sunday)
+            const activeSunday = weekBoxSchedules[0]?.sundayDate
+            const weekStart = activeSunday
+              ? format(subDays(new Date(activeSunday + 'T12:00:00'), 6), 'yyyy-MM-dd')
+              : today
+            const upcoming = rehearsals.filter(r =>
+              (r.date || '') >= today &&
+              r.date >= weekStart &&
+              (activeSunday ? r.date <= activeSunday : true)
+            )
             const past = rehearsals.filter(r => (r.date || '') < today)
 
             const openAttendance = (r) => {
@@ -3001,19 +3062,19 @@ export default function DepartmentWorship() {
                                     >
                                       Edit
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        if (!window.confirm('Delete this rehearsal?')) return
-                                        await deleteWorshipRehearsal(r.id)
-                                        setRehearsals(prev => prev.filter(x => x.id !== r.id))
-                                      }}
-                                      className="text-xs text-red-500 border border-red-100 rounded-lg px-2 py-1 hover:bg-red-50"
-                                    >
-                                      Delete
-                                    </button>
                                   </>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!window.confirm('Remove this practice session?')) return
+                                    await deleteWorshipRehearsal(r.id)
+                                    setRehearsals(prev => prev.filter(x => x.id !== r.id))
+                                  }}
+                                  className="text-xs text-red-500 border border-red-100 rounded-lg px-2 py-1 hover:bg-red-50"
+                                >
+                                  Remove
+                                </button>
                               </div>
                             </div>
                             {isAttendanceOpen && <AttendancePanel r={r} />}
@@ -3053,19 +3114,17 @@ export default function DepartmentWorship() {
                                 >
                                   {isAttendanceOpen ? 'Close' : 'Attendance'}
                                 </button>
-                                {canManageWorship && (
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      if (!window.confirm('Delete this rehearsal?')) return
-                                      await deleteWorshipRehearsal(r.id)
-                                      setRehearsals(prev => prev.filter(x => x.id !== r.id))
-                                    }}
-                                    className="text-xs text-red-400 hover:text-red-600"
-                                  >
-                                    Delete
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!window.confirm('Remove this practice session?')) return
+                                    await deleteWorshipRehearsal(r.id)
+                                    setRehearsals(prev => prev.filter(x => x.id !== r.id))
+                                  }}
+                                  className="text-xs text-red-400 hover:text-red-600 border border-red-100 rounded-lg px-2 py-1 hover:bg-red-50"
+                                >
+                                  Remove
+                                </button>
                               </div>
                             </div>
                             {isAttendanceOpen && <AttendancePanel r={r} />}

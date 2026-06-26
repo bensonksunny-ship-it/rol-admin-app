@@ -772,6 +772,17 @@ export async function getWorshipRehearsals(department) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
+export async function getWorshipRehearsalByDate(department, date) {
+  if (!db) return null
+  const q = query(
+    collection(db, WORSHIP_REHEARSALS_COLLECTION),
+    where('department', '==', department),
+    where('date', '==', date)
+  )
+  const snap = await getDocs(q)
+  return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }
+}
+
 export async function addWorshipRehearsal(department, data, createdBy) {
   if (!db) return null
   const ref = await addDoc(collection(db, WORSHIP_REHEARSALS_COLLECTION), {
