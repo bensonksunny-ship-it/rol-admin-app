@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { DEPARTMENT_LIST } from '../constants/departments'
 import { ROLES, POSITION_OPTIONS, deriveRoleFromPositions, deriveDepartmentsFromPositions } from '../constants/roles'
-import { getAllUsers } from '../services/firestore'
+import { getAllUsers, getDelightVisitors } from '../services/firestore'
 import { auth, functions, httpsCallable } from '../lib/firebase'
 import { logAction } from '../utils/auditLog'
 
@@ -29,6 +29,9 @@ export default function AdminUserManagement() {
     status: 'active',
   })
   const [error, setError] = useState('')
+  const [membersList, setMembersList] = useState([])
+  const [nameSuggestions, setNameSuggestions] = useState([])
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false)
 
   const isCellLeaderSelected = (form.positions || []).some(
     (p) => String(p?.department || '').trim().toLowerCase() === 'cell' && String(p?.position || '').trim().toLowerCase() === 'cell leader'
@@ -44,6 +47,16 @@ export default function AdminUserManagement() {
     getAllUsers()
       .then(setUsers)
       .finally(() => setLoading(false))
+    getDelightVisitors().then((visitors) => {
+      // Deduplicate: one entry per person (keyed by phone, else name)
+      const seen = new Set()
+      const unique = []
+      for (const v of visitors) {
+        const key = v.phone ? `p:${v.phone}` : `n:${(v.name || '').toLowerCase()}`
+        if (v.name && !seen.has(key)) { seen.add(key); unique.push(v) }
+      }
+      setMembersList(unique)
+    }).catch(() => {})
   }, [canManageUsers])
 
   const sortedUsers = useMemo(
@@ -421,14 +434,52 @@ export default function AdminUserManagement() {
             </div>
             <form onSubmit={handleSave} className="p-5 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
                   <input
                     type="text"
                     value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    onChange={(e) => {
+                      const q = e.target.value
+                      setForm((f) => ({ ...f, name: q }))
+                      const hits = q.trim().length >= 1
+                        ? membersList.filter((m) => m.name.toLowerCase().includes(q.toLowerCase())).slice(0, 7)
+                        : []
+                      setNameSuggestions(hits)
+                      setShowNameSuggestions(hits.length > 0)
+                    }}
+                    onFocus={() => { if (nameSuggestions.length > 0) setShowNameSuggestions(true) }}
+                    onBlur={() => setTimeout(() => setShowNameSuggestions(false), 150)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    placeholder="Type to search members…"
+                    autoComplete="off"
                   />
+                  {showNameSuggestions && (
+                    <ul className="absolute z-50 w-full bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                      {nameSuggestions.map((m) => (
+                        <li
+                          key={m.id}
+                          onMouseDown={() => {
+                            setForm((f) => ({
+                              ...f,
+                              name: m.name,
+                              phone: m.phone || f.phone,
+                              email: m.email || f.email,
+                              membershipNumber: m.membershipNumber || f.membershipNumber,
+                            }))
+                            setShowNameSuggestions(false)
+                            setNameSuggestions([])
+                          }}
+                          className="px-3 py-2 hover:bg-indigo-50 cursor-pointer"
+                        >
+                          <span className="text-sm font-medium text-slate-800">{m.name}</span>
+                          {(m.phone || m.membershipNumber) && (
+                            <span className="ml-2 text-xs text-slate-400">{m.phone || m.membershipNumber}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>

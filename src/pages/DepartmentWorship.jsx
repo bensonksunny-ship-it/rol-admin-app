@@ -2689,7 +2689,7 @@ export default function DepartmentWorship() {
                     const pa = w.schedule?.practiceAttendance || {}
                     return !(pa.fridaySession?.endOfPractice && pa.saturdaySession?.endOfPractice && pa.saturdaySession?.beginRehearsal && pa.saturdaySession?.endRehearsal)
                   }).map(({ sundayDate, fridayDate, saturdayDate, schedule }) => {
-                    const assignments = (schedule?.assignments || []).filter(a => a.memberId)
+                    const assignments = (schedule?.assignments || []).filter(a => a.memberId).filter((a, i, arr) => arr.findIndex(x => x.memberId === a.memberId) === i)
                     const practiceAtt = schedule?.practiceAttendance || {}
 
                     let fmtSunday = sundayDate
@@ -2712,6 +2712,12 @@ export default function DepartmentWorship() {
                     const markArrived = async (day, a) => {
                       const updated = { ...practiceAtt, [day]: { ...(practiceAtt[day] || {}), [a.memberId]: { arrivedAt: format(new Date(), 'HH:mm'), memberName: a.memberName } } }
                       await saveUpdated(updated)
+                    }
+
+                    const undoArrived = async (day, a) => {
+                      const dayData = { ...(practiceAtt[day] || {}) }
+                      delete dayData[a.memberId]
+                      await saveUpdated({ ...practiceAtt, [day]: dayData })
                     }
 
                     const recordSession = async (sessionKey, field) => {
@@ -2763,7 +2769,12 @@ export default function DepartmentWorship() {
                                   <div key={a.memberId} className="flex items-center justify-between gap-2">
                                     <span className={`text-xs truncate ${rec?.arrivedAt ? 'text-slate-800 font-medium' : 'text-slate-400'}`}>{a.memberName}</span>
                                     {rec?.arrivedAt ? (
-                                      <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5 flex-shrink-0">{rec.arrivedAt}</span>
+                                      <div className="flex items-center gap-1 flex-shrink-0">
+                                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5">{rec.arrivedAt}</span>
+                                        {canManageWorship && (
+                                          <button type="button" onClick={() => undoArrived(day, a)} className="text-[10px] text-slate-300 hover:text-red-400 leading-none transition-colors" title="Undo">×</button>
+                                        )}
+                                      </div>
                                     ) : canManageWorship ? (
                                       <button type="button" onClick={() => markArrived(day, a)} className="text-xs text-violet-600 border border-violet-200 rounded-full px-2 py-0.5 hover:bg-violet-50 flex-shrink-0">Arrived</button>
                                     ) : null}

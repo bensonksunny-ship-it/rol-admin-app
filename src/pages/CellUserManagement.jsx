@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { ROLES } from '../constants/roles'
-import { getAllUsers, updateUserByAdmin, setUserStatus } from '../services/firestore'
+import { getAllUsers, updateUserByAdmin, setUserStatus, getDelightVisitors } from '../services/firestore'
 
 export default function CellUserManagement() {
   const { userProfile } = useAuth()
@@ -17,6 +17,9 @@ export default function CellUserManagement() {
     cellGroup: '',
     status: 'active',
   })
+  const [membersList, setMembersList] = useState([])
+  const [nameSuggestions, setNameSuggestions] = useState([])
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false)
 
   const isAdminOrFounder =
     userProfile?.role === ROLES.ADMIN || userProfile?.role === ROLES.FOUNDER
@@ -30,6 +33,15 @@ export default function CellUserManagement() {
     getAllUsers()
       .then(setUsers)
       .finally(() => setLoading(false))
+    getDelightVisitors().then((visitors) => {
+      const seen = new Set()
+      const unique = []
+      for (const v of visitors) {
+        const key = v.phone ? `p:${v.phone}` : `n:${(v.name || '').toLowerCase()}`
+        if (v.name && !seen.has(key)) { seen.add(key); unique.push(v) }
+      }
+      setMembersList(unique)
+    }).catch(() => {})
   }, [])
 
   const filteredUsers = useMemo(() => {
@@ -217,14 +229,50 @@ export default function CellUserManagement() {
             </div>
             <form onSubmit={handleSave} className="p-5 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
                   <input
                     type="text"
                     value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    onChange={(e) => {
+                      const q = e.target.value
+                      setForm((f) => ({ ...f, name: q }))
+                      const hits = q.trim().length >= 1
+                        ? membersList.filter((m) => m.name.toLowerCase().includes(q.toLowerCase())).slice(0, 7)
+                        : []
+                      setNameSuggestions(hits)
+                      setShowNameSuggestions(hits.length > 0)
+                    }}
+                    onFocus={() => { if (nameSuggestions.length > 0) setShowNameSuggestions(true) }}
+                    onBlur={() => setTimeout(() => setShowNameSuggestions(false), 150)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    placeholder="Type to search members…"
+                    autoComplete="off"
                   />
+                  {showNameSuggestions && (
+                    <ul className="absolute z-50 w-full bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                      {nameSuggestions.map((m) => (
+                        <li
+                          key={m.id}
+                          onMouseDown={() => {
+                            setForm((f) => ({
+                              ...f,
+                              name: m.name,
+                              phone: m.phone || f.phone,
+                            }))
+                            setShowNameSuggestions(false)
+                            setNameSuggestions([])
+                          }}
+                          className="px-3 py-2 hover:bg-indigo-50 cursor-pointer"
+                        >
+                          <span className="text-sm font-medium text-slate-800">{m.name}</span>
+                          {m.phone && (
+                            <span className="ml-2 text-xs text-slate-400">{m.phone}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>

@@ -12,7 +12,7 @@ export function getDepartmentHubTabs(slug) {
     case 'worship':
       return ['summary', 'upcomingSunday', 'assign', 'theTeam', 'practiceRehearsal', 'archives', 'operations']
     case 'media':
-      return ['summary', 'upcomingSunday', 'design', 'operations']
+      return ['summary', 'upcomingSunday', 'operations']
     case 'd-light':
       return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'operations']
     case 'event-m':

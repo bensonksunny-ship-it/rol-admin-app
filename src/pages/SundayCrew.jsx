@@ -524,7 +524,7 @@ function CrewTab({ canEdit, userProfile }) {
 }
 
 export default function SundayCrew() {
-  const { isSundayMinistryDirector } = useAuth()
+  const { isSundayMinistryDirector, userProfile } = useAuth()
   const canEdit = isSundayMinistryDirector
   const [subTab, setSubTab] = useState('preService')
 

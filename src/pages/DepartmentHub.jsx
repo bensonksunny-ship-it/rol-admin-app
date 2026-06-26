@@ -111,7 +111,6 @@ import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import CellOperationsToggle from './cell/CellOperationsToggle'
 import SundayOperationsToggle from './sunday/SundayOperationsToggle'
 import MediaOperationsToggle from './media/MediaOperationsToggle'
-import MediaDesign from './media/MediaDesign'
 import RiverKidsOperationsToggle from './river-kids/RiverKidsOperationsToggle'
 import AdministrationOperationsToggle from './administration/AdministrationOperationsToggle'
 import AccountsOperationsToggle from './accounts/AccountsOperationsToggle'
@@ -126,7 +125,7 @@ async function mergeTasksEntriesTeam(canonicalName) {
   const deptNames = [canonicalName, ...alt]
   const taskById = new Map()
   for (const n of deptNames) {
-    const list = await getTasks({ department: n })
+    const list = await getTasks({ department: n }).catch(() => [])
     list.forEach((t) => taskById.set(t.id, t))
   }
   const tasks = [...taskById.values()].sort((a, b) => {
@@ -134,7 +133,7 @@ async function mergeTasksEntriesTeam(canonicalName) {
     const cb = b.createdAt?.seconds ?? (b.createdAt instanceof Date ? b.createdAt.getTime() / 1000 : 0)
     return cb - ca
   })
-  const entryParts = await Promise.all(deptNames.map((n) => getDepartmentEntries(n, { limit: 20 })))
+  const entryParts = await Promise.all(deptNames.map((n) => getDepartmentEntries(n, { limit: 20 }).catch(() => [])))
   const entryById = new Map()
   entryParts.flat().forEach((e) => entryById.set(e.id, e))
   const entries = [...entryById.values()]
@@ -146,7 +145,7 @@ async function mergeTasksEntriesTeam(canonicalName) {
     .slice(0, 25)
   const teamById = new Map()
   for (const n of deptNames) {
-    const list = await getDepartmentTeamMembers(n)
+    const list = await getDepartmentTeamMembers(n).catch(() => [])
     list.forEach((m) => teamById.set(m.id, m))
   }
   const team = [...teamById.values()]
@@ -610,8 +609,6 @@ export default function DepartmentHub() {
       .catch(() => {
         setTasks([])
         setEntries([])
-        setTeam([])
-        setTeamError('Could not load department data.')
       })
       .finally(() => {
         setLoading(false)
@@ -1734,8 +1731,7 @@ export default function DepartmentHub() {
                     <div className="p-6 text-center text-slate-500 text-sm">Loading…</div>
                   ) : mediaSundayDesignProgram.length === 0 ? (
                     <div className="p-6 text-center text-slate-500 text-sm">
-                      No design program pushed for this Sunday yet.{' '}
-                      <button type="button" onClick={() => setActiveTab('design')} className="text-indigo-600 hover:underline">Go to Design tab →</button>
+                      No design program pushed for this Sunday yet. Design the programme in the Upcoming Sunday tab and push it here.
                     </div>
                   ) : (
                     <>
@@ -2771,9 +2767,6 @@ export default function DepartmentHub() {
             <UpcomingSunday slug={slug} />
           )}
 
-          {activeTab === 'design' && slug === 'media' && (
-            <MediaDesign canEdit={canEdit} />
-          )}
 
           {activeTab === 'operations' && slug === 'media' && (
             <MediaOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
@@ -4832,6 +4825,75 @@ export default function DepartmentHub() {
                 <div className="py-4 text-sm text-slate-500">Loading team...</div>
               ) : team.length === 0 ? (
                 <div className="py-4 text-sm text-slate-500"></div>
+              ) : slug === 'd-light' ? (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {team.map((m) => {
+                    const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
+                      ? m.subDepartments
+                      : (m.subDepartment ? [m.subDepartment] : [])
+                    const isActive = (m.status || 'active') === 'active' && !m.isFormer
+                    return (
+                      <div key={m.id} className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1.5 flex flex-col">
+                        {/* Avatar + name */}
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                            {(m.name || '?').charAt(0).toUpperCase()}
+                          </div>
+                          <p className="text-[11px] font-semibold text-slate-800 leading-tight truncate">{m.name}</p>
+                        </div>
+
+                        {/* Sub-department chips */}
+                        {subDepts.length > 0 && (
+                          <div className="flex flex-wrap gap-0.5">
+                            {subDepts.map((s) => (
+                              <span key={s} className="text-[9px] font-medium px-1 py-px rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100 leading-tight">
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Status + actions row */}
+                        <div className="flex items-center gap-1 mt-auto">
+                          <span className={`text-[9px] font-semibold px-1 py-px rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                            {m.isFormer ? 'Former' : 'Active'}
+                          </span>
+                          {canEdit && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingMember(m)
+                                  setMemberForm({
+                                    name: m.name || '',
+                                    role: m.role || '',
+                                    subDepartment: m.subDepartment || '',
+                                    subDepartments: subDepts,
+                                    phone: m.phone || '',
+                                    status: m.status || 'active',
+                                    memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
+                                    isFormer: !!m.isFormer,
+                                    notes: m.notes || '',
+                                  })
+                                }}
+                                className="ml-auto text-[9px] font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+                              >Edit</button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!window.confirm('Remove this member from team?')) return
+                                  await deleteDepartmentTeamMember(m.id)
+                                  setTeam((prev) => prev.filter((x) => x.id !== m.id))
+                                }}
+                                className="text-[9px] font-medium text-red-300 hover:text-red-500 transition-colors"
+                              >✕</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               ) : (
                 <>
                 <div className="overflow-x-auto">
@@ -4840,7 +4902,6 @@ export default function DepartmentHub() {
                       <tr>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium w-10">SL</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Name</th>
-                        {slug === 'd-light' && <th className="text-left px-4 py-2 text-slate-600 font-medium">Sub Department</th>}
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Status</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Member since</th>
                         {canEdit && (
@@ -4866,7 +4927,6 @@ export default function DepartmentHub() {
                               }
                             </div>
                           </td>
-                          {slug === 'd-light' && <td className="px-4 py-2 text-slate-600">{formatTeamSubDepartmentCell(m)}</td>}
                           <td className="px-4 py-2 text-slate-600 capitalize">{m.status || 'active'}</td>
                           <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
                           {canEdit && (
@@ -5060,21 +5120,36 @@ export default function DepartmentHub() {
                         <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                           Sub Department
                         </label>
-                        <select
-                          multiple
-                          value={memberForm.subDepartments}
-                          onChange={(e) => {
-                            const selected = Array.from(e.target.selectedOptions, (o) => o.value)
-                            setMemberForm((f) => ({ ...f, subDepartments: selected, subDepartment: selected[0] || '' }))
-                          }}
-                          className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 min-h-[88px]"
-                        >
-                          {subDeptOptionList.map((sd) => (
-                            <option key={sd.id} value={sd.name}>
-                              {sd.servingArea ? `${sd.name} (${sd.servingArea})` : sd.name}
-                            </option>
-                          ))}
-                        </select>
+                        {subDeptOptionList.length === 0 ? (
+                          <p className="text-xs text-slate-400 italic">No sub-departments yet — add them in Sub Dept tab.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {subDeptOptionList.map((sd) => {
+                              const selected = memberForm.subDepartments.includes(sd.name)
+                              return (
+                                <button
+                                  key={sd.id}
+                                  type="button"
+                                  onClick={() => {
+                                    const next = selected
+                                      ? memberForm.subDepartments.filter((s) => s !== sd.name)
+                                      : [...memberForm.subDepartments, sd.name]
+                                    setMemberForm((f) => ({ ...f, subDepartments: next, subDepartment: next[0] || '' }))
+                                  }}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+                                  style={selected
+                                    ? { background: '#4f46e5', color: '#fff', borderColor: '#4f46e5' }
+                                    : { background: '#f8fafc', color: '#64748b', borderColor: '#e2e8f0' }
+                                  }
+                                >
+                                  {selected && <span style={{ fontSize: 10 }}>✓</span>}
+                                  {sd.name}
+                                  {sd.servingArea && <span style={{ opacity: 0.7, fontWeight: 400 }}>· {sd.servingArea}</span>}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
 

@@ -94,8 +94,6 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
   const [parallelPrograms, setParallelPrograms] = useState({})
   const [expandedBlock, setExpandedBlock] = useState(null)
   const [removedItems, setRemovedItems] = useState([])
-  const [addingDeptProg, setAddingDeptProg] = useState(null)
-  const [newDeptProgName, setNewDeptProgName] = useState('')
 
   // Reload dept inputs + notification whenever the push date changes
   useEffect(() => {
@@ -239,21 +237,6 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     } catch (e) { console.error(e) }
   }
 
-  const handleAddDeptProg = async (slug) => {
-    const name = newDeptProgName.trim()
-    if (!name) return
-    const current = deptInputs[slug] || { programElements: {}, customPrograms: [], customElements: [] }
-    if ((current.customPrograms || []).some(p => p.programName === name)) {
-      setAddingDeptProg(null); setNewDeptProgName(''); return
-    }
-    const updated = { ...current, customPrograms: [...(current.customPrograms || []), { programName: name, elements: [], duration: 0 }] }
-    try {
-      await setDeptProgramInput(pushDate, slug, updated, userProfile?.email || 'unknown')
-      setDeptInputs(prev => ({ ...prev, [slug]: updated }))
-    } catch (e) { console.error(e); alert('Failed to add programme') }
-    setAddingDeptProg(null); setNewDeptProgName('')
-  }
-
   if (loading) return <p className="text-slate-500">Loading…</p>
 
   // True when departments have been notified for this date
@@ -279,21 +262,19 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
       <h2 className="font-semibold text-slate-800">Programme</h2>
 
       {/* ── Add / edit form ── */}
-      {canEdit && (
+      {canEdit && (() => {
+        const available = editingId
+          ? designedPrograms
+          : designedPrograms.filter((p) => !sorted.some((x) => x.programName === p) && !removedItems.some((r) => r.programName === p))
+        const hasAnything = available.length > 0 || (!editingId && removedItems.length > 0)
+        if (!editingId && !hasAnything) return null
+        return (
         <div className="space-y-3 pb-1">
           <p className="text-xs font-medium text-slate-500">
             {editingId ? 'Change programme' : 'Select programme to add'}
           </p>
           {(() => {
-            const available = editingId
-              ? designedPrograms
-              : designedPrograms.filter((p) => !sorted.some((x) => x.programName === p) && !removedItems.some((r) => r.programName === p))
-            const hasAnything = available.length > 0 || (!editingId && removedItems.length > 0)
-            if (!hasAnything) return (
-              <p className="text-xs text-slate-400 italic">
-                {editingId ? 'No programmes available.' : 'All designed programmes already added.'}
-              </p>
-            )
+            if (!hasAnything) return null
             return (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                 {!editingId && removedItems.map((item) => (
@@ -342,7 +323,8 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
             )}
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* ── Service start time ── */}
       <div style={{
@@ -602,12 +584,9 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
       })()}
 
       {/* ── Department custom programmes ── */}
-      {(canEdit || deptCustom.length > 0) && (() => {
-        // Always show D Light and Media; show others only when they have programmes
+      {deptCustom.length > 0 && (() => {
         const visibleSlugs = DEPT_SLUGS.filter(slug =>
-          slug === 'd-light' || slug === 'media'
-            ? (canEdit || (deptInputs[slug]?.customPrograms || []).length > 0)
-            : (deptInputs[slug]?.customPrograms || []).length > 0
+          (deptInputs[slug]?.customPrograms || []).length > 0
         )
         if (visibleSlugs.length === 0) return null
         return (
@@ -620,7 +599,6 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
             {visibleSlugs.map(slug => {
               const meta = DEPT_META[slug]
               const programs = deptInputs[slug]?.customPrograms || []
-              const isAdding = addingDeptProg === slug
 
               return (
                 <div key={slug} className="border-b border-slate-100 last:border-0">
@@ -633,46 +611,7 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                     <span className="text-[10px] text-slate-400 flex-1">
                       {programs.length} {programs.length === 1 ? 'programme' : 'programmes'}
                     </span>
-                    {canEdit && !isAdding && (
-                      <button type="button"
-                        onClick={() => { setAddingDeptProg(slug); setNewDeptProgName('') }}
-                        className="text-[10px] font-bold px-2 py-0.5 rounded-lg transition-opacity hover:opacity-70"
-                        style={{ background: meta.accent, color: '#fff' }}>
-                        + Add
-                      </button>
-                    )}
                   </div>
-
-                  {/* Inline add form */}
-                  {isAdding && (
-                    <div className="px-3 py-2 flex items-center gap-2 bg-white border-b border-slate-100">
-                      <input
-                        autoFocus
-                        type="text"
-                        placeholder="Programme name…"
-                        value={newDeptProgName}
-                        onChange={e => setNewDeptProgName(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') handleAddDeptProg(slug); if (e.key === 'Escape') setAddingDeptProg(null) }}
-                        className="flex-1 px-2 py-1 rounded-lg border text-xs font-medium"
-                        style={{ borderColor: `${meta.accent}66`, outline: 'none' }}
-                      />
-                      <button type="button" onClick={() => handleAddDeptProg(slug)}
-                        disabled={!newDeptProgName.trim()}
-                        className="text-[10px] font-bold px-2.5 py-1 rounded-lg disabled:opacity-40"
-                        style={{ background: meta.accent, color: '#fff' }}>
-                        Save
-                      </button>
-                      <button type="button" onClick={() => setAddingDeptProg(null)}
-                        className="text-[10px] text-slate-400 px-1 hover:text-slate-600">✕</button>
-                    </div>
-                  )}
-
-                  {/* Empty state */}
-                  {programs.length === 0 && !isAdding && (
-                    <div className="px-3 py-2">
-                      <span className="text-[10px] text-slate-400 italic">No programmes added yet</span>
-                    </div>
-                  )}
 
                   {/* Programme rows */}
                   <div className="divide-y divide-slate-50">

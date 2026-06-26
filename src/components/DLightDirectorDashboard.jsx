@@ -170,6 +170,12 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
       {/* KPI Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiTile
+          label="This Month"
+          value={visitorsThisMonth.length}
+          sub={`Visitors in ${MONTHS[currentMonth]} ${currentYear}`}
+          valueColor="text-emerald-600"
+        />
+        <KpiTile
           label="Visitors This Year"
           value={visitorsThisYear.length}
           sub={yoyLabel}
@@ -185,12 +191,6 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
           value={openTasks.length}
           sub={`${completedTasks.length} completed`}
           valueColor={openTasks.length > 0 ? 'text-amber-500' : 'text-emerald-600'}
-        />
-        <KpiTile
-          label="This Month"
-          value={visitorsThisMonth.length}
-          sub={`Visitors in ${MONTHS[currentMonth]} ${currentYear}`}
-          valueColor="text-emerald-600"
         />
       </div>
 
