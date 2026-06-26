@@ -115,6 +115,8 @@ import RiverKidsOperationsToggle from './river-kids/RiverKidsOperationsToggle'
 import AdministrationOperationsToggle from './administration/AdministrationOperationsToggle'
 import AccountsOperationsToggle from './accounts/AccountsOperationsToggle'
 import DLightOperationsToggle from './d-light/DLightOperationsToggle'
+import WorshipOperationsToggle from './worship/WorshipOperationsToggle'
+import DeptExpenseTab from '../components/DeptExpenseTab'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
 import UpcomingSunday from './UpcomingSunday'
 import SecCoreSummary from './seccore/SecCoreSummary'
@@ -2786,6 +2788,14 @@ export default function DepartmentHub() {
 
           {activeTab === 'operations' && slug === 'd-light' && (
             <DLightOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
+          {activeTab === 'operations' && slug === 'worship' && (
+            <WorshipOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
+          {activeTab === 'operations' && opsSubTab === 'expense' && department?.name && (
+            <DeptExpenseTab department={department.name} />
           )}
 
           {activeTab === 'operations' && slug === 'accounts' && opsSubTab === 'addDepartments' && (

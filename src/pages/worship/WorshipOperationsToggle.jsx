@@ -1,10 +1,9 @@
-export default function MediaOperationsToggle({ value, onChange }) {
+export default function WorshipOperationsToggle({ value, onChange }) {
   const options = [
-    { key: 'expense',       label: 'Expense'        },
-    { key: 'subDepartment', label: 'Sub Department' },
-    { key: 'team',          label: 'Team'           },
-    { key: 'planning',      label: 'Planning'       },
-    { key: 'financial',     label: 'Budget'         },
+    { key: 'expense',   label: 'Expense'  },
+    { key: 'team',      label: 'Team'     },
+    { key: 'planning',  label: 'Planning' },
+    { key: 'financial', label: 'Budget'   },
   ]
 
   return (

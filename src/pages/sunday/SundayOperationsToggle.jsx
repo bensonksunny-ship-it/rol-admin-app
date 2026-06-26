@@ -1,5 +1,6 @@
 export default function SundayOperationsToggle({ value, onChange }) {
   const options = [
+    { key: 'expense',       label: 'Expense'        },
     { key: 'subDepartment', label: 'Sub Department' },
     { key: 'team',          label: 'Team'           },
     { key: 'planning',      label: 'Planning'       },

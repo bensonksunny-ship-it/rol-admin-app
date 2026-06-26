@@ -136,6 +136,8 @@ export default function UpcomingSunday({ slug }) {
   const [newCustomEl, setNewCustomEl] = useState('')
   const [editingEl, setEditingEl] = useState(null)
 
+  const [worshipLoading, setWorshipLoading] = useState(slug === 'worship')
+
   // ── Load ─────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -164,9 +166,11 @@ export default function UpcomingSunday({ slug }) {
 
   useEffect(() => {
     if (slug !== 'worship') return
+    setWorshipLoading(true)
     getWorshipScheduleByDate('Worship', sundayDate)
       .then(setWorshipPlan)
       .catch(() => setWorshipPlan(null))
+      .finally(() => setWorshipLoading(false))
   }, [sundayDate, slug])
 
   const leadVocals = slug === 'worship'
@@ -338,6 +342,36 @@ export default function UpcomingSunday({ slug }) {
           </div>
         </div>
       </div>
+
+      {/* ── Worship Schedule (worship dept only) ── */}
+      {slug === 'worship' && (
+        <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-amber-100">
+          <div className="px-4 py-3 border-b border-amber-100" style={{ background: '#fffbeb' }}>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-0.5">Worship Team – This Sunday</p>
+          </div>
+          {worshipLoading ? (
+            <div className="px-4 py-5 text-sm text-slate-400 text-center">Loading schedule…</div>
+          ) : (worshipPlan?.assignments || []).filter((a) => a.memberId).length === 0 ? (
+            <div className="px-4 py-5 text-center">
+              <p className="text-sm text-slate-500">No worship schedule assigned yet.</p>
+              <p className="text-xs text-slate-400 mt-1">Use the Assign tab to set up the team for this Sunday.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {(worshipPlan.assignments).filter((a) => a.memberId || a.songName).map((a, i) => (
+                <div key={i} className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-lg text-center" style={{ minWidth: '6rem' }}>
+                    {a.role}
+                  </span>
+                  {a.memberName && <span className="text-sm font-medium text-slate-800">{a.memberName}</span>}
+                  {a.songName && <span className="text-sm italic text-slate-500">{a.songName}</span>}
+                  {a.key && <span className="text-xs font-bold bg-violet-50 text-violet-700 border border-violet-100 px-1.5 py-0.5 rounded">{a.key}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>

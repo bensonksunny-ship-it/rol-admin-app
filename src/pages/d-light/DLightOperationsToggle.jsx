@@ -1,6 +1,7 @@
 export default function DLightOperationsToggle({ value, onChange }) {
   const options = [
-    { key: 'subDepartment', label: 'Sub Dept'  },
+    { key: 'expense',       label: 'Expense'    },
+    { key: 'subDepartment', label: 'Sub Dept'   },
     { key: 'team',          label: 'Team'       },
     { key: 'planning',      label: 'Planning'   },
     { key: 'financial',     label: 'Budget'     },

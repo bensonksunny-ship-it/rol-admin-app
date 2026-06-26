@@ -35,6 +35,7 @@ export default function ExpensePage() {
   const [xlsxError, setXlsxError] = useState('')
   const [importingXlsx, setImportingXlsx] = useState(false)
   const [xlsxResult, setXlsxResult] = useState(null)
+  const [loadError, setLoadError] = useState('')
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
   const [deptOptions, setDeptOptions] = useState(EXPENSE_CATEGORIES)
@@ -56,23 +57,24 @@ export default function ExpensePage() {
 
   async function load() {
     setLoading(true)
+    setLoadError('')
     try {
       const data = await getFinanceExpense({
         year: activeMonth.getFullYear(),
         month: activeMonth.getMonth(),
       })
       setEntries(data)
-    } catch {
-      // list stays empty on error
+    } catch (err) {
+      console.error('Failed to load expenses:', err)
+      setLoadError('Failed to load entries. Please refresh and try again.')
     } finally {
       setLoading(false)
     }
   }
 
-  const approvedEntries = entries.filter(e => e.status !== 'pending')
   const visibleEntries = filterDept === 'all'
-    ? approvedEntries
-    : approvedEntries.filter(e => (e.department || e.category) === filterDept)
+    ? entries
+    : entries.filter(e => (e.department || e.category) === filterDept)
 
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
@@ -362,6 +364,14 @@ export default function ExpensePage() {
         )}
       </form>
 
+      {/* Load error */}
+      {loadError && (
+        <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <p className="text-sm text-red-700 font-medium">{loadError}</p>
+          <button type="button" onClick={load} className="text-xs text-red-600 font-semibold hover:underline">Retry</button>
+        </div>
+      )}
+
       {/* Expense list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
@@ -377,7 +387,7 @@ export default function ExpensePage() {
             {/* Mobile cards */}
             <div className="sm:hidden divide-y divide-slate-100">
               {visibleEntries.map((entry, idx) => (
-                <div key={entry.id} className="p-4 space-y-2">
+                <div key={entry.id} className={`p-4 space-y-2 ${entry.status === 'pending' ? 'bg-amber-50/40' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold text-slate-800 text-sm">
@@ -390,9 +400,14 @@ export default function ExpensePage() {
                           : format(new Date(entry.date), 'dd/MM/yyyy')}
                       </p>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 shrink-0">
-                      {entry.department || entry.category}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {entry.status === 'pending' && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pending</span>
+                      )}
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                        {entry.department || entry.category}
+                      </span>
+                    </div>
                   </div>
                   {(entry.item || entry.billNo) && (
                     <div className="text-xs text-slate-600 space-y-0.5">
@@ -431,14 +446,21 @@ export default function ExpensePage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {visibleEntries.map((entry, idx) => (
-                    <tr key={entry.id} className="hover:bg-slate-50 transition">
+                    <tr key={entry.id} className={`transition ${entry.status === 'pending' ? 'bg-amber-50/40' : 'hover:bg-slate-50'}`}>
                       <td className="px-4 py-3 text-center text-xs text-slate-400 font-medium">{idx + 1}</td>
                       <td className="px-4 py-3 text-slate-700">
                         {entry.date instanceof Date
                           ? format(entry.date, 'dd/MM/yyyy')
                           : format(new Date(entry.date), 'dd/MM/yyyy')}
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{entry.department || entry.category}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        <div className="flex items-center gap-1.5">
+                          {entry.department || entry.category}
+                          {entry.status === 'pending' && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pending</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-slate-700">{entry.item || '—'}</td>
                       <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
                       <td className="px-4 py-3 text-right font-medium text-slate-800">

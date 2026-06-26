@@ -59,6 +59,7 @@ export default function IncomePage() {
   const [xlsxResult, setXlsxResult] = useState(null)
   const [pendingImports, setPendingImports] = useState([])
   const [savingImports, setSavingImports] = useState(false)
+  const [loadError, setLoadError] = useState('')
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
@@ -71,14 +72,16 @@ export default function IncomePage() {
 
   async function load() {
     setLoading(true)
+    setLoadError('')
     try {
       const data = await getFinanceIncome({
         year: activeMonth.getFullYear(),
         month: activeMonth.getMonth(),
       })
       setEntries(data)
-    } catch {
-      // list stays empty on error
+    } catch (err) {
+      console.error('Failed to load income:', err)
+      setLoadError('Failed to load entries. Please refresh and try again.')
     } finally {
       setLoading(false)
     }
@@ -445,6 +448,14 @@ export default function IncomePage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Load error */}
+      {loadError && (
+        <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <p className="text-sm text-red-700 font-medium">{loadError}</p>
+          <button type="button" onClick={load} className="text-xs text-red-600 font-semibold hover:underline">Retry</button>
         </div>
       )}
 

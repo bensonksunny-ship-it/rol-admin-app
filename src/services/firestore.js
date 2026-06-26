@@ -1026,6 +1026,18 @@ export async function deleteFinanceExpense(id) {
   await deleteDoc(doc(db, 'finance_expense', id))
 }
 
+export async function getFinanceExpenseByDept(department) {
+  if (!db || !department) return []
+  const q = query(collection(db, 'finance_expense'), where('department', '==', department))
+  const snap = await getDocs(q)
+  return snap.docs
+    .map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, date: toDate(data.date) }
+    })
+    .sort((a, b) => (b.date || 0) - (a.date || 0))
+}
+
 export async function approveFinanceWeeklyEntry(id) {
   await updateDoc(doc(db, 'finance_expense', id), {
     status: 'approved',
