@@ -2810,22 +2810,48 @@ export default function DepartmentWorship() {
                           {assignments.length === 0 ? (
                             <p className="text-xs text-slate-300 italic">No team assigned</p>
                           ) : (
-                            <div className="space-y-1.5 mb-3">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
                               {assignments.map(a => {
                                 const rec = dayAtt[a.memberId]
-                                return (
-                                  <div key={a.memberId} className="flex items-center justify-between gap-2">
-                                    <span className={`text-xs truncate ${rec?.arrivedAt ? 'text-slate-800 font-medium' : 'text-slate-400'}`}>{a.memberName}</span>
-                                    {rec?.arrivedAt ? (
-                                      <div className="flex items-center gap-1 flex-shrink-0">
-                                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5">{rec.arrivedAt}</span>
-                                        {canManageWorship && (
-                                          <button type="button" onClick={() => undoArrived(day, a)} className="text-[10px] text-slate-300 hover:text-red-400 leading-none transition-colors" title="Undo">×</button>
-                                        )}
+                                const initial = (a.memberName || '?').charAt(0).toUpperCase()
+                                if (rec?.arrivedAt) {
+                                  return (
+                                    <div key={a.memberId} className="rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 px-3 py-3 text-center shadow-md flex flex-col items-center">
+                                      <div className="w-9 h-9 rounded-full bg-white/25 text-white text-sm font-bold flex items-center justify-center mb-1.5 shadow-inner">
+                                        {initial}
                                       </div>
-                                    ) : canManageWorship ? (
-                                      <button type="button" onClick={() => markArrived(day, a)} className="text-xs text-violet-600 border border-violet-200 rounded-full px-2 py-0.5 hover:bg-violet-50 flex-shrink-0">Arrived</button>
-                                    ) : null}
+                                      <p className="text-xs font-semibold text-white truncate w-full text-center leading-tight">{a.memberName}</p>
+                                      <span className="text-[10px] font-bold text-emerald-100 mt-1 bg-white/20 px-2 py-0.5 rounded-full">{rec.arrivedAt}</span>
+                                      {canManageWorship && (
+                                        <button type="button" onClick={() => undoArrived(day, a)} className="text-[9px] text-white/60 hover:text-white mt-1.5 transition-colors leading-none underline underline-offset-2">
+                                          undo
+                                        </button>
+                                      )}
+                                    </div>
+                                  )
+                                }
+                                if (canManageWorship) {
+                                  return (
+                                    <button
+                                      key={a.memberId}
+                                      type="button"
+                                      onClick={() => markArrived(day, a)}
+                                      className="rounded-2xl bg-white border-2 border-slate-100 shadow-sm px-3 py-3 text-center flex flex-col items-center hover:border-violet-300 hover:bg-violet-50 hover:shadow-md active:scale-95 transition-all w-full"
+                                    >
+                                      <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center mb-1.5">
+                                        {initial}
+                                      </div>
+                                      <p className="text-xs font-semibold text-slate-600 truncate w-full text-center leading-tight">{a.memberName}</p>
+                                      <p className="text-[9px] text-slate-400 mt-1">tap to mark</p>
+                                    </button>
+                                  )
+                                }
+                                return (
+                                  <div key={a.memberId} className="rounded-2xl bg-slate-50 border border-slate-100 px-3 py-3 text-center flex flex-col items-center">
+                                    <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-300 text-sm font-bold flex items-center justify-center mb-1.5">
+                                      {initial}
+                                    </div>
+                                    <p className="text-xs text-slate-400 truncate w-full text-center leading-tight">{a.memberName}</p>
                                   </div>
                                 )
                               })}
@@ -2849,7 +2875,7 @@ export default function DepartmentWorship() {
                           {renderDay('friday', 'fridaySession', fmtFriday, [
                             ['End of Practice', 'endOfPractice'],
                           ])}
-                          {renderDay('saturday', 'saturdaySession', fmtSaturday, [
+                          {format(new Date(), 'yyyy-MM-dd') === saturdayDate && renderDay('saturday', 'saturdaySession', fmtSaturday, [
                             ['End of Practice', 'endOfPractice'],
                             ['Begin Rehearsal', 'beginRehearsal'],
                             ['End of Rehearsal', 'endRehearsal'],

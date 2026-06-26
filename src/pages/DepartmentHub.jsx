@@ -651,7 +651,15 @@ export default function DepartmentHub() {
         )
       )
       .catch(() => setDlightTeamSubOpts([]))
-  }, [slug, activeTab, opsSubTab])
+    // Refresh team members from Firestore so the Director always sees the latest list
+    if (department?.name) {
+      setLoadingTeam(true)
+      getDepartmentTeamMembers(department.name)
+        .then((list) => { setTeam(list); setTeamError('') })
+        .catch(() => setTeamError('Failed to load team.'))
+        .finally(() => setLoadingTeam(false))
+    }
+  }, [slug, activeTab, opsSubTab, department])
 
   useEffect(() => {
     if (slug !== 'river-kids' || activeTab !== 'attendance' || !department) return
