@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
-import { format, startOfMonth, subMonths } from 'date-fns'
+import { format, startOfMonth, subMonths, addMonths } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry, canAccessWeeklyEntryOnly } from '../../utils/accountsEntryAccess'
 import IncomePage from './IncomePage'
