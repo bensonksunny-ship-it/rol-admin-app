@@ -1027,22 +1027,20 @@ export async function createAdvancePayoutRequest(data) {
   return ref.id
 }
 
-export function listenAdvancePayoutRequests(filters = {}, callback, onError) {
+export async function getAdvancePayoutRequests(filters = {}) {
   const constraints = []
   if (filters.status) constraints.push(where('status', '==', filters.status))
   if (filters.departmentSlug) constraints.push(where('departmentSlug', '==', filters.departmentSlug))
   const q = constraints.length
     ? query(collection(db, ADVANCE_PAYOUT_COLLECTION), ...constraints)
     : collection(db, ADVANCE_PAYOUT_COLLECTION)
-  return onSnapshot(
-    q,
-    snap => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt), reviewedAt: toDate(d.data().reviewedAt) }))
-      data.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-      callback(data)
-    },
-    onError,
-  )
+  const snap = await getDocs(q)
+  const data = snap.docs.map(d => {
+    const raw = d.data()
+    return { id: d.id, ...raw, createdAt: toDate(raw.createdAt), reviewedAt: toDate(raw.reviewedAt) }
+  })
+  data.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  return data
 }
 
 export async function updateAdvancePayoutRequest(id, data) {

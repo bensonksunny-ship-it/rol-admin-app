@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
-import { createAdvancePayoutRequest, listenAdvancePayoutRequests } from '../services/firestore'
+import { createAdvancePayoutRequest, getAdvancePayoutRequests } from '../services/firestore'
 
 const STATUS = {
   pending:     'bg-amber-50 text-amber-700 border-amber-200',
@@ -17,17 +17,20 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
-  const unsubRef = useRef(null)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     setLoading(true)
-    unsubRef.current = listenAdvancePayoutRequests(
-      { departmentSlug },
-      data => { setRequests(data); setLoading(false) },
-      err => { console.error(err); setLoading(false) },
-    )
-    return () => { unsubRef.current?.() }
+    try {
+      const data = await getAdvancePayoutRequests({ departmentSlug })
+      setRequests(data)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
   }, [departmentSlug])
+
+  useEffect(() => { load() }, [load])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -47,6 +50,7 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
       setForm({ amount: '', reason: '' })
       setSuccess(true)
       setTimeout(() => setSuccess(false), 4000)
+      await load()
     } catch {
       setError('Failed to submit. Please try again.')
     } finally {
@@ -87,7 +91,7 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
           </div>
         </div>
         {error && <p className="text-xs font-medium text-red-600">{error}</p>}
-        {success && <p className="text-xs font-medium text-emerald-600">Request submitted — pending review by Founder & Administration.</p>}
+        {success && <p className="text-xs font-medium text-emerald-600">Request submitted — pending review by Founder &amp; Administration.</p>}
         <button
           type="submit"
           disabled={saving}
@@ -99,8 +103,17 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
 
       {/* History */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100">
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-700">Request History</h3>
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition disabled:opacity-40 text-base leading-none"
+            aria-label="Refresh"
+          >
+            ↻
+          </button>
         </div>
         {loading ? (
           <p className="p-6 text-sm text-slate-400 text-center">Loading…</p>

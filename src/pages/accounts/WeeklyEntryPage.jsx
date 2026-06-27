@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Navigate } from 'react-router-dom'
 import { format, addWeeks, subWeeks, startOfWeek, endOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
@@ -12,7 +12,7 @@ import {
   approveFinanceWeeklyEntry,
   approveAllFinanceWeeklyEntries,
   getExpenseDepartments,
-  listenAdvancePayoutRequests,
+  getAdvancePayoutRequests,
 } from '../../services/firestore'
 
 const WEEK_START = { weekStartsOn: 1 }
@@ -58,14 +58,14 @@ export default function WeeklyEntryPage() {
     }).catch(() => {})
   }, [])
 
-  useEffect(() => {
-    const unsub = listenAdvancePayoutRequests(
-      payoutFilter ? { status: payoutFilter } : {},
-      data => setPayoutRequests(data),
-      err => console.error(err),
-    )
-    return () => unsub()
+  const loadPayouts = useCallback(async () => {
+    try {
+      const data = await getAdvancePayoutRequests(payoutFilter ? { status: payoutFilter } : {})
+      setPayoutRequests(data)
+    } catch (e) { console.error(e) }
   }, [payoutFilter])
+
+  useEffect(() => { loadPayouts() }, [loadPayouts])
 
   useEffect(() => {
     if (!canAccess) return
@@ -570,6 +570,8 @@ export default function WeeklyEntryPage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-700">Advance Payout Requests</h3>
+          <div className="flex items-center gap-2">
+          <button type="button" onClick={loadPayouts} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition text-base leading-none" aria-label="Refresh">↻</button>
           <div className="flex gap-1">
             {[
               { key: 'approved', label: 'Approved' },
@@ -588,6 +590,7 @@ export default function WeeklyEntryPage() {
                 {f.label}
               </button>
             ))}
+          </div>
           </div>
         </div>
         {payoutRequests.length === 0 ? (

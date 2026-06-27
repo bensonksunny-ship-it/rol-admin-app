@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
-import { listenAdvancePayoutRequests, updateAdvancePayoutRequest } from '../services/firestore'
+import { getAdvancePayoutRequests, updateAdvancePayoutRequest } from '../services/firestore'
 
 const STATUS = {
   pending:     'bg-amber-50 text-amber-700 border-amber-200',
@@ -16,18 +16,20 @@ export default function AdvancePayoutReviewer() {
   const [filter, setFilter] = useState('pending')
   const [expandedId, setExpandedId] = useState(null)
   const [actioning, setActioning] = useState(null)
-  const unsubRef = useRef(null)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     setLoading(true)
-    if (unsubRef.current) { unsubRef.current(); unsubRef.current = null }
-    unsubRef.current = listenAdvancePayoutRequests(
-      filter ? { status: filter } : {},
-      data => { setRequests(data); setLoading(false) },
-      err => { console.error(err); setLoading(false) },
-    )
-    return () => { unsubRef.current?.() }
+    try {
+      const data = await getAdvancePayoutRequests(filter ? { status: filter } : {})
+      setRequests(data)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
   }, [filter])
+
+  useEffect(() => { load() }, [load])
 
   async function handleAction(id, status) {
     setActioning(id + status)
@@ -37,6 +39,7 @@ export default function AdvancePayoutReviewer() {
         reviewedBy: userProfile?.displayName || userProfile?.email || 'Unknown',
       })
       setExpandedId(null)
+      await load()
     } catch (e) {
       console.error(e)
     } finally {
@@ -44,7 +47,7 @@ export default function AdvancePayoutReviewer() {
     }
   }
 
-  const pendingCount = requests.filter(r => r.status === 'pending').length
+  const pendingCount = filter === 'pending' ? requests.length : null
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -57,35 +60,44 @@ export default function AdvancePayoutReviewer() {
             </span>
           )}
         </div>
-        <div className="flex gap-1">
-          {[
-            { key: 'pending', label: 'Pending' },
-            { key: 'approved', label: 'Approved' },
-            { key: 'disapproved', label: 'Disapproved' },
-            { key: '', label: 'All' },
-          ].map(f => (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => { setFilter(f.key); setExpandedId(null) }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
-                filter === f.key
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1">
+            {[
+              { key: 'pending', label: 'Pending' },
+              { key: 'approved', label: 'Approved' },
+              { key: 'disapproved', label: 'Disapproved' },
+              { key: '', label: 'All' },
+            ].map(f => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => { setFilter(f.key); setExpandedId(null) }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
+                  filter === f.key
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition disabled:opacity-40"
+            aria-label="Refresh"
+          >
+            ↻
+          </button>
         </div>
       </div>
 
       {loading ? (
         <p className="p-8 text-center text-slate-400 text-sm">Loading…</p>
       ) : requests.length === 0 ? (
-        <p className="p-8 text-center text-slate-400 text-sm">
-          No {filter || ''} requests.
-        </p>
+        <p className="p-8 text-center text-slate-400 text-sm">No {filter} requests.</p>
       ) : (
         <ul className="divide-y divide-slate-100">
           {requests.map(r => (
@@ -98,8 +110,8 @@ export default function AdvancePayoutReviewer() {
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-800">
                     {r.departmentName}
-                    <span className="font-normal text-slate-500 ml-1.5">·</span>
-                    <span className="ml-1.5 text-indigo-700">₹{Number(r.amount).toLocaleString('en-IN')}</span>
+                    <span className="font-normal text-slate-400 mx-1.5">·</span>
+                    <span className="text-indigo-700">₹{Number(r.amount).toLocaleString('en-IN')}</span>
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{r.reason}</p>
                   <p className="text-[10px] text-slate-400 mt-1">
@@ -113,10 +125,10 @@ export default function AdvancePayoutReviewer() {
               </button>
 
               {expandedId === r.id && (
-                <div className="px-5 pb-4 pt-1 bg-slate-50 border-t border-slate-100 space-y-3">
+                <div className="px-5 pb-4 pt-2 bg-slate-50 border-t border-slate-100 space-y-3">
                   <p className="text-xs text-slate-600 leading-relaxed">{r.reason}</p>
                   {r.status === 'pending' ? (
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         disabled={!!actioning}
