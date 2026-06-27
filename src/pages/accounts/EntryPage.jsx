@@ -15,13 +15,6 @@ const TABS = [
   { key: 'budget', label: 'Budget' },
 ]
 
-function buildMonthList(count = 12) {
-  const now = startOfMonth(new Date())
-  return Array.from({ length: count }, (_, i) => subMonths(now, i))
-}
-
-const MONTHS = buildMonthList(12)
-
 export default function EntryPage() {
   const { userProfile, hasPermission, isFounder } = useAuth()
   const weeklyOnly = canAccessWeeklyEntryOnly(userProfile)
@@ -31,7 +24,7 @@ export default function EntryPage() {
   const visibleTabs = weeklyOnly ? TABS.filter(t => t.key === 'weekly') : TABS
   const initialTab = TABS.find(t => t.key === searchParams.get('tab'))?.key
   const [subPage, setSubPage] = useState(weeklyOnly ? 'weekly' : (initialTab || 'income'))
-  const [activeMonth, setActiveMonth] = useState(MONTHS[0])
+  const [activeMonth, setActiveMonth] = useState(startOfMonth(new Date()))
 
   if (!canAccess) return <Navigate to="/" replace />
 
@@ -40,29 +33,24 @@ export default function EntryPage() {
   return (
     <div className="space-y-4 pb-12">
 
-      {/* Month list */}
+      {/* Month picker */}
       {showMonths && (
-        <div className="overflow-x-auto -mx-4 px-4">
-          <div className="flex gap-2 pb-1" style={{ minWidth: 'max-content' }}>
-            {MONTHS.map(m => {
-              const key = format(m, 'yyyy-MM')
-              const active = key === format(activeMonth, 'yyyy-MM')
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setActiveMonth(m)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                    active
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  {format(m, 'MMM yyyy')}
-                </button>
-              )
-            })}
-          </div>
+        <div className="flex items-center justify-center gap-4 py-1">
+          <button
+            type="button"
+            onClick={() => setActiveMonth(m => subMonths(m, 1))}
+            className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
+            aria-label="Previous month"
+          >‹</button>
+          <span className="text-base font-semibold text-slate-800 w-36 text-center">
+            {format(activeMonth, 'MMMM yyyy')}
+          </span>
+          <button
+            type="button"
+            onClick={() => setActiveMonth(m => addMonths(m, 1))}
+            className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
+            aria-label="Next month"
+          >›</button>
         </div>
       )}
 
