@@ -41,9 +41,10 @@ const EMPTY_FORM = {
   giverName: '',
 }
 
-export default function IncomePage() {
+export default function IncomePage({ controlledMonth } = {}) {
   const { userProfile, hasPermission, isFounder } = useAuth()
-  const [activeMonth, setActiveMonth] = useState(startOfMonth(new Date()))
+  const [internalMonth, setInternalMonth] = useState(startOfMonth(new Date()))
+  const activeMonth = controlledMonth || internalMonth
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -89,8 +90,8 @@ export default function IncomePage() {
 
   const totalIncome = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
-  function prevMonth() { setActiveMonth(m => subMonths(m, 1)) }
-  function nextMonth() { setActiveMonth(m => addMonths(m, 1)) }
+  function prevMonth() { setInternalMonth(m => subMonths(m, 1)) }
+  function nextMonth() { setInternalMonth(m => addMonths(m, 1)) }
 
   function validate() {
     if (!form.date) return 'Date is required.'
@@ -258,28 +259,30 @@ export default function IncomePage() {
   return (
     <div className="space-y-5 pb-12">
 
-      {/* Month picker */}
-      <div className="flex items-center justify-center gap-4 py-2">
-        <button
-          type="button"
-          onClick={prevMonth}
-          className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
-          aria-label="Previous month"
-        >
-          ‹
-        </button>
-        <span className="text-base font-semibold text-slate-800 w-36 text-center">
-          {format(activeMonth, 'MMMM yyyy')}
-        </span>
-        <button
-          type="button"
-          onClick={nextMonth}
-          className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
-          aria-label="Next month"
-        >
-          ›
-        </button>
-      </div>
+      {/* Month picker — hidden when month is controlled by parent */}
+      {!controlledMonth && (
+        <div className="flex items-center justify-center gap-4 py-2">
+          <button
+            type="button"
+            onClick={prevMonth}
+            className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
+            aria-label="Previous month"
+          >
+            ‹
+          </button>
+          <span className="text-base font-semibold text-slate-800 w-36 text-center">
+            {format(activeMonth, 'MMMM yyyy')}
+          </span>
+          <button
+            type="button"
+            onClick={nextMonth}
+            className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
+            aria-label="Next month"
+          >
+            ›
+          </button>
+        </div>
+      )}
 
       {/* Excel upload result toast */}
       {xlsxResult && (
@@ -468,35 +471,57 @@ export default function IncomePage() {
             No income recorded for this month.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            {/* Remove All bar */}
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60">
-              <span className="text-xs text-slate-500">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</span>
-              {confirmRemoveAll ? (
-                <span className="flex items-center gap-2 text-xs text-slate-600">
-                  <span>Remove all {entries.length} entries?</span>
-                  <button
-                    type="button"
-                    onClick={handleRemoveAll}
-                    disabled={removingAll}
-                    className="text-red-600 font-semibold hover:underline disabled:opacity-50"
-                  >
-                    {removingAll ? 'Removing…' : 'Yes, Remove All'}
-                  </button>
-                  <button type="button" onClick={() => setConfirmRemoveAll(false)} className="text-slate-500 hover:underline">
-                    Cancel
-                  </button>
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setConfirmRemoveAll(true)}
-                  className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline"
-                >
-                  Remove All
+          <>
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60">
+            <span className="text-xs text-slate-500">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</span>
+            {confirmRemoveAll ? (
+              <span className="flex items-center gap-2 text-xs text-slate-600">
+                <span>Remove all {entries.length} entries?</span>
+                <button type="button" onClick={handleRemoveAll} disabled={removingAll} className="text-red-600 font-semibold hover:underline disabled:opacity-50">
+                  {removingAll ? 'Removing…' : 'Yes, Remove All'}
                 </button>
-              )}
-            </div>
+                <button type="button" onClick={() => setConfirmRemoveAll(false)} className="text-slate-500 hover:underline">Cancel</button>
+              </span>
+            ) : (
+              <button type="button" onClick={() => setConfirmRemoveAll(true)} className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline">Remove All</button>
+            )}
+          </div>
+
+          {/* Mobile cards */}
+          <div className="sm:hidden divide-y divide-slate-100">
+            {entries.map((entry, idx) => (
+              <div key={entry.id} className="p-4 space-y-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-slate-800 text-sm">
+                      <span className="text-xs font-normal text-slate-400 mr-1">#{idx + 1}</span>
+                      ₹{Number(entry.amount).toLocaleString('en-IN')}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {entry.date instanceof Date ? format(entry.date, 'dd/MM/yyyy') : format(new Date(entry.date), 'dd/MM/yyyy')}
+                    </p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 shrink-0">{entry.category}</span>
+                </div>
+                {entry.giverName && <p className="text-xs text-slate-500">{entry.giverName}</p>}
+                {deletingId === entry.id ? (
+                  <div className="flex items-center gap-3 text-xs pt-1">
+                    <span className="text-slate-600">Confirm delete?</span>
+                    <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-medium">Yes</button>
+                    <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500">No</button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button type="button" onClick={() => handleEdit(entry)} className="text-xs text-indigo-600 font-medium hover:underline">Edit</button>
+                    <button type="button" onClick={() => setDeletingId(entry.id)} className="text-xs text-red-500 hover:underline">Delete</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
@@ -513,52 +538,22 @@ export default function IncomePage() {
                   <tr key={entry.id} className="hover:bg-slate-50 transition">
                     <td className="px-4 py-3 text-center text-xs text-slate-400 font-medium">{idx + 1}</td>
                     <td className="px-4 py-3 text-slate-700">
-                      {entry.date instanceof Date
-                        ? format(entry.date, 'dd/MM/yyyy')
-                        : format(new Date(entry.date), 'dd/MM/yyyy')}
+                      {entry.date instanceof Date ? format(entry.date, 'dd/MM/yyyy') : format(new Date(entry.date), 'dd/MM/yyyy')}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{entry.category}</td>
                     <td className="px-4 py-3 text-slate-600">{entry.giverName || '—'}</td>
-                    <td className="px-4 py-3 text-right font-medium text-slate-800">
-                      ₹{Number(entry.amount).toLocaleString('en-IN')}
-                    </td>
+                    <td className="px-4 py-3 text-right font-medium text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
                     <td className="px-4 py-3 text-right">
                       {deletingId === entry.id ? (
                         <span className="flex items-center justify-end gap-2 text-xs text-slate-600">
                           <span>Confirm delete?</span>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(entry.id)}
-                            className="text-red-600 font-medium hover:underline"
-                          >
-                            Yes
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeletingId(null)}
-                            className="text-slate-500 hover:underline"
-                          >
-                            No
-                          </button>
+                          <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
+                          <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
                         </span>
                       ) : (
                         <span className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(entry)}
-                            className="p-1.5 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition"
-                            aria-label="Edit"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeletingId(entry.id)}
-                            className="p-1.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition"
-                            aria-label="Delete"
-                          >
-                            🗑️
-                          </button>
+                          <button type="button" onClick={() => handleEdit(entry)} className="p-1.5 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition" aria-label="Edit">✏️</button>
+                          <button type="button" onClick={() => setDeletingId(entry.id)} className="p-1.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition" aria-label="Delete">🗑️</button>
                         </span>
                       )}
                     </td>
@@ -567,6 +562,7 @@ export default function IncomePage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 

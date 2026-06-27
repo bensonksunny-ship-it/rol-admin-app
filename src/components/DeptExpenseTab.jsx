@@ -19,7 +19,7 @@ function fmtAmt(n) {
 
 const EMPTY_FORM = { date: today(), item: '', billNo: '', amount: '' }
 
-export default function WorshipExpenseTab({ department }) {
+export default function DeptExpenseTab({ department }) {
   const { userProfile, canManageDepartment, isFounder, isSeniorPastor } = useAuth()
   const canEdit = isFounder || isSeniorPastor || canManageDepartment(department)
 
@@ -28,6 +28,7 @@ export default function WorshipExpenseTab({ department }) {
   const [entries, setEntries] = useState([])
   const [loadingEntries, setLoadingEntries] = useState(true)
   const [loadErr, setLoadErr] = useState('')
+  const [deletingId, setDeletingId] = useState(null)
 
   const load = () => {
     setLoadingEntries(true)
@@ -53,29 +54,25 @@ export default function WorshipExpenseTab({ department }) {
         amount: Number(form.amount),
         createdBy: userProfile?.email || 'unknown',
       })
-      setEntries((prev) => [
-        {
-          id,
-          department,
-          date: new Date(form.date + 'T12:00:00'),
-          item: form.item.trim(),
-          billNo: form.billNo.trim(),
-          amount: Number(form.amount),
-        },
-        ...prev,
-      ])
-      setForm({ ...EMPTY_FORM, date: form.date })
+      setEntries(prev => [{
+        id, department,
+        date: new Date(form.date + 'T12:00:00'),
+        item: form.item.trim(),
+        billNo: form.billNo.trim(),
+        amount: Number(form.amount),
+      }, ...prev])
+      setForm(f => ({ ...EMPTY_FORM, date: f.date }))
     } catch {
       alert('Failed to save expense. Please try again.')
     }
     setSaving(false)
   }
 
-  const handleDelete = async (entry) => {
-    if (!window.confirm(`Delete expense "${entry.item}"?`)) return
+  const handleDelete = async (id) => {
     try {
-      await deleteFinanceExpense(entry.id)
-      setEntries((prev) => prev.filter((e) => e.id !== entry.id))
+      await deleteFinanceExpense(id)
+      setEntries(prev => prev.filter(e => e.id !== id))
+      setDeletingId(null)
     } catch {
       alert('Failed to delete.')
     }
@@ -86,94 +83,99 @@ export default function WorshipExpenseTab({ department }) {
   return (
     <div className="space-y-5">
 
-      {/* ── Entry form ── */}
+      {/* Bento: stat card + compact form */}
       {canEdit && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-            <p className="text-sm font-semibold text-slate-700">New Expense Entry</p>
-          </div>
-          <form onSubmit={handleSubmit} className="p-5 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
 
-              {/* Date */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
+          {/* Stat card */}
+          <div className="bg-gradient-to-br from-rose-500 to-rose-600 rounded-2xl shadow-lg p-5 text-white flex flex-col justify-between min-h-[120px]">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-rose-100">Total Expense</p>
+            <div>
+              <p className="text-2xl font-bold leading-tight mt-1">
+                {fmtAmt(totalAmt)}
+              </p>
+              <p className="text-xs text-rose-200 mt-1.5">
+                {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+              </p>
+            </div>
+          </div>
+
+          {/* Form */}
+          <form
+            onSubmit={handleSubmit}
+            className="sm:col-span-2 bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_4px_24px_rgba(99,102,241,0.08)] ring-1 ring-inset ring-slate-100 p-4"
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-500">Date</label>
                 <input
                   type="date"
                   value={form.date}
-                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
                   required
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
                 />
               </div>
-
-              {/* Amount */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Amount (₹)</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">₹</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.amount}
-                    onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                    placeholder="0"
-                    className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    required
-                  />
-                </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-500">Amount (₹)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.amount}
+                  onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                  placeholder="0"
+                  required
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+                />
+              </div>
+              <div className="flex flex-col gap-1 col-span-2">
+                <label className="text-xs font-medium text-slate-500">Item</label>
+                <input
+                  type="text"
+                  value={form.item}
+                  onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
+                  placeholder="Item description"
+                  required
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-500">
+                  Bill No <span className="font-normal text-slate-400">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.billNo}
+                  onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
+                  placeholder="optional"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="w-full min-h-[40px] px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold disabled:opacity-50 transition-colors shadow-sm"
+                >
+                  {saving ? 'Saving…' : 'Add Expense'}
+                </button>
               </div>
             </div>
-
-            {/* Item */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Item</label>
-              <input
-                type="text"
-                value={form.item}
-                onChange={(e) => setForm((f) => ({ ...f, item: e.target.value }))}
-                placeholder="Item description"
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                required
-              />
-            </div>
-
-            {/* Bill No */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Bill No <span className="text-slate-400 font-normal">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={form.billNo}
-                onChange={(e) => setForm((f) => ({ ...f, billNo: e.target.value }))}
-                placeholder="Bill number"
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors"
-            >
-              {saving ? 'Saving…' : 'Add Expense'}
-            </button>
           </form>
         </div>
       )}
 
-      {/* ── Entries list ── */}
+      {/* Entries list */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 bg-slate-50">
-          <p className="text-sm font-semibold text-slate-700">Expense Entries</p>
-          {entries.length > 0 && (
-            <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
+        {!canEdit && entries.length > 0 && (
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 bg-slate-50">
+            <p className="text-sm font-semibold text-slate-700">Expense Entries</p>
+            <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-100 px-2.5 py-0.5 rounded-full">
               Total {fmtAmt(totalAmt)}
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         {loadErr ? (
           <div className="px-5 py-4 text-center">
@@ -188,27 +190,28 @@ export default function WorshipExpenseTab({ department }) {
           <>
             {/* Mobile cards */}
             <div className="divide-y divide-slate-100 sm:hidden">
-              {entries.map((e) => (
-                <div key={e.id} className="px-4 py-3">
+              {entries.map(e => (
+                <div key={e.id} className="px-4 py-3 space-y-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-800 truncate">{e.item || '—'}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{fmtDate(e.date)}</p>
-                      {e.billNo && <p className="text-xs text-slate-400 mt-0.5">Bill: {e.billNo}</p>}
+                      <p className="text-xs text-slate-400 mt-0.5">{fmtDate(e.date)}{e.billNo ? ` · ${e.billNo}` : ''}</p>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-sm font-bold text-slate-800">{fmtAmt(e.amount)}</span>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(e)}
-                          className="text-red-400 hover:text-red-600 text-xs font-bold px-2 py-0.5 rounded"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
+                    <p className="text-sm font-bold text-slate-800 shrink-0">{fmtAmt(e.amount)}</p>
                   </div>
+                  {canEdit && (
+                    deletingId === e.id ? (
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className="text-slate-600">Confirm delete?</span>
+                        <button type="button" onClick={() => handleDelete(e.id)} className="text-red-600 font-medium">Yes</button>
+                        <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500">No</button>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => setDeletingId(e.id)} className="text-xs text-red-400 hover:text-red-600 font-medium">
+                        Delete
+                      </button>
+                    )
+                  )}
                 </div>
               ))}
             </div>
@@ -218,29 +221,33 @@ export default function WorshipExpenseTab({ department }) {
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-100">
                   <tr>
-                    <th className="text-left px-4 py-3 font-medium text-slate-500">Date</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-500">Item</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-500">Bill No</th>
-                    <th className="text-right px-4 py-3 font-medium text-slate-500">Amount</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-500 text-xs uppercase tracking-wide">Date</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-500 text-xs uppercase tracking-wide">Item</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-500 text-xs uppercase tracking-wide">Bill No</th>
+                    <th className="text-right px-4 py-3 font-medium text-slate-500 text-xs uppercase tracking-wide">Amount</th>
                     {canEdit && <th className="px-4 py-3" />}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {entries.map((e) => (
-                    <tr key={e.id} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(e.date)}</td>
+                  {entries.map(e => (
+                    <tr key={e.id} className="hover:bg-slate-50/50 transition">
+                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">{fmtDate(e.date)}</td>
                       <td className="px-4 py-3 text-slate-800 font-medium">{e.item || '—'}</td>
-                      <td className="px-4 py-3 text-slate-500">{e.billNo || '—'}</td>
+                      <td className="px-4 py-3 text-slate-400 text-xs">{e.billNo || '—'}</td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-800 tabular-nums">{fmtAmt(e.amount)}</td>
                       {canEdit && (
                         <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(e)}
-                            className="text-xs text-red-400 hover:text-red-600 hover:underline"
-                          >
-                            Delete
-                          </button>
+                          {deletingId === e.id ? (
+                            <span className="inline-flex items-center gap-2 text-xs text-slate-600">
+                              <span>Delete?</span>
+                              <button type="button" onClick={() => handleDelete(e.id)} className="text-red-600 font-medium hover:underline">Yes</button>
+                              <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+                            </span>
+                          ) : (
+                            <button type="button" onClick={() => setDeletingId(e.id)} className="text-xs text-red-400 hover:text-red-600 hover:underline">
+                              Delete
+                            </button>
+                          )}
                         </td>
                       )}
                     </tr>
@@ -249,7 +256,7 @@ export default function WorshipExpenseTab({ department }) {
                 <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                   <tr>
                     <td colSpan={3} className="px-4 py-3 text-sm font-semibold text-slate-700">Total</td>
-                    <td className="px-4 py-3 text-right text-sm font-bold text-indigo-700 tabular-nums">{fmtAmt(totalAmt)}</td>
+                    <td className="px-4 py-3 text-right text-sm font-bold text-rose-700 tabular-nums">{fmtAmt(totalAmt)}</td>
                     {canEdit && <td />}
                   </tr>
                 </tfoot>

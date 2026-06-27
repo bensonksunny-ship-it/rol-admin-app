@@ -4,7 +4,7 @@ export default function AccountsOperationsToggle({ value, onChange }) {
     { key: 'subDepartment',  label: 'Sub Department'  },
     { key: 'team',           label: 'Team'            },
     { key: 'planning',       label: 'Planning'        },
-    { key: 'financial',      label: 'Budget'          },
+    { key: 'budget',      label: 'Budget'          },
     { key: 'addDepartments', label: 'Add Departments' },
   ]
 

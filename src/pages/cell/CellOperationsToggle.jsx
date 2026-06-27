@@ -5,10 +5,11 @@
  */
 export default function CellOperationsToggle({ value, onChange }) {
   const options = [
-    { key: 'expense',  label: 'Expense'  },
+    { key: 'expense',       label: 'Expense'        },
+    { key: 'subDepartment', label: 'Sub Department' },
     { key: 'team',     label: 'Team'     },
     { key: 'planning', label: 'Planning' },
-    { key: 'financial', label: 'Budget'  },
+    { key: 'budget', label: 'Budget'  },
   ]
 
   return (

@@ -92,6 +92,8 @@ import {
   getPCSFillInvitationByEntry,
   subscribePCSFillInvitationsByCellId,
   completePCSFillInvitation,
+  getFinanceIncome,
+  getFinanceExpense,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -116,8 +118,11 @@ import AdministrationOperationsToggle from './administration/AdministrationOpera
 import AccountsOperationsToggle from './accounts/AccountsOperationsToggle'
 import DLightOperationsToggle from './d-light/DLightOperationsToggle'
 import WorshipOperationsToggle from './worship/WorshipOperationsToggle'
+import DefaultOperationsToggle from '../components/DefaultOperationsToggle'
 import DeptExpenseTab from '../components/DeptExpenseTab'
+import AccountsExpensePage from './accounts/ExpensePage'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
+import BudgetPage from './accounts/BudgetPage'
 import UpcomingSunday from './UpcomingSunday'
 import SecCoreSummary from './seccore/SecCoreSummary'
 import SundayPrepTracker from '../components/SundayPrepTracker'
@@ -167,7 +172,7 @@ const SERVICE_DISPLAY = {
   'special meeting': 'Special',
 }
 const fmtService = (s) => {
-  if (!s) return '—'
+  if (!s) return 'â€”'
   const lower = s.trim().toLowerCase()
   if (SERVICE_DISPLAY[lower]) return SERVICE_DISPLAY[lower]
   return VISITOR_SERVICE_LABELS[s.trim().toUpperCase()] || s
@@ -199,7 +204,9 @@ export default function DepartmentHub() {
   const [planningDraftStatus, setPlanningDraftStatus] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
-  const [opsSubTab, setOpsSubTab] = useState('team')
+  const [opsSubTab, setOpsSubTab] = useState('expense')
+  const [acctSummary, setAcctSummary] = useState(null)
+  const [acctSummaryLoading, setAcctSummaryLoading] = useState(false)
   const [team, setTeam] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(false)
   const [teamError, setTeamError] = useState('')
@@ -372,7 +379,7 @@ export default function DepartmentHub() {
   }, [pcsExpandedId])
 
   // Subscribe to pending fill invitations for Cell Leaders
-  // cellGroupId is preferred (set by director); cellId is the fallback — mirrors userLinkedCellId() in Firestore rules
+  // cellGroupId is preferred (set by director); cellId is the fallback â€” mirrors userLinkedCellId() in Firestore rules
   useEffect(() => {
     if (slug !== 'cell') return
     const cellId = userProfile?.cellGroupId || userProfile?.cellId
@@ -401,7 +408,7 @@ export default function DepartmentHub() {
   const [loadingDlightSubDepts, setLoadingDlightSubDepts] = useState(false)
   const [dlightSubDeptModalOpen, setDlightSubDeptModalOpen] = useState(false)
   const [dlightSubDeptForm, setDlightSubDeptForm] = useState({ name: '', servingArea: '' })
-  // D Light – Assign tab (persisted assignments)
+  // D Light â€“ Assign tab (persisted assignments)
   const [delightAssignments, setDelightAssignments] = useState({
     lightShinersPre: '',
     lightShinersPost: '',
@@ -481,7 +488,7 @@ export default function DepartmentHub() {
   const [liveMembersLoading, setLiveMembersLoading] = useState(false)
   const [liveAddNameInput, setLiveAddNameInput] = useState('')
 
-  // Event Management → Spending
+  // Event Management â†’ Spending
   const [eventSpendingItems, setEventSpendingItems] = useState([])
   const [loadingEventSpending, setLoadingEventSpending] = useState(false)
   const [spendingEventId, setSpendingEventId] = useState('')
@@ -515,12 +522,12 @@ export default function DepartmentHub() {
   }, [slug, tabFromUrl, isCellLeader])
 
   function formatDuration(firstSundayStr) {
-    if (!firstSundayStr) return '—'
+    if (!firstSundayStr) return 'â€”'
     const start = new Date(firstSundayStr)
-    if (isNaN(start.getTime())) return '—'
+    if (isNaN(start.getTime())) return 'â€”'
     const now = new Date()
     const totalDays = differenceInDays(now, start)
-    if (totalDays < 0) return '—'
+    if (totalDays < 0) return 'â€”'
     const years = Math.floor(totalDays / 365)
     const months = Math.floor((totalDays % 365) / 30)
     const days = totalDays - years * 365 - months * 30
@@ -555,7 +562,7 @@ export default function DepartmentHub() {
     return `${String(outH).padStart(2, '0')}:${String(outM).padStart(2, '0')}`
   }
 
-  /** Normalize time from `<input type="time">`, Firestore, or "HH:mm:ss" → "HH:mm". */
+  /** Normalize time from `<input type="time">`, Firestore, or "HH:mm:ss" â†’ "HH:mm". */
   function normalizeTimeToHHmm(input) {
     if (input == null || input === '') return ''
     if (typeof input === 'object' && input?.seconds != null) {
@@ -573,7 +580,7 @@ export default function DepartmentHub() {
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
   }
 
-  /** Planned segment start from one event-level “Schedule starts at” + prior durations. */
+  /** Planned segment start from one event-level â€œSchedule starts atâ€ + prior durations. */
   function plannedSegmentStartHHmm(sortedPrograms, anchorHHmm, index) {
     const a = normalizeTimeToHHmm(anchorHHmm)
     if (!a || !sortedPrograms?.length) return ''
@@ -723,7 +730,7 @@ export default function DepartmentHub() {
     setSpendingEventId((prev) => prev || deptEvents[0].id)
   }, [slug, activeTab, deptEvents])
 
-  // Live Control – load cell groups for attendance
+  // Live Control â€“ load cell groups for attendance
   useEffect(() => {
     if (slug !== 'event-m' || activeTab !== 'liveControl' || liveControlTab !== 'attendance' || !department) return
     let alive = true
@@ -746,7 +753,7 @@ export default function DepartmentHub() {
     }
   }, [slug, activeTab, liveControlTab, department])
 
-  // Live Control – load members for the expanded cell tile
+  // Live Control â€“ load members for the expanded cell tile
   useEffect(() => {
     if (slug !== 'event-m' || activeTab !== 'liveControl' || liveControlTab !== 'attendance') return
     if (!liveExpandedCellId) {
@@ -774,14 +781,7 @@ export default function DepartmentHub() {
   }, [slug, activeTab, liveControlTab, liveExpandedCellId])
 
   useEffect(() => {
-    const wantsFinancial = activeTab === 'financial' ||
-      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'financial')
-    if (department && wantsFinancial) {
-      setLoadingBudget(true)
-      getFinanceBudgetItemsByDepartment(department.name)
-        .then(setBudgetItems)
-        .finally(() => setLoadingBudget(false))
-    }
+    // Budget items are now loaded by BudgetPage directly; nothing to do here
   }, [department, slug, activeTab, opsSubTab])
 
   useEffect(() => {
@@ -981,6 +981,32 @@ export default function DepartmentHub() {
     }
   }, [slug, activeTab])
 
+  useEffect(() => {
+    if (slug !== 'accounts' || activeTab !== 'summary') return
+    setAcctSummaryLoading(true)
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = now.getMonth()
+    const wkStart = startOfWeek(now, { weekStartsOn: 1 })
+    const wkEnd = endOfWeek(now, { weekStartsOn: 1 })
+    const wkEndMs = new Date(wkEnd); wkEndMs.setHours(23, 59, 59, 999)
+    Promise.all([
+      getFinanceIncome({ year, month }),
+      getFinanceExpense({ year, month }),
+      getFinanceExpense({ startDate: wkStart, endDate: wkEndMs }),
+    ]).then(([inc, exp, wkl]) => {
+      setAcctSummary({
+        incomeCount: inc.length,
+        incomeTotal: inc.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+        expenseCount: exp.length,
+        expenseTotal: exp.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+        weeklyCount: wkl.length,
+        weeklyPending: wkl.filter(e => e.status === 'pending').length,
+        weeklyApproved: wkl.filter(e => e.status === 'approved' || !e.status).length,
+      })
+    }).catch(() => {}).finally(() => setAcctSummaryLoading(false))
+  }, [slug, activeTab])
+
   // Live listener for cell-leader PCS referral tasks (Caring hub)
   useEffect(() => {
     if (slug !== 'caring') return
@@ -1038,7 +1064,7 @@ export default function DepartmentHub() {
   if (!department) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <Link to="/departments" className="text-blue-600 hover:underline">â† Departments</Link>
         <p className="mt-4">Department not found.</p>
       </div>
     )
@@ -1054,7 +1080,7 @@ export default function DepartmentHub() {
   if (slug === 'sunday-ministry' && !isSundayMinistryDirector) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <Link to="/departments" className="text-blue-600 hover:underline">â† Departments</Link>
         <p className="mt-4">You do not have access to Sunday Ministry department.</p>
       </div>
     )
@@ -1063,7 +1089,7 @@ export default function DepartmentHub() {
   if (slug !== 'sunday-ministry' && !hasAccess(userProfile, department.name) && !isAccountsEntryPassthrough) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <Link to="/departments" className="text-blue-600 hover:underline">â† Departments</Link>
         <p className="mt-4">
           You do not have access to {department.name === 'Event M' ? 'Event Management' : department.name} department.
         </p>
@@ -1077,11 +1103,11 @@ export default function DepartmentHub() {
     return <Outlet />
   }
 
-  // D Light Director: only Sunday Planning — block department hub and all hub tabs.
+  // D Light Director: only Sunday Planning â€” block department hub and all hub tabs.
   if (slug === 'd-light' && isRestrictedDLightDirector(userProfile)) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/sunday-planning" className="text-blue-600 hover:underline">← Sunday Planning</Link>
+        <Link to="/sunday-planning" className="text-blue-600 hover:underline">â† Sunday Planning</Link>
         <p className="mt-4 text-lg font-semibold text-slate-800">Access Denied</p>
         <p className="mt-2 text-sm text-slate-600">D Light Directors may only use Sunday Planning. Other D Light pages are not available.</p>
       </div>
@@ -1260,7 +1286,7 @@ export default function DepartmentHub() {
         assignedPerson: mediaSundayAssign[item.name] || '',
       }))
       const notes = merged.map((p, i) =>
-        `${i + 1}. ${p.name}${p.types?.length ? ' [' + p.types.join(', ') + ']' : ''}${p.assignedPerson ? ' — ' + p.assignedPerson : ''}`
+        `${i + 1}. ${p.name}${p.types?.length ? ' [' + p.types.join(', ') + ']' : ''}${p.assignedPerson ? ' â€” ' + p.assignedPerson : ''}`
       ).join('\n')
       await setSundayPlanSection(mediaSundayDate, 'mediaDesignProgram', merged)
       await setSundayPlanSection(mediaSundayDate, 'media', { notes })
@@ -1281,7 +1307,7 @@ export default function DepartmentHub() {
         : m.subDepartment
           ? [m.subDepartment]
           : []
-    if (names.length === 0) return '—'
+    if (names.length === 0) return 'â€”'
     return names
       .map((n) => {
         const o = subDeptOptionList.find((x) => x.name === n)
@@ -1309,12 +1335,12 @@ export default function DepartmentHub() {
         onBoardPointsClick={() => setBoardPointsPopupOpen(true)}
       />
 
-      {/* ── Allotted-time notifications ── */}
+      {/* â”€â”€ Allotted-time notifications â”€â”€ */}
       {boardAllottedNotifications.length > 0 && (
         <div className="fixed top-4 left-4 right-4 z-[70] sm:left-auto sm:right-4 sm:w-80 space-y-2 pointer-events-none">
           {boardAllottedNotifications.map(bp => (
             <div key={bp.id} className="bg-emerald-600 text-white rounded-2xl shadow-xl px-4 py-3 flex items-start gap-3 pointer-events-auto">
-              <span className="text-base flex-shrink-0 mt-0.5">🎉</span>
+              <span className="text-base flex-shrink-0 mt-0.5">ðŸŽ‰</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold leading-tight">Sec-Core has allotted {bp.allottedTime} for your presentation</p>
                 {bp.point && <p className="text-xs text-emerald-100 mt-0.5 line-clamp-2">"{bp.point}"</p>}
@@ -1329,7 +1355,7 @@ export default function DepartmentHub() {
                   localStorage.setItem(seenKey, JSON.stringify([...seen]))
                 }}
                 className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full hover:bg-emerald-500 text-white text-base leading-none mt-0.5"
-              >×</button>
+              >Ã—</button>
             </div>
           ))}
         </div>
@@ -1352,11 +1378,11 @@ export default function DepartmentHub() {
         <>
           {activeTab === 'summary' && (
             <>
-              {/* ── Caring Hub ── */}
+              {/* â”€â”€ Caring Hub â”€â”€ */}
               {slug === 'caring' && (
                 <div className="space-y-4">
                   {loadingPCS ? (
-                    <div className="py-10 text-center text-slate-400 text-sm">Loading insights…</div>
+                    <div className="py-10 text-center text-slate-400 text-sm">Loading insightsâ€¦</div>
                   ) : (() => {
                     const currentYear = new Date().getFullYear()
                     const members  = pcsEntries.filter(e => e.membershipNumber)
@@ -1369,7 +1395,7 @@ export default function DepartmentHub() {
 
                     return (
                       <>
-                        {/* ── 4-stat insight grid ── */}
+                        {/* â”€â”€ 4-stat insight grid â”€â”€ */}
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-2xl border border-indigo-200 shadow-sm px-4 py-3">
                             <p className="text-3xl font-black text-indigo-700">{pcsEntries.length}</p>
@@ -1410,16 +1436,16 @@ export default function DepartmentHub() {
                           </div>
                         </div>
 
-                        {/* ── PCS by Year — expandable tile ── */}
+                        {/* â”€â”€ PCS by Year â€” expandable tile â”€â”€ */}
                         {pcsYears.length > 0 && (
                           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                            {/* Header — always visible, tap to expand */}
+                            {/* Header â€” always visible, tap to expand */}
                             <button
                               type="button"
                               onClick={() => setPcsYearTileOpen(o => !o)}
                               className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors select-none"
                             >
-                              <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0 text-lg">📊</div>
+                              <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0 text-lg">ðŸ“Š</div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-slate-800">PCS by Year</p>
                                 {/* Mini year badges shown when collapsed */}
@@ -1440,7 +1466,7 @@ export default function DepartmentHub() {
                                 )}
                               </div>
                               <span className="text-slate-400 text-xs flex-shrink-0">
-                                {pcsYearTileOpen ? '▲' : '▼'}
+                                {pcsYearTileOpen ? 'â–²' : 'â–¼'}
                               </span>
                             </button>
 
@@ -1505,7 +1531,7 @@ export default function DepartmentHub() {
                           </div>
                         )}
 
-                        {/* ── Leaders spotlight ── */}
+                        {/* â”€â”€ Leaders spotlight â”€â”€ */}
                         {leaders.length > 0 && (
                           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                             <div className="px-4 py-2.5 border-b border-slate-100 bg-gradient-to-r from-violet-50 to-white">
@@ -1528,46 +1554,46 @@ export default function DepartmentHub() {
                           </div>
                         )}
 
-                        {/* ── Quick actions ── */}
+                        {/* â”€â”€ Quick actions â”€â”€ */}
                         <div className="grid grid-cols-2 gap-3">
                           <button type="button"
                             onClick={() => { setActiveTab('pcs'); setSearchParams({ tab: 'pcs' }, { replace: true }) }}
                             className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-indigo-200 hover:shadow-md transition-all group">
-                            <div className="w-9 h-9 rounded-xl bg-indigo-100 group-hover:bg-indigo-200 flex items-center justify-center text-base mb-3 transition-colors">👤</div>
+                            <div className="w-9 h-9 rounded-xl bg-indigo-100 group-hover:bg-indigo-200 flex items-center justify-center text-base mb-3 transition-colors">ðŸ‘¤</div>
                             <p className="text-sm font-bold text-slate-800">PCS</p>
                             <p className="text-xs text-slate-500 mt-0.5">{pcsEntries.length} people</p>
                           </button>
                           <button type="button"
                             onClick={() => { setOpsSubTab('team'); setActiveTab('operations'); setSearchParams({ tab: 'operations' }, { replace: true }) }}
                             className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-violet-200 hover:shadow-md transition-all group">
-                            <div className="w-9 h-9 rounded-xl bg-violet-100 group-hover:bg-violet-200 flex items-center justify-center text-base mb-3 transition-colors">🤝</div>
+                            <div className="w-9 h-9 rounded-xl bg-violet-100 group-hover:bg-violet-200 flex items-center justify-center text-base mb-3 transition-colors">ðŸ¤</div>
                             <p className="text-sm font-bold text-slate-800">Team</p>
                             <p className="text-xs text-slate-500 mt-0.5">Caring team members</p>
                           </button>
                           <button type="button"
                             onClick={() => { setOpsSubTab('planning'); setActiveTab('operations'); setSearchParams({ tab: 'operations' }, { replace: true }) }}
                             className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-amber-200 hover:shadow-md transition-all group">
-                            <div className="w-9 h-9 rounded-xl bg-amber-100 group-hover:bg-amber-200 flex items-center justify-center text-base mb-3 transition-colors">📋</div>
+                            <div className="w-9 h-9 rounded-xl bg-amber-100 group-hover:bg-amber-200 flex items-center justify-center text-base mb-3 transition-colors">ðŸ“‹</div>
                             <p className="text-sm font-bold text-slate-800">Planning</p>
                             <p className="text-xs text-slate-500 mt-0.5">{pending.length} task{pending.length !== 1 ? 's' : ''}</p>
                           </button>
                           <button type="button"
                             onClick={() => { setOpsSubTab('financial'); setActiveTab('operations'); setSearchParams({ tab: 'operations' }, { replace: true }) }}
                             className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-teal-200 hover:shadow-md transition-all group">
-                            <div className="w-9 h-9 rounded-xl bg-teal-100 group-hover:bg-teal-200 flex items-center justify-center text-base mb-3 transition-colors">💰</div>
+                            <div className="w-9 h-9 rounded-xl bg-teal-100 group-hover:bg-teal-200 flex items-center justify-center text-base mb-3 transition-colors">ðŸ’°</div>
                             <p className="text-sm font-bold text-slate-800">Budget</p>
                             <p className="text-xs text-slate-500 mt-0.5">Financial overview</p>
                           </button>
                         </div>
 
-                        {/* ── Recent additions ── */}
+                        {/* â”€â”€ Recent additions â”€â”€ */}
                         {pcsEntries.length > 0 && (
                           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                             <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Recent Additions</p>
                               <button type="button"
                                 onClick={() => { setActiveTab('pcs'); setSearchParams({ tab: 'pcs' }, { replace: true }) }}
-                                className="text-xs text-indigo-600 font-medium hover:underline">View all →</button>
+                                className="text-xs text-indigo-600 font-medium hover:underline">View all â†’</button>
                             </div>
                             <div className="divide-y divide-slate-50">
                               {pcsEntries.slice(0, 3).map(e => (
@@ -1598,7 +1624,7 @@ export default function DepartmentHub() {
 
               {slug === 'cell' ? (
                 <>
-                  {/* Profile Fill Requests banner — visible to non-Director Cell Leaders on the summary tab */}
+                  {/* Profile Fill Requests banner â€” visible to non-Director Cell Leaders on the summary tab */}
                   {!canViewAllCells && pendingFillInvitations.length > 0 && (
                     <div className="bg-white rounded-xl border border-violet-200 shadow-sm overflow-hidden mb-4">
                       <div className="px-4 py-3 bg-violet-50 border-b border-violet-100 flex items-center gap-2">
@@ -1691,7 +1717,7 @@ export default function DepartmentHub() {
                     <div className="p-8 text-center text-slate-500 text-sm">Loading...</div>
                   ) : subDepartments.length === 0 ? (
                     <div className="p-8 text-center text-slate-500 text-sm">
-                      No sub-departments yet. Add them in <button type="button" onClick={() => { setActiveTab('operations'); setOpsSubTab('subDepartment'); setSearchParams({ tab: 'operations' }, { replace: true }) }} className="text-indigo-600 hover:underline">Operations → Sub Department</button>.
+                      No sub-departments yet. Add them in <button type="button" onClick={() => { setActiveTab('operations'); setOpsSubTab('subDepartment'); setSearchParams({ tab: 'operations' }, { replace: true }) }} className="text-indigo-600 hover:underline">Operations â†’ Sub Department</button>.
                     </div>
                   ) : (
                     <table className="w-full">
@@ -1711,7 +1737,7 @@ export default function DepartmentHub() {
                                 onChange={(e) => setMediaAssignments((prev) => ({ ...prev, [sd.name]: e.target.value }))}
                                 className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
                               >
-                                <option value="">— Not assigned</option>
+                                <option value="">â€” Not assigned</option>
                                 {team.filter((m) => !m.isFormer && m.status !== 'former').map((m) => (
                                   <option key={m.id} value={m.id}>{m.name}</option>
                                 ))}
@@ -1724,7 +1750,7 @@ export default function DepartmentHub() {
                   )}
                 </div>
 
-                {/* ── Sunday Program ── */}
+                {/* â”€â”€ Sunday Program â”€â”€ */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-4">
                   <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1732,13 +1758,13 @@ export default function DepartmentHub() {
                       <p className="text-xs text-slate-500 mt-0.5">Assign a person to each media program item for this Sunday</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => setMediaSundayDate(format(subWeeks(new Date(mediaSundayDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">← Prev</button>
+                      <button type="button" onClick={() => setMediaSundayDate(format(subWeeks(new Date(mediaSundayDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">â† Prev</button>
                       <span className="text-sm font-semibold text-slate-700 min-w-[140px] text-center">{format(new Date(mediaSundayDate), 'EEE, dd MMM yyyy')}</span>
-                      <button type="button" onClick={() => setMediaSundayDate(format(addWeeks(new Date(mediaSundayDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next →</button>
+                      <button type="button" onClick={() => setMediaSundayDate(format(addWeeks(new Date(mediaSundayDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next â†’</button>
                     </div>
                   </div>
                   {mediaSundayLoading ? (
-                    <div className="p-6 text-center text-slate-500 text-sm">Loading…</div>
+                    <div className="p-6 text-center text-slate-500 text-sm">Loadingâ€¦</div>
                   ) : mediaSundayDesignProgram.length === 0 ? (
                     <div className="p-6 text-center text-slate-500 text-sm">
                       No design program pushed for this Sunday yet. Design the programme in the Upcoming Sunday tab and push it here.
@@ -1799,7 +1825,7 @@ export default function DepartmentHub() {
                                     onChange={(e) => setMediaSundayAssign((prev) => ({ ...prev, [item.name]: e.target.value }))}
                                     className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
                                   >
-                                    <option value="">— Not assigned</option>
+                                    <option value="">â€” Not assigned</option>
                                     {team.filter((m) => !m.isFormer && m.status !== 'former').map((m) => (
                                       <option key={m.id} value={m.name}>{m.name}</option>
                                     ))}
@@ -1813,7 +1839,7 @@ export default function DepartmentHub() {
                       <div className="px-4 py-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           {mediaSundayPushed && (
-                            <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">✓ Pushed to Sunday Plan</span>
+                            <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">âœ“ Pushed to Sunday Plan</span>
                           )}
                           <span className="text-xs text-slate-400">{mediaSundaySelected.size} of {mediaSundayDesignProgram.length} selected</span>
                         </div>
@@ -1824,7 +1850,7 @@ export default function DepartmentHub() {
                             disabled={mediaSundaySaving}
                             className="px-4 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
                           >
-                            {mediaSundaySaving ? 'Saving…' : 'Save'}
+                            {mediaSundaySaving ? 'Savingâ€¦' : 'Save'}
                           </button>
                           <button
                             type="button"
@@ -1832,7 +1858,7 @@ export default function DepartmentHub() {
                             disabled={mediaSundayPushing || mediaSundaySelected.size === 0}
                             className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 shadow-sm"
                           >
-                            {mediaSundayPushing ? 'Pushing…' : `Push${mediaSundaySelected.size > 0 && mediaSundaySelected.size < mediaSundayDesignProgram.length ? ` (${mediaSundaySelected.size})` : ''} to Sunday Plan`}
+                            {mediaSundayPushing ? 'Pushingâ€¦' : `Push${mediaSundaySelected.size > 0 && mediaSundaySelected.size < mediaSundayDesignProgram.length ? ` (${mediaSundaySelected.size})` : ''} to Sunday Plan`}
                           </button>
                         </div>
                       </div>
@@ -1840,6 +1866,87 @@ export default function DepartmentHub() {
                   )}
                 </div>
                 </>
+              ) : slug === 'accounts' ? (
+                <div className="space-y-4">
+                  {acctSummaryLoading || !acctSummary ? (
+                    <div className="py-10 text-center text-slate-400 text-sm">Loadingâ€¦</div>
+                  ) : (() => {
+                    const now = new Date()
+                    const monthLabel = format(now, 'MMMM yyyy')
+                    const wkStart = startOfWeek(now, { weekStartsOn: 1 })
+                    const wkEnd = endOfWeek(now, { weekStartsOn: 1 })
+                    const weekLabel = `${format(wkStart, 'd MMM')} â€“ ${format(wkEnd, 'd MMM yyyy')}`
+                    const net = acctSummary.incomeTotal - acctSummary.expenseTotal
+                    return (
+                      <>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{monthLabel}</p>
+
+                        {/* Income + Expense + Net row */}
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl border border-emerald-200 shadow-sm px-4 py-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 mb-1">Income</p>
+                            <p className="text-xl font-black text-emerald-700">â‚¹{acctSummary.incomeTotal.toLocaleString('en-IN')}</p>
+                            <p className="text-[10px] text-emerald-500 mt-1">{acctSummary.incomeCount} {acctSummary.incomeCount === 1 ? 'entry' : 'entries'}</p>
+                          </div>
+                          <div className="bg-gradient-to-br from-rose-50 to-rose-100 rounded-2xl border border-rose-200 shadow-sm px-4 py-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-rose-500 mb-1">Expense</p>
+                            <p className="text-xl font-black text-rose-700">â‚¹{acctSummary.expenseTotal.toLocaleString('en-IN')}</p>
+                            <p className="text-[10px] text-rose-500 mt-1">{acctSummary.expenseCount} {acctSummary.expenseCount === 1 ? 'entry' : 'entries'}</p>
+                          </div>
+                          <div className={`bg-gradient-to-br rounded-2xl border shadow-sm px-4 py-3 ${net >= 0 ? 'from-indigo-50 to-indigo-100 border-indigo-200' : 'from-amber-50 to-amber-100 border-amber-200'}`}>
+                            <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${net >= 0 ? 'text-indigo-500' : 'text-amber-500'}`}>Net</p>
+                            <p className={`text-xl font-black ${net >= 0 ? 'text-indigo-700' : 'text-amber-700'}`}>{net < 0 ? '-' : ''}â‚¹{Math.abs(net).toLocaleString('en-IN')}</p>
+                            <p className={`text-[10px] mt-1 ${net >= 0 ? 'text-indigo-400' : 'text-amber-500'}`}>{net >= 0 ? 'Surplus' : 'Deficit'}</p>
+                          </div>
+                        </div>
+
+                        {/* Weekly entries */}
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Weekly Entry</p>
+                            <p className="text-[10px] text-slate-400">{weekLabel}</p>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1 text-center">
+                              <p className="text-2xl font-black text-slate-700">{acctSummary.weeklyCount}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">Total entries</p>
+                            </div>
+                            <div className="w-px h-10 bg-slate-100" />
+                            <div className="flex-1 text-center">
+                              <p className="text-2xl font-black text-amber-600">{acctSummary.weeklyPending}</p>
+                              <p className="text-[10px] text-amber-500 mt-0.5">Pending</p>
+                            </div>
+                            <div className="w-px h-10 bg-slate-100" />
+                            <div className="flex-1 text-center">
+                              <p className="text-2xl font-black text-emerald-600">{acctSummary.weeklyApproved}</p>
+                              <p className="text-[10px] text-emerald-500 mt-0.5">Approved</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Quick-nav tiles */}
+                        <div className="grid grid-cols-3 gap-3">
+                          {[
+                            { label: 'Income', path: '/department/accounts/entry?tab=income', icon: 'ðŸ’°', desc: 'View income entries' },
+                            { label: 'Expense', path: '/department/accounts/entry?tab=expense', icon: 'ðŸ“¤', desc: 'View expense entries' },
+                            { label: 'Weekly', path: '/department/accounts/entry?tab=weekly', icon: 'ðŸ“‹', desc: 'Weekly entry log' },
+                          ].map(({ label, icon, desc, path }) => (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => navigate(path)}
+                              className="bg-white rounded-2xl border border-slate-100 shadow-sm px-3 py-3 text-center hover:border-indigo-200 hover:bg-indigo-50 active:scale-95 transition-all"
+                            >
+                              <p className="text-xl mb-1">{icon}</p>
+                              <p className="text-xs font-semibold text-slate-700">{label}</p>
+                              <p className="text-[9px] text-slate-400 mt-0.5">{desc}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )
+                  })()}
+                </div>
               ) : (
                 <>
                   <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -1870,7 +1977,7 @@ export default function DepartmentHub() {
                             <span className="text-slate-500">{e.period || e.type || 'Entry'}</span>
                             {e.notes && <p className="text-slate-800 mt-0.5 whitespace-pre-wrap">{e.notes}</p>}
                             <p className="text-xs text-slate-500 mt-1">
-                              {e.enteredBy} · {e.createdAt ? formatDisplayDate(e.createdAt) : ''}
+                              {e.enteredBy} Â· {e.createdAt ? formatDisplayDate(e.createdAt) : ''}
                             </p>
                           </li>
                         ))}
@@ -1904,7 +2011,7 @@ export default function DepartmentHub() {
                 )}
               </div>
               {loadingCaringMembers ? (
-                <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+                <div className="px-5 py-8 text-center text-slate-500">Loadingâ€¦</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -1924,9 +2031,9 @@ export default function DepartmentHub() {
                             onClick={() => setExpandedCaringId(expandedCaringId === m.id ? null : m.id)}
                             className="hover:bg-slate-50 cursor-pointer"
                           >
-                            <td className="px-4 py-3 text-slate-800">{m.membershipNumber || '—'}</td>
-                            <td className="px-4 py-3 text-slate-800">{m.name || '—'}</td>
-                            <td className="px-4 py-3 text-slate-600">{m.cellName || '—'}</td>
+                            <td className="px-4 py-3 text-slate-800">{m.membershipNumber || 'â€”'}</td>
+                            <td className="px-4 py-3 text-slate-800">{m.name || 'â€”'}</td>
+                            <td className="px-4 py-3 text-slate-600">{m.cellName || 'â€”'}</td>
                             <td className="px-4 py-3 text-slate-600">{formatDuration(m.firstSunday)}</td>
                             {canEdit && (
                               <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -1970,12 +2077,12 @@ export default function DepartmentHub() {
                             <tr key={`${m.id}-exp`}>
                               <td colSpan={canEdit ? 5 : 4} className="px-4 py-3 bg-slate-50 border-b border-slate-100">
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
-                                  <div><span className="text-slate-500">DOB:</span> {m.dob ? formatDMY(m.dob) : '—'}</div>
-                                  <div><span className="text-slate-500">Phone:</span> {m.phone || '—'}</div>
-                                  <div><span className="text-slate-500">Email:</span> {m.email || '—'}</div>
-                                  <div><span className="text-slate-500">Nativity:</span> {m.nativity || '—'}</div>
-                                  <div><span className="text-slate-500">Current Place:</span> {m.currentPlace || '—'}</div>
-                                  <div><span className="text-slate-500">First Sunday:</span> {m.firstSunday ? formatDMY(m.firstSunday) : '—'}</div>
+                                  <div><span className="text-slate-500">DOB:</span> {m.dob ? formatDMY(m.dob) : 'â€”'}</div>
+                                  <div><span className="text-slate-500">Phone:</span> {m.phone || 'â€”'}</div>
+                                  <div><span className="text-slate-500">Email:</span> {m.email || 'â€”'}</div>
+                                  <div><span className="text-slate-500">Nativity:</span> {m.nativity || 'â€”'}</div>
+                                  <div><span className="text-slate-500">Current Place:</span> {m.currentPlace || 'â€”'}</div>
+                                  <div><span className="text-slate-500">First Sunday:</span> {m.firstSunday ? formatDMY(m.firstSunday) : 'â€”'}</div>
                                 </div>
                               </td>
                             </tr>
@@ -2075,7 +2182,7 @@ export default function DepartmentHub() {
                       </svg>
                       <span className="hidden sm:inline">Paste Data</span>
                     </button>
-                    {/* Import Excel — glassmorphism icon button */}
+                    {/* Import Excel â€” glassmorphism icon button */}
                     <label
                       title="Import from Excel"
                       className={`flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer select-none
@@ -2091,7 +2198,7 @@ export default function DepartmentHub() {
                         <circle cx="16" cy="15" r="3.5" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.25"/>
                         <path d="M16 13.5v3M14.5 15.5l1.5 1.5 1.5-1.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
-                      <span className="hidden sm:inline">{importingVisitors ? 'Parsing…' : 'Import Excel'}</span>
+                      <span className="hidden sm:inline">{importingVisitors ? 'Parsingâ€¦' : 'Import Excel'}</span>
                       <input
                         type="file"
                         accept=".xlsx,.xls,.csv"
@@ -2130,7 +2237,7 @@ export default function DepartmentHub() {
                             }
                           } catch (err) {
                             console.error(err)
-                            setImportVisitorResult({ error: true, message: 'Could not read file — check format.' })
+                            setImportVisitorResult({ error: true, message: 'Could not read file â€” check format.' })
                             setTimeout(() => setImportVisitorResult(null), 4000)
                           } finally {
                             setImportingVisitors(false)
@@ -2172,7 +2279,7 @@ export default function DepartmentHub() {
                   </div>
                 )}
               </div>
-              {/* Search bar — searches across all years */}
+              {/* Search bar â€” searches across all years */}
               <div className="px-5 py-3 border-b border-slate-100 relative">
                 <div className="relative max-w-sm">
                   <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" width="15" height="15" viewBox="0 0 20 20" fill="none">
@@ -2181,7 +2288,7 @@ export default function DepartmentHub() {
                   </svg>
                   <input
                     type="text"
-                    placeholder="Search visitors across all years…"
+                    placeholder="Search visitors across all yearsâ€¦"
                     value={visitorSearch}
                     onChange={(e) => { setVisitorSearch(e.target.value); setVisitorSearchOpen(true) }}
                     onFocus={() => setVisitorSearchOpen(true)}
@@ -2215,7 +2322,7 @@ export default function DepartmentHub() {
                       >
                         <div>
                           <p className="text-sm font-medium text-slate-800">{v.name}</p>
-                          <p className="text-xs text-slate-400">{[v.phone, v.email].filter(Boolean).join(' · ') || 'No contact info'}</p>
+                          <p className="text-xs text-slate-400">{[v.phone, v.email].filter(Boolean).join(' Â· ') || 'No contact info'}</p>
                         </div>
                         <span className="ml-3 shrink-0 text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
                           {getVisitorYear(v)}
@@ -2262,7 +2369,7 @@ export default function DepartmentHub() {
                 )
               })()}
               {loadingDelightVisitors ? (
-                <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+                <div className="px-5 py-8 text-center text-slate-500">Loadingâ€¦</div>
               ) : filteredDelightVisitors.length === 0 ? (
                 <div className="px-5 py-8 text-center text-slate-500">No visitor entries yet.</div>
               ) : (
@@ -2280,14 +2387,14 @@ export default function DepartmentHub() {
                         const open = visitorMenuOpenId === v.id
                         const d = v.attendedDate ? new Date(v.attendedDate) : null
                         const rowBg = d ? monthPalette[d.getMonth()] : ''
-                        const monthLabel = d ? d.toLocaleDateString('en-US', { month: 'short' }) : '—'
+                        const monthLabel = d ? d.toLocaleDateString('en-US', { month: 'short' }) : 'â€”'
                         return (
                           <Fragment key={v.id}>
                             <tr
                               className={`cursor-pointer transition-colors border-b border-white/60 ${rowBg} ${open ? 'opacity-80' : 'hover:opacity-90'}`}
                               onClick={() => setVisitorMenuOpenId(open ? null : v.id)}
                             >
-                              <td className="px-6 py-3 font-semibold text-base text-slate-900">{v.name || '—'}</td>
+                              <td className="px-6 py-3 font-semibold text-base text-slate-900">{v.name || 'â€”'}</td>
                               <td className="px-6 py-3 text-sm text-slate-400">{monthLabel}</td>
                             </tr>
                             {open && (
@@ -2390,7 +2497,7 @@ export default function DepartmentHub() {
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Cell Name</label>
                       <select value={caringMemberForm.cellName} onChange={(e) => setCaringMemberForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
-                        <option value="">— Select —</option>
+                        <option value="">â€” Select â€”</option>
                         {caringCellNames.map((name) => (
                           <option key={name} value={name}>{name}</option>
                         ))}
@@ -2406,7 +2513,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {/* ── Paste-data modal ─────────────────────────────────────────── */}
+          {/* â”€â”€ Paste-data modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           {pasteImportOpen && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
@@ -2415,14 +2522,14 @@ export default function DepartmentHub() {
                     <h3 className="text-lg font-semibold text-slate-800">Paste Visitor Data</h3>
                     <p className="text-xs text-slate-500 mt-0.5">Paste rows copied from Excel or a spreadsheet. Each row: Serial(optional), Name, DOB, Phone, Email, Nativity, Place, Service, Date Attended, How Known</p>
                   </div>
-                  <button type="button" onClick={() => setPasteImportOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+                  <button type="button" onClick={() => setPasteImportOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">Ã—</button>
                 </div>
                 <div className="p-5 flex-1 overflow-y-auto">
                   <textarea
                     autoFocus
                     value={pasteText}
                     onChange={(e) => setPasteText(e.target.value)}
-                    placeholder="Paste your data here…"
+                    placeholder="Paste your data hereâ€¦"
                     className="w-full h-64 px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                 </div>
@@ -2436,7 +2543,7 @@ export default function DepartmentHub() {
                       const rows = lines.map((l) => l.split(/\t|,/).map((c) => c.trim().replace(/^["']|["']$/g, '')))
                       const parsed = parseVisitorRows(rows)
                       if (parsed.length === 0) {
-                        alert('No valid rows found — make sure each row has at least a name.')
+                        alert('No valid rows found â€” make sure each row has at least a name.')
                         return
                       }
                       setPasteImportOpen(false)
@@ -2452,13 +2559,13 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {/* ── Import preview / confirm modal ───────────────────────────── */}
+          {/* â”€â”€ Import preview / confirm modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           {importPreviewOpen && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl flex flex-col max-h-[90vh]">
                 <div className="p-5 border-b border-slate-200 flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-800">Preview Import — {importPreviewRows.length} visitor{importPreviewRows.length !== 1 ? 's' : ''}</h3>
+                    <h3 className="text-lg font-semibold text-slate-800">Preview Import â€” {importPreviewRows.length} visitor{importPreviewRows.length !== 1 ? 's' : ''}</h3>
                     <p className="text-xs text-slate-500 mt-0.5">
                       Review the parsed data below. Records will appear under the year matching their <strong>Date Attended</strong>.
                       {importPreviewRows.length > 0 && (() => {
@@ -2467,7 +2574,7 @@ export default function DepartmentHub() {
                       })()}
                     </p>
                   </div>
-                  <button type="button" onClick={() => setImportPreviewOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+                  <button type="button" onClick={() => setImportPreviewOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">Ã—</button>
                 </div>
                 <div className="flex-1 overflow-auto">
                   <table className="min-w-full text-xs">
@@ -2483,14 +2590,14 @@ export default function DepartmentHub() {
                         <tr key={i} className="hover:bg-slate-50">
                           <td className="px-3 py-2 text-slate-400">{i + 1}</td>
                           <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">{v.name}</td>
-                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.dob ? formatDMY(v.dob) : <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.phone || <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2 text-slate-600">{v.email || <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.nativity || <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.currentPlace || <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2 text-slate-600">{v.serviceAttended ? fmtService(v.serviceAttended) : <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.attendedDate ? formatDMY(v.attendedDate) : <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2 text-slate-600">{v.howKnown || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.dob ? formatDMY(v.dob) : <span className="text-slate-300">â€”</span>}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.phone || <span className="text-slate-300">â€”</span>}</td>
+                          <td className="px-3 py-2 text-slate-600">{v.email || <span className="text-slate-300">â€”</span>}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.nativity || <span className="text-slate-300">â€”</span>}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.currentPlace || <span className="text-slate-300">â€”</span>}</td>
+                          <td className="px-3 py-2 text-slate-600">{v.serviceAttended ? fmtService(v.serviceAttended) : <span className="text-slate-300">â€”</span>}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{v.attendedDate ? formatDMY(v.attendedDate) : <span className="text-slate-300">â€”</span>}</td>
+                          <td className="px-3 py-2 text-slate-600">{v.howKnown || <span className="text-slate-300">â€”</span>}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2522,11 +2629,11 @@ export default function DepartmentHub() {
                             setVisitorPrevYear(dominantYear)
                           }
                         }
-                        setImportVisitorResult({ message: `✓ Imported ${rowsToSave.length} visitor${rowsToSave.length !== 1 ? 's' : ''}` })
+                        setImportVisitorResult({ message: `âœ“ Imported ${rowsToSave.length} visitor${rowsToSave.length !== 1 ? 's' : ''}` })
                         setTimeout(() => setImportVisitorResult(null), 5000)
                       } catch (err) {
                         console.error(err)
-                        setImportVisitorResult({ error: true, message: 'Save failed — check your connection.' })
+                        setImportVisitorResult({ error: true, message: 'Save failed â€” check your connection.' })
                         setTimeout(() => setImportVisitorResult(null), 5000)
                       } finally {
                         setImportingVisitors(false)
@@ -2556,7 +2663,7 @@ export default function DepartmentHub() {
                     type="button"
                     onClick={() => { setDelightVisitorModalOpen(false); setEditingDelightVisitorId(null) }}
                     className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors text-lg"
-                  >✕</button>
+                  >âœ•</button>
                 </div>
                 <form
                   onSubmit={async (e) => {
@@ -2710,7 +2817,7 @@ export default function DepartmentHub() {
                           onChange={(e) => setDelightVisitorForm((f) => ({ ...f, serviceAttended: e.target.value }))}
                           className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                         >
-                          <option value="">— Select —</option>
+                          <option value="">â€” Select â€”</option>
                           <option value="English Service">English Service</option>
                           <option value="Tamil Service">Tamil Service</option>
                           <option value="Youth Service">Youth Service</option>
@@ -2725,7 +2832,7 @@ export default function DepartmentHub() {
                           onChange={(e) => setDelightVisitorForm((f) => ({ ...f, source: e.target.value }))}
                           className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
                         >
-                          <option value="">— Select —</option>
+                          <option value="">â€” Select â€”</option>
                           <option value="Friend">Friend</option>
                           <option value="Family">Family</option>
                           <option value="Social Media">Social Media</option>
@@ -2802,22 +2909,32 @@ export default function DepartmentHub() {
             <WorshipOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
           )}
 
+          {activeTab === 'operations' && !['caring', 'sunday-ministry', 'media', 'river-kids', 'administration', 'accounts', 'd-light', 'worship', 'cell'].includes(slug) && (
+            <DefaultOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
+          )}
+
           {activeTab === 'operations' && opsSubTab === 'expense' && department?.name && (
-            <DeptExpenseTab department={department.name} />
+            slug === 'accounts'
+              ? <AccountsExpensePage />
+              : <DeptExpenseTab department={department.name} />
+          )}
+
+          {activeTab === 'operations' && opsSubTab === 'budget' && (
+            <BudgetPage department={slug === 'accounts' ? undefined : department?.name} />
           )}
 
           {activeTab === 'operations' && slug === 'accounts' && opsSubTab === 'addDepartments' && (
             <AddDepartmentsPage />
           )}
 
-          {(activeTab === 'planning' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'planning')) && (
+          {(activeTab === 'planning' || (activeTab === 'operations' && opsSubTab === 'planning')) && (
             <div className="space-y-6">
               {slug === 'cell' && (
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                   <h2 className="font-semibold text-slate-800 mb-3">Back to the Bible</h2>
-                  <p className="text-sm text-slate-500 mb-2">Weekly teaching content for all cells. Week cycle is Monday → Sunday. Content applies to all cell meetings in that week.</p>
+                  <p className="text-sm text-slate-500 mb-2">Weekly teaching content for all cells. Week cycle is Monday â†’ Sunday. Content applies to all cell meetings in that week.</p>
                   <p className="text-sm font-medium text-slate-700 mb-4">
-                    Week: {format(btbWeekStart, 'd MMM yyyy')} – {format(btbWeekEnd, 'd MMM yyyy')} <span className="text-slate-500 font-normal">(Monday to Sunday)</span>
+                    Week: {format(btbWeekStart, 'd MMM yyyy')} â€“ {format(btbWeekEnd, 'd MMM yyyy')} <span className="text-slate-500 font-normal">(Monday to Sunday)</span>
                   </p>
                   {canEdit && (
                     <form
@@ -2886,10 +3003,10 @@ export default function DepartmentHub() {
                       <tbody className="divide-y divide-slate-100">
                         {backToBibleList.map((b) => (
                           <tr key={b.id}>
-                            <td className="px-3 py-2 text-slate-600">{b.fromDate ? formatDMY(b.fromDate) : '—'}</td>
-                            <td className="px-3 py-2 text-slate-600">{b.toDate ? formatDMY(b.toDate) : '—'}</td>
-                            <td className="px-3 py-2 text-slate-800">{b.title || '—'}</td>
-                            <td className="px-3 py-2 text-slate-700 whitespace-pre-wrap max-w-md truncate">{b.content || '—'}</td>
+                            <td className="px-3 py-2 text-slate-600">{b.fromDate ? formatDMY(b.fromDate) : 'â€”'}</td>
+                            <td className="px-3 py-2 text-slate-600">{b.toDate ? formatDMY(b.toDate) : 'â€”'}</td>
+                            <td className="px-3 py-2 text-slate-800">{b.title || 'â€”'}</td>
+                            <td className="px-3 py-2 text-slate-700 whitespace-pre-wrap max-w-md truncate">{b.content || 'â€”'}</td>
                           </tr>
                         ))}
                         {backToBibleList.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-500">No Back to the Bible entries yet.</td></tr>}
@@ -2923,7 +3040,7 @@ export default function DepartmentHub() {
                 </div>
 
                 {loadingBoardPoints ? (
-                  <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>
+                  <div className="py-8 text-center text-slate-400 text-sm">Loadingâ€¦</div>
                 ) : boardPoints.length === 0 ? (
                   <div className="py-10 text-center text-slate-400 text-sm">
                     No presentation points yet. Click "Add Point" to get started.
@@ -2996,7 +3113,7 @@ export default function DepartmentHub() {
                     <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
                       <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                         <h3 className="font-semibold text-slate-800">{editingBoardPointId ? 'Edit Point' : 'Add Presentation Point'}</h3>
-                        <button type="button" onClick={() => setBoardPointModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
+                        <button type="button" onClick={() => setBoardPointModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">Ã—</button>
                       </div>
                       <div className="px-5 py-4 space-y-4">
                         <div>
@@ -3004,7 +3121,7 @@ export default function DepartmentHub() {
                           <textarea
                             value={boardPointForm.point}
                             onChange={e => setBoardPointForm(f => ({ ...f, point: e.target.value }))}
-                            placeholder="Describe the point to present at the board meeting…"
+                            placeholder="Describe the point to present at the board meetingâ€¦"
                             rows={4}
                             className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
                           />
@@ -3068,7 +3185,7 @@ export default function DepartmentHub() {
                   )}
                 </div>
                 {loadingDepartmentUpdates ? (
-                  <div className="py-4 text-sm text-slate-500">Loading updates…</div>
+                  <div className="py-4 text-sm text-slate-500">Loading updatesâ€¦</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
@@ -3088,13 +3205,13 @@ export default function DepartmentHub() {
                           <tr key={u.id} className="hover:bg-slate-50 align-top">
                             <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
                             <td className="px-4 py-2 text-slate-600">
-                              {u.date ? formatDMY(u.date) : '—'}
+                              {u.date ? formatDMY(u.date) : 'â€”'}
                             </td>
                             <td className="px-4 py-2 text-slate-800 whitespace-pre-wrap">
-                              {u.update || '—'}
+                              {u.update || 'â€”'}
                             </td>
                             <td className="px-4 py-2 text-slate-800 whitespace-pre-wrap">
-                              {u.actionPlan || '—'}
+                              {u.actionPlan || 'â€”'}
                             </td>
                             {canEdit && (
                               <td className="px-4 py-2 text-sm space-x-2">
@@ -3172,7 +3289,7 @@ export default function DepartmentHub() {
                         disabled={savingPlanningDraft || savingPlanning}
                         className="px-4 py-2 rounded-lg bg-white text-slate-800 text-sm font-medium border border-slate-300 hover:bg-slate-50 disabled:opacity-50"
                       >
-                        {savingPlanningDraft ? 'Saving draft…' : 'Save Draft'}
+                        {savingPlanningDraft ? 'Saving draftâ€¦' : 'Save Draft'}
                       </button>
                     <button
                       type="submit"
@@ -3185,7 +3302,7 @@ export default function DepartmentHub() {
                   </form>
                 ) : (
                   <div className="text-slate-600 whitespace-pre-wrap">
-                    {planningNotes || '— No planning notes yet —'}
+                    {planningNotes || 'â€” No planning notes yet â€”'}
                   </div>
                 )}
                 <div className="mt-6 pt-4 border-t border-slate-200">
@@ -3235,11 +3352,11 @@ export default function DepartmentHub() {
                   }}
                   className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  {savingDelightAssignments ? 'Saving…' : 'Save'}
+                  {savingDelightAssignments ? 'Savingâ€¦' : 'Save'}
                 </button>
               </div>
               {loadingDelightAssignments && (
-                <p className="text-sm text-slate-500">Loading assignments…</p>
+                <p className="text-sm text-slate-500">Loading assignmentsâ€¦</p>
               )}
               {team.length === 0 ? (
                 <p className="text-sm text-slate-500">
@@ -3256,12 +3373,12 @@ export default function DepartmentHub() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {[
-                        { key: 'lightShinersPre', label: 'Light Shiners – Pre-service greeting', subDept: 'Light Shiners' },
-                        { key: 'lightShinersPost', label: 'Light Shiners – Post-service greeting', subDept: 'Light Shiners' },
-                        { key: 'lightBeaconsRoom', label: 'Light Beacons – Room addressing', subDept: 'Light Beacons' },
-                        { key: 'lightBeaconsStair', label: 'Light Beacons – Stair guardian', subDept: 'Light Beacons' },
-                        { key: 'lightBearersPostConnect', label: 'Light Bearers – Post connect', subDept: 'Light Bearers' },
-                        { key: 'lightCraftersRoomPrep', label: 'Light Crafters – Room preparation and card distribution', subDept: 'Light Crafters' },
+                        { key: 'lightShinersPre', label: 'Light Shiners â€“ Pre-service greeting', subDept: 'Light Shiners' },
+                        { key: 'lightShinersPost', label: 'Light Shiners â€“ Post-service greeting', subDept: 'Light Shiners' },
+                        { key: 'lightBeaconsRoom', label: 'Light Beacons â€“ Room addressing', subDept: 'Light Beacons' },
+                        { key: 'lightBeaconsStair', label: 'Light Beacons â€“ Stair guardian', subDept: 'Light Beacons' },
+                        { key: 'lightBearersPostConnect', label: 'Light Bearers â€“ Post connect', subDept: 'Light Bearers' },
+                        { key: 'lightCraftersRoomPrep', label: 'Light Crafters â€“ Room preparation and card distribution', subDept: 'Light Crafters' },
                       ].map((row) => {
                         const options = team.filter((m) => {
                           if (m.isFormer) return false
@@ -3287,7 +3404,7 @@ export default function DepartmentHub() {
                                 }
                                 className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
                               >
-                                <option value="">— Select —</option>
+                                <option value="">â€” Select â€”</option>
                                 {options.map((m) => (
                                   <option key={m.id} value={m.id}>
                                     {m.name} {m.role ? `(${m.role})` : ''}
@@ -3306,7 +3423,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring') && activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
+          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-200 flex justify-end items-center">
                 {canEdit && (
@@ -3324,7 +3441,7 @@ export default function DepartmentHub() {
                 )}
               </div>
               {subDeptLoading ? (
-                <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+                <div className="px-5 py-8 text-center text-slate-500">Loadingâ€¦</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -3337,7 +3454,7 @@ export default function DepartmentHub() {
                     <tbody className="divide-y divide-slate-100">
                       {subDepartments.map((row) => (
                         <tr key={row.id}>
-                          <td className="px-4 py-3 text-slate-800 font-medium">{row.name || '—'}</td>
+                          <td className="px-4 py-3 text-slate-800 font-medium">{row.name || 'â€”'}</td>
                           {canEdit && (
                             <td className="px-4 py-3 space-x-2">
                               <button
@@ -3488,7 +3605,7 @@ export default function DepartmentHub() {
                 )}
               </div>
               {loadingDlightSubDepts ? (
-                <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+                <div className="px-5 py-8 text-center text-slate-500">Loadingâ€¦</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -3502,8 +3619,8 @@ export default function DepartmentHub() {
                     <tbody className="divide-y divide-slate-100">
                       {dlightSubDepts.map((row) => (
                         <tr key={row.id}>
-                          <td className="px-4 py-3 text-slate-800 font-medium">{row.name || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{row.servingArea || '—'}</td>
+                          <td className="px-4 py-3 text-slate-800 font-medium">{row.name || 'â€”'}</td>
+                          <td className="px-4 py-3 text-slate-600">{row.servingArea || 'â€”'}</td>
                           {canEdit && (
                             <td className="px-4 py-3">
                               <button
@@ -3811,7 +3928,7 @@ export default function DepartmentHub() {
                 <p className={`text-sm font-bold tracking-tight ${color}`}>{label}</p>
               )
 
-              // ── Fill-percentage helpers ──────────────────────────────────────
+              // â”€â”€ Fill-percentage helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               const countFilled = (keys) => keys.filter(k => {
                 const v = f[k]; return v !== '' && v !== null && v !== undefined && v !== false
               }).length
@@ -3851,12 +3968,12 @@ export default function DepartmentHub() {
               return (
                 <div className="border-t-2 border-indigo-500 bg-slate-50 px-2 py-3 sm:px-4 sm:py-4">
                   {pcsExpandedLoading && (
-                    <p className="text-xs text-slate-400 text-center py-6">Loading profile…</p>
+                    <p className="text-xs text-slate-400 text-center py-6">Loading profileâ€¦</p>
                   )}
 
                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
 
-                    {/* ═══ Identity header ═══ */}
+                    {/* â•â•â• Identity header â•â•â• */}
                     <div className="px-4 py-3 flex items-start gap-3 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-slate-50">
                       {/* Photo */}
                       <div className="relative flex-shrink-0">
@@ -3866,7 +3983,7 @@ export default function DepartmentHub() {
                               {(f.name || '?')[0].toUpperCase()}
                             </div>
                         }
-                        {/* Camera capture button — only for members */}
+                        {/* Camera capture button â€” only for members */}
                         {!!f.membershipNumber && (
                           <label title="Take member photo" className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center cursor-pointer shadow transition-colors">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M1 5a2 2 0 0 1 2-2h1.172a2 2 0 0 0 1.414-.586l.828-.828A2 2 0 0 1 7.828 1h.344a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 11.828 3H13a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5zm7 6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="currentColor"/></svg>
@@ -3880,12 +3997,12 @@ export default function DepartmentHub() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-bold text-slate-800">{f.name || '—'}</p>
+                          <p className="font-bold text-slate-800">{f.name || 'â€”'}</p>
                           {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Member #{f.membershipNumber}</span>}
                           {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{f.leadershipPosition}</span>}
                           {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600">{churchDuration} in church</span>}
                         </div>
-                        <p className="text-xs text-slate-400 mt-0.5">{[f.phone, f.email].filter(Boolean).join(' · ') || 'No contact info'}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{[f.phone, f.email].filter(Boolean).join(' Â· ') || 'No contact info'}</p>
                         {/* Overall completeness bar */}
                         <div className="mt-2 flex items-center gap-2">
                           <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -3893,7 +4010,7 @@ export default function DepartmentHub() {
                           </div>
                           <span className={`text-[10px] font-bold tabular-nums whitespace-nowrap ${pctCls(overallFill)}`}>{pctStr(overallFill)} complete</span>
                         </div>
-                        {/* Upload from gallery — only for members */}
+                        {/* Upload from gallery â€” only for members */}
                         {!!f.membershipNumber && (
                           <label className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-amber-600 cursor-pointer hover:text-amber-800">
                             <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
@@ -3908,27 +4025,27 @@ export default function DepartmentHub() {
                       </div>
                     </div>
 
-                    {/* ═══ SECTION 1 · Visitor Data ═══ */}
+                    {/* â•â•â• SECTION 1 Â· Visitor Data â•â•â• */}
                     <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-blue-300">
                       <SecHeader label="Visitor Data" fill={s1Fill} labelColor="text-blue-700" headerBg="bg-blue-50 border-b border-blue-100" />
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {fld('Name', 'name')}
-                        {/* Phone — country code + number */}
+                        {/* Phone â€” country code + number */}
                         {(() => {
                           const CODES = [
-                            { code: '+91',  label: '🇮🇳 +91'  },
-                            { code: '+971', label: '🇦🇪 +971' },
-                            { code: '+1',   label: '🇺🇸 +1'   },
-                            { code: '+44',  label: '🇬🇧 +44'  },
-                            { code: '+61',  label: '🇦🇺 +61'  },
-                            { code: '+65',  label: '🇸🇬 +65'  },
-                            { code: '+60',  label: '🇲🇾 +60'  },
-                            { code: '+966', label: '🇸🇦 +966' },
-                            { code: '+974', label: '🇶🇦 +974' },
-                            { code: '+965', label: '🇰🇼 +965' },
-                            { code: '+973', label: '🇧🇭 +973' },
-                            { code: '+64',  label: '🇳🇿 +64'  },
-                            { code: '+49',  label: '🇩🇪 +49'  },
+                            { code: '+91',  label: 'ðŸ‡®ðŸ‡³ +91'  },
+                            { code: '+971', label: 'ðŸ‡¦ðŸ‡ª +971' },
+                            { code: '+1',   label: 'ðŸ‡ºðŸ‡¸ +1'   },
+                            { code: '+44',  label: 'ðŸ‡¬ðŸ‡§ +44'  },
+                            { code: '+61',  label: 'ðŸ‡¦ðŸ‡º +61'  },
+                            { code: '+65',  label: 'ðŸ‡¸ðŸ‡¬ +65'  },
+                            { code: '+60',  label: 'ðŸ‡²ðŸ‡¾ +60'  },
+                            { code: '+966', label: 'ðŸ‡¸ðŸ‡¦ +966' },
+                            { code: '+974', label: 'ðŸ‡¶ðŸ‡¦ +974' },
+                            { code: '+965', label: 'ðŸ‡°ðŸ‡¼ +965' },
+                            { code: '+973', label: 'ðŸ‡§ðŸ‡­ +973' },
+                            { code: '+64',  label: 'ðŸ‡³ðŸ‡¿ +64'  },
+                            { code: '+49',  label: 'ðŸ‡©ðŸ‡ª +49'  },
                           ]
                           const parsePhone = (val) => {
                             const v = (val || '').trim()
@@ -3974,13 +4091,13 @@ export default function DepartmentHub() {
                         <div className="space-y-0.5">
                           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Year</p>
                           <div className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
-                            {f.year || (f.attendedDate ? new Date(f.attendedDate).getFullYear() : '—')}
+                            {f.year || (f.attendedDate ? new Date(f.attendedDate).getFullYear() : 'â€”')}
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* ═══ SECTION 2 · Church Journey ═══ */}
+                    {/* â•â•â• SECTION 2 Â· Church Journey â•â•â• */}
                     <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-emerald-300">
                       <div className="-mx-4 -mt-3 mb-4 px-4 py-3 flex items-center gap-3 bg-emerald-50 border-b border-emerald-100">
                         <span className={`w-3 h-3 rounded-full flex-shrink-0 transition-colors duration-300 ${dotCls(s2Fill)}`} />
@@ -4012,7 +4129,7 @@ export default function DepartmentHub() {
                                       setPcsNotifyingId(null)
                                     }} className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-100 transition-colors disabled:opacity-50">
                                       <svg width="9" height="9" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                                      {notifying ? 'Sending…' : 'Notify Cell'}
+                                      {notifying ? 'Sendingâ€¦' : 'Notify Cell'}
                                     </button>
                               )}
                             </div>
@@ -4020,7 +4137,7 @@ export default function DepartmentHub() {
                               ? <>
                                   <span className="inline-flex items-center gap-1.5 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
                                     <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                                    {cg.cellName || 'Unnamed Cell'}{cg.leader ? <span className="text-emerald-500">· {cg.leader}</span> : null}
+                                    {cg.cellName || 'Unnamed Cell'}{cg.leader ? <span className="text-emerald-500">Â· {cg.leader}</span> : null}
                                   </span>
                                   {canEdit && (() => {
                                     const inv = pcsInviteStatus[entry.id]
@@ -4063,7 +4180,7 @@ export default function DepartmentHub() {
                                         className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full hover:bg-violet-100 transition-colors disabled:opacity-50"
                                       >
                                         <svg width="9" height="9" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                        {inviting ? 'Sending…' : 'Send profile form to cell leader'}
+                                        {inviting ? 'Sendingâ€¦' : 'Send profile form to cell leader'}
                                       </button>
                                     )
                                   })()}
@@ -4092,7 +4209,7 @@ export default function DepartmentHub() {
                                   <div className="flex items-start justify-between gap-2">
                                     <div>
                                       <span className="text-xs font-bold text-indigo-700">{r.ministry}</span>
-                                      {r.role ? <span className="ml-1.5 text-xs text-indigo-500">· {r.role}</span> : null}
+                                      {r.role ? <span className="ml-1.5 text-xs text-indigo-500">Â· {r.role}</span> : null}
                                     </div>
                                     {dur && (
                                       <span className="text-[11px] font-bold text-indigo-600 bg-indigo-100 rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0">
@@ -4125,7 +4242,7 @@ export default function DepartmentHub() {
 
                     </div>
 
-                    {/* ═══ SECTION 3 · Spiritual Data ═══ */}
+                    {/* â•â•â• SECTION 3 Â· Spiritual Data â•â•â• */}
                     <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-violet-300">
                       <SecHeader label="Spiritual Data" fill={s3Fill} labelColor="text-violet-700" headerBg="bg-violet-50 border-b border-violet-100" />
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -4136,7 +4253,7 @@ export default function DepartmentHub() {
                             value={f.baptised}
                             onChange={e => setF(p => ({ ...p, baptised: e.target.value }))}
                             className={inp}>
-                            <option value="">— Select —</option>
+                            <option value="">â€” Select â€”</option>
                             <option value="yes">Yes</option>
                             <option value="no">No</option>
                           </select>
@@ -4166,12 +4283,12 @@ export default function DepartmentHub() {
                                 }
                               }}
                               className={inp}>
-                              <option value="">— Select —</option>
+                              <option value="">â€” Select â€”</option>
                               <option value="River Of Life Christian Church">River Of Life Christian Church</option>
                               <option value="other">Other</option>
                             </select>
                             {f.baptismChurchIsOther && (
-                              <input type="text" placeholder="Specify church name…"
+                              <input type="text" placeholder="Specify church nameâ€¦"
                                 value={f.baptismChurch}
                                 onChange={e => setF(p => ({ ...p, baptismChurch: e.target.value }))}
                                 className={`${inp} mt-1`} />
@@ -4185,21 +4302,21 @@ export default function DepartmentHub() {
                             value={f.maritalStatus}
                             onChange={e => setF(p => ({ ...p, maritalStatus: e.target.value }))}
                             className={inp}>
-                            <option value="">— Select —</option>
+                            <option value="">â€” Select â€”</option>
                             {['Single','Married','Widowed','Divorced'].map(opt => (
                               <option key={opt} value={opt}>{opt}</option>
                             ))}
                           </select>
                         </div>
 
-                        {/* Marriage details — only when Married */}
+                        {/* Marriage details â€” only when Married */}
                         {f.maritalStatus === 'Married' && (<>
                           {fld('Marriage Date', 'marriageDate', 'date')}
                           <div className="space-y-0.5 relative">
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Spouse Name</p>
                             <input
                               type="text"
-                              placeholder="Search or type name…"
+                              placeholder="Search or type nameâ€¦"
                               value={f.spouseName}
                               onChange={e => {
                                 setF(p => ({ ...p, spouseName: e.target.value, spouseVisitorId: '' }))
@@ -4243,7 +4360,7 @@ export default function DepartmentHub() {
                       </div>
                     </div>
 
-                    {/* ═══ SECTION 4 · Membership ═══ */}
+                    {/* â•â•â• SECTION 4 Â· Membership â•â•â• */}
                     <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-amber-300">
                       <div className="-mx-4 -mt-3 mb-4 px-4 py-3 flex items-center gap-3 bg-amber-50 border-b border-amber-100">
                         <span className={`w-3 h-3 rounded-full flex-shrink-0 transition-colors duration-300 ${f.membershipStatus ? dotCls(s4Fill) : 'bg-slate-300'}`} />
@@ -4278,7 +4395,7 @@ export default function DepartmentHub() {
                           {/* Permanent address */}
                           <div className="space-y-0.5">
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Permanent Address</p>
-                            <textarea rows={2} placeholder="Full permanent address for membership records…" value={f.permanentAddress || ''} onChange={e => setF(p => ({ ...p, permanentAddress: e.target.value }))} className={`${inp} resize-none`} />
+                            <textarea rows={2} placeholder="Full permanent address for membership recordsâ€¦" value={f.permanentAddress || ''} onChange={e => setF(p => ({ ...p, permanentAddress: e.target.value }))} className={`${inp} resize-none`} />
                           </div>
 
                           {/* Documents submitted */}
@@ -4289,7 +4406,7 @@ export default function DepartmentHub() {
                                 {membershipDocs.map(d => (
                                   <div key={d.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
                                     <select value={d.type} onChange={e => updateDocRow(d.id, 'type', e.target.value)} className={`${inp} text-xs`}>
-                                      <option value="">Document type…</option>
+                                      <option value="">Document typeâ€¦</option>
                                       <option>Aadhaar Card</option>
                                       <option>Passport</option>
                                       <option>Driving License</option>
@@ -4298,7 +4415,7 @@ export default function DepartmentHub() {
                                       <option>Other</option>
                                     </select>
                                     <input type="text" placeholder="Document number" value={d.number} onChange={e => updateDocRow(d.id, 'number', e.target.value)} className={`${inp} text-xs`} />
-                                    <button type="button" onClick={() => removeDocRow(d.id)} className="w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors">×</button>
+                                    <button type="button" onClick={() => removeDocRow(d.id)} className="w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors">Ã—</button>
                                   </div>
                                 ))}
                               </div>
@@ -4314,7 +4431,7 @@ export default function DepartmentHub() {
                       )}
                     </div>
 
-                    {/* ═══ Actions ═══ */}
+                    {/* â•â•â• Actions â•â•â• */}
                     <div className="px-4 py-3 flex items-center gap-2">
                       {pcsFormDirty && <button
                         type="button"
@@ -4355,7 +4472,7 @@ export default function DepartmentHub() {
                           setPcsExpandedSaving(false)
                         }}
                         className="flex-1 min-h-[44px] py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-60 transition-colors"
-                      >{pcsExpandedSaving ? 'Saving…' : 'Save Changes'}</button>}
+                      >{pcsExpandedSaving ? 'Savingâ€¦' : 'Save Changes'}</button>}
                     </div>
 
                   </div>
@@ -4384,7 +4501,7 @@ export default function DepartmentHub() {
               ctx.fillText('RIVER OF LIFE CHURCH', 20, 18)
               ctx.fillStyle = '#ffffff'
               ctx.font = 'bold 11px Arial'
-              ctx.fillText('PERSONAL CARING SYSTEM — PROFILE', 20, 32)
+              ctx.fillText('PERSONAL CARING SYSTEM â€” PROFILE', 20, 32)
 
               // Avatar circle
               ctx.fillStyle = data.membershipNumber ? '#f59e0b' : '#818cf8'
@@ -4398,12 +4515,12 @@ export default function DepartmentHub() {
               // Name
               ctx.fillStyle = '#ffffff'
               ctx.font = 'bold 20px Arial'
-              ctx.fillText(data.name || '—', 82, 57)
+              ctx.fillText(data.name || 'â€”', 82, 57)
 
               // Sub line
               ctx.fillStyle = '#a5b4fc'
               ctx.font = '12px Arial'
-              const sub = [data.membershipNumber ? `Membership #${data.membershipNumber}` : '', data.leadershipPosition || '', data.year ? String(data.year) : ''].filter(Boolean).join('  ·  ')
+              const sub = [data.membershipNumber ? `Membership #${data.membershipNumber}` : '', data.leadershipPosition || '', data.year ? String(data.year) : ''].filter(Boolean).join('  Â·  ')
               ctx.fillText(sub || 'No membership number', 82, 76)
 
               let y = 108
@@ -4427,7 +4544,7 @@ export default function DepartmentHub() {
                   ctx.font = 'bold 11px Arial'
                   let text = String(value)
                   while (ctx.measureText(text).width > COL_W - 14 && text.length > 3) text = text.slice(0, -1)
-                  if (text !== String(value)) text += '…'
+                  if (text !== String(value)) text += 'â€¦'
                   ctx.fillText(text, x, y + 24)
                   col++
                   if (col >= 3) { col = 0; y += 40 }
@@ -4452,7 +4569,7 @@ export default function DepartmentHub() {
               ctx.beginPath(); ctx.moveTo(0, H - 30); ctx.lineTo(W, H - 30); ctx.stroke()
               ctx.fillStyle = '#94a3b8'
               ctx.font = '10px Arial'
-              ctx.fillText(`Generated on ${new Date().toLocaleDateString('en-IN')}  ·  River Of Life Church`, 20, H - 10)
+              ctx.fillText(`Generated on ${new Date().toLocaleDateString('en-IN')}  Â·  River Of Life Church`, 20, H - 10)
 
               canvas.toBlob(blob => {
                 const url = URL.createObjectURL(blob)
@@ -4543,7 +4660,7 @@ export default function DepartmentHub() {
                   />
                 )}
 
-                {/* ── Cell alerts — stacked on mobile, side-by-side on desktop ── */}
+                {/* â”€â”€ Cell alerts â€” stacked on mobile, side-by-side on desktop â”€â”€ */}
                 {(cellReferralTasks.length > 0 || removedFromCellInPCS.length > 0) && (
                   <div className="space-y-3 sm:space-y-0 sm:flex sm:gap-3 sm:items-start">
 
@@ -4590,7 +4707,7 @@ export default function DepartmentHub() {
                                     <div className="flex-1 min-w-0">
                                       <p className="font-semibold text-slate-900 text-sm truncate">{name}</p>
                                       <p className="text-xs text-slate-400 mt-0.5 truncate">
-                                        {[phone, cellName ? `Cell: ${cellName}` : ''].filter(Boolean).join(' · ')}
+                                        {[phone, cellName ? `Cell: ${cellName}` : ''].filter(Boolean).join(' Â· ')}
                                       </p>
                                       {!inVisitorList && (
                                         <p className="text-xs text-amber-600 font-medium mt-0.5">Not in visitor list yet</p>
@@ -4613,7 +4730,7 @@ export default function DepartmentHub() {
                                         className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-500 flex items-center justify-center text-base transition-colors disabled:opacity-40"
                                         title="Dismiss"
                                       >
-                                        {removing ? '…' : '×'}
+                                        {removing ? 'â€¦' : 'Ã—'}
                                       </button>
                                       {inVisitorList ? (
                                         <button
@@ -4640,7 +4757,7 @@ export default function DepartmentHub() {
                                           }}
                                           className="px-3 py-1.5 bg-orange-500 text-white text-xs font-semibold rounded-xl hover:bg-orange-600 disabled:opacity-50 transition-colors whitespace-nowrap"
                                         >
-                                          {adding ? 'Adding…' : 'Add to PCS'}
+                                          {adding ? 'Addingâ€¦' : 'Add to PCS'}
                                         </button>
                                       ) : (
                                         <button
@@ -4670,7 +4787,7 @@ export default function DepartmentHub() {
                       </div>
                     )}
 
-                    {/* Removed from Cell — still in PCS */}
+                    {/* Removed from Cell â€” still in PCS */}
                     {removedFromCellInPCS.length > 0 && (
                       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden sm:flex-1 sm:min-w-0">
                         <button
@@ -4704,7 +4821,7 @@ export default function DepartmentHub() {
                                     <div className="flex-1 min-w-0">
                                       <p className="font-semibold text-slate-900 text-sm truncate">{m.name || pe.name}</p>
                                       <p className="text-xs text-slate-400 mt-0.5 truncate">
-                                        {[m.phone || pe.phone, pe.year ? `PCS ${pe.year}` : '', pe.membershipNumber ? `#${pe.membershipNumber}` : ''].filter(Boolean).join(' · ')}
+                                        {[m.phone || pe.phone, pe.year ? `PCS ${pe.year}` : '', pe.membershipNumber ? `#${pe.membershipNumber}` : ''].filter(Boolean).join(' Â· ')}
                                       </p>
                                       <p className="text-xs text-red-400 font-medium mt-0.5">Inactive in cell</p>
                                     </div>
@@ -4728,7 +4845,7 @@ export default function DepartmentHub() {
                       <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{pcsInactiveEntries.length}</span>
                     </div>
                     {pcsLoadingFormer ? (
-                      <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
+                      <div className="py-10 text-center text-slate-400 text-sm">Loadingâ€¦</div>
                     ) : pcsInactiveEntries.length === 0 ? (
                       <div className="py-10 text-center text-slate-400 text-sm">No former members.</div>
                     ) : (
@@ -4754,10 +4871,10 @@ export default function DepartmentHub() {
                   </div>
                 )}
 
-                {/* Main card — all years on one page */}
+                {/* Main card â€” all years on one page */}
                 {!pcsShowFormer && <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   {loadingPCS ? (
-                    <div className="py-14 text-center text-slate-400 text-sm">Loading…</div>
+                    <div className="py-14 text-center text-slate-400 text-sm">Loadingâ€¦</div>
                   ) : pcsEntries.length === 0 ? (
                     <div className="py-16 flex flex-col items-center gap-3 text-center">
                       <svg width="38" height="38" viewBox="0 0 36 36" fill="none" className="text-slate-200">
@@ -4773,12 +4890,12 @@ export default function DepartmentHub() {
                           <div key={year ?? 'no-year'}>
                             {/* Year label */}
                             <div className="px-4 py-2 flex items-center gap-2 bg-slate-50">
-                              <span className="text-sm font-bold text-slate-700">{year ?? '—'}</span>
+                              <span className="text-sm font-bold text-slate-700">{year ?? 'â€”'}</span>
                               <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
                                 {entries.length} {entries.length === 1 ? 'person' : 'people'}
                               </span>
                             </div>
-                            {/* Chips — profile panel injected inline right after the clicked chip */}
+                            {/* Chips â€” profile panel injected inline right after the clicked chip */}
                             <div className="px-4 py-3 flex flex-wrap gap-2">
                               {entries.map(entry => (
                                 <Fragment key={entry.id}>
@@ -4804,7 +4921,7 @@ export default function DepartmentHub() {
                   {/* Footer */}
                   {!loadingPCS && pcsEntries.length > 0 && (
                     <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 text-center">
-                      {pcsEntries.length} {pcsEntries.length === 1 ? 'person' : 'people'} · {grouped.length} {grouped.length === 1 ? 'year' : 'years'}
+                      {pcsEntries.length} {pcsEntries.length === 1 ? 'person' : 'people'} Â· {grouped.length} {grouped.length === 1 ? 'year' : 'years'}
                     </div>
                   )}
                 </div>}
@@ -4812,7 +4929,7 @@ export default function DepartmentHub() {
             )
           })()}
 
-          {(activeTab === 'team' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'team')) && (
+          {(activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team')) && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-6">
               <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-slate-800">Team</h2>
@@ -4951,7 +5068,7 @@ export default function DepartmentHub() {
                                     setTeam((prev) => prev.filter((x) => x.id !== m.id))
                                   }}
                                   className="text-[9px] font-medium text-red-300 hover:text-red-500 transition-colors"
-                                >✕</button>
+                                >âœ•</button>
                               </>
                             )}
                           </div>
@@ -4988,13 +5105,13 @@ export default function DepartmentHub() {
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-slate-800">{m.name}</span>
                               {m.visitorId
-                                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">ðŸ”— Linked</span>
                                 : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
                               }
                             </div>
                           </td>
                           <td className="px-4 py-2 text-slate-600 capitalize">{m.status || 'active'}</td>
-                          <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
+                          <td className="px-4 py-2 text-slate-600">{m.memberSince || 'â€”'}</td>
                           {canEdit && (
                             <td className="px-4 py-2 text-sm space-x-2 whitespace-nowrap">
                               <button
@@ -5126,7 +5243,7 @@ export default function DepartmentHub() {
                             type="button"
                             onClick={() => { setMemberForm((f) => ({ ...f, name: '', visitorId: '' })); setTeamMemberSearch('') }}
                             className="w-7 h-7 rounded-full bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 flex items-center justify-center text-base leading-none transition-colors shadow-sm"
-                          >×</button>
+                          >Ã—</button>
                         </div>
                       ) : (
                         <div className="relative">
@@ -5137,7 +5254,7 @@ export default function DepartmentHub() {
                           </div>
                           <input
                             type="text"
-                            placeholder={teamVisitorsLoading ? 'Loading members…' : 'Search member by name…'}
+                            placeholder={teamVisitorsLoading ? 'Loading membersâ€¦' : 'Search member by nameâ€¦'}
                             value={teamMemberSearch}
                             autoComplete="off"
                             disabled={teamVisitorsLoading}
@@ -5187,7 +5304,7 @@ export default function DepartmentHub() {
                           Sub Department
                         </label>
                         {subDeptOptionList.length === 0 ? (
-                          <p className="text-xs text-slate-400 italic">No sub-departments yet — add them in Sub Dept tab.</p>
+                          <p className="text-xs text-slate-400 italic">No sub-departments yet â€” add them in Sub Dept tab.</p>
                         ) : (
                           <div className="flex flex-wrap gap-2">
                             {subDeptOptionList.map((sd) => {
@@ -5208,9 +5325,9 @@ export default function DepartmentHub() {
                                     : { background: '#f8fafc', color: '#64748b', borderColor: '#e2e8f0' }
                                   }
                                 >
-                                  {selected && <span style={{ fontSize: 10 }}>✓</span>}
+                                  {selected && <span style={{ fontSize: 10 }}>âœ“</span>}
                                   {sd.name}
-                                  {sd.servingArea && <span style={{ opacity: 0.7, fontWeight: 400 }}>· {sd.servingArea}</span>}
+                                  {sd.servingArea && <span style={{ opacity: 0.7, fontWeight: 400 }}>Â· {sd.servingArea}</span>}
                                 </button>
                               )
                             })}
@@ -5337,7 +5454,7 @@ export default function DepartmentHub() {
                 </form>
               )}
               {rkLoading ? (
-                <p className="text-slate-500">Loading…</p>
+                <p className="text-slate-500">Loadingâ€¦</p>
               ) : rkChildren.length === 0 ? (
                 <p className="text-sm text-slate-500">No children yet. Add names above (directors / heads only).</p>
               ) : (
@@ -5457,7 +5574,7 @@ export default function DepartmentHub() {
                 </div>
               )}
               {eventsLoading ? (
-                <p className="text-slate-500 px-2">Loading…</p>
+                <p className="text-slate-500 px-2">Loadingâ€¦</p>
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="bg-white rounded-xl border border-slate-200 p-4 max-h-[70vh] overflow-y-auto">
@@ -5563,8 +5680,8 @@ export default function DepartmentHub() {
                                 />
                               </div>
                               <p className="text-xs text-slate-600 flex-1 min-w-[220px]">
-                                Planned start/end for each program row are calculated from this single time + each item’s duration in Program No order.
-                                Add Program only asks for duration — not a separate start time per row.
+                                Planned start/end for each program row are calculated from this single time + each itemâ€™s duration in Program No order.
+                                Add Program only asks for duration â€” not a separate start time per row.
                               </p>
                             </div>
 
@@ -5593,22 +5710,22 @@ export default function DepartmentHub() {
                                       const anchor = eventForm.programScheduleStartTime
                                       return sorted.map((p, index) => (
                                         <tr key={p.id || `${p.programNo}-${p.programName}`} className="hover:bg-slate-50">
-                                          <td className="px-4 py-2 text-slate-800">{p.programNo ?? '—'}</td>
-                                          <td className="px-4 py-2 text-slate-800 font-medium">{p.programName || '—'}</td>
-                                          <td className="px-4 py-2 text-slate-600">{p.programBy || '—'}</td>
-                                          <td className="px-4 py-2 text-slate-600">{p.duration ?? '—'}</td>
+                                          <td className="px-4 py-2 text-slate-800">{p.programNo ?? 'â€”'}</td>
+                                          <td className="px-4 py-2 text-slate-800 font-medium">{p.programName || 'â€”'}</td>
+                                          <td className="px-4 py-2 text-slate-600">{p.programBy || 'â€”'}</td>
+                                          <td className="px-4 py-2 text-slate-600">{p.duration ?? 'â€”'}</td>
                                           <td className="px-4 py-2 text-slate-600">
-                                            {plannedSegmentStartHHmm(sorted, anchor, index) || '—'}
+                                            {plannedSegmentStartHHmm(sorted, anchor, index) || 'â€”'}
                                           </td>
                                           <td className="px-4 py-2 text-slate-600">
-                                            {plannedSegmentEndHHmm(sorted, anchor, index) || '—'}
+                                            {plannedSegmentEndHHmm(sorted, anchor, index) || 'â€”'}
                                           </td>
                                           <td className="px-4 py-2 text-slate-700">
                                             <div className="flex flex-col">
                                               <span className="text-xs text-slate-500">Duration</span>
-                                              <span className="font-medium">{p.realtime?.durationMinutes ?? '—'}</span>
+                                              <span className="font-medium">{p.realtime?.durationMinutes ?? 'â€”'}</span>
                                               <span className="mt-1 text-xs text-slate-500">Time</span>
-                                              <span className="font-medium">{p.realtime?.time || '—'}</span>
+                                              <span className="font-medium">{p.realtime?.time || 'â€”'}</span>
                                             </div>
                                           </td>
                                           <td className="px-4 py-2">
@@ -5740,7 +5857,7 @@ export default function DepartmentHub() {
                                       />
                                     </div>
                                     <p className="text-xs text-slate-500">
-                                      Set the event <strong>Schedule starts at</strong> once above the table. Planned start/end columns update automatically from that time + each program’s duration in order.
+                                      Set the event <strong>Schedule starts at</strong> once above the table. Planned start/end columns update automatically from that time + each programâ€™s duration in order.
                                     </p>
 
                                     <div className="flex gap-2 pt-2">
@@ -5836,7 +5953,7 @@ export default function DepartmentHub() {
                       disabled={eventsLoading || deptEvents.length === 0}
                     >
                       <option value="" disabled>
-                        Choose…
+                        Chooseâ€¦
                       </option>
                       {deptEvents.map((ev) => (
                         <option key={ev.id} value={ev.id}>
@@ -5872,7 +5989,7 @@ export default function DepartmentHub() {
                       <div className="space-y-4">
                         <h3 className="font-semibold text-slate-800">Timer</h3>
                         {eventForm.programs.length === 0 ? (
-                          <p className="text-sm text-slate-500">No programs found for this event. Add programs in New Event → Program.</p>
+                          <p className="text-sm text-slate-500">No programs found for this event. Add programs in New Event â†’ Program.</p>
                         ) : (
                           <div className="space-y-6">
                             {(() => {
@@ -5932,7 +6049,7 @@ export default function DepartmentHub() {
                                 <>
                                   <p className="text-sm text-slate-500">
                                     Tap the large START button when each program begins. The button always shows the{' '}
-                                    <strong>next</strong> program to time — same as Cell Sunday flow.
+                                    <strong>next</strong> program to time â€” same as Cell Sunday flow.
                                   </p>
 
                                   {/* Program confirmation sheet */}
@@ -6003,18 +6120,18 @@ export default function DepartmentHub() {
                                       </thead>
                                       <tbody className="divide-y divide-slate-100">
                                         {programsSorted.map((p, index) => {
-                                          const time = p.realtime?.time || '—'
-                                          const dur = p.realtime?.durationMinutes ?? '—'
+                                          const time = p.realtime?.time || 'â€”'
+                                          const dur = p.realtime?.durationMinutes ?? 'â€”'
                                           return (
                                             <tr key={p.id || `${p.programNo}-${p.programName}`}>
-                                              <td className="px-4 py-2 text-slate-800">{p.programNo ?? '—'}</td>
-                                              <td className="px-4 py-2 text-slate-800 font-medium">{p.programName || '—'}</td>
-                                              <td className="px-4 py-2 text-slate-600">{p.programBy || '—'}</td>
+                                              <td className="px-4 py-2 text-slate-800">{p.programNo ?? 'â€”'}</td>
+                                              <td className="px-4 py-2 text-slate-800 font-medium">{p.programName || 'â€”'}</td>
+                                              <td className="px-4 py-2 text-slate-600">{p.programBy || 'â€”'}</td>
                                               <td className="px-4 py-2 text-slate-600">
-                                                {plannedSegmentStartHHmm(programsSorted, anchor, index) || '—'}
+                                                {plannedSegmentStartHHmm(programsSorted, anchor, index) || 'â€”'}
                                               </td>
                                               <td className="px-4 py-2 text-slate-600">
-                                                {plannedSegmentEndHHmm(programsSorted, anchor, index) || '—'}
+                                                {plannedSegmentEndHHmm(programsSorted, anchor, index) || 'â€”'}
                                               </td>
                                               <td className="px-4 py-2 text-slate-700">
                                                 <div className="flex flex-col">
@@ -6049,7 +6166,7 @@ export default function DepartmentHub() {
                         )}
 
                         {liveCellGroupsLoading ? (
-                          <p className="text-sm text-slate-500">Loading cell groups…</p>
+                          <p className="text-sm text-slate-500">Loading cell groupsâ€¦</p>
                         ) : (
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                             {liveCellGroups.map((g) => {
@@ -6071,7 +6188,7 @@ export default function DepartmentHub() {
                                   {expanded && (
                                     <div className="p-3 bg-white max-h-64 overflow-y-auto">
                                       {liveMembersLoading ? (
-                                        <p className="text-xs text-slate-500">Loading members…</p>
+                                        <p className="text-xs text-slate-500">Loading membersâ€¦</p>
                                       ) : liveMembersForCell.length === 0 ? (
                                         <p className="text-xs text-slate-500">No active members.</p>
                                       ) : (
@@ -6179,7 +6296,7 @@ export default function DepartmentHub() {
                                                             : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
                                                         } ${!canEdit ? 'opacity-70 cursor-default' : ''}`}
                                                       >
-                                                        {nm || '—'}
+                                                        {nm || 'â€”'}
                                                       </button>
                                                     )
                                                   })}
@@ -6246,285 +6363,11 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {(activeTab === 'financial' || ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'financial')) && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <h2 className="font-semibold text-slate-800 p-5 pb-0">Budget & Spending</h2>
-              <p className="text-sm text-slate-500 px-5 pt-1">Budget items for this department (₹).</p>
-              {slug === 'event-m' && (
-                <div className="px-5 pt-4">
-                  <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                      <h3 className="font-semibold text-slate-800">Spending</h3>
-                      {canEdit && <span className="text-xs text-slate-500">Record spending per event.</span>}
-                    </div>
-
-                    {canEdit && (
-                      <form
-                        onSubmit={async (e) => {
-                          e.preventDefault()
-                          if (!spendingEventId) return
-                          const eventName = deptEvents.find((x) => x.id === spendingEventId)?.name || ''
-                          const amountNum = Number(spendingAmount) || 0
-                          const desc = String(spendingDescription || '').trim()
-                          const items = String(spendingItemsPurchased || '').trim()
-                          try {
-                            await addEventSpendingItem(
-                              {
-                                department: department?.name,
-                                eventId: spendingEventId,
-                                eventName,
-                                amount: amountNum,
-                                description: desc,
-                                itemsPurchased: items,
-                              },
-                              userProfile?.email || userProfile?.displayName || 'unknown'
-                            )
-                            const list = await getEventSpendingItemsByDepartment(department?.name)
-                            setEventSpendingItems(list)
-                            setSpendingAmount('')
-                            setSpendingItemsPurchased('')
-                            setSpendingDescription('')
-                          } catch {
-                            alert('Failed to save spending')
-                          }
-                        }}
-                        className="grid grid-cols-1 sm:grid-cols-2 gap-3"
-                      >
-                        <div className="sm:col-span-2">
-                          <label className="block text-xs text-slate-600 mb-1">Event</label>
-                          <select
-                            value={spendingEventId}
-                            onChange={(e) => setSpendingEventId(e.target.value)}
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-                          >
-                            {deptEvents.length === 0 ? (
-                              <option value="">No events — create one in New Event first</option>
-                            ) : (
-                              deptEvents.map((ev) => (
-                                <option key={ev.id} value={ev.id}>
-                                  {ev.name || 'Untitled'}
-                                </option>
-                              ))
-                            )}
-                          </select>
-                          <p className="text-[11px] text-slate-500 mt-1">The event name saved on each row is taken from this list (e.g. Anniversary).</p>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <label className="block text-xs text-slate-600 mb-1">Items purchased</label>
-                          <input
-                            type="text"
-                            value={spendingItemsPurchased}
-                            onChange={(e) => setSpendingItemsPurchased(e.target.value)}
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-                            placeholder="What was bought (e.g. decorations, sound, gifts…)"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-slate-600 mb-1">Amount (₹)</label>
-                          <input
-                            type="number"
-                            value={spendingAmount}
-                            onChange={(e) => setSpendingAmount(e.target.value)}
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-                            placeholder="Amount"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-slate-600 mb-1">Notes (optional)</label>
-                          <input
-                            type="text"
-                            value={spendingDescription}
-                            onChange={(e) => setSpendingDescription(e.target.value)}
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-                            placeholder="Receipt / vendor / extra notes"
-                          />
-                        </div>
-                        <div className="sm:col-span-2 flex justify-end">
-                          <button
-                            type="submit"
-                            disabled={deptEvents.length === 0}
-                            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
-                          >
-                            + Add spending
-                          </button>
-                        </div>
-                      </form>
-                    )}
-
-                    <div className="mt-4">
-                      {loadingEventSpending ? (
-                        <p className="text-sm text-slate-500">Loading spending…</p>
-                      ) : eventSpendingItems.length === 0 ? (
-                        <p className="text-sm text-slate-500">No spending recorded yet.</p>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full text-sm border border-slate-200 rounded-lg">
-                            <thead className="bg-slate-50">
-                              <tr>
-                                <th className="text-left px-4 py-2 font-medium text-slate-600">Event</th>
-                                <th className="text-left px-4 py-2 font-medium text-slate-600">Items purchased</th>
-                                <th className="text-left px-4 py-2 font-medium text-slate-600">Amount (₹)</th>
-                                <th className="text-left px-4 py-2 font-medium text-slate-600">Notes</th>
-                                {canEdit && (
-                                  <th className="text-left px-4 py-2 font-medium text-slate-600 w-24">Actions</th>
-                                )}
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                              {eventSpendingItems.map((row) => (
-                                <tr key={row.id} className="hover:bg-slate-50">
-                                  <td className="px-4 py-2 text-slate-800 font-medium">{row.eventName || '—'}</td>
-                                  <td className="px-4 py-2 text-slate-600 max-w-[220px]">{row.itemsPurchased || '—'}</td>
-                                  <td className="px-4 py-2 text-slate-600">{Number(row.amount || 0).toLocaleString()}</td>
-                                  <td className="px-4 py-2 text-slate-600 max-w-[220px]">{row.description || '—'}</td>
-                                  {canEdit && (
-                                    <td className="px-4 py-2">
-                                      <button
-                                        type="button"
-                                        onClick={async () => {
-                                          if (!window.confirm('Delete this spending record?')) return
-                                          try {
-                                            await deleteEventSpendingItem(row.id)
-                                            setEventSpendingItems((prev) => prev.filter((x) => x.id !== row.id))
-                                          } catch {
-                                            alert('Failed to delete')
-                                          }
-                                        }}
-                                        className="text-red-600 hover:underline text-sm"
-                                      >
-                                        Delete
-                                      </button>
-                                    </td>
-                                  )}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {canEdit && (
-                <div className="px-5 py-3 border-b border-slate-200 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingBudgetId(null)
-                      setBudgetForm({
-                        category: '',
-                        subCategory: '',
-                        description: '',
-                        quantity: '',
-                        unitCost: '',
-                        priority: 'Medium',
-                        type: 'Recurring',
-                        justification: '',
-                        expectedDate: format(new Date(), 'yyyy-MM-dd'),
-                      })
-                      setBudgetModalOpen(true)
-                    }}
-                    className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
-                  >
-                    + Add row
-                  </button>
-                </div>
-              )}
-              {loadingBudget ? (
-                <div className="px-5 py-8 text-center text-slate-500 text-sm">Loading budget…</div>
-              ) : budgetItems.length === 0 ? (
-                <div className="px-5 py-8 text-center text-slate-500 text-sm">No budget items. Add a row to get started.</div>
-              ) : (
-                <>
-                  {/* Mobile cards */}
-                  <div className="sm:hidden divide-y divide-slate-100">
-                    {budgetItems.map((row) => {
-                      const totalCost = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0)
-                      return (
-                        <div key={row.id} className="p-4 space-y-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="font-semibold text-slate-800 text-sm">{row.category || '—'}</p>
-                              {row.subCategory && <p className="text-xs text-slate-500">{row.subCategory}</p>}
-                            </div>
-                            <p className="font-bold text-slate-800 text-sm shrink-0">₹ {totalCost.toLocaleString()}</p>
-                          </div>
-                          {row.description && <p className="text-sm text-slate-600">{row.description}</p>}
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                            {row.quantity && <span>Qty: {row.quantity}</span>}
-                            {row.unitCost != null && row.unitCost !== '' && <span>Unit: ₹ {Number(row.unitCost).toLocaleString()}</span>}
-                            {row.expectedDate && <span>By: {formatDMY(row.expectedDate)}</span>}
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {row.priority && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{row.priority}</span>}
-                            {row.type && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-600">{row.type}</span>}
-                          </div>
-                          {row.justification && <p className="text-xs text-slate-400 italic">{row.justification}</p>}
-                          {canEdit && (
-                            <div className="flex gap-3 pt-1">
-                              <button type="button" onClick={() => { setEditingBudgetId(row.id); setBudgetForm({ category: row.category || '', subCategory: row.subCategory || '', description: row.description || '', quantity: row.quantity ?? '', unitCost: row.unitCost ?? '', priority: row.priority || 'Medium', type: row.type || 'Recurring', justification: row.justification || '', expectedDate: row.expectedDate ? (typeof row.expectedDate === 'string' ? row.expectedDate : format(new Date(row.expectedDate), 'yyyy-MM-dd')) : format(new Date(), 'yyyy-MM-dd') }); setBudgetModalOpen(true) }} className="text-sm text-blue-600 font-medium hover:underline">Edit</button>
-                              <button type="button" onClick={async () => { if (!window.confirm('Delete this budget row?')) return; await deleteFinanceBudgetItem(row.id); setBudgetItems((prev) => prev.filter((r) => r.id !== row.id)) }} className="text-sm text-red-500 hover:underline">Delete</button>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                  {/* Desktop table */}
-                  <div className="hidden sm:block overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Category</th>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Sub-Category</th>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Description</th>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Quantity</th>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Unit Cost (₹)</th>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Total Cost (₹)</th>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Priority</th>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Type</th>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Justification</th>
-                          <th className="text-left px-4 py-2 font-medium text-slate-600">Expected Date</th>
-                          {canEdit && <th className="text-left px-4 py-2 font-medium text-slate-600">Actions</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {budgetItems.map((row) => {
-                          const totalCost = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0)
-                          return (
-                            <tr key={row.id} className="hover:bg-slate-50">
-                              <td className="px-4 py-2 text-slate-800">{row.category || '—'}</td>
-                              <td className="px-4 py-2 text-slate-600">{row.subCategory || '—'}</td>
-                              <td className="px-4 py-2 text-slate-600">{row.description || '—'}</td>
-                              <td className="px-4 py-2 text-slate-600">{row.quantity ?? '—'}</td>
-                              <td className="px-4 py-2 text-slate-600">{row.unitCost != null && row.unitCost !== '' ? `₹ ${Number(row.unitCost).toLocaleString()}` : '—'}</td>
-                              <td className="px-4 py-2 font-medium text-slate-800">₹ {totalCost.toLocaleString()}</td>
-                              <td className="px-4 py-2 text-slate-600">{row.priority || '—'}</td>
-                              <td className="px-4 py-2 text-slate-600">{row.type || '—'}</td>
-                              <td className="px-4 py-2 text-slate-600 max-w-[180px] truncate" title={row.justification || ''}>{row.justification || '—'}</td>
-                              <td className="px-4 py-2 text-slate-600">{row.expectedDate ? formatDMY(row.expectedDate) : '—'}</td>
-                              {canEdit && (
-                                <td className="px-4 py-2 space-x-2">
-                                  <button type="button" onClick={() => { setEditingBudgetId(row.id); setBudgetForm({ category: row.category || '', subCategory: row.subCategory || '', description: row.description || '', quantity: row.quantity ?? '', unitCost: row.unitCost ?? '', priority: row.priority || 'Medium', type: row.type || 'Recurring', justification: row.justification || '', expectedDate: row.expectedDate ? (typeof row.expectedDate === 'string' ? row.expectedDate : format(new Date(row.expectedDate), 'yyyy-MM-dd')) : format(new Date(), 'yyyy-MM-dd') }); setBudgetModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
-                                  <button type="button" onClick={async () => { if (!window.confirm('Delete this budget row?')) return; await deleteFinanceBudgetItem(row.id); setBudgetItems((prev) => prev.filter((r) => r.id !== row.id)) }} className="text-red-600 hover:underline">Delete</button>
-                                </td>
-                              )}
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
 
           {activeTab === 'cellGroups' && slug === 'cell' && (
             <div className="space-y-6">
 
-              {/* Profile Fill Requests — visible to Cell Leaders (non-Directors) */}
+              {/* Profile Fill Requests â€” visible to Cell Leaders (non-Directors) */}
               {!canViewAllCells && pendingFillInvitations.length > 0 && (
                 <div className="bg-white rounded-xl border border-violet-200 shadow-sm overflow-hidden">
                   <div className="px-4 py-3 bg-violet-50 border-b border-violet-100 flex items-center gap-2">
@@ -6572,7 +6415,7 @@ export default function DepartmentHub() {
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                   <h2 className="font-semibold text-slate-800 mb-3">Pending Actions</h2>
                   {loadingCellPending ? (
-                    <p className="text-sm text-slate-500">Loading…</p>
+                    <p className="text-sm text-slate-500">Loadingâ€¦</p>
                   ) : cellPendingChanges.length === 0 ? (
                     <p className="text-sm text-slate-500">No pending member changes.</p>
                   ) : (
@@ -6594,12 +6437,12 @@ export default function DepartmentHub() {
                           {cellPendingChanges.map((p, idx) => (
                             <tr key={p.id}>
                               <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
-                              <td className="px-3 py-2 text-slate-800">{p.cellName || '—'}</td>
-                              <td className="px-3 py-2 text-slate-800">{p.memberData?.name ?? (p.changeType === 'delete' ? '(delete)' : '—')}</td>
-                              <td className="px-3 py-2 text-slate-600 capitalize">{p.changeType || '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{p.changeType === 'edit' ? (p.changeSummary || '—') : '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{p.requestedBy || '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{p.requestedAt ? formatDMYTime(p.requestedAt) : '—'}</td>
+                              <td className="px-3 py-2 text-slate-800">{p.cellName || 'â€”'}</td>
+                              <td className="px-3 py-2 text-slate-800">{p.memberData?.name ?? (p.changeType === 'delete' ? '(delete)' : 'â€”')}</td>
+                              <td className="px-3 py-2 text-slate-600 capitalize">{p.changeType || 'â€”'}</td>
+                              <td className="px-3 py-2 text-slate-600">{p.changeType === 'edit' ? (p.changeSummary || 'â€”') : 'â€”'}</td>
+                              <td className="px-3 py-2 text-slate-600">{p.requestedBy || 'â€”'}</td>
+                              <td className="px-3 py-2 text-slate-600">{p.requestedAt ? formatDMYTime(p.requestedAt) : 'â€”'}</td>
                               <td className="px-3 py-2 space-x-2">
                                 <button
                                   type="button"
@@ -6660,18 +6503,18 @@ export default function DepartmentHub() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                   <p className="text-sm text-slate-500 uppercase tracking-wide">Total Cells</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">{loadingCellGroups ? '—' : cellGroups.length}</p>
+                  <p className="text-2xl font-bold text-slate-800 mt-1">{loadingCellGroups ? 'â€”' : cellGroups.length}</p>
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                   <p className="text-sm text-slate-500 uppercase tracking-wide">Total Cell Members</p>
                   <p className="text-2xl font-bold text-slate-800 mt-1">
-                    {loadingCellGroups ? '—' : cellGroups.reduce((s, c) => s + (c.memberCount || 0), 0)}
+                    {loadingCellGroups ? 'â€”' : cellGroups.reduce((s, c) => s + (c.memberCount || 0), 0)}
                   </p>
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                   <p className="text-sm text-slate-500 uppercase tracking-wide">Latest Total Attendance</p>
                   <p className="text-2xl font-bold text-slate-800 mt-1">
-                    {latestCellAttendance != null ? latestCellAttendance.totalAttendance : '—'}
+                    {latestCellAttendance != null ? latestCellAttendance.totalAttendance : 'â€”'}
                   </p>
                   {latestCellAttendance?.date && (
                     <p className="text-xs text-slate-500 mt-0.5">{formatDMY(latestCellAttendance.date)}</p>
@@ -6702,7 +6545,7 @@ export default function DepartmentHub() {
                   )}
                 </div>
                 {loadingCellGroups ? (
-                  <div className="py-8 text-center text-slate-500">Loading cell groups…</div>
+                  <div className="py-8 text-center text-slate-500">Loading cell groupsâ€¦</div>
                 ) : cellGroups.length === 0 ? (
                   <div className="py-8 text-center text-slate-500">No cell groups yet.</div>
                 ) : (
@@ -6726,8 +6569,8 @@ export default function DepartmentHub() {
                           className="w-full text-left p-5 hover:opacity-95 transition"
                         >
                           <p className="text-xl font-semibold">{cell.cellName || 'Unnamed'}</p>
-                          <p className="text-sm opacity-90 mt-0.5">Leader: {cell.leader || '—'}</p>
-                          <p className="text-sm opacity-90">Day: {cell.meetingDay || '—'}</p>
+                          <p className="text-sm opacity-90 mt-0.5">Leader: {cell.leader || 'â€”'}</p>
+                          <p className="text-sm opacity-90">Day: {cell.meetingDay || 'â€”'}</p>
                           <p className="text-xs opacity-90 mt-1">
                             Cell ID: <span className="font-mono">{cell.id}</span>
                             <button
@@ -6896,7 +6739,7 @@ export default function DepartmentHub() {
                               </div>
                             )}
                             {loadingCellMembers ? (
-                              <p className="text-sm text-slate-500">Loading members…</p>
+                              <p className="text-sm text-slate-500">Loading membersâ€¦</p>
                             ) : (
                               <>
                                 <h4 className="font-medium text-slate-700 mt-2 mb-1">Active Members</h4>
@@ -6925,18 +6768,18 @@ export default function DepartmentHub() {
                                               {isDuplicate && (
                                                 <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="This person is in multiple cell groups" />
                                               )}
-                                              <span className={isDuplicate ? 'text-red-800 font-semibold' : 'text-slate-800'}>{m.name || '—'}</span>
+                                              <span className={isDuplicate ? 'text-red-800 font-semibold' : 'text-slate-800'}>{m.name || 'â€”'}</span>
                                               {m.visitorId
-                                                ? <span title="Linked to visitor entry" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                                                ? <span title="Linked to visitor entry" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">ðŸ”— Linked</span>
                                                 : <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
                                               }
                                             </div>
                                           </td>
-                                          <td className="px-3 py-2 text-slate-600">{m.birthday ? formatDMY(m.birthday) : '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.anniversary ? formatDMY(m.anniversary) : '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.phone || '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.locality || '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.since ? `${differenceInDays(new Date(), new Date(m.since))} days` : '—'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.birthday ? formatDMY(m.birthday) : 'â€”'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.anniversary ? formatDMY(m.anniversary) : 'â€”'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.phone || 'â€”'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.locality || 'â€”'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.since ? `${differenceInDays(new Date(), new Date(m.since))} days` : 'â€”'}</td>
                                           {canEdit && (
                                             <td className="px-3 py-2 space-x-2 whitespace-nowrap">
                                               <button type="button" onClick={() => {
@@ -6992,18 +6835,18 @@ export default function DepartmentHub() {
                                           <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
                                           <td className="px-3 py-2">
                                             <div className="flex items-center gap-1.5">
-                                              <span className="text-slate-800">{m.name || '—'}</span>
+                                              <span className="text-slate-800">{m.name || 'â€”'}</span>
                                               {m.visitorId
-                                                ? <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                                                ? <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">ðŸ”— Linked</span>
                                                 : <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
                                               }
                                             </div>
                                           </td>
-                                          <td className="px-3 py-2 text-slate-600">{m.birthday ? formatDMY(m.birthday) : '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.anniversary ? formatDMY(m.anniversary) : '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.phone || '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.locality || '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.since ? `${differenceInDays(new Date(), new Date(m.since))} days` : '—'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.birthday ? formatDMY(m.birthday) : 'â€”'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.anniversary ? formatDMY(m.anniversary) : 'â€”'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.phone || 'â€”'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.locality || 'â€”'}</td>
+                                          <td className="px-3 py-2 text-slate-600">{m.since ? `${differenceInDays(new Date(), new Date(m.since))} days` : 'â€”'}</td>
                                           {canEdit && (
                                             <td className="px-3 py-2 space-x-2 whitespace-nowrap">
                                               <button type="button" onClick={() => {
@@ -7064,10 +6907,10 @@ export default function DepartmentHub() {
                             {cellGroups.filter((c) => c.status === 'inactive').map((cell, idx) => (
                               <tr key={cell.id} className="hover:bg-slate-50">
                                 <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
-                                <td className="px-3 py-2 text-slate-800">{cell.cellName || '—'}</td>
-                                <td className="px-3 py-2 text-slate-600">{cell.leader || '—'}</td>
-                                <td className="px-3 py-2 text-slate-600">{cell.meetingDay || '—'}</td>
-                                <td className="px-3 py-2 text-slate-600">{cell.launchDate ? formatDMY(cell.launchDate) : '—'}</td>
+                                <td className="px-3 py-2 text-slate-800">{cell.cellName || 'â€”'}</td>
+                                <td className="px-3 py-2 text-slate-600">{cell.leader || 'â€”'}</td>
+                                <td className="px-3 py-2 text-slate-600">{cell.meetingDay || 'â€”'}</td>
+                                <td className="px-3 py-2 text-slate-600">{cell.launchDate ? formatDMY(cell.launchDate) : 'â€”'}</td>
                                 {canEdit && (
                                   <td className="px-3 py-2 space-x-2">
                                     <button type="button" onClick={() => { setEditingCellGroupId(cell.id); setCellGroupEditForm({ cellId: cell.cellId || cell.id || '', cellName: cell.cellName || '', leader: cell.leader || '', meetingDay: cell.meetingDay || '', launchDate: cell.launchDate ? String(cell.launchDate).slice(0, 10) : '', status: 'inactive' }); setCellGroupEditModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
@@ -7316,7 +7159,7 @@ export default function DepartmentHub() {
                 <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
                   <h3 className="text-base font-semibold text-slate-800">{editingCellMemberId ? 'Edit Member' : 'Add Member'}</h3>
                   <button type="button" onClick={() => { setCellMemberModalOpen(false); setEditingCellMemberId(null) }}
-                    className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">Ã—</button>
                 </div>
 
                 <div className="overflow-y-auto min-h-0 flex-1">
@@ -7373,7 +7216,7 @@ export default function DepartmentHub() {
                     }}
                     className="p-5 space-y-4"
                   >
-                    {/* Visitor picker — only for Add mode */}
+                    {/* Visitor picker â€” only for Add mode */}
                     {!editingCellMemberId && (
                       <div className="rounded-xl border border-indigo-100 bg-indigo-50 overflow-hidden">
                         <div className="px-3 pt-3 pb-2">
@@ -7385,7 +7228,7 @@ export default function DepartmentHub() {
                             </svg>
                             <input
                               type="text"
-                              placeholder="Search visitor name…"
+                              placeholder="Search visitor nameâ€¦"
                               value={cellMemberVisitorSearch}
                               onChange={e => setCellMemberVisitorSearch(e.target.value)}
                               className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400"
@@ -7394,7 +7237,7 @@ export default function DepartmentHub() {
                         </div>
                         <div className="max-h-44 overflow-y-auto border-t border-indigo-100">
                           {cellMemberVisitors.length === 0 ? (
-                            <p className="px-3 py-4 text-xs text-slate-400 text-center">Loading visitors…</p>
+                            <p className="px-3 py-4 text-xs text-slate-400 text-center">Loading visitorsâ€¦</p>
                           ) : (() => {
                             const q = cellMemberVisitorSearch.trim().toLowerCase()
                             const matches = cellMemberVisitors.filter(v =>
@@ -7457,7 +7300,7 @@ export default function DepartmentHub() {
                               {cellMemberForm.name.charAt(0).toUpperCase()}
                             </div>
                             <span className="text-sm font-medium text-slate-800 flex-1">{cellMemberForm.name}</span>
-                            <button type="button" onClick={() => setCellMemberForm(f => ({ ...f, name: '', phone: '', birthday: '', visitorId: '' }))} className="text-slate-400 hover:text-red-500 text-lg leading-none">×</button>
+                            <button type="button" onClick={() => setCellMemberForm(f => ({ ...f, name: '', phone: '', birthday: '', visitorId: '' }))} className="text-slate-400 hover:text-red-500 text-lg leading-none">Ã—</button>
                           </div>
                         ) : (
                           <div className="px-3 py-2.5 rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 text-center">
@@ -7467,13 +7310,13 @@ export default function DepartmentHub() {
                       </div>
                     )}
 
-                    {/* Linked visitor info — shown only when editing a linked member */}
+                    {/* Linked visitor info â€” shown only when editing a linked member */}
                     {editingCellMemberId && cellMemberForm.visitorId && (
                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 overflow-hidden">
                         <div className="px-3 py-2.5 border-b border-emerald-100 flex items-center gap-2">
-                          <span className="text-emerald-600 text-sm">🔗</span>
+                          <span className="text-emerald-600 text-sm">ðŸ”—</span>
                           <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Visitor Entry Details</p>
-                          {!cellMemberLinkedVisitor && <span className="text-xs text-emerald-400 ml-auto">Loading…</span>}
+                          {!cellMemberLinkedVisitor && <span className="text-xs text-emerald-400 ml-auto">Loadingâ€¦</span>}
                         </div>
                         {cellMemberLinkedVisitor && (
                           <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -7529,12 +7372,12 @@ export default function DepartmentHub() {
                       </select>
                     </div>
 
-                    {/* Spiritual Records — only shown when member is linked (has visitorId) */}
+                    {/* Spiritual Records â€” only shown when member is linked (has visitorId) */}
                     {(editingCellMemberId && cellMemberForm.visitorId) && (
                       <div className="rounded-xl border border-violet-200 bg-violet-50 overflow-hidden">
                         <div className="px-3 py-2.5 border-b border-violet-100">
                           <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">Spiritual Records</p>
-                          <p className="text-xs text-violet-400 mt-0.5">Saved to member profile · visible across the app</p>
+                          <p className="text-xs text-violet-400 mt-0.5">Saved to member profile Â· visible across the app</p>
                         </div>
                         <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
@@ -7593,12 +7436,12 @@ export default function DepartmentHub() {
                       {cellImportPreview.map((row, idx) => (
                         <tr key={idx}>
                           <td className="px-2 py-1.5 text-slate-600">{idx + 1}</td>
-                          <td className="px-2 py-1.5 text-slate-800">{row.name || '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.birthday ? formatDMY(row.birthday) : '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.anniversary ? formatDMY(row.anniversary) : '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.phone || '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.locality || '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.since ? formatDMY(row.since) : '—'}</td>
+                          <td className="px-2 py-1.5 text-slate-800">{row.name || 'â€”'}</td>
+                          <td className="px-2 py-1.5 text-slate-600">{row.birthday ? formatDMY(row.birthday) : 'â€”'}</td>
+                          <td className="px-2 py-1.5 text-slate-600">{row.anniversary ? formatDMY(row.anniversary) : 'â€”'}</td>
+                          <td className="px-2 py-1.5 text-slate-600">{row.phone || 'â€”'}</td>
+                          <td className="px-2 py-1.5 text-slate-600">{row.locality || 'â€”'}</td>
+                          <td className="px-2 py-1.5 text-slate-600">{row.since ? formatDMY(row.since) : 'â€”'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -7639,7 +7482,7 @@ export default function DepartmentHub() {
                     }}
                     className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors"
                   >
-                    {cellImportSaving ? 'Importing…' : 'Confirm Import'}
+                    {cellImportSaving ? 'Importingâ€¦' : 'Confirm Import'}
                   </button>
                 </div>
               </div>
@@ -7697,11 +7540,11 @@ export default function DepartmentHub() {
                       <input type="number" min="0" step="1" value={budgetForm.quantity} onChange={(e) => setBudgetForm((f) => ({ ...f, quantity: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" required />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Unit Cost (₹) *</label>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Unit Cost (â‚¹) *</label>
                       <input type="number" min="0" step="0.01" value={budgetForm.unitCost} onChange={(e) => setBudgetForm((f) => ({ ...f, unitCost: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" required />
                     </div>
                   </div>
-                  <p className="text-xs text-slate-600">Total Cost (₹): ₹ {((Number(budgetForm.quantity) || 0) * (Number(budgetForm.unitCost) || 0)).toLocaleString()}</p>
+                  <p className="text-xs text-slate-600">Total Cost (â‚¹): â‚¹ {((Number(budgetForm.quantity) || 0) * (Number(budgetForm.unitCost) || 0)).toLocaleString()}</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-700 mb-1">Priority</label>
@@ -7854,7 +7697,7 @@ export default function DepartmentHub() {
       )}
       </div>
 
-      {/* ─── Cell Leader Profile Fill Modal ───────────────────────────────── */}
+      {/* â”€â”€â”€ Cell Leader Profile Fill Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {fillInviteOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
           <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
@@ -7864,9 +7707,9 @@ export default function DepartmentHub() {
               <div>
                 <p className="font-bold text-slate-800 text-sm">Fill Profile Details</p>
                 <p className="text-xs text-violet-500 font-medium mt-0.5">{fillInviteOpen.personName}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Requested by Caring Director — fill in what you know</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Requested by Caring Director â€” fill in what you know</p>
               </div>
-              <button type="button" onClick={() => setFillInviteOpen(null)} className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors text-xl flex-shrink-0">×</button>
+              <button type="button" onClick={() => setFillInviteOpen(null)} className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors text-xl flex-shrink-0">Ã—</button>
             </div>
 
             {/* Form */}
@@ -7883,19 +7726,19 @@ export default function DepartmentHub() {
                         <label className={lbl}>Phone</label>
                         {(() => {
                           const CODES = [
-                            { code: '+91',  label: '🇮🇳 +91'  },
-                            { code: '+971', label: '🇦🇪 +971' },
-                            { code: '+1',   label: '🇺🇸 +1'   },
-                            { code: '+44',  label: '🇬🇧 +44'  },
-                            { code: '+61',  label: '🇦🇺 +61'  },
-                            { code: '+65',  label: '🇸🇬 +65'  },
-                            { code: '+60',  label: '🇲🇾 +60'  },
-                            { code: '+966', label: '🇸🇦 +966' },
-                            { code: '+974', label: '🇶🇦 +974' },
-                            { code: '+965', label: '🇰🇼 +965' },
-                            { code: '+973', label: '🇧🇭 +973' },
-                            { code: '+64',  label: '🇳🇿 +64'  },
-                            { code: '+49',  label: '🇩🇪 +49'  },
+                            { code: '+91',  label: 'ðŸ‡®ðŸ‡³ +91'  },
+                            { code: '+971', label: 'ðŸ‡¦ðŸ‡ª +971' },
+                            { code: '+1',   label: 'ðŸ‡ºðŸ‡¸ +1'   },
+                            { code: '+44',  label: 'ðŸ‡¬ðŸ‡§ +44'  },
+                            { code: '+61',  label: 'ðŸ‡¦ðŸ‡º +61'  },
+                            { code: '+65',  label: 'ðŸ‡¸ðŸ‡¬ +65'  },
+                            { code: '+60',  label: 'ðŸ‡²ðŸ‡¾ +60'  },
+                            { code: '+966', label: 'ðŸ‡¸ðŸ‡¦ +966' },
+                            { code: '+974', label: 'ðŸ‡¶ðŸ‡¦ +974' },
+                            { code: '+965', label: 'ðŸ‡°ðŸ‡¼ +965' },
+                            { code: '+973', label: 'ðŸ‡§ðŸ‡­ +973' },
+                            { code: '+64',  label: 'ðŸ‡³ðŸ‡¿ +64'  },
+                            { code: '+49',  label: 'ðŸ‡©ðŸ‡ª +49'  },
                           ]
                           const parsePhone = (val) => {
                             const v = (val || '').trim()
@@ -7943,7 +7786,7 @@ export default function DepartmentHub() {
                     <div>
                       <label className={lbl}>Baptised?</label>
                       <select value={ff.baptised} onChange={e => setFf(p => ({...p, baptised: e.target.value}))} className={inp}>
-                        <option value="">— Select —</option>
+                        <option value="">â€” Select â€”</option>
                         <option value="yes">Yes</option>
                         <option value="no">No</option>
                       </select>
@@ -7969,12 +7812,12 @@ export default function DepartmentHub() {
                             }}
                             className={inp}
                           >
-                            <option value="">— Select —</option>
+                            <option value="">â€” Select â€”</option>
                             <option value="River Of Life Christian Church">River Of Life Christian Church</option>
                             <option value="other">Other</option>
                           </select>
                           {ff.baptismChurchIsOther && (
-                            <input type="text" placeholder="Specify church name…" value={ff.baptismChurch} onChange={e => setFf(p => ({...p, baptismChurch: e.target.value}))} className={`${inp} mt-2`} />
+                            <input type="text" placeholder="Specify church nameâ€¦" value={ff.baptismChurch} onChange={e => setFf(p => ({...p, baptismChurch: e.target.value}))} className={`${inp} mt-2`} />
                           )}
                         </div>
                       </div>
@@ -7983,7 +7826,7 @@ export default function DepartmentHub() {
                     <div>
                       <label className={lbl}>Marital Status</label>
                       <select value={ff.maritalStatus} onChange={e => setFf(p => ({...p, maritalStatus: e.target.value}))} className={inp}>
-                        <option value="">— Select —</option>
+                        <option value="">â€” Select â€”</option>
                         {['Single','Married','Widowed','Divorced'].map(opt => <option key={opt} value={opt}>{opt}</option>)}
                       </select>
                     </div>
@@ -8043,7 +7886,7 @@ export default function DepartmentHub() {
                 }}
                 className="w-full min-h-[44px] py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 active:bg-violet-800 transition-colors disabled:opacity-60"
               >
-                {fillInviteSaving ? 'Submitting…' : 'Submit Profile Details'}
+                {fillInviteSaving ? 'Submittingâ€¦' : 'Submit Profile Details'}
               </button>
               <button type="button" onClick={() => setFillInviteOpen(null)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
             </div>
@@ -8055,7 +7898,7 @@ export default function DepartmentHub() {
   )
 }
 
-// ─── PCS Detail Sheet (legacy — replaced by inline profile panel) ─────────────
+// â”€â”€â”€ PCS Detail Sheet (legacy â€” replaced by inline profile panel) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
   const [visitor, setVisitor] = useState(null)
   const [loadingVisitor, setLoadingVisitor] = useState(true)
@@ -8149,20 +7992,20 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 }}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
               >Remove from PCS</button>
-              <button type="button" onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:bg-white/80 hover:text-slate-600 active:bg-white/60 transition-colors text-xl">×</button>
+              <button type="button" onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:bg-white/80 hover:text-slate-600 active:bg-white/60 transition-colors text-xl">Ã—</button>
             </div>
           </div>
 
           {/* Scrollable body */}
           <div className="overflow-y-auto min-h-0 flex-1 px-5 py-4 space-y-4">
-            {/* Membership number — prominent */}
+            {/* Membership number â€” prominent */}
             <div className={`rounded-xl p-3 border ${hasMember ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
               <label className={`text-xs font-bold uppercase tracking-wide ${hasMember ? 'text-amber-600' : 'text-slate-400'}`}>
-                🏅 Membership Number
+                ðŸ… Membership Number
               </label>
               <input
                 type="text"
-                placeholder="Enter membership number…"
+                placeholder="Enter membership numberâ€¦"
                 value={form.membershipNumber}
                 onChange={e => setForm(f => ({ ...f, membershipNumber: e.target.value }))}
                 className={`mt-1.5 w-full px-3 py-2.5 rounded-lg border text-sm font-semibold focus:outline-none focus:ring-2
@@ -8173,7 +8016,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
             {/* Leadership position */}
             <div className={`rounded-xl p-3 border ${form.leadershipPosition ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
               <label className={`text-xs font-bold uppercase tracking-wide ${form.leadershipPosition ? 'text-emerald-700' : 'text-slate-400'}`}>
-                👑 Leadership Position
+                ðŸ‘‘ Leadership Position
               </label>
               <select
                 value={form.leadershipPosition}
@@ -8181,7 +8024,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 className={`mt-1.5 w-full px-3 py-2.5 rounded-lg border text-sm font-semibold focus:outline-none focus:ring-2
                   ${form.leadershipPosition ? 'border-emerald-300 bg-white text-emerald-800 focus:ring-emerald-200' : 'border-slate-200 bg-white text-slate-600 focus:ring-indigo-200'}`}
               >
-                <option value="">— None —</option>
+                <option value="">â€” None â€”</option>
                 <option value="Senior Pastor">Senior Pastor</option>
                 <option value="Pastor">Pastor</option>
                 <option value="Director">Director</option>
@@ -8196,7 +8039,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
 
             {/* Visitor fields */}
             {loadingVisitor ? (
-              <p className="text-sm text-slate-400 text-center py-4">Loading details…</p>
+              <p className="text-sm text-slate-400 text-center py-4">Loading detailsâ€¦</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {field('Name', 'name')}
@@ -8223,7 +8066,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                     onChange={e => setForm(f => ({ ...f, year: e.target.value ? Number(e.target.value) : '' }))}
                     className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
                   >
-                    <option value="">— Select —</option>
+                    <option value="">â€” Select â€”</option>
                     {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR + 1 }, (_, i) => VISITOR_CURRENT_YEAR - i).map(yr => (
                       <option key={yr} value={yr}>{yr}</option>
                     ))}
@@ -8257,7 +8100,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 setSaving(false)
               }}
               className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
-            >{saving ? 'Saving…' : 'Save Changes'}</button>
+            >{saving ? 'Savingâ€¦' : 'Save Changes'}</button>
           </div>
         </div>
       </div>
@@ -8265,7 +8108,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
   )
 }
 
-// ─── Convenience date picker (day / month / year selects) ────────────────────
+// â”€â”€â”€ Convenience date picker (day / month / year selects) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function DateSelect({ value, onChange, minYear, maxYear }) {
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const parseDate = (val) => {
@@ -8314,7 +8157,7 @@ function DateSelect({ value, onChange, minYear, maxYear }) {
   )
 }
 
-// ─── Cell Member Link Modal ───────────────────────────────────────────────────
+// â”€â”€â”€ Cell Member Link Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
   const [visitors, setVisitors] = useState([])
   const [loading, setLoading] = useState(true)
@@ -8343,10 +8186,10 @@ function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
             <div>
               <p className="font-semibold text-slate-800 text-sm">Link to Visitor Entry</p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Linking <span className="font-medium text-slate-600">{member.name}</span> — pick the matching visitor record
+                Linking <span className="font-medium text-slate-600">{member.name}</span> â€” pick the matching visitor record
               </p>
             </div>
-            <button type="button" onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:bg-slate-200 transition-colors text-xl flex-shrink-0">×</button>
+            <button type="button" onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:bg-slate-200 transition-colors text-xl flex-shrink-0">Ã—</button>
           </div>
 
           {/* Search */}
@@ -8359,7 +8202,7 @@ function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
               <input
                 type="text"
                 autoFocus
-                placeholder="Search visitor name…"
+                placeholder="Search visitor nameâ€¦"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400"
@@ -8370,7 +8213,7 @@ function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
           {/* List */}
           <div className="overflow-y-auto min-h-0 flex-1">
             {loading ? (
-              <div className="py-12 text-center text-slate-400 text-sm">Loading visitors…</div>
+              <div className="py-12 text-center text-slate-400 text-sm">Loading visitorsâ€¦</div>
             ) : filtered.length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-sm">No matches found.</div>
             ) : filtered.map(v => {
@@ -8421,7 +8264,7 @@ function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
   )
 }
 
-// ─── PCS Manual Entry Modal ───────────────────────────────────────────────────
+// â”€â”€â”€ PCS Manual Entry Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PCSManualEntryModal({ onSave, onClose }) {
   const currentYear = new Date().getFullYear()
   const [form, setForm] = useState({
@@ -8467,7 +8310,7 @@ function PCSManualEntryModal({ onSave, onClose }) {
               <p className="text-xs text-slate-400 mt-0.5">Enter details for anyone under personal care</p>
             </div>
             <button type="button" onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 text-xl leading-none">×</button>
+              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 text-xl leading-none">Ã—</button>
           </div>
 
           <div className="overflow-y-auto flex-1 px-4 py-4 space-y-3">
@@ -8512,7 +8355,7 @@ function PCSManualEntryModal({ onSave, onClose }) {
             </button>
             <button type="button" disabled={saving} onClick={handleSubmit}
               className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
-              {saving ? 'Adding…' : 'Add to PCS'}
+              {saving ? 'Addingâ€¦' : 'Add to PCS'}
             </button>
           </div>
         </div>
@@ -8521,7 +8364,7 @@ function PCSManualEntryModal({ onSave, onClose }) {
   )
 }
 
-// ─── PCS Picker Modal ─────────────────────────────────────────────────────────
+// â”€â”€â”€ PCS Picker Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PCSPickerModal({ addedIds, onAdd, onClose }) {
   const [visitors, setVisitors] = useState([])
   const [loading, setLoading] = useState(true)
@@ -8559,14 +8402,14 @@ function PCSPickerModal({ addedIds, onAdd, onClose }) {
               type="button"
               onClick={onClose}
               className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-xl leading-none"
-            >×</button>
+            >Ã—</button>
           </div>
 
           {/* Search */}
           <div className="px-3 pt-3 pb-2 flex-shrink-0">
             <input
               type="text"
-              placeholder="Search by name…"
+              placeholder="Search by nameâ€¦"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400"
@@ -8598,7 +8441,7 @@ function PCSPickerModal({ addedIds, onAdd, onClose }) {
           {/* List */}
           <div className="overflow-y-auto min-h-0 flex-1">
             {loading ? (
-              <div className="px-4 py-12 text-center text-slate-400 text-sm">Loading visitors…</div>
+              <div className="px-4 py-12 text-center text-slate-400 text-sm">Loading visitorsâ€¦</div>
             ) : filtered.length === 0 ? (
               <div className="px-4 py-12 text-center text-slate-400 text-sm">
                 {search || yearFilter !== 'all' ? 'No matches found.' : 'No visitors available.'}

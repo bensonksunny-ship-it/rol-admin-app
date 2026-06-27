@@ -4,7 +4,7 @@ export default function AdministrationOperationsToggle({ value, onChange }) {
     { key: 'subDepartment', label: 'Sub Department' },
     { key: 'team',          label: 'Team'           },
     { key: 'planning',      label: 'Planning'       },
-    { key: 'financial',     label: 'Budget'         },
+    { key: 'budget',     label: 'Budget'         },
   ]
 
   return (

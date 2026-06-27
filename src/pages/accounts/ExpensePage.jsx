@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Navigate } from 'react-router-dom'
 import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
 import { EXPENSE_CATEGORIES } from '../../constants/roles'
 import {
-  getFinanceExpense,
+  listenFinanceExpense,
   createFinanceExpense,
   updateFinanceExpense,
   deleteFinanceExpense,
@@ -19,9 +19,10 @@ const EMPTY_FORM = {
   amount: '',
 }
 
-export default function ExpensePage() {
+export default function ExpensePage({ controlledMonth } = {}) {
   const { userProfile, hasPermission, isFounder } = useAuth()
-  const [activeMonth, setActiveMonth] = useState(startOfMonth(new Date()))
+  const [internalMonth, setInternalMonth] = useState(startOfMonth(new Date()))
+  const activeMonth = controlledMonth || internalMonth
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -38,6 +39,7 @@ export default function ExpensePage() {
   const [loadError, setLoadError] = useState('')
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
+  const isMonthLocked = activeMonth >= new Date(2026, 6, 1)
   const [deptOptions, setDeptOptions] = useState(EXPENSE_CATEGORIES)
 
   useEffect(() => {
@@ -48,29 +50,22 @@ export default function ExpensePage() {
     }).catch(() => {})
   }, [])
 
+  const unsubRef = useRef(null)
+
   useEffect(() => {
     if (!canAccess) return
-    load()
+    if (unsubRef.current) { unsubRef.current(); unsubRef.current = null }
+    setLoading(true)
+    setLoadError('')
+    unsubRef.current = listenFinanceExpense(
+      { year: activeMonth.getFullYear(), month: activeMonth.getMonth() },
+      (data) => { setEntries(data); setLoading(false) },
+      (err) => { console.error(err); setLoadError('Failed to load entries. Please refresh.'); setLoading(false) },
+    )
+    return () => { if (unsubRef.current) { unsubRef.current(); unsubRef.current = null } }
   }, [activeMonth, canAccess])
 
   if (!canAccess) return <Navigate to="/" replace />
-
-  async function load() {
-    setLoading(true)
-    setLoadError('')
-    try {
-      const data = await getFinanceExpense({
-        year: activeMonth.getFullYear(),
-        month: activeMonth.getMonth(),
-      })
-      setEntries(data)
-    } catch (err) {
-      console.error('Failed to load expenses:', err)
-      setLoadError('Failed to load entries. Please refresh and try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const visibleEntries = filterDept === 'all'
     ? entries
@@ -78,8 +73,8 @@ export default function ExpensePage() {
 
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
-  function prevMonth() { setActiveMonth(m => subMonths(m, 1)); setFilterDept('all') }
-  function nextMonth() { setActiveMonth(m => addMonths(m, 1)); setFilterDept('all') }
+  function prevMonth() { setInternalMonth(m => subMonths(m, 1)); setFilterDept('all') }
+  function nextMonth() { setInternalMonth(m => addMonths(m, 1)); setFilterDept('all') }
 
   function validate() {
     if (filterDept === 'all') return 'Select a department before adding an entry.'
@@ -109,7 +104,6 @@ export default function ExpensePage() {
       }
       setForm(EMPTY_FORM)
       setEditingId(null)
-      await load()
     } catch {
       setSaveError('Failed to save. Please try again.')
       setTimeout(() => setSaveError(''), 4000)
@@ -207,7 +201,6 @@ export default function ExpensePage() {
     setImportingXlsx(false)
     setXlsxRows(null)
     setXlsxResult({ imported, failed, skipped: (xlsxRows || []).filter(r => !r._valid).length })
-    await load()
   }
 
   const xlsxByDept = xlsxRows
@@ -220,49 +213,14 @@ export default function ExpensePage() {
   return (
     <div className="space-y-5 pb-12">
 
-      {/* Month picker */}
-      <div className="flex items-center justify-center gap-4 py-2">
-        <button
-          type="button"
-          onClick={prevMonth}
-          className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
-          aria-label="Previous month"
-        >
-          ‹
-        </button>
-        <span className="text-base font-semibold text-slate-800 w-36 text-center">
-          {format(activeMonth, 'MMMM yyyy')}
-        </span>
-        <button
-          type="button"
-          onClick={nextMonth}
-          className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
-          aria-label="Next month"
-        >
-          ›
-        </button>
-      </div>
-
-      {/* Department filter */}
-      <div className="flex items-center gap-3">
-        <label className="text-xs font-medium text-slate-600 shrink-0">Department</label>
-        <select
-          value={filterDept}
-          onChange={e => setFilterDept(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          <option value="all">All Departments</option>
-          {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
-        </select>
-      </div>
-
-      {/* Summary card */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center justify-between">
-        <p className="text-sm font-medium text-slate-500">Total Expense</p>
-        <p className="text-2xl font-bold text-rose-600">
-          ₹{totalExpense.toLocaleString('en-IN')}
-        </p>
-      </div>
+      {/* Month picker — hidden when month is controlled by parent */}
+      {!controlledMonth && (
+        <div className="flex items-center justify-center gap-4 py-2">
+          <button type="button" onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none" aria-label="Previous month">‹</button>
+          <span className="text-base font-semibold text-slate-800 w-36 text-center">{format(activeMonth, 'MMMM yyyy')}</span>
+          <button type="button" onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none" aria-label="Next month">›</button>
+        </div>
+      )}
 
       {/* Excel upload result toast */}
       {xlsxResult && (
@@ -276,93 +234,120 @@ export default function ExpensePage() {
         </div>
       )}
 
-      {/* Entry form */}
-      <form
-        onSubmit={handleSave}
-        className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-slate-700">
-            {editingId ? 'Edit Expense Entry' : 'Add Expense Entry'}
-          </h3>
-          <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
-            <span>📊</span> Upload Excel
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
-          </label>
-        </div>
-        {xlsxError && <p className="text-xs font-medium text-red-600">{xlsxError}</p>}
+      {/* Bento: stat card + entry form */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Date</label>
-            <input
-              type="date"
-              value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Item</label>
-            <input
-              type="text"
-              value={form.item}
-              onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
-              placeholder="Item description"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Bill No <span className="text-slate-400 font-normal">(optional)</span></label>
-            <input
-              type="text"
-              value={form.billNo}
-              onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
-              placeholder="Bill number"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Amount (₹)</label>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={form.amount}
-              onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-              placeholder="0"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+        {/* Stat card */}
+        <div className="bg-gradient-to-br from-rose-500 to-rose-600 rounded-2xl shadow-lg p-5 text-white flex flex-col justify-between min-h-[148px]">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-rose-100">Total Expense</p>
+          <div>
+            <p className="text-2xl font-bold leading-tight mt-1">
+              ₹{totalExpense.toLocaleString('en-IN')}
+            </p>
+            <p className="text-xs text-rose-200 mt-1.5">
+              {visibleEntries.length} {visibleEntries.length === 1 ? 'entry' : 'entries'} · {format(activeMonth, 'MMM yyyy')}
+            </p>
+            {filterDept !== 'all' && (
+              <p className="text-[10px] text-rose-300 mt-0.5">{filterDept}</p>
+            )}
           </div>
         </div>
 
-        {formError && (
-          <p className="text-red-600 text-xs font-medium">{formError}</p>
-        )}
+        {/* Entry form */}
+        {isMonthLocked ? (
+          <div className="sm:col-span-2 bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_4px_24px_rgba(99,102,241,0.08)] ring-1 ring-inset ring-slate-100 p-5 flex items-center justify-center min-h-[148px]">
+            <p className="text-sm text-slate-400 text-center">Expense entry is closed from July 2026 onwards.</p>
+          </div>
+        ) : (
+        <form
+          onSubmit={handleSave}
+          className="sm:col-span-2 bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_4px_24px_rgba(99,102,241,0.08)] ring-1 ring-inset ring-slate-100 p-5 space-y-4"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-slate-700">
+              {editingId ? 'Edit Expense Entry' : 'Add Expense Entry'}
+            </h3>
+            <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors shadow-sm">
+              <span>📊</span> Upload Excel
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
+            </label>
+          </div>
+          {xlsxError && <p className="text-xs font-medium text-red-600">{xlsxError}</p>}
 
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium disabled:opacity-50 transition-colors"
-          >
-            {saving ? 'Saving…' : editingId ? 'Update' : 'Save'}
-          </button>
-          {editingId && (
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+            <div className="flex flex-col gap-1 col-span-2 lg:col-span-1">
+              <label className="text-xs font-medium text-slate-500">Department</label>
+              <select
+                value={filterDept}
+                onChange={e => setFilterDept(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              >
+                <option value="all">— Select —</option>
+                {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">Date</label>
+              <input
+                type="date"
+                value={form.date}
+                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">Amount (₹)</label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={form.amount}
+                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                placeholder="0"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1 col-span-2">
+              <label className="text-xs font-medium text-slate-500">Item</label>
+              <input
+                type="text"
+                value={form.item}
+                onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
+                placeholder="Item description"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">Bill No <span className="text-slate-400 font-normal">(opt.)</span></label>
+              <input
+                type="text"
+                value={form.billNo}
+                onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
+                placeholder="Bill number"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              />
+            </div>
+          </div>
+
+          {formError && <p className="text-red-600 text-xs font-medium">{formError}</p>}
+
+          <div className="flex items-center gap-3">
             <button
-              type="button"
-              onClick={handleCancelEdit}
-              className="text-sm text-slate-500 hover:text-slate-700 hover:underline"
+              type="submit"
+              disabled={saving}
+              className="px-5 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold disabled:opacity-50 transition-colors shadow-sm"
             >
-              Cancel
+              {saving ? 'Saving…' : editingId ? 'Update' : 'Save'}
             </button>
-          )}
-        </div>
+            {editingId && (
+              <button type="button" onClick={handleCancelEdit} className="text-sm text-slate-400 hover:text-slate-600 hover:underline">Cancel</button>
+            )}
+          </div>
 
-        {saveError && (
-          <p className="text-xs font-medium text-red-600">{saveError}</p>
+          {saveError && <p className="text-xs font-medium text-red-600">{saveError}</p>}
+        </form>
         )}
-      </form>
+      </div>
 
       {/* Load error */}
       {loadError && (

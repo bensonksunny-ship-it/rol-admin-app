@@ -1,10 +1,10 @@
-export default function SundayOperationsToggle({ value, onChange }) {
+export default function DefaultOperationsToggle({ value, onChange }) {
   const options = [
     { key: 'expense',       label: 'Expense'        },
     { key: 'subDepartment', label: 'Sub Department' },
     { key: 'team',          label: 'Team'           },
     { key: 'planning',      label: 'Planning'       },
-    { key: 'budget',     label: 'Budget'         },
+    { key: 'budget',        label: 'Budget'         },
   ]
 
   return (

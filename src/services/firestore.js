@@ -1012,6 +1012,26 @@ export async function getFinanceExpense(filters = {}) {
   })
 }
 
+export function listenFinanceExpense(filters = {}, callback, onError) {
+  let q = collection(db, 'finance_expense')
+  const constraints = []
+  if (filters.month != null && filters.year != null) {
+    const y = filters.year
+    const m = filters.month
+    const start = new Date(y, m, 1)
+    const end = new Date(y, m + 1, 0, 23, 59, 59)
+    constraints.push(where('date', '>=', Timestamp.fromDate(start)))
+    constraints.push(where('date', '<=', Timestamp.fromDate(end)))
+  }
+  if (constraints.length) q = query(q, ...constraints, orderBy('date', 'asc'))
+  else q = query(q, orderBy('date', 'asc'), limit(200))
+  return onSnapshot(
+    q,
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }))),
+    onError,
+  )
+}
+
 export async function createFinanceExpense(data) {
   const ref = await addDoc(collection(db, 'finance_expense'), {
     ...data,

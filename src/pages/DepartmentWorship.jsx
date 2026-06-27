@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Send, Download } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -33,6 +33,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { format, subMonths, subDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import DepartmentTabBar from '../components/DepartmentTabBar'
+import DeptExpenseTab from '../components/DeptExpenseTab'
+import BudgetPage from './accounts/BudgetPage'
 import BoardPointsModal from '../components/BoardPointsModal'
 import UpcomingSunday from './UpcomingSunday'
 
@@ -329,7 +331,7 @@ export default function DepartmentWorship() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
   const [boardPointsOpen, setBoardPointsOpen] = useState(false)
-  const [operationsSubTab, setOperationsSubTab] = useState('team')
+  const [operationsSubTab, setOperationsSubTab] = useState('expense')
   const [subDepartments, setSubDepartments] = useState([])
   const [subDeptLoading, setSubDeptLoading] = useState(false)
   const [subDeptError, setSubDeptError] = useState(null)
@@ -1493,7 +1495,85 @@ export default function DepartmentWorship() {
 
       {activeTab === 'operations' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
-          {false && (
+
+          {/* Operations sub-tab toggle */}
+          <div className="flex flex-wrap items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 mr-2">Operations</span>
+            {[
+              { key: 'expense', label: 'Expense' },
+              { key: 'subDepartment', label: 'Sub Department' },
+              { key: 'team', label: 'Team' },
+              { key: 'budget', label: 'Budget' },
+            ].map(o => (
+              <button
+                key={o.key}
+                type="button"
+                onClick={() => setOperationsSubTab(o.key)}
+                className={`px-3 py-1.5 text-sm font-medium rounded border transition ${
+                  operationsSubTab === o.key
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-indigo-700'
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+
+          {operationsSubTab === 'expense' && <DeptExpenseTab department="Worship" />}
+
+          {operationsSubTab === 'budget' && <BudgetPage department="Worship" />}
+
+          {operationsSubTab === 'subDepartment' && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-3">
+              <h3 className="font-semibold text-slate-700 text-sm">Sub Departments</h3>
+              {subDeptLoading ? (
+                <p className="text-sm text-slate-400">Loading…</p>
+              ) : subDeptError ? (
+                <p className="text-sm text-red-500">{subDeptError}</p>
+              ) : subDepartments.length === 0 ? (
+                <p className="text-sm text-slate-400">No sub-departments yet.</p>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {subDepartments.map(sd => (
+                    <li key={sd.id} className="py-2 flex items-center justify-between gap-2">
+                      <span className="text-sm text-slate-700">{sd.name}</span>
+                      <button
+                        type="button"
+                        onClick={async () => { await deleteDepartmentSubDepartment(sd.id); loadSubDepartments() }}
+                        className="text-xs text-red-400 hover:text-red-600 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  if (!subDeptForm.name.trim()) return
+                  await addDepartmentSubDepartment({ name: subDeptForm.name.trim(), department: DEPARTMENT })
+                  setSubDeptForm({ name: '' })
+                  loadSubDepartments()
+                }}
+                className="flex gap-2 pt-2"
+              >
+                <input
+                  type="text"
+                  value={subDeptForm.name}
+                  onChange={e => setSubDeptForm({ name: e.target.value })}
+                  placeholder="Sub-department name"
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+                <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
+                  Add
+                </button>
+              </form>
+            </div>
+          )}
+
+          {operationsSubTab === 'team' && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
@@ -1801,380 +1881,6 @@ export default function DepartmentWorship() {
               </div>
             </div>
           )}
-
-          <div className="space-y-6">
-          {/* Detailed worship budget table (spreadsheet-style) */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4 gap-3">
-              <div>
-                <h2 className="font-semibold text-slate-800">Detailed worship budget</h2>
-                <p className="text-xs text-slate-500">
-                  Excel-style list of budget lines: category, description, quantities, and expected dates. Fully editable.
-                </p>
-              </div>
-              {canManageWorship && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingBudgetItem(null)
-                    setBudgetItemForm({
-                      category: '',
-                      subCategory: '',
-                      description: '',
-                      quantity: '',
-                      unitCost: '',
-                      totalCost: '',
-                      type: '',
-                      expectedDate: '',
-                    })
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
-                >
-                  + New line
-                </button>
-              )}
-            </div>
-
-            {canManageWorship && (
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault()
-                  try {
-                    const payload = {
-                      category: budgetItemForm.category,
-                      subCategory: budgetItemForm.subCategory,
-                      description: budgetItemForm.description,
-                      quantity: Number(budgetItemForm.quantity) || 0,
-                      unitCost: Number(budgetItemForm.unitCost) || 0,
-                      totalCost:
-                        budgetItemForm.totalCost !== ''
-                          ? Number(budgetItemForm.totalCost) || 0
-                          : (Number(budgetItemForm.quantity) || 0) * (Number(budgetItemForm.unitCost) || 0),
-                      type: budgetItemForm.type,
-                      expectedDate: budgetItemForm.expectedDate,
-                    }
-                    if (editingBudgetItem) {
-                      await updateWorshipBudgetItem(editingBudgetItem.id, payload)
-                    } else {
-                      await addWorshipBudgetItem(DEPARTMENT, payload, userProfile?.email)
-                    }
-                    setBudgetItemForm({
-                      category: '',
-                      subCategory: '',
-                      description: '',
-                      quantity: '',
-                      unitCost: '',
-                      totalCost: '',
-                      type: '',
-                      expectedDate: '',
-                    })
-                    setEditingBudgetItem(null)
-                    await loadBudgetItems()
-                  } catch (err) {
-                    console.error(err)
-                    alert('Failed to save budget line')
-                  }
-                }}
-                className="mb-4 grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-3 items-end"
-              >
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Category</label>
-                  <input
-                    type="text"
-                    value={budgetItemForm.category}
-                    onChange={(e) => setBudgetItemForm((f) => ({ ...f, category: e.target.value }))}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Sub category</label>
-                  <input
-                    type="text"
-                    value={budgetItemForm.subCategory}
-                    onChange={(e) => setBudgetItemForm((f) => ({ ...f, subCategory: e.target.value }))}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                  />
-                </div>
-                <div className="md:col-span-2 lg:col-span-3">
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Description</label>
-                  <input
-                    type="text"
-                    value={budgetItemForm.description}
-                    onChange={(e) => setBudgetItemForm((f) => ({ ...f, description: e.target.value }))}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Quantity</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={budgetItemForm.quantity}
-                    onChange={(e) => setBudgetItemForm((f) => ({ ...f, quantity: e.target.value }))}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Unit cost (RM)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={budgetItemForm.unitCost}
-                    onChange={(e) => setBudgetItemForm((f) => ({ ...f, unitCost: e.target.value }))}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Total cost (RM)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="Auto"
-                    value={budgetItemForm.totalCost}
-                    onChange={(e) => setBudgetItemForm((f) => ({ ...f, totalCost: e.target.value }))}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Type</label>
-                  <select
-                    value={budgetItemForm.type}
-                    onChange={(e) => setBudgetItemForm((f) => ({ ...f, type: e.target.value }))}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm bg-white"
-                  >
-                    <option value="">Select</option>
-                    <option value="One-off">One-off</option>
-                    <option value="Recurring">Recurring</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Expected date</label>
-                  <input
-                    type="date"
-                    value={budgetItemForm.expectedDate}
-                    onChange={(e) => setBudgetItemForm((f) => ({ ...f, expectedDate: e.target.value }))}
-                    className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm"
-                  />
-                </div>
-                <div className="md:col-span-1 lg:col-span-1 flex gap-2 justify-end">
-                  {editingBudgetItem && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingBudgetItem(null)
-                        setBudgetItemForm({
-                          category: '',
-                          subCategory: '',
-                          description: '',
-                          quantity: '',
-                          unitCost: '',
-                          totalCost: '',
-                          type: '',
-                          expectedDate: '',
-                        })
-                      }}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-700 bg-white"
-                    >
-                      Cancel edit
-                    </button>
-                  )}
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"
-                  >
-                    {editingBudgetItem ? 'Update line' : 'Add line'}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            <div className="mt-2 border border-slate-200 rounded-lg overflow-hidden">
-              {loadingBudgetItems ? (
-                <div className="p-4 text-sm text-slate-500">Loading budget items...</div>
-              ) : budgetItemsError ? (
-                <div className="p-4 text-sm text-red-600">{budgetItemsError}</div>
-              ) : budgetItems.length === 0 ? (
-                <div className="p-4 text-sm text-slate-500">
-                  No detailed budget lines yet. Use the form above to bring in your Excel lines (copy &amp; paste works).
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-amber-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left font-semibold text-slate-700">Category</th>
-                        <th className="px-4 py-2 text-left font-semibold text-slate-700">Sub category</th>
-                        <th className="px-4 py-2 text-left font-semibold text-slate-700 w-[26rem]">Description</th>
-                        <th className="px-4 py-2 text-right font-semibold text-slate-700">Qty</th>
-                        <th className="px-4 py-2 text-right font-semibold text-slate-700">Unit cost (RM)</th>
-                        <th className="px-4 py-2 text-right font-semibold text-slate-700">Total (RM)</th>
-                        <th className="px-4 py-2 text-left font-semibold text-slate-700">Type</th>
-                        <th className="px-4 py-2 text-left font-semibold text-slate-700">Expected date</th>
-                        {canManageWorship && <th className="px-4 py-2 text-left font-semibold text-slate-700">Action</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-amber-100">
-                      {budgetItems.map((item) => (
-                        <tr key={item.id} className="hover:bg-amber-50/60">
-                          <td className="px-4 py-2 text-slate-800">{item.category}</td>
-                          <td className="px-4 py-2 text-slate-800">{item.subCategory}</td>
-                          <td className="px-4 py-2 text-slate-700 max-w-xl">
-                            <div className="whitespace-pre-wrap text-xs md:text-sm">{item.description}</div>
-                          </td>
-                          <td className="px-4 py-2 text-right text-slate-700">{item.quantity ?? 0}</td>
-                          <td className="px-4 py-2 text-right text-slate-700">
-                            {item.unitCost != null ? item.unitCost.toLocaleString(undefined, { maximumFractionDigits: 2 }) : 0}
-                          </td>
-                          <td className="px-4 py-2 text-right text-slate-800 font-semibold">
-                            {item.totalCost != null ? item.totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 }) : 0}
-                          </td>
-                          <td className="px-4 py-2 text-slate-700">{item.type}</td>
-                          <td className="px-4 py-2 text-slate-700 text-xs">
-                            {item.expectedDate ? formatDMY(item.expectedDate) : ''}
-                          </td>
-                          {canManageWorship && (
-                            <td className="px-4 py-2 text-xs text-slate-600 space-x-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingBudgetItem(item)
-                                  setBudgetItemForm({
-                                    category: item.category || '',
-                                    subCategory: item.subCategory || '',
-                                    description: item.description || '',
-                                    quantity: item.quantity != null ? String(item.quantity) : '',
-                                    unitCost: item.unitCost != null ? String(item.unitCost) : '',
-                                    totalCost: item.totalCost != null ? String(item.totalCost) : '',
-                                    type: item.type || '',
-                                    expectedDate: item.expectedDate || '',
-                                  })
-                                }}
-                                className="text-blue-600 hover:underline"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!window.confirm('Delete this budget line?')) return
-                                  try {
-                                    await deleteWorshipBudgetItem(item.id)
-                                    if (editingBudgetItem && editingBudgetItem.id === item.id) {
-                                      setEditingBudgetItem(null)
-                                      setBudgetItemForm({
-                                        category: '',
-                                        subCategory: '',
-                                        description: '',
-                                        quantity: '',
-                                        unitCost: '',
-                                        totalCost: '',
-                                        type: '',
-                                        expectedDate: '',
-                                      })
-                                    }
-                                    await loadBudgetItems()
-                                  } catch (err) {
-                                    console.error(err)
-                                    alert('Failed to delete budget line')
-                                  }
-                                }}
-                                className="text-red-600 hover:underline"
-                              >
-                                Delete
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {canManageWorship && (
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <h2 className="font-semibold text-slate-800 mb-4">Add budget / spending (per month)</h2>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault()
-                  const planned = Number(form.plannedBudget) || 0
-                  const spent = Number(form.spent) || 0
-                  try {
-                    await addDepartmentEntry({
-                      department: DEPARTMENT,
-                      period: form.period,
-                      type: 'budget',
-                      enteredBy: userProfile?.email || 'unknown',
-                      data: { planned, spent },
-                    })
-                    setForm((f) => ({ ...f, plannedBudget: '', spent: '' }))
-                    setEntries(await getDepartmentEntries(DEPARTMENT, { limit: 100 }))
-                  } catch (err) {
-                    console.error(err)
-                    alert('Failed to save')
-                  }
-                }}
-                className="flex flex-wrap gap-4 items-end"
-              >
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Period (month)</label>
-                  <input type="month" value={form.period} onChange={(e) => setForm((f) => ({ ...f, period: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Planned budget (RM)</label>
-                  <input type="number" min="0" step="0.01" value={form.plannedBudget} onChange={(e) => setForm((f) => ({ ...f, plannedBudget: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300 w-32" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Money spent (RM)</label>
-                  <input type="number" min="0" step="0.01" value={form.spent} onChange={(e) => setForm((f) => ({ ...f, spent: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300 w-32" />
-                </div>
-                <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700">Save</button>
-              </form>
-            </div>
-          )}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Budget & spending history</h2>
-            {loading ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
-            ) : (
-              (() => {
-                const budgetEntries = entries.filter((e) => e.type === 'budget')
-                if (budgetEntries.length === 0) return <div className="p-8 text-center text-slate-500">No budget entries yet.</div>
-                return (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Period</th>
-                          <th className="text-right px-4 py-2 text-sm font-medium text-slate-600">Planned (RM)</th>
-                          <th className="text-right px-4 py-2 text-sm font-medium text-slate-600">Spent (RM)</th>
-                          <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Entered by</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {budgetEntries.map((e) => (
-                          <tr key={e.id} className="hover:bg-slate-50">
-                            <td className="px-4 py-2 text-slate-800">{e.period}</td>
-                            <td className="px-4 py-2 text-right text-slate-600">{e.data?.planned ?? 0}</td>
-                            <td className="px-4 py-2 text-right text-slate-600">{e.data?.spent ?? 0}</td>
-                            <td className="px-4 py-2 text-slate-500 text-sm">{e.enteredBy}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              })()
-            )}
-          </div>
-        </div>
 
         </div>
       )}
@@ -2782,17 +2488,30 @@ export default function DepartmentWorship() {
 
                     const TimingRow = (label, sessionKey, field) => {
                       const val = practiceAtt[sessionKey]?.[field]
+                      if (val) {
+                        return (
+                          <div key={field} className="rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-3 text-center shadow-md">
+                            <p className="text-[10px] font-semibold text-indigo-200 uppercase tracking-wider">{label}</p>
+                            <p className="text-lg font-bold text-white mt-0.5">{val}</p>
+                            {canManageWorship && (
+                              <button type="button" onClick={() => clearSession(sessionKey, field)} className="text-[9px] text-white/60 hover:text-white mt-1 transition-colors underline underline-offset-2">undo</button>
+                            )}
+                          </div>
+                        )
+                      }
+                      if (canManageWorship) {
+                        return (
+                          <button key={field} type="button" onClick={() => recordSession(sessionKey, field)}
+                            className="w-full rounded-2xl bg-white border-2 border-dashed border-slate-200 px-4 py-3 text-center hover:border-indigo-300 hover:bg-indigo-50 active:scale-95 transition-all">
+                            <p className="text-xs font-semibold text-slate-500">{label}</p>
+                            <p className="text-[9px] text-slate-400 mt-0.5">tap to record time</p>
+                          </button>
+                        )
+                      }
                       return (
-                        <div className="flex items-center justify-between gap-2 py-1">
-                          <span className="text-xs text-slate-400">{label}</span>
-                          {val ? (
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">{val}</span>
-                              {canManageWorship && <button type="button" onClick={() => clearSession(sessionKey, field)} className="text-[10px] text-slate-300 hover:text-red-400 leading-none">×</button>}
-                            </div>
-                          ) : canManageWorship ? (
-                            <button type="button" onClick={() => recordSession(sessionKey, field)} className="text-xs text-indigo-600 border border-indigo-200 rounded-full px-2 py-0.5 hover:bg-indigo-50 transition-colors">Record</button>
-                          ) : <span className="text-xs text-slate-300">—</span>}
+                        <div key={field} className="rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3 text-center">
+                          <p className="text-xs text-slate-400">{label}</p>
+                          <p className="text-[10px] text-slate-300 mt-0.5">—</p>
                         </div>
                       )
                     }
@@ -2857,7 +2576,7 @@ export default function DepartmentWorship() {
                               })}
                             </div>
                           )}
-                          <div className="border-t border-dashed border-slate-100 pt-2 space-y-0.5">
+                          <div className="border-t border-slate-100 pt-3 px-1 grid grid-cols-1 gap-2">
                             {sessionFields.map(([label, field]) => TimingRow(label, sessionKey, field))}
                           </div>
                         </div>
@@ -2935,14 +2654,12 @@ export default function DepartmentWorship() {
           )}
 
           {/* ── Custom Sessions (schedule view only) ── */}
-          {practiceSubPage === 'schedule' && (
+          {practiceSubPage === 'schedule' && (loadingRehearsals || rehearsals.length > 0) && (
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Custom Sessions</p>
 
           {loadingRehearsals ? (
             <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
-          ) : rehearsals.length === 0 ? (
-            <div className="py-10 text-center text-slate-400 text-sm">No rehearsals scheduled yet.</div>
           ) : (() => {
             const today = format(new Date(), 'yyyy-MM-dd')
             // Only show custom sessions that fall within the current active week (Mon–Sun of active Sunday)
@@ -3369,4 +3086,4 @@ function WorshipLinkModal({ member, onLink, onClose }) {
       </div>
     </>
   )
-}
+}

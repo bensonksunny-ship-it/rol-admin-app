@@ -16,7 +16,7 @@ export function getDepartmentHubTabs(slug) {
     case 'd-light':
       return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'operations']
     case 'event-m':
-      return ['summary', 'events', 'liveControl', 'subDepartment', 'team', 'planning', 'financial']
+      return ['summary', 'events', 'liveControl', 'operations']
     case 'river-kids':
       return ['summary', 'attendance', 'operations']
     case 'accounts':
@@ -24,13 +24,13 @@ export function getDepartmentHubTabs(slug) {
     case 'administration':
       return ['summary', 'upcomingSunday', 'operations']
     default:
-      return ['summary', 'subDepartment', 'team', 'planning', 'financial']
+      return ['summary', 'operations']
   }
 }
 
 /** Department uses generic `department_sub_departments` for Sub Department tab (not D Light’s collection). */
 export function usesGenericSubDepartmentCollection(slug) {
-  return slug !== 'd-light' && slug !== 'cell'
+  return slug !== 'd-light'
 }
 
 /** Legacy Firestore `department` string values to merge when loading tasks / team / entries. */

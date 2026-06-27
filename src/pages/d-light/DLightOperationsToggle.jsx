@@ -4,7 +4,7 @@ export default function DLightOperationsToggle({ value, onChange }) {
     { key: 'subDepartment', label: 'Sub Dept'   },
     { key: 'team',          label: 'Team'       },
     { key: 'planning',      label: 'Planning'   },
-    { key: 'financial',     label: 'Budget'     },
+    { key: 'budget',     label: 'Budget'     },
   ]
 
   return (
