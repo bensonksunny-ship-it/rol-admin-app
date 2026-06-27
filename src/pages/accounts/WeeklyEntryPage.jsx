@@ -12,6 +12,7 @@ import {
   approveFinanceWeeklyEntry,
   approveAllFinanceWeeklyEntries,
   getExpenseDepartments,
+  listenAdvancePayoutRequests,
 } from '../../services/firestore'
 
 const WEEK_START = { weekStartsOn: 1 }
@@ -41,6 +42,8 @@ export default function WeeklyEntryPage() {
   const [xlsxError, setXlsxError] = useState('')
   const [importingXlsx, setImportingXlsx] = useState(false)
   const [xlsxResult, setXlsxResult] = useState(null)
+  const [payoutRequests, setPayoutRequests] = useState([])
+  const [payoutFilter, setPayoutFilter] = useState('approved')
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
   const weeklyOnly = canAccessWeeklyEntryOnly(userProfile)
@@ -54,6 +57,15 @@ export default function WeeklyEntryPage() {
       if (extra.length) setDeptOptions([...EXPENSE_CATEGORIES, ...extra])
     }).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    const unsub = listenAdvancePayoutRequests(
+      payoutFilter ? { status: payoutFilter } : {},
+      data => setPayoutRequests(data),
+      err => console.error(err),
+    )
+    return () => unsub()
+  }, [payoutFilter])
 
   useEffect(() => {
     if (!canAccess) return
@@ -554,6 +566,64 @@ export default function WeeklyEntryPage() {
           </>
         )}
       </div>
+      {/* Advance Payout Requests panel */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-700">Advance Payout Requests</h3>
+          <div className="flex gap-1">
+            {[
+              { key: 'approved', label: 'Approved' },
+              { key: 'disapproved', label: 'Disapproved' },
+              { key: 'pending', label: 'Pending' },
+              { key: '', label: 'All' },
+            ].map(f => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setPayoutFilter(f.key)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
+                  payoutFilter === f.key ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {payoutRequests.length === 0 ? (
+          <p className="p-6 text-sm text-slate-400 text-center">No {payoutFilter || ''} payout requests.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {payoutRequests.map(r => (
+              <li key={r.id} className="px-5 py-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800">
+                    {r.departmentName}
+                    <span className="font-normal text-slate-400 mx-1.5">·</span>
+                    <span className={r.status === 'approved' ? 'text-emerald-700' : r.status === 'disapproved' ? 'text-red-600' : 'text-amber-700'}>
+                      ₹{Number(r.amount).toLocaleString('en-IN')}
+                    </span>
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{r.reason}</p>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Requested by {r.requestedBy}
+                    {r.createdAt ? ` · ${format(r.createdAt, 'd MMM yyyy')}` : ''}
+                    {r.status !== 'pending' && r.reviewedBy ? ` · ${r.status === 'approved' ? 'Approved' : 'Disapproved'} by ${r.reviewedBy}` : ''}
+                  </p>
+                </div>
+                <span className={`shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full border capitalize ${
+                  r.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : r.status === 'disapproved' ? 'bg-red-50 text-red-600 border-red-200'
+                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}>
+                  {r.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* Excel preview modal */}
       {xlsxRows && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">

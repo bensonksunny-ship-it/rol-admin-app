@@ -34,6 +34,7 @@ import { format, subMonths, subDays, differenceInDays, differenceInYears, differ
 import { formatDMY } from '../utils/date'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import DeptExpenseTab from '../components/DeptExpenseTab'
+import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import BudgetPage from './accounts/BudgetPage'
 import BoardPointsModal from '../components/BoardPointsModal'
 import UpcomingSunday from './UpcomingSunday'
@@ -1504,6 +1505,7 @@ export default function DepartmentWorship() {
               { key: 'subDepartment', label: 'Sub Department' },
               { key: 'team', label: 'Team' },
               { key: 'budget', label: 'Budget' },
+              { key: 'payout', label: 'Payout Request' },
             ].map(o => (
               <button
                 key={o.key}
@@ -1523,6 +1525,8 @@ export default function DepartmentWorship() {
           {operationsSubTab === 'expense' && <DeptExpenseTab department="Worship" />}
 
           {operationsSubTab === 'budget' && <BudgetPage department="Worship" />}
+
+          {operationsSubTab === 'payout' && <AdvancePayoutTab departmentSlug="worship" departmentName="Worship" />}
 
           {operationsSubTab === 'subDepartment' && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-3">

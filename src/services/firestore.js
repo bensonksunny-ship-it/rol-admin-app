@@ -1012,6 +1012,46 @@ export async function getFinanceExpense(filters = {}) {
   })
 }
 
+// ── Advance Payout Requests ───────────────────────────────────────────────────
+
+const ADVANCE_PAYOUT_COLLECTION = 'advance_payout_requests'
+
+export async function createAdvancePayoutRequest(data) {
+  const ref = await addDoc(collection(db, ADVANCE_PAYOUT_COLLECTION), {
+    ...data,
+    status: 'pending',
+    createdAt: serverTimestamp(),
+    reviewedAt: null,
+    reviewedBy: null,
+  })
+  return ref.id
+}
+
+export function listenAdvancePayoutRequests(filters = {}, callback, onError) {
+  const constraints = []
+  if (filters.status) constraints.push(where('status', '==', filters.status))
+  if (filters.departmentSlug) constraints.push(where('departmentSlug', '==', filters.departmentSlug))
+  const q = constraints.length
+    ? query(collection(db, ADVANCE_PAYOUT_COLLECTION), ...constraints)
+    : collection(db, ADVANCE_PAYOUT_COLLECTION)
+  return onSnapshot(
+    q,
+    snap => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt), reviewedAt: toDate(d.data().reviewedAt) }))
+      data.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      callback(data)
+    },
+    onError,
+  )
+}
+
+export async function updateAdvancePayoutRequest(id, data) {
+  await updateDoc(doc(db, ADVANCE_PAYOUT_COLLECTION, id), {
+    ...data,
+    reviewedAt: serverTimestamp(),
+  })
+}
+
 export function listenFinanceExpense(filters = {}, callback, onError) {
   let q = collection(db, 'finance_expense')
   const constraints = []

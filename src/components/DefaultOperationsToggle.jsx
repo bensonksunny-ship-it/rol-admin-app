@@ -5,6 +5,7 @@ export default function DefaultOperationsToggle({ value, onChange }) {
     { key: 'team',          label: 'Team'           },
     { key: 'planning',      label: 'Planning'       },
     { key: 'budget',        label: 'Budget'         },
+    { key: 'payout',        label: 'Payout Request' },
   ]
 
   return (

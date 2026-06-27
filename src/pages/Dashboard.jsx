@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext'
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, subDays, isThisMonth, isThisYear } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import { getDepartmentPath } from '../constants/departments'
+import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -254,6 +255,9 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── Advance Payout Requests ─────────────────────────────────────── */}
+      <AdvancePayoutReviewer />
 
       {/* ── Stat tiles ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
