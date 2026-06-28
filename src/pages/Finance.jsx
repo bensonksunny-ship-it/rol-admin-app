@@ -65,6 +65,10 @@ export default function Finance() {
     justification: '',
     expectedDate: format(new Date(), 'yyyy-MM-dd'),
   })
+  const [budgetXlsxRows, setBudgetXlsxRows] = useState(null)
+  const [budgetXlsxError, setBudgetXlsxError] = useState('')
+  const [importingBudgetXlsx, setImportingBudgetXlsx] = useState(false)
+  const [budgetXlsxResult, setBudgetXlsxResult] = useState(null)
 
   // Persistent date for all entry modals
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
@@ -134,6 +138,70 @@ export default function Finance() {
       console.error(e)
     }
     setLoadingBudget(false)
+  }
+
+  async function handleBudgetXlsxFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setBudgetXlsxError('')
+    setBudgetXlsxRows(null)
+    setBudgetXlsxResult(null)
+    try {
+      const XLSX = await import('xlsx')
+      const data = await file.arrayBuffer()
+      const wb = XLSX.read(data, { type: 'array', cellDates: true })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
+      if (!raw.length) { setBudgetXlsxError('No data found in the file.'); return }
+
+      const norm = (key) => String(key).toLowerCase().replace(/[\s_\-]/g, '')
+      const rows = raw.map((row, i) => {
+        const r = {}
+        for (const [k, v] of Object.entries(row)) r[norm(k)] = v
+        const category = String(r['category'] ?? '').trim()
+        const subCategory = String(r['subcategory'] ?? r['subcat'] ?? r['subcategory'] ?? '').trim()
+        const description = String(r['description'] ?? r['desc'] ?? '').trim()
+        const quantity = Number(r['quantity'] ?? r['qty'] ?? 0) || 0
+        const unitCost = Number(r['unitcost'] ?? r['unit'] ?? r['unitcostrs'] ?? 0) || 0
+        const totalCost = quantity * unitCost
+        const priority = String(r['priority'] ?? 'Medium').trim() || 'Medium'
+        const type = String(r['type'] ?? 'Recurring').trim() || 'Recurring'
+        const justification = String(r['justification'] ?? '').trim()
+        const rawDate = r['expecteddate'] ?? r['expected'] ?? r['date'] ?? ''
+        let expectedDate = ''
+        if (rawDate instanceof Date) expectedDate = format(rawDate, 'yyyy-MM-dd')
+        else if (rawDate) { const d = new Date(rawDate); if (!isNaN(d)) expectedDate = format(d, 'yyyy-MM-dd') }
+        const error = !category ? 'Missing category' : ''
+        return { _row: i + 2, category, subCategory, description, quantity, unitCost, totalCost, priority, type, justification, expectedDate, _valid: !error, _error: error }
+      })
+      if (rows.every(r => !r._valid)) {
+        setBudgetXlsxError('Could not parse rows. Make sure the file has a "Category" column.')
+        return
+      }
+      setBudgetXlsxRows(rows)
+    } catch (err) {
+      console.error(err)
+      setBudgetXlsxError('Failed to read file. Make sure it is a valid .xlsx or .xls file.')
+    }
+  }
+
+  async function handleImportBudgetAll() {
+    const valid = (budgetXlsxRows || []).filter(r => r._valid)
+    if (!valid.length) return
+    setImportingBudgetXlsx(true)
+    let imported = 0, failed = 0
+    for (const row of valid) {
+      try {
+        const { _row, _valid, _error, ...payload } = row
+        const id = await addFinanceBudgetItem(payload, userProfile?.email || 'unknown')
+        setBudgetItems(prev => [...prev, { id, ...payload }])
+        imported++
+      } catch { failed++ }
+    }
+    setImportingBudgetXlsx(false)
+    setBudgetXlsxRows(null)
+    setBudgetXlsxResult({ imported, failed, skipped: (budgetXlsxRows || []).filter(r => !r._valid).length })
   }
 
   async function loadVouchers() {
@@ -705,8 +773,27 @@ export default function Finance() {
 
       {tab === 'budget' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          {budgetXlsxResult && (
+            <div className="flex items-center justify-between gap-3 bg-emerald-50 border-b border-emerald-200 px-5 py-3">
+              <p className="text-sm text-emerald-800 font-medium">
+                Imported {budgetXlsxResult.imported} {budgetXlsxResult.imported === 1 ? 'row' : 'rows'}
+                {budgetXlsxResult.skipped > 0 && ` · ${budgetXlsxResult.skipped} skipped`}
+                {budgetXlsxResult.failed > 0 && ` · ${budgetXlsxResult.failed} failed`}
+              </p>
+              <button type="button" onClick={() => setBudgetXlsxResult(null)} className="text-emerald-600 hover:text-emerald-800 text-lg leading-none">×</button>
+            </div>
+          )}
+          {budgetXlsxError && (
+            <div className="px-5 py-2 border-b border-red-200 bg-red-50">
+              <p className="text-xs font-medium text-red-600">{budgetXlsxError}</p>
+            </div>
+          )}
           {canEnter && (
-            <div className="px-5 py-3 border-b border-slate-200 flex justify-end">
+            <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-end gap-2">
+              <label className="cursor-pointer flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
+                📊 Import Excel
+                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleBudgetXlsxFile} />
+              </label>
               <button
                 type="button"
                 onClick={() => {
@@ -837,6 +924,78 @@ export default function Finance() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {budgetXlsxRows && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+          <div className="bg-white w-full sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col sm:max-w-3xl">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+              <div>
+                <h2 className="font-semibold text-slate-800">Budget Excel Preview</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {budgetXlsxRows.filter(r => r._valid).length} valid · {budgetXlsxRows.filter(r => !r._valid).length} skipped
+                </p>
+              </div>
+              <button type="button" onClick={() => setBudgetXlsxRows(null)} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-slate-50">
+                  <tr className="text-left text-slate-500 border-b border-slate-100">
+                    <th className="px-4 py-2 font-medium">Category</th>
+                    <th className="px-4 py-2 font-medium">Sub-Category</th>
+                    <th className="px-4 py-2 font-medium">Description</th>
+                    <th className="px-4 py-2 font-medium text-right">Qty</th>
+                    <th className="px-4 py-2 font-medium text-right">Unit (₹)</th>
+                    <th className="px-4 py-2 font-medium text-right">Total (₹)</th>
+                    <th className="px-4 py-2 font-medium">Priority</th>
+                    <th className="px-4 py-2 font-medium">Type</th>
+                    <th className="px-4 py-2 font-medium">Expected</th>
+                    <th className="px-4 py-2 font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {budgetXlsxRows.map((row) => (
+                    <tr key={row._row} className={row._valid ? '' : 'bg-red-50/60'}>
+                      <td className="px-4 py-2 text-slate-800 font-medium">{row.category || '—'}</td>
+                      <td className="px-4 py-2 text-slate-600">{row.subCategory || '—'}</td>
+                      <td className="px-4 py-2 text-slate-600 max-w-[140px] truncate">{row.description || '—'}</td>
+                      <td className="px-4 py-2 text-right text-slate-600">{row.quantity}</td>
+                      <td className="px-4 py-2 text-right text-slate-600">₹{Number(row.unitCost).toLocaleString()}</td>
+                      <td className="px-4 py-2 text-right font-medium text-slate-800">₹{Number(row.totalCost).toLocaleString()}</td>
+                      <td className="px-4 py-2 text-slate-600">{row.priority}</td>
+                      <td className="px-4 py-2 text-slate-600">{row.type}</td>
+                      <td className="px-4 py-2 text-slate-500">{row.expectedDate || '—'}</td>
+                      <td className="px-4 py-2 text-right">
+                        {row._valid
+                          ? <span className="text-emerald-600">✓</span>
+                          : <span className="text-red-500">{row._error}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+              <p className="text-xs text-slate-500">
+                Columns: <span className="font-mono">Category, Sub-Category, Description, Quantity, Unit Cost, Priority, Type, Justification, Expected Date</span>
+              </p>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setBudgetXlsxRows(null)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportBudgetAll}
+                  disabled={importingBudgetXlsx || !budgetXlsxRows.some(r => r._valid)}
+                  className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+                >
+                  {importingBudgetXlsx ? 'Importing…' : `Import ${budgetXlsxRows.filter(r => r._valid).length} rows`}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

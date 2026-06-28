@@ -36,7 +36,8 @@
       "Bash(xargs grep -l \"pcs\\\\|PCS\")",
       "Bash(sort -t: -k2 -rn)",
       "Bash(xargs grep -l \"<button\")",
-      "Bash(xxd)"
+      "Bash(xxd)",
+      "PowerShell(npm run *)"
     ]
   }
 }

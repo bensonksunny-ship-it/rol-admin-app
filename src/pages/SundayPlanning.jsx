@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan, getSundayProgramDefault, getSundayPreServiceEntry } from '../services/firestore'
+import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan, getSundayProgramDefault, getSundayPreServiceEntry, getDepartmentAssignments, getDepartmentTeamMembers } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
@@ -160,6 +160,70 @@ function WorshipPlanSummary({ selectedDate }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const DLIGHT_ROWS = [
+  { key: 'lightShinersPre',       label: 'Light Shiners – Pre-service greeting' },
+  { key: 'lightShinersPost',      label: 'Light Shiners – Post-service greeting' },
+  { key: 'lightBeaconsRoom',      label: 'Light Beacons – Room addressing' },
+  { key: 'lightBeaconsStair',     label: 'Light Beacons – Stair guardian' },
+  { key: 'lightBearersPostConnect', label: 'Light Bearers – Post connect' },
+  { key: 'lightCraftersRoomPrep', label: 'Light Crafters – Room preparation & card distribution' },
+]
+
+function DLitePlanSummary() {
+  const [assignments, setAssignments] = useState(null)
+  const [teamById, setTeamById] = useState({})
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    Promise.all([
+      getDepartmentAssignments('d-light'),
+      getDepartmentTeamMembers('d-light'),
+    ])
+      .then(([doc, members]) => {
+        setAssignments(doc?.assignments || null)
+        const byId = {}
+        for (const m of members) byId[m.id] = m
+        setTeamById(byId)
+      })
+      .catch(() => { setAssignments(null); setTeamById({}) })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const assigned = DLIGHT_ROWS.filter((r) => assignments?.[r.key])
+
+  return (
+    <div className="bg-white rounded-xl border border-rose-200 border-l-4 border-l-rose-500 p-3 shadow-sm">
+      <div className="flex items-center justify-between mb-2.5">
+        <h3 className="font-semibold text-rose-900 text-sm">D-Lite</h3>
+        <Link to="/department/d-light?tab=assign" className="text-rose-600 hover:text-rose-700 text-xs font-semibold">
+          Edit in D-Lite dept →
+        </Link>
+      </div>
+      {loading ? (
+        <p className="text-slate-500 text-xs">Loading D-Lite assignments…</p>
+      ) : !assigned.length ? (
+        <p className="text-slate-400 text-xs italic">No team assignments saved yet.</p>
+      ) : (
+        <div className="rounded-lg border border-slate-200 overflow-hidden">
+          <div className="divide-y divide-slate-100">
+            {assigned.map(({ key, label }) => {
+              const memberId = assignments[key]
+              const member = teamById[memberId]
+              const displayName = member?.name || memberId
+              return (
+                <div key={key} className="flex items-center gap-3 px-3 py-1.5">
+                  <span className="text-xs text-slate-500 flex-1">{label}</span>
+                  <span className="text-xs font-medium text-slate-800 flex-shrink-0">{displayName}</span>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -598,17 +662,21 @@ export default function SundayPlanning() {
           <SundayProgramBlock plan={plan} preServiceEntry={preServiceEntry} canEdit={canEditFull} selectedDate={selectedDate} />
           <WorshipPlanSummary selectedDate={selectedDate} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {SECTION_ORDER.filter((key) => key !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) => (
-              <SectionForm
-                key={key}
-                sectionKey={key}
-                label={SECTION_LABELS[key]}
-                data={plan?.[key]}
-                canEdit={canEditFull}
-                onSave={handleSaveSection}
-                saving={saving}
-              />
-            ))}
+            {SECTION_ORDER.filter((key) => key !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) =>
+              key === SUNDAY_PLAN_SECTIONS.D_LITE ? (
+                <DLitePlanSummary key={key} />
+              ) : (
+                <SectionForm
+                  key={key}
+                  sectionKey={key}
+                  label={SECTION_LABELS[key]}
+                  data={plan?.[key]}
+                  canEdit={canEditFull}
+                  onSave={handleSaveSection}
+                  saving={saving}
+                />
+              )
+            )}
           </div>
         </div>
       )}
@@ -639,6 +707,9 @@ function DigitalBulletin({ plan, preServiceEntry, selectedDate }) {
       {/* All other sections */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       {SECTION_ORDER.filter((k) => k !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) => {
+        if (key === SUNDAY_PLAN_SECTIONS.D_LITE) {
+          return <DLitePlanSummary key={key} />
+        }
         const data = plan?.[key]
         const notes = data?.notes || ''
         const style = SECTION_ACCENT[key] || { border: 'border-l-indigo-400' }
