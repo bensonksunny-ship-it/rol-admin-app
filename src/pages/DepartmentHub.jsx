@@ -3976,113 +3976,173 @@ export default function DepartmentHub() {
                 </div>
               )
 
-              // ── Stamp view (read-only) ──────────────────────────────────────
+              // ── Stamp view (read-only, portrait, colour-coded) ──────────────
               if (!isEditing) {
-                const sv = (label, value) => value && String(value).trim()
-                  ? <div className="space-y-0.5"><p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{label}</p><p className="text-xs font-semibold text-slate-800 leading-tight">{value}</p></div>
-                  : null
                 const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null
+
+                // Coloured field pill: label on top, value below, tinted by section colour
+                const pill = (label, value, bg, labelCls, valueCls, borderCls) => value && String(value).trim()
+                  ? (
+                    <div className={`rounded-xl px-3 py-2 ${bg} border ${borderCls}`}>
+                      <p className={`text-[8px] font-black uppercase tracking-widest mb-0.5 ${labelCls}`}>{label}</p>
+                      <p className={`text-xs font-bold leading-snug ${valueCls}`}>{value}</p>
+                    </div>
+                  ) : null
+
+                // Per-section pill helpers
+                const bpill  = (l, v) => pill(l, v, 'bg-blue-50',   'text-blue-400',   'text-blue-900',   'border-blue-100')
+                const epill  = (l, v) => pill(l, v, 'bg-emerald-50','text-emerald-500', 'text-emerald-900','border-emerald-100')
+                const vpill  = (l, v) => pill(l, v, 'bg-violet-50', 'text-violet-400', 'text-violet-900', 'border-violet-100')
+                const apill  = (l, v) => pill(l, v, 'bg-amber-50',  'text-amber-500',  'text-amber-900',  'border-amber-100')
+
+                // Section fill bar
+                const FillBar = ({ fill, color }) => (
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <div className={`flex-1 h-1 rounded-full overflow-hidden ${color.track}`}>
+                      <div className={`h-full rounded-full transition-all ${color.bar}`} style={{ width: `${Math.round(fill * 100)}%` }} />
+                    </div>
+                    <span className={`text-[9px] font-black ${color.text}`}>{Math.round(fill * 100)}%</span>
+                  </div>
+                )
+
                 return (
-                  <div className="border-t-2 border-indigo-500 bg-slate-50 px-2 py-3 sm:px-4 sm:py-4">
+                  <div className="border-t-2 border-indigo-500 bg-gradient-to-b from-slate-100 to-slate-200 px-3 py-4 flex justify-center">
                     {pcsExpandedLoading && <p className="text-xs text-slate-400 text-center py-6">Loading profile…</p>}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                      {/* Stamp header */}
-                      <div className="bg-gradient-to-r from-indigo-700 to-indigo-500 px-4 py-3">
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-indigo-300 mb-0.5">River Of Life Church · PCS Profile</p>
-                        <div className="flex items-center gap-3">
-                          <div className={`w-11 h-11 rounded-full flex items-center justify-center text-lg font-black text-white flex-shrink-0 border-2 border-white/30 ${f.membershipNumber ? 'bg-amber-400' : 'bg-indigo-400'}`}>
-                            {pcsPhotoPreview
-                              ? <img src={pcsPhotoPreview} alt="" className="w-11 h-11 rounded-full object-cover" />
-                              : (f.name || '?')[0].toUpperCase()}
+                    <div className="w-full max-w-xs rounded-3xl shadow-xl overflow-hidden border border-slate-200">
+
+                      {/* ── Header ── */}
+                      <div className="bg-gradient-to-b from-indigo-800 via-indigo-700 to-indigo-600 px-5 pt-5 pb-4 flex flex-col items-center text-center">
+                        <p className="text-[8px] font-extrabold uppercase tracking-[0.18em] text-indigo-300 mb-3">River Of Life Church · PCS</p>
+                        {/* Avatar */}
+                        <div className={`w-[72px] h-[72px] rounded-full flex items-center justify-center text-2xl font-black text-white border-[3px] border-white/30 shadow-lg mb-3 ${f.membershipNumber ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-gradient-to-br from-indigo-400 to-violet-500'}`}>
+                          {pcsPhotoPreview
+                            ? <img src={pcsPhotoPreview} alt="" className="w-[72px] h-[72px] rounded-full object-cover" />
+                            : (f.name || '?')[0].toUpperCase()}
+                        </div>
+                        <p className="text-white font-black text-xl leading-tight tracking-tight">{f.name || '—'}</p>
+                        {/* Badges */}
+                        <div className="flex flex-wrap justify-center gap-1.5 mt-2">
+                          {f.membershipNumber && <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-400/25 text-amber-200 border border-amber-400/40">Member #{f.membershipNumber}</span>}
+                          {f.leadershipPosition && <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-400/25 text-emerald-200 border border-emerald-400/40">{f.leadershipPosition}</span>}
+                          {churchDuration && <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-white/10 text-indigo-200 border border-white/15">{churchDuration} in church</span>}
+                        </div>
+                        {/* Overall completeness */}
+                        <div className="mt-3 w-full">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[8px] font-bold text-white/50 uppercase tracking-wider">Profile completeness</span>
+                            <span className={`text-[10px] font-black ${pctCls(overallFill)}`}>{pctStr(overallFill)}</span>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-white font-black text-base leading-tight truncate">{f.name || '—'}</p>
-                            <div className="flex flex-wrap gap-1.5 mt-1">
-                              {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400/30 text-amber-200 border border-amber-400/40">Member #{f.membershipNumber}</span>}
-                              {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-400/30 text-emerald-200 border border-emerald-400/40">{f.leadershipPosition}</span>}
-                              {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/15 text-indigo-200">{churchDuration} in church</span>}
-                            </div>
-                            <div className="mt-1.5 flex items-center gap-2">
-                              <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
-                                <div className={`h-full rounded-full ${barCls(overallFill)}`} style={{ width: `${Math.round(overallFill * 100)}%` }} />
-                              </div>
-                              <span className="text-[9px] font-bold text-white/70 whitespace-nowrap">{pctStr(overallFill)}</span>
-                            </div>
+                          <div className="w-full h-1.5 bg-white/15 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all duration-500 ${barCls(overallFill)}`} style={{ width: `${Math.round(overallFill * 100)}%` }} />
                           </div>
-                          <div className="flex flex-col gap-1.5 flex-shrink-0">
-                            <button type="button" onClick={() => setPcsEditingId(entry.id)}
-                              className="px-3 py-1.5 rounded-lg bg-white text-indigo-700 text-xs font-bold hover:bg-indigo-50 transition-colors shadow-sm">
-                              Edit
-                            </button>
-                            <button type="button" onClick={() => downloadProfileAsPDF(f, churchDuration, autoMinistry)}
-                              className="px-3 py-1.5 rounded-lg bg-indigo-900/40 text-white text-xs font-bold hover:bg-indigo-900/60 transition-colors border border-white/20">
-                              PDF
-                            </button>
-                          </div>
+                        </div>
+                        {/* Buttons */}
+                        <div className="flex gap-2 mt-4 w-full">
+                          <button type="button" onClick={() => setPcsEditingId(entry.id)}
+                            className="flex-1 py-2 rounded-xl bg-white text-indigo-700 text-xs font-black hover:bg-indigo-50 transition-colors shadow">
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => downloadProfileAsPDF(f, churchDuration, autoMinistry)}
+                            className="flex-1 py-2 rounded-xl bg-white/10 text-white text-xs font-black hover:bg-white/20 transition-colors border border-white/20">
+                            Download PDF
+                          </button>
                         </div>
                       </div>
-                      {/* Stamp body */}
-                      <div className="divide-y divide-slate-100">
-                        <div className="px-4 py-3 border-l-4 border-l-blue-300">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-blue-500 mb-2">Contact & Personal</p>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2.5">
-                            {sv('Phone', f.phone)}{sv('Email', f.email)}{sv('How Known', f.howKnown)}
-                            {sv('Date of Birth', fmtD(f.dob))}{sv('Nativity', f.nativity)}{sv('Current Place', f.currentPlace)}
-                          </div>
+
+                      {/* ── Contact & Personal — blue ── */}
+                      <div className="bg-blue-600 px-4 pt-3 pb-3">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <p className="text-[9px] font-black uppercase tracking-[0.15em] text-blue-100">Contact & Personal</p>
+                          <span className={`text-[9px] font-black ${s1Fill === 1 ? 'text-emerald-300' : s1Fill >= 0.5 ? 'text-amber-300' : 'text-red-300'}`}>{Math.round(s1Fill * 100)}%</span>
                         </div>
-                        <div className="px-4 py-3 border-l-4 border-l-emerald-300">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 mb-2">Church Journey</p>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2.5">
-                            {sv('First Visit', fmtD(f.attendedDate))}{sv('Service', f.serviceAttended)}{sv('PCS Year', f.year ? String(f.year) : null)}
-                          </div>
-                          {autoMinistry.length > 0 && (
-                            <div className="mt-2.5 space-y-1.5">
-                              {autoMinistry.map(r => {
-                                const dur = miniDur(r.from, r.to)
-                                return (
-                                  <div key={r.id} className="flex items-center justify-between gap-2 bg-indigo-50 border border-indigo-100 rounded-lg px-2.5 py-1.5">
-                                    <div className="min-w-0">
-                                      <span className="text-[11px] font-bold text-indigo-700">{r.ministry}</span>
-                                      {r.role && <span className="text-[10px] text-indigo-500 ml-1">· {r.role}</span>}
-                                      {r.from && <span className="text-[9px] text-indigo-400 ml-1.5">since {new Date(r.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</span>}
-                                    </div>
-                                    {dur && (
-                                      <span className="text-[10px] font-black text-indigo-600 bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
-                                        {dur}
-                                      </span>
-                                    )}
+                        <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mb-2.5">
+                          <div className={`h-full rounded-full ${barCls(s1Fill)}`} style={{ width: `${Math.round(s1Fill * 100)}%` }} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {bpill('Phone', f.phone)}
+                          {bpill('Email', f.email)}
+                          {bpill('Date of Birth', fmtD(f.dob))}
+                          {bpill('Nativity', f.nativity)}
+                          {bpill('Current Place', f.currentPlace)}
+                          {bpill('How Known', f.howKnown)}
+                        </div>
+                      </div>
+
+                      {/* ── Church Journey — emerald ── */}
+                      <div className="bg-emerald-600 px-4 pt-3 pb-3">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <p className="text-[9px] font-black uppercase tracking-[0.15em] text-emerald-100">Church Journey</p>
+                          <span className={`text-[9px] font-black ${s2Fill === 1 ? 'text-emerald-200' : s2Fill >= 0.5 ? 'text-amber-300' : 'text-red-300'}`}>{Math.round(s2Fill * 100)}%</span>
+                        </div>
+                        <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mb-2.5">
+                          <div className={`h-full rounded-full ${barCls(s2Fill)}`} style={{ width: `${Math.round(s2Fill * 100)}%` }} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5 mb-2">
+                          {epill('First Visit', fmtD(f.attendedDate))}
+                          {epill('Service', f.serviceAttended)}
+                          {epill('PCS Year', f.year ? String(f.year) : null)}
+                        </div>
+                        {autoMinistry.length > 0 && (
+                          <div className="space-y-1.5">
+                            {autoMinistry.map(r => {
+                              const dur = miniDur(r.from, r.to)
+                              return (
+                                <div key={r.id} className="flex items-center justify-between gap-2 bg-white/15 border border-white/20 rounded-xl px-3 py-2">
+                                  <div className="min-w-0">
+                                    <p className="text-[11px] font-black text-white leading-tight">{r.ministry}{r.role ? <span className="font-normal text-emerald-200"> · {r.role}</span> : ''}</p>
+                                    {r.from && <p className="text-[9px] text-emerald-200 mt-0.5">since {new Date(r.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</p>}
                                   </div>
-                                )
-                              })}
-                            </div>
-                          )}
-                        </div>
-                        {(f.baptised || f.maritalStatus) && (
-                          <div className="px-4 py-3 border-l-4 border-l-violet-300">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-violet-600 mb-2">Spiritual</p>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2.5">
-                              {sv('Baptised', f.baptised === 'yes' ? 'Yes' : f.baptised === 'no' ? 'No' : null)}
-                              {f.baptised === 'yes' && <>{sv('Baptism Date', fmtD(f.baptismDate))}{sv('Baptism Place', f.baptismPlace)}{sv('Baptism Church', f.baptismChurch)}</>}
-                              {sv('Marital Status', f.maritalStatus)}
-                              {f.maritalStatus === 'Married' && <>{sv('Marriage Date', fmtD(f.marriageDate))}{sv('Spouse', f.spouseName)}</>}
-                            </div>
+                                  {dur && <span className="text-[10px] font-black text-emerald-900 bg-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
+                                </div>
+                              )
+                            })}
                           </div>
                         )}
-                        {f.membershipStatus && (
-                          <div className="px-4 py-3 border-l-4 border-l-amber-300">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-amber-600 mb-2">Membership</p>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2.5">
-                              {sv('Status', f.membershipStatus === 'member' ? 'Member' : 'Applying')}
-                              {sv('Membership #', f.membershipNumber)}
-                              {sv('Permanent Address', f.permanentAddress)}
-                            </div>
-                          </div>
-                        )}
-                        <div className="px-4 py-2 bg-slate-50 flex items-center justify-between">
-                          <span className="text-[9px] text-slate-400">PCS Record · River Of Life Church</span>
-                          <span className="text-[9px] text-slate-400">Confidential</span>
-                        </div>
                       </div>
+
+                      {/* ── Spiritual — violet ── */}
+                      {(f.baptised || f.maritalStatus) && (
+                        <div className="bg-violet-600 px-4 pt-3 pb-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-violet-100">Spiritual</p>
+                            <span className={`text-[9px] font-black ${s3Fill === 1 ? 'text-emerald-300' : s3Fill >= 0.5 ? 'text-amber-300' : 'text-red-300'}`}>{Math.round(s3Fill * 100)}%</span>
+                          </div>
+                          <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mb-2.5">
+                            <div className={`h-full rounded-full ${barCls(s3Fill)}`} style={{ width: `${Math.round(s3Fill * 100)}%` }} />
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {vpill('Baptised', f.baptised === 'yes' ? 'Yes' : f.baptised === 'no' ? 'No' : null)}
+                            {f.baptised === 'yes' && <>{vpill('Baptism Date', fmtD(f.baptismDate))}{vpill('Baptism Place', f.baptismPlace)}{vpill('Baptism Church', f.baptismChurch)}</>}
+                            {vpill('Marital Status', f.maritalStatus)}
+                            {f.maritalStatus === 'Married' && <>{vpill('Marriage Date', fmtD(f.marriageDate))}{vpill('Spouse', f.spouseName)}</>}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── Membership — amber ── */}
+                      {f.membershipStatus && (
+                        <div className="bg-amber-500 px-4 pt-3 pb-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-amber-100">Membership</p>
+                            <span className={`text-[9px] font-black ${s4Fill === 1 ? 'text-emerald-200' : s4Fill >= 0.5 ? 'text-white' : 'text-red-200'}`}>{Math.round(s4Fill * 100)}%</span>
+                          </div>
+                          <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mb-2.5">
+                            <div className={`h-full rounded-full ${barCls(s4Fill)}`} style={{ width: `${Math.round(s4Fill * 100)}%` }} />
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {apill('Status', f.membershipStatus === 'member' ? 'Member' : 'Applying')}
+                            {apill('Membership #', f.membershipNumber)}
+                            {apill('Permanent Address', f.permanentAddress)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Footer */}
+                      <div className="bg-slate-800 px-4 py-2 flex items-center justify-between">
+                        <span className="text-[9px] text-slate-400 font-medium">PCS Record · ROL Church</span>
+                        <span className="text-[9px] text-slate-500">Confidential</span>
+                      </div>
+
                     </div>
                   </div>
                 )
