@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Crown, Building2, CalendarCheck,
-  UserCog, FolderOpen, Leaf, PenLine, LogOut, Bell,
+  UserCog, FolderOpen, Leaf, PenLine, LogOut, Bell, Users,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
@@ -17,6 +17,7 @@ const navItems = [
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
   { to: '/sunday-planning', label: 'Sunday Plan', icon: '📋', permission: 'attendance' },
   { to: '/admin/users', label: 'User Management', icon: '👥', permission: 'manageUsers', adminOnly: true },
+  { to: '/people', label: 'People Directory', icon: '🗂️', permission: 'manageUsers', adminOnly: true },
 ]
 
 const ICON_MAP = {
@@ -28,6 +29,7 @@ const ICON_MAP = {
   '📁': FolderOpen,
   '🍃': Leaf,
   '📝': PenLine,
+  '🗂️': Users,
 }
 
 function shortLabel(label) {

@@ -37,7 +37,11 @@
       "Bash(sort -t: -k2 -rn)",
       "Bash(xargs grep -l \"<button\")",
       "Bash(xxd)",
-      "PowerShell(npm run *)"
+      "PowerShell(npm run *)",
+      "Bash(grep -v \"const\\\\|from\\\\|import\\\\|//\")",
+      "Bash(awk '/export async function/ {fname=$4; getline; while \\(NF && !/export async function/\\) { if \\(/addDoc|setDoc|updateDoc|deleteDoc|writeBatch/\\) { print FILENAME\":\"FNR-offset\":\"fname\":\"$0; break } getline; offset++ } offset=0}' src/services/firestore.js)",
+      "Skill(claude-in-chrome)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('scripts', {}\\)\\)\")"
     ]
   }
 }

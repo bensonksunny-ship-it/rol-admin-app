@@ -1665,6 +1665,7 @@ export async function getAllCellGroupMembers() {
     cellId: d.ref.parent.parent.id,
     name: d.data().name || '',
     visitorId: d.data().visitorId || '',
+    since: d.data().since || '',
     status: d.data().status === 'inactive' ? 'inactive' : 'active',
   }))
 }
@@ -3955,6 +3956,70 @@ export async function uploadMemberPhoto(visitorId, file) {
   const storageRef = ref(storage, `member_photos/${visitorId}.${ext}`)
   const snap = await uploadBytes(storageRef, file, { contentType: file.type })
   return getDownloadURL(snap.ref)
+}
+
+// ─── People Directory (central people collection) ────────────────────────────
+// Single source of truth for all personal data. PCS is the gatekeeper.
+
+const PEOPLE_COLLECTION = 'people'
+
+const PERSON_FIELDS = [
+  'name', 'phone', 'email', 'dob', 'nativity', 'currentPlace', 'photoUrl',
+  'firstVisitDate', 'serviceAttended', 'howKnown',
+  'baptised', 'baptismDate', 'baptismPlace', 'baptismChurch',
+  'maritalStatus', 'marriageDate', 'spouseName', 'spousePersonId',
+  'membershipStatus', 'membershipNumber', 'permanentAddress',
+  'leadershipPosition', 'ministries', 'stage',
+]
+
+export async function addPerson(data, addedBy = '') {
+  if (!db) return null
+  const payload = {
+    addedAt: serverTimestamp(),
+    addedBy,
+    lastUpdatedAt: serverTimestamp(),
+    lastUpdatedBy: addedBy,
+  }
+  PERSON_FIELDS.forEach(f => {
+    if (data[f] !== undefined) payload[f] = data[f]
+    else if (f === 'ministries') payload[f] = []
+    else if (f === 'stage') payload[f] = 'visitor'
+    else payload[f] = ''
+  })
+  const ref = await addDoc(collection(db, PEOPLE_COLLECTION), payload)
+  return ref.id
+}
+
+export async function updatePerson(personId, data, updatedBy = '') {
+  if (!db || !personId) return
+  const payload = { lastUpdatedAt: serverTimestamp(), lastUpdatedBy: updatedBy }
+  PERSON_FIELDS.forEach(f => { if (data[f] !== undefined) payload[f] = data[f] })
+  await updateDoc(doc(db, PEOPLE_COLLECTION, personId), payload)
+}
+
+export async function getPerson(personId) {
+  if (!db || !personId) return null
+  const snap = await getDoc(doc(db, PEOPLE_COLLECTION, personId))
+  if (!snap.exists()) return null
+  return { id: snap.id, ...snap.data() }
+}
+
+export async function getPeople() {
+  if (!db) return []
+  const snap = await getDocs(query(collection(db, PEOPLE_COLLECTION), orderBy('name')))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+export async function getAllDepartmentTeamMembers() {
+  if (!db) return []
+  const snap = await getDocs(collection(db, 'department_team_members'))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+export async function getAllWorshipTeamMembers() {
+  if (!db) return []
+  const snap = await getDocs(collection(db, 'worship_team_members'))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }
 
 export async function getMemberProfileWithContext(visitorId) {

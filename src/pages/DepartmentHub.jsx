@@ -86,6 +86,9 @@ import {
   getMemberProfileWithContext,
   upsertMemberProfile,
   uploadMemberPhoto,
+  addPerson,
+  updatePerson,
+  getPerson,
   getSundayPlan,
   setSundayPlanSection,
   sendPCSFillInvitation,
@@ -3754,14 +3757,51 @@ export default function DepartmentHub() {
               setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null)
               setPcsPhotoFile(null); setPcsPhotoPreview(null)
               setPcsExpandedForm({
+                personId: entry.personId || '',
                 name: entry.name || '', phone: entry.phone || '', attendedDate: entry.attendedDate || '',
                 membershipNumber: entry.membershipNumber || '', leadershipPosition: entry.leadershipPosition || '',
                 year: entry.year || '', email: entry.email || '', dob: entry.dob || '', nativity: entry.nativity || '',
                 currentPlace: entry.currentPlace || '', serviceAttended: entry.serviceAttended || '', howKnown: entry.howKnown || '',
+                ministries: entry.ministries || [],
                 baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
                 maritalStatus: '', marriageDate: '', spouseName: '', spouseVisitorId: '',
                 membershipStatus: '', membershipDocs: [], permanentAddress: '', photoUrl: '',
               })
+              // Load full personal data from people collection if linked
+              if (entry.personId) {
+                setPcsExpandedLoading(true)
+                getPerson(entry.personId).then(person => {
+                  if (person) {
+                    setPcsExpandedForm(f => ({
+                      ...f,
+                      name: person.name || f.name,
+                      phone: person.phone || f.phone,
+                      email: person.email || f.email,
+                      dob: person.dob || f.dob,
+                      nativity: person.nativity || f.nativity,
+                      currentPlace: person.currentPlace || f.currentPlace,
+                      serviceAttended: person.serviceAttended || f.serviceAttended,
+                      howKnown: person.howKnown || f.howKnown,
+                      attendedDate: person.firstVisitDate || f.attendedDate,
+                      membershipNumber: person.membershipNumber || f.membershipNumber,
+                      leadershipPosition: person.leadershipPosition || f.leadershipPosition,
+                      ministries: person.ministries?.length ? person.ministries : f.ministries,
+                      baptised: person.baptised || f.baptised,
+                      baptismDate: person.baptismDate || f.baptismDate,
+                      baptismPlace: person.baptismPlace || f.baptismPlace,
+                      baptismChurch: person.baptismChurch || f.baptismChurch,
+                      baptismChurchIsOther: !!person.baptismChurch && person.baptismChurch !== 'River Of Life Christian Church',
+                      maritalStatus: person.maritalStatus || f.maritalStatus,
+                      marriageDate: person.marriageDate || f.marriageDate,
+                      spouseName: person.spouseName || f.spouseName,
+                      membershipStatus: person.membershipStatus || f.membershipStatus,
+                      permanentAddress: person.permanentAddress || f.permanentAddress,
+                      photoUrl: person.photoUrl || f.photoUrl,
+                    }))
+                  }
+                  setPcsExpandedLoading(false)
+                }).catch(() => setPcsExpandedLoading(false))
+              }
               if (entry.visitorId) {
                 setPcsExpandedLoading(true)
                 Promise.all([
@@ -3976,57 +4016,46 @@ export default function DepartmentHub() {
                 </div>
               )
 
-              // ── Stamp view (read-only, portrait, colour-coded) ──────────────
+              // ── Stamp view (read-only, clean portrait) ──────────────
               if (!isEditing) {
                 const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null
 
-                // Coloured field pill: label on top, value below, tinted by section colour
-                const pill = (label, value, bg, labelCls, valueCls, borderCls) => value && String(value).trim()
-                  ? (
-                    <div className={`rounded-xl px-3 py-2 ${bg} border ${borderCls}`}>
-                      <p className={`text-[8px] font-black uppercase tracking-widest mb-0.5 ${labelCls}`}>{label}</p>
-                      <p className={`text-xs font-bold leading-snug ${valueCls}`}>{value}</p>
-                    </div>
-                  ) : null
+                // Clean label+value field
+                const field = (label, value) => value && String(value).trim() ? (
+                  <div className="min-w-0">
+                    <p className="text-[8px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">{label}</p>
+                    <p className="text-[11px] font-semibold text-slate-800 leading-snug">{value}</p>
+                  </div>
+                ) : null
 
-                // Per-section pill helpers
-                const bpill  = (l, v) => pill(l, v, 'bg-blue-50',   'text-blue-400',   'text-blue-900',   'border-blue-100')
-                const epill  = (l, v) => pill(l, v, 'bg-emerald-50','text-emerald-500', 'text-emerald-900','border-emerald-100')
-                const vpill  = (l, v) => pill(l, v, 'bg-violet-50', 'text-violet-400', 'text-violet-900', 'border-violet-100')
-                const apill  = (l, v) => pill(l, v, 'bg-amber-50',  'text-amber-500',  'text-amber-900',  'border-amber-100')
-
-                // Section fill bar
-                const FillBar = ({ fill, color }) => (
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <div className={`flex-1 h-1 rounded-full overflow-hidden ${color.track}`}>
-                      <div className={`h-full rounded-full transition-all ${color.bar}`} style={{ width: `${Math.round(fill * 100)}%` }} />
-                    </div>
-                    <span className={`text-[9px] font-black ${color.text}`}>{Math.round(fill * 100)}%</span>
+                // Section header row: coloured dot + label + optional badge
+                const SH = ({ dot, label, badge }) => (
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />
+                    <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500 flex-1">{label}</p>
+                    {badge}
                   </div>
                 )
 
                 return (
-                  <div className="border-t-2 border-indigo-500 bg-gradient-to-b from-slate-100 to-slate-200 px-3 py-4 flex justify-center">
+                  <div className="border-t-2 border-indigo-500 bg-slate-100 px-3 py-4 flex justify-center">
                     {pcsExpandedLoading && <p className="text-xs text-slate-400 text-center py-6">Loading profile…</p>}
-                    <div className="w-full max-w-xs rounded-3xl shadow-xl overflow-hidden border border-slate-200">
+                    <div className="w-full max-w-[400px] rounded-2xl shadow-lg overflow-hidden border border-slate-200">
 
                       {/* ── Header ── */}
                       <div className="bg-gradient-to-b from-indigo-800 via-indigo-700 to-indigo-600 px-5 pt-5 pb-4 flex flex-col items-center text-center">
                         <p className="text-[8px] font-extrabold uppercase tracking-[0.18em] text-indigo-300 mb-3">River Of Life Church · PCS</p>
-                        {/* Avatar */}
-                        <div className={`w-[72px] h-[72px] rounded-full flex items-center justify-center text-2xl font-black text-white border-[3px] border-white/30 shadow-lg mb-3 ${f.membershipNumber ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-gradient-to-br from-indigo-400 to-violet-500'}`}>
+                        <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black text-white border-[3px] border-white/30 shadow-lg mb-3 ${f.membershipNumber ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-gradient-to-br from-indigo-400 to-violet-500'}`}>
                           {pcsPhotoPreview
-                            ? <img src={pcsPhotoPreview} alt="" className="w-[72px] h-[72px] rounded-full object-cover" />
+                            ? <img src={pcsPhotoPreview} alt="" className="w-16 h-16 rounded-full object-cover" />
                             : (f.name || '?')[0].toUpperCase()}
                         </div>
                         <p className="text-white font-black text-xl leading-tight tracking-tight">{f.name || '—'}</p>
-                        {/* Badges */}
                         <div className="flex flex-wrap justify-center gap-1.5 mt-2">
                           {f.membershipNumber && <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-400/25 text-amber-200 border border-amber-400/40">Member #{f.membershipNumber}</span>}
                           {f.leadershipPosition && <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-400/25 text-emerald-200 border border-emerald-400/40">{f.leadershipPosition}</span>}
                           {churchDuration && <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-white/10 text-indigo-200 border border-white/15">{churchDuration} in church</span>}
                         </div>
-                        {/* Overall completeness */}
                         <div className="mt-3 w-full">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-[8px] font-bold text-white/50 uppercase tracking-wider">Profile completeness</span>
@@ -4036,111 +4065,114 @@ export default function DepartmentHub() {
                             <div className={`h-full rounded-full transition-all duration-500 ${barCls(overallFill)}`} style={{ width: `${Math.round(overallFill * 100)}%` }} />
                           </div>
                         </div>
-                        {/* Buttons */}
                         <div className="flex gap-2 mt-4 w-full">
                           <button type="button" onClick={() => setPcsEditingId(entry.id)}
                             className="flex-1 py-2 rounded-xl bg-white text-indigo-700 text-xs font-black hover:bg-indigo-50 transition-colors shadow">
                             Edit
                           </button>
-                          <button type="button" onClick={() => downloadProfileAsPDF(f, churchDuration, autoMinistry)}
+                          <button type="button" onClick={() => {
+                              const manual = (entry.ministries || []).map(r => ({ ...r, isAuto: false }))
+                              const manualNames = new Set(manual.map(r => r.ministry?.toLowerCase()))
+                              const auto = autoMinistry.filter(a => !manualNames.has(a.ministry?.toLowerCase()))
+                              downloadProfileAsPDF(f, churchDuration, [...manual, ...auto])
+                            }}
                             className="flex-1 py-2 rounded-xl bg-white/10 text-white text-xs font-black hover:bg-white/20 transition-colors border border-white/20">
                             Download PDF
                           </button>
                         </div>
                       </div>
 
-                      {/* ── Contact & Personal — blue ── */}
-                      <div className="bg-blue-600 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <p className="text-[9px] font-black uppercase tracking-[0.15em] text-blue-100">Contact & Personal</p>
-                          <span className={`text-[9px] font-black ${s1Fill === 1 ? 'text-emerald-300' : s1Fill >= 0.5 ? 'text-amber-300' : 'text-red-300'}`}>{Math.round(s1Fill * 100)}%</span>
-                        </div>
-                        <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mb-2.5">
-                          <div className={`h-full rounded-full ${barCls(s1Fill)}`} style={{ width: `${Math.round(s1Fill * 100)}%` }} />
-                        </div>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {bpill('Phone', f.phone)}
-                          {bpill('Email', f.email)}
-                          {bpill('Date of Birth', fmtD(f.dob))}
-                          {bpill('Nativity', f.nativity)}
-                          {bpill('Current Place', f.currentPlace)}
-                          {bpill('How Known', f.howKnown)}
-                        </div>
-                      </div>
+                      {/* ── Body — white, sections divided ── */}
+                      <div className="bg-white divide-y divide-slate-100">
 
-                      {/* ── Church Journey — emerald ── */}
-                      <div className="bg-emerald-600 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <p className="text-[9px] font-black uppercase tracking-[0.15em] text-emerald-100">Church Journey</p>
-                          <span className={`text-[9px] font-black ${s2Fill === 1 ? 'text-emerald-200' : s2Fill >= 0.5 ? 'text-amber-300' : 'text-red-300'}`}>{Math.round(s2Fill * 100)}%</span>
+                        {/* Contact & Personal */}
+                        <div className="px-4 py-3.5">
+                          <SH dot="bg-blue-500" label="Contact & Personal" />
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                            {field('Phone', f.phone)}
+                            {field('Email', f.email)}
+                            {field('Date of Birth', fmtD(f.dob))}
+                            {field('Nativity', f.nativity)}
+                            {field('Current Place', f.currentPlace)}
+                            {field('How Known', f.howKnown)}
+                          </div>
                         </div>
-                        <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mb-2.5">
-                          <div className={`h-full rounded-full ${barCls(s2Fill)}`} style={{ width: `${Math.round(s2Fill * 100)}%` }} />
-                        </div>
-                        <div className="grid grid-cols-2 gap-1.5 mb-2">
-                          {epill('First Visit', fmtD(f.attendedDate))}
-                          {epill('Service', f.serviceAttended)}
-                          {epill('PCS Year', f.year ? String(f.year) : null)}
-                        </div>
-                        {autoMinistry.length > 0 && (
-                          <div className="space-y-1.5">
-                            {autoMinistry.map(r => {
-                              const dur = miniDur(r.from, r.to)
-                              return (
-                                <div key={r.id} className="flex items-center justify-between gap-2 bg-white/15 border border-white/20 rounded-xl px-3 py-2">
-                                  <div className="min-w-0">
-                                    <p className="text-[11px] font-black text-white leading-tight">{r.ministry}{r.role ? <span className="font-normal text-emerald-200"> · {r.role}</span> : ''}</p>
-                                    {r.from && <p className="text-[9px] text-emerald-200 mt-0.5">since {new Date(r.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</p>}
-                                  </div>
-                                  {dur && <span className="text-[10px] font-black text-emerald-900 bg-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
+
+                        {/* Church Journey */}
+                        <div className="px-4 py-3.5">
+                          <SH dot="bg-emerald-500" label="Church Journey"
+                            badge={churchDuration
+                              ? <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">{churchDuration}</span>
+                              : null}
+                          />
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-3">
+                            {field('First Visit', fmtD(f.attendedDate))}
+                            {field('Service', f.serviceAttended)}
+                            {field('PCS Year', f.year ? String(f.year) : null)}
+                          </div>
+                          {(() => {
+                            // Merge manually-entered PCS ministries + auto-detected from dept/worship teams
+                            const manual = (entry.ministries || []).map(r => ({ ...r, isAuto: false }))
+                            const manualNames = new Set(manual.map(r => r.ministry?.toLowerCase()))
+                            const auto = autoMinistry.filter(a => !manualNames.has(a.ministry?.toLowerCase()))
+                            const allM = [...manual, ...auto]
+                            if (!allM.length) return null
+                            return (
+                              <div>
+                                <p className="text-[8px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Ministry & Leadership</p>
+                                <div className="space-y-1.5">
+                                  {allM.map((r, i) => {
+                                    const dur = miniDur(r.from, r.to)
+                                    return (
+                                      <div key={i} className="flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                                        <div className="min-w-0">
+                                          <p className="text-[10px] font-bold text-slate-700 leading-tight">
+                                            {r.ministry}{r.role ? <span className="font-normal text-slate-400"> · {r.role}</span> : ''}
+                                            {r.isAuto && <span className="ml-1 text-[8px] text-slate-300">(auto)</span>}
+                                          </p>
+                                          {r.from && <p className="text-[8px] text-slate-400 mt-0.5">since {new Date(r.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</p>}
+                                        </div>
+                                        {dur && <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
+                                      </div>
+                                    )
+                                  })}
                                 </div>
-                              )
-                            })}
+                              </div>
+                            )
+                          })()}
+                        </div>
+
+                        {/* Spiritual */}
+                        {(f.baptised || f.maritalStatus) && (
+                          <div className="px-4 py-3.5">
+                            <SH dot="bg-violet-500" label="Spiritual" />
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                              {field('Baptised', f.baptised === 'yes' ? 'Yes' : f.baptised === 'no' ? 'No' : null)}
+                              {f.baptised === 'yes' && <>{field('Baptism Date', fmtD(f.baptismDate))}{field('Baptism Place', f.baptismPlace)}{field('Baptism Church', f.baptismChurch)}</>}
+                              {field('Marital Status', f.maritalStatus)}
+                              {f.maritalStatus === 'Married' && <>{field('Marriage Date', fmtD(f.marriageDate))}{field('Spouse', f.spouseName)}</>}
+                            </div>
                           </div>
                         )}
+
+                        {/* Membership */}
+                        {f.membershipStatus && (
+                          <div className="px-4 py-3.5">
+                            <SH dot="bg-amber-500" label="Membership" />
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                              {field('Status', f.membershipStatus === 'member' ? 'Member' : 'Applying')}
+                              {field('Membership #', f.membershipNumber)}
+                              {field('Permanent Address', f.permanentAddress)}
+                            </div>
+                          </div>
+                        )}
+
                       </div>
 
-                      {/* ── Spiritual — violet ── */}
-                      {(f.baptised || f.maritalStatus) && (
-                        <div className="bg-violet-600 px-4 pt-3 pb-3">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-violet-100">Spiritual</p>
-                            <span className={`text-[9px] font-black ${s3Fill === 1 ? 'text-emerald-300' : s3Fill >= 0.5 ? 'text-amber-300' : 'text-red-300'}`}>{Math.round(s3Fill * 100)}%</span>
-                          </div>
-                          <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mb-2.5">
-                            <div className={`h-full rounded-full ${barCls(s3Fill)}`} style={{ width: `${Math.round(s3Fill * 100)}%` }} />
-                          </div>
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {vpill('Baptised', f.baptised === 'yes' ? 'Yes' : f.baptised === 'no' ? 'No' : null)}
-                            {f.baptised === 'yes' && <>{vpill('Baptism Date', fmtD(f.baptismDate))}{vpill('Baptism Place', f.baptismPlace)}{vpill('Baptism Church', f.baptismChurch)}</>}
-                            {vpill('Marital Status', f.maritalStatus)}
-                            {f.maritalStatus === 'Married' && <>{vpill('Marriage Date', fmtD(f.marriageDate))}{vpill('Spouse', f.spouseName)}</>}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── Membership — amber ── */}
-                      {f.membershipStatus && (
-                        <div className="bg-amber-500 px-4 pt-3 pb-3">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-amber-100">Membership</p>
-                            <span className={`text-[9px] font-black ${s4Fill === 1 ? 'text-emerald-200' : s4Fill >= 0.5 ? 'text-white' : 'text-red-200'}`}>{Math.round(s4Fill * 100)}%</span>
-                          </div>
-                          <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mb-2.5">
-                            <div className={`h-full rounded-full ${barCls(s4Fill)}`} style={{ width: `${Math.round(s4Fill * 100)}%` }} />
-                          </div>
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {apill('Status', f.membershipStatus === 'member' ? 'Member' : 'Applying')}
-                            {apill('Membership #', f.membershipNumber)}
-                            {apill('Permanent Address', f.permanentAddress)}
-                          </div>
-                        </div>
-                      )}
-
                       {/* Footer */}
-                      <div className="bg-slate-800 px-4 py-2 flex items-center justify-between">
+                      <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex items-center justify-between">
                         <span className="text-[9px] text-slate-400 font-medium">PCS Record · ROL Church</span>
-                        <span className="text-[9px] text-slate-500">Confidential</span>
+                        <span className="text-[9px] text-slate-400">Confidential</span>
                       </div>
 
                     </div>
@@ -4378,53 +4410,55 @@ export default function DepartmentHub() {
                         )
                       })()}
 
-                      {/* Ministry history table */}
+                      {/* Ministry — editable list */}
                       <div>
-                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Ministry History</p>
-
-                        {/* Auto-detected ministry from department/worship records */}
-                        {autoMinistry.length > 0 ? (
-                          <div className="space-y-2">
-                            {autoMinistry.map(r => {
-                              const fmt = (dateStr) => {
-                                const d = new Date(dateStr)
-                                return isNaN(d) ? dateStr : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-                              }
-                              const dur = r.from ? miniDur(r.from, r.to) : null
-                              return (
-                                <div key={r.id} className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2.5">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div>
-                                      <span className="text-xs font-bold text-indigo-700">{r.ministry}</span>
-                                      {r.role ? <span className="ml-1.5 text-xs text-indigo-500">· {r.role}</span> : null}
-                                    </div>
-                                    {dur && (
-                                      <span className="text-[11px] font-bold text-indigo-600 bg-indigo-100 rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0">
-                                        {dur}
-                                      </span>
-                                    )}
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Ministry</p>
+                          <button type="button"
+                            onClick={() => setF(p => ({ ...p, ministries: [...(p.ministries || []), { ministry: '', role: '', from: '', to: '' }] }))}
+                            className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full hover:bg-emerald-100 transition-colors">
+                            + Add Ministry
+                          </button>
+                        </div>
+                        {(f.ministries || []).length === 0 && (
+                          <p className="text-xs text-slate-400 py-1">No ministry added yet. Use "+ Add Ministry" to record.</p>
+                        )}
+                        <div className="space-y-2">
+                          {(f.ministries || []).map((r, i) => {
+                            const dur = r.from ? miniDur(r.from, r.to) : null
+                            const upd = (k, v) => setF(p => ({ ...p, ministries: p.ministries.map((m, j) => j === i ? { ...m, [k]: v } : m) }))
+                            return (
+                              <div key={i} className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  {dur && <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap">{dur}</span>}
+                                  <button type="button"
+                                    onClick={() => setF(p => ({ ...p, ministries: p.ministries.filter((_, j) => j !== i) }))}
+                                    className="ml-auto text-[10px] font-bold text-red-400 hover:text-red-600 transition-colors">
+                                    Remove
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Ministry</p>
+                                    <input type="text" placeholder="e.g. Worship" value={r.ministry} onChange={e => upd('ministry', e.target.value)} className={inp} />
                                   </div>
-                                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                                    {r.from && (
-                                      <span className="text-[10px] text-indigo-400">
-                                        Joined {fmt(r.from)}
-                                      </span>
-                                    )}
-                                    {r.to
-                                      ? <span className="text-[10px] text-indigo-400">Until {fmt(r.to)}</span>
-                                      : r.from && <span className="text-[10px] font-semibold text-emerald-500">Ongoing</span>
-                                    }
-                                    {dur && (
-                                      <span className="text-[10px] text-indigo-500 font-semibold">Duration: {dur}</span>
-                                    )}
+                                  <div className="space-y-1">
+                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Role</p>
+                                    <input type="text" placeholder="e.g. Vocalist" value={r.role} onChange={e => upd('role', e.target.value)} className={inp} />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">From</p>
+                                    <input type="date" value={r.from} onChange={e => upd('from', e.target.value)} className={inp} />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">To (blank = ongoing)</p>
+                                    <input type="date" value={r.to} onChange={e => upd('to', e.target.value)} className={inp} />
                                   </div>
                                 </div>
-                              )
-                            })}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-slate-400 py-1">No ministry records found. Ministry is recorded automatically when a person is added as a team member in any department.</p>
-                        )}
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
 
                     </div>
@@ -4626,7 +4660,8 @@ export default function DepartmentHub() {
                         onClick={async () => {
                           setPcsExpandedSaving(true)
                           try {
-                            const { name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown,
+                            const { personId, name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown,
+                              ministries,
                               baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
                               membershipStatus, membershipDocs, permanentAddress } = f
                             const resolvedYear = year || (attendedDate ? new Date(attendedDate).getFullYear() : null)
@@ -4638,8 +4673,26 @@ export default function DepartmentHub() {
                               setPcsPhotoFile(null)
                             }
 
-                            await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear })
-                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear ? Number(resolvedYear) : null } : e))
+                            // Write to central people collection (PCS is the gatekeeper)
+                            const personData = {
+                              name, phone, email, dob, nativity, currentPlace,
+                              firstVisitDate: attendedDate, serviceAttended, howKnown,
+                              baptised, baptismDate, baptismPlace, baptismChurch,
+                              maritalStatus, marriageDate, spouseName,
+                              membershipStatus, membershipNumber, permanentAddress,
+                              leadershipPosition, ministries: ministries || [],
+                              stage: membershipStatus === 'member' ? 'member' : 'pcs',
+                              ...(savedPhotoUrl ? { photoUrl: savedPhotoUrl } : {}),
+                            }
+                            let resolvedPersonId = personId
+                            if (resolvedPersonId) {
+                              await updatePerson(resolvedPersonId, personData, userProfile?.email || '')
+                            } else {
+                              resolvedPersonId = await addPerson(personData, userProfile?.email || '')
+                            }
+
+                            await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear, ministries: ministries || [], personId: resolvedPersonId })
+                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear ? Number(resolvedYear) : null, ministries: ministries || [], personId: resolvedPersonId } : e))
                             if (entry.visitorId) {
                               updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }).catch(() => {})
                               updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
@@ -4676,61 +4729,131 @@ export default function DepartmentHub() {
             }
 
             const downloadProfileAsPDF = (data, dur, ministry) => {
-              const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
-              const field = (label, value) => value && String(value).trim()
-                ? `<div style="margin-bottom:10px"><div style="font-size:8px;font-weight:700;color:#6b7280;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px">${label}</div><div style="font-size:12px;color:#111827;font-weight:600">${value}</div></div>`
-                : ''
-              const section = (title, color, content) =>
-                `<div style="margin-bottom:14px;padding:12px 14px;border-radius:8px;background:${color};border-left:3px solid #4338ca">
-                  <div style="font-size:9px;font-weight:800;color:#3730a3;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px">${title}</div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px">${content}</div>
-                </div>`
-              const ministryHtml = ministry?.length
-                ? ministry.map(r => `<div style="font-size:11px;margin-bottom:4px"><span style="font-weight:700;color:#4338ca">${r.ministry}</span>${r.role ? ` · <span style="color:#6b7280">${r.role}</span>` : ''}${r.from ? ` <span style="color:#9ca3af;font-size:10px">since ${fmt(r.from)}</span>` : ''}</div>`).join('')
-                : '<div style="font-size:11px;color:#9ca3af">No ministry records</div>'
+              const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null
 
-              const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PCS Profile – ${data.name || ''}</title>
-              <style>
-                @page { size: A4; margin: 20mm 18mm; }
-                body { font-family: 'Segoe UI', Arial, sans-serif; color: #111827; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                @media print { button { display: none !important; } }
-              </style></head><body>
-              <div style="max-width:680px;margin:0 auto">
-                <!-- Header -->
-                <div style="background:linear-gradient(135deg,#4338ca,#6366f1);border-radius:12px;padding:20px 24px;margin-bottom:18px;color:#fff">
-                  <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:#c7d2fe;margin-bottom:2px">River Of Life Church · Bangalore</div>
-                  <div style="font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#e0e7ff;margin-bottom:14px">Personal Caring System — Profile</div>
-                  <div style="display:flex;align-items:center;gap:16px">
-                    <div style="width:54px;height:54px;border-radius:50%;background:${data.membershipNumber ? '#f59e0b' : 'rgba(255,255,255,0.25)'};display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#fff;flex-shrink:0;border:2px solid rgba(255,255,255,0.4)">${(data.name || '?')[0].toUpperCase()}</div>
-                    <div style="flex:1">
-                      <div style="font-size:22px;font-weight:800;color:#fff;margin-bottom:4px">${data.name || '—'}</div>
-                      <div style="display:flex;flex-wrap:wrap;gap:6px">
-                        ${data.membershipNumber ? `<span style="background:rgba(255,255,255,0.2);color:#fef3c7;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid rgba(255,255,255,0.3)">Member #${data.membershipNumber}</span>` : ''}
-                        ${data.leadershipPosition ? `<span style="background:rgba(255,255,255,0.2);color:#d1fae5;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid rgba(255,255,255,0.3)">${data.leadershipPosition}</span>` : ''}
-                        ${dur ? `<span style="background:rgba(255,255,255,0.2);color:#e0e7ff;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px">${dur} in church</span>` : ''}
+              // Coloured pill chip
+              const chip = (label, value, labelColor, valueColor, bg, border) => value && String(value).trim()
+                ? `<div style="background:${bg};border:1px solid ${border};border-radius:10px;padding:7px 10px;break-inside:avoid">
+                    <div style="font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:${labelColor};margin-bottom:2px">${label}</div>
+                    <div style="font-size:11px;font-weight:700;color:${valueColor};line-height:1.3">${value}</div>
+                  </div>`
+                : ''
+
+              // Field helpers per section colour
+              const bf = (l, v) => chip(l, v, '#1d4ed8', '#1e3a8a', '#dbeafe', '#bfdbfe')
+              const ef = (l, v) => chip(l, v, '#047857', '#064e3b', '#d1fae5', '#a7f3d0')
+              const vf = (l, v) => chip(l, v, '#6d28d9', '#4c1d95', '#ede9fe', '#ddd6fe')
+              const af = (l, v) => chip(l, v, '#b45309', '#78350f', '#fef3c7', '#fde68a')
+
+              const secBand = (title, titleColor, titleBg, bgColor, fillPct, chips) =>
+                `<div style="margin-bottom:0;background:${bgColor};padding:14px 16px 16px;break-inside:avoid">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <div style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;color:${titleColor}">${title}</div>
+                    <div style="font-size:9px;font-weight:900;color:${titleColor}">${fillPct}</div>
+                  </div>
+                  <div style="width:100%;height:4px;background:rgba(255,255,255,0.25);border-radius:4px;margin-bottom:12px;overflow:hidden">
+                    <div style="height:100%;width:${fillPct};background:rgba(255,255,255,0.8);border-radius:4px"></div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${chips}</div>
+                </div>`
+
+              const ministryRows = ministry?.length
+                ? ministry.map(r => {
+                    const from = r.from ? new Date(r.from) : null
+                    const to   = r.to   ? new Date(r.to)   : new Date()
+                    const tot  = from ? (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) : 0
+                    const yrs  = Math.floor(tot / 12), mos = tot % 12
+                    const dur  = from ? ([yrs > 0 ? `${yrs}y` : '', mos > 0 ? `${mos}m` : ''].filter(Boolean).join(' ') || '<1m') : ''
+                    return `<div style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);border-radius:10px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;break-inside:avoid">
+                      <div>
+                        <div style="font-size:11px;font-weight:800;color:#fff">${r.ministry}${r.role ? `<span style="font-weight:500;color:rgba(255,255,255,0.7)"> · ${r.role}</span>` : ''}</div>
+                        ${from ? `<div style="font-size:9px;color:rgba(255,255,255,0.6);margin-top:2px">since ${from.toLocaleDateString('en-IN',{month:'short',year:'numeric'})}</div>` : ''}
                       </div>
+                      ${dur ? `<span style="font-size:10px;font-weight:900;background:#d1fae5;color:#064e3b;padding:2px 8px;border-radius:20px;white-space:nowrap;flex-shrink:0">${dur}</span>` : ''}
+                    </div>`
+                  }).join('')
+                : '<div style="font-size:11px;color:rgba(255,255,255,0.5)">No ministry records</div>'
+
+              const s1Pct = Math.round(['name','phone','email','dob','nativity','currentPlace','serviceAttended','howKnown','attendedDate'].filter(k => data[k] && String(data[k]).trim()).length / 9 * 100) + '%'
+              const s3Keys = ['baptised','maritalStatus',...(data.baptised==='yes'?['baptismDate','baptismPlace','baptismChurch']:[]),...(data.maritalStatus==='Married'?['marriageDate','spouseName']:[])]
+              const s3Pct = s3Keys.length ? Math.round(s3Keys.filter(k => data[k] && String(data[k]).trim()).length / s3Keys.length * 100) + '%' : '0%'
+
+              const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PCS — ${data.name || 'Profile'}</title>
+              <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                @page { size: A4 portrait; margin: 0; }
+                html, body { width: 210mm; height: 297mm; font-family: 'Segoe UI', Arial, sans-serif; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+                body { background: #f1f5f9; }
+                @media print { .no-print { display:none !important; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
+              </style></head><body>
+              <div style="width:210mm;min-height:297mm;background:#f1f5f9;display:flex;flex-direction:column">
+
+                <!-- Indigo header -->
+                <div style="background:linear-gradient(160deg,#3730a3 0%,#4f46e5 50%,#6366f1 100%);padding:28px 24px 22px;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+                  <div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.2em;color:#a5b4fc;margin-bottom:2px">River Of Life Church · Bangalore</div>
+                  <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;color:#e0e7ff;margin-bottom:18px">Personal Caring System — Profile</div>
+                  <!-- Avatar -->
+                  <div style="width:72px;height:72px;border-radius:50%;background:${data.membershipNumber ? 'linear-gradient(135deg,#f59e0b,#f97316)' : 'linear-gradient(135deg,#818cf8,#a78bfa)'};display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:900;color:#fff;margin:0 auto 14px;border:3px solid rgba(255,255,255,0.3)">
+                    ${(data.name || '?')[0].toUpperCase()}
+                  </div>
+                  <div style="font-size:22px;font-weight:900;color:#fff;margin-bottom:8px;letter-spacing:-.3px">${data.name || '—'}</div>
+                  <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-bottom:14px">
+                    ${data.membershipNumber ? `<span style="background:rgba(251,191,36,0.25);color:#fde68a;font-size:10px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid rgba(251,191,36,0.4)">Member #${data.membershipNumber}</span>` : ''}
+                    ${data.leadershipPosition ? `<span style="background:rgba(52,211,153,0.2);color:#a7f3d0;font-size:10px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid rgba(52,211,153,0.35)">${data.leadershipPosition}</span>` : ''}
+                    ${dur ? `<span style="background:rgba(255,255,255,0.12);color:#c7d2fe;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.2)">${dur} in church</span>` : ''}
+                  </div>
+                  <!-- Overall bar -->
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <div style="flex:1;height:5px;background:rgba(255,255,255,0.2);border-radius:5px;overflow:hidden">
+                      <div style="height:100%;width:${s1Pct};background:rgba(255,255,255,0.7);border-radius:5px"></div>
                     </div>
+                    <span style="font-size:10px;font-weight:900;color:rgba(255,255,255,0.6);white-space:nowrap">${s1Pct} complete</span>
                   </div>
                 </div>
-                ${section('Contact & Personal', '#eff6ff', field('Phone', data.phone) + field('Email', data.email) + field('How Known / Referred By', data.howKnown) + field('Date of Birth', fmt(data.dob)) + field('Nativity / Hometown', data.nativity) + field('Current Place', data.currentPlace))}
-                ${section('Church Journey', '#f0fdf4', field('First Visit Date', fmt(data.attendedDate)) + field('Service Attended', data.serviceAttended) + field('PCS Year', data.year ? String(data.year) : ''))}
-                <div style="margin-bottom:14px;padding:12px 14px;border-radius:8px;background:#f5f3ff;border-left:3px solid #4338ca">
-                  <div style="font-size:9px;font-weight:800;color:#3730a3;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px">Ministry History</div>
-                  ${ministryHtml}
+
+                <!-- Blue — Contact & Personal -->
+                ${secBand('Contact & Personal','#1e3a8a','#1e40af','#2563eb', s1Pct,
+                  bf('Phone', data.phone) + bf('Email', data.email) + bf('Date of Birth', fmt(data.dob)) + bf('Nativity', data.nativity) + bf('Current Place', data.currentPlace) + bf('How Known', data.howKnown)
+                )}
+
+                <!-- Emerald — Church Journey -->
+                <div style="background:#059669;padding:14px 16px 16px;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                    <div style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;color:#d1fae5">Church Journey</div>
+                    ${dur ? `<span style="font-size:11px;font-weight:900;color:#fff;background:rgba(255,255,255,0.18);padding:3px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.25)">${dur} in church</span>` : ''}
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:${ministry?.length ? '10px' : '0'}">
+                    ${ef('First Visit', fmt(data.attendedDate))} ${ef('Service Attended', data.serviceAttended)} ${ef('PCS Year', data.year ? String(data.year) : null)}
+                  </div>
+                  ${ministry?.length ? `
+                    <div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#a7f3d0;margin-bottom:6px">Ministry & Leadership</div>
+                    <div style="display:flex;flex-direction:column;gap:6px">${ministryRows}</div>` : ''}
                 </div>
-                ${data.baptised || data.maritalStatus ? section('Spiritual', '#fdf4ff', field('Baptised', data.baptised === 'yes' ? 'Yes' : data.baptised === 'no' ? 'No' : '') + field('Baptism Date', fmt(data.baptismDate)) + field('Baptism Place', data.baptismPlace) + field('Baptism Church', data.baptismChurch) + field('Marital Status', data.maritalStatus) + field('Marriage Date', fmt(data.marriageDate)) + field('Spouse', data.spouseName)) : ''}
-                ${data.membershipStatus ? section('Membership', '#fffbeb', field('Status', data.membershipStatus === 'member' ? 'Member' : 'Applying') + field('Membership #', data.membershipNumber) + field('Permanent Address', data.permanentAddress)) : ''}
-                <div style="margin-top:20px;padding-top:12px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center">
-                  <span style="font-size:10px;color:#9ca3af">Generated ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} · River Of Life Church Bangalore</span>
-                  <span style="font-size:10px;color:#9ca3af">Confidential — PCS Record</span>
+
+                <!-- Violet — Spiritual -->
+                ${(data.baptised || data.maritalStatus) ? secBand('Spiritual','#4c1d95','#5b21b6','#7c3aed', s3Pct,
+                  vf('Baptised', data.baptised === 'yes' ? 'Yes' : data.baptised === 'no' ? 'No' : null) +
+                  (data.baptised === 'yes' ? vf('Baptism Date', fmt(data.baptismDate)) + vf('Baptism Place', data.baptismPlace) + vf('Baptism Church', data.baptismChurch) : '') +
+                  vf('Marital Status', data.maritalStatus) +
+                  (data.maritalStatus === 'Married' ? vf('Marriage Date', fmt(data.marriageDate)) + vf('Spouse', data.spouseName) : '')
+                ) : ''}
+
+                <!-- Amber — Membership -->
+                ${data.membershipStatus ? secBand('Membership','#78350f','#92400e','#d97706','—',
+                  af('Status', data.membershipStatus === 'member' ? 'Member' : 'Applying') + af('Membership #', data.membershipNumber) + af('Permanent Address', data.permanentAddress)
+                ) : ''}
+
+                <!-- Footer -->
+                <div style="background:#1e293b;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;margin-top:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+                  <span style="font-size:9px;color:#64748b">Generated ${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})} · River Of Life Church</span>
+                  <span style="font-size:9px;color:#475569;font-weight:700">Confidential · PCS Record</span>
                 </div>
               </div>
-              <script>window.onload = function() { window.print() }<\/script>
+              <script>window.onload=function(){window.print()}<\/script>
               </body></html>`
 
-              const win = window.open('', '_blank', 'width=900,height=700')
-              win.document.write(html)
-              win.document.close()
+              const win = window.open('', '_blank', 'width=900,height=750')
+              if (win) { win.document.write(html); win.document.close() }
             }
 
             // Inactive cell members who still appear in PCS
@@ -4780,12 +4903,19 @@ export default function DepartmentHub() {
                   <PCSManualEntryModal
                     onSave={async (data) => {
                       const tempId = `temp_${Date.now()}`
-                      const optimistic = { id: tempId, visitorId: '', ...data, addedAt: new Date(), addedBy: userProfile?.email || '' }
+                      const optimistic = { id: tempId, visitorId: '', personId: '', ...data, addedAt: new Date(), addedBy: userProfile?.email || '' }
                       setPcsEntries(prev => [optimistic, ...prev])
                       setPcsManualOpen(false)
                       try {
-                        const realId = await addPCSEntry({ ...data, addedBy: userProfile?.email || 'unknown' })
-                        if (realId) setPcsEntries(prev => prev.map(e => e.id === tempId ? { ...e, id: realId } : e))
+                        const personId = await addPerson({
+                          name: data.name, phone: data.phone,
+                          firstVisitDate: data.attendedDate,
+                          membershipNumber: data.membershipNumber || '',
+                          leadershipPosition: data.leadershipPosition || '',
+                          stage: 'pcs',
+                        }, userProfile?.email || '')
+                        const realId = await addPCSEntry({ ...data, personId, addedBy: userProfile?.email || 'unknown' })
+                        if (realId) setPcsEntries(prev => prev.map(e => e.id === tempId ? { ...e, id: realId, personId } : e))
                       } catch {
                         setPcsEntries(prev => prev.filter(e => e.id !== tempId))
                         alert('Failed to add entry. Please try again.')
@@ -4801,10 +4931,18 @@ export default function DepartmentHub() {
                     addedIds={new Set(pcsEntries.map((e) => e.visitorId))}
                     onAdd={(v) => {
                       const tempId = `temp_${Date.now()}`
-                      const optimistic = { id: tempId, visitorId: v.id, name: v.name, phone: v.phone, attendedDate: v.attendedDate, year: v.year, addedAt: new Date(), addedBy: userProfile?.email || '' }
+                      const optimistic = { id: tempId, visitorId: v.id, personId: '', name: v.name, phone: v.phone, attendedDate: v.attendedDate, year: v.year, addedAt: new Date(), addedBy: userProfile?.email || '' }
                       setPcsEntries((prev) => [optimistic, ...prev])
-                      addPCSEntry({ visitorId: v.id, name: v.name, phone: v.phone, attendedDate: v.attendedDate, year: v.year, addedBy: userProfile?.email || 'unknown' })
-                        .then((realId) => { if (realId) setPcsEntries((prev) => prev.map((e) => e.id === tempId ? { ...e, id: realId } : e)) })
+                      addPerson({
+                        name: v.name, phone: v.phone, email: v.email || '',
+                        dob: v.dob || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '',
+                        firstVisitDate: v.attendedDate, serviceAttended: v.serviceAttended || '',
+                        howKnown: v.howKnown || '', stage: 'pcs',
+                      }, userProfile?.email || '')
+                        .then(personId =>
+                          addPCSEntry({ visitorId: v.id, personId, name: v.name, phone: v.phone, attendedDate: v.attendedDate, year: v.year, addedBy: userProfile?.email || 'unknown' })
+                            .then((realId) => { if (realId) setPcsEntries((prev) => prev.map((e) => e.id === tempId ? { ...e, id: realId, personId } : e)) })
+                        )
                         .catch(() => { setPcsEntries((prev) => prev.filter((e) => e.id !== tempId)) })
                     }}
                     onClose={() => setPcsPickerOpen(false)}

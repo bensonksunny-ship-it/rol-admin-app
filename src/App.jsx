@@ -27,6 +27,7 @@ import SundayMinistryPastor from './pages/SundayMinistryPastor'
 import SeniorPastorHub from './pages/SeniorPastorHub'
 import EntryPage from './pages/accounts/EntryPage'
 import DLightMembers from './pages/DLightMembers'
+import PeopleDirectory from './pages/PeopleDirectory'
 import OfflineBanner from './components/OfflineBanner'
 
 function App() {
@@ -53,6 +54,7 @@ function App() {
               <Route path="finance" element={<Finance />} />
               <Route path="reports" element={<Reports />} />
               <Route path="admin/users" element={<AdminUserManagement />} />
+              <Route path="people" element={<PeopleDirectory />} />
               <Route path="cell/users" element={<CellUserManagement />} />
               <Route path="department/worship" element={<DepartmentWorship />} />
               <Route path="department/sunday-ministry/sunday" element={<Sunday />} />
