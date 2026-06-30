@@ -16,6 +16,7 @@ import {
   getCellMemberPendingChanges,
   getPCSLookup,
   getMemberProfile,
+  getDelightVisitorById,
   upsertMemberProfile,
   subscribePCSFillInvitationsByCellId,
   completePCSFillInvitation,
@@ -28,6 +29,19 @@ import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useViewAs } from '../context/ViewAsContext'
 import { useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
+
+function fmt(d) {
+  if (!d) return null
+  try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) } catch { return String(d) }
+}
+
+function miniDur(from, to) {
+  if (!from) return ''
+  const s = new Date(from), e = to ? new Date(to) : new Date()
+  const tot = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth())
+  const y = Math.floor(tot / 12), m = tot % 12
+  return [y > 0 ? `${y}y` : '', m > 0 ? `${m}m` : ''].filter(Boolean).join(' ') || '<1m'
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -120,7 +134,6 @@ function isUpcomingSoon(dateStr, days = 7) {
 export default function ShepherdView({ embedded = false }) {
   const { userProfile } = useAuth()
   const [searchParamsRoot, setSearchParamsRoot] = useSearchParams()
-  const [tab, setTab] = useState('members')
 
   // When a fill-invite notification is tapped, the URL gains openFillInvite=<id>.
   // Switch to My Fellowship immediately so MyFellowshipTab mounts and can open the form.
@@ -154,31 +167,10 @@ export default function ShepherdView({ embedded = false }) {
       <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
         {/* Page Header */}
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Shepherd Dashboard</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Shepherd Care</h1>
           <p className="text-slate-500 text-sm mt-0.5">
             Shepherd your members · Manage your fellowship
           </p>
-        </div>
-
-        {/* Inner tab strip */}
-        <div className="flex gap-1 bg-slate-100 rounded-2xl p-1 overflow-x-auto">
-          {[
-            { key: 'members', label: '💚 Shepherd Care' },
-            { key: 'fellowship', label: '👥 My Fellowship' },
-          ].map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
-                tab === key
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
         </div>
 
         {/* ViewAs indicator */}
@@ -188,27 +180,24 @@ export default function ShepherdView({ embedded = false }) {
           </div>
         )}
 
-        {tab === 'members' && (
-          <ShepherdCareTab
-            userProfile={userProfile}
-            isDirector={effectiveIsDirector}
-            isLeader={isLeader}
-            canSeeAllCells={effectiveCanSeeAllCells}
-            canTransfer={capabilities.canTransferMembers}
-          />
-        )}
-        {tab === 'fellowship' && (
-          <MyFellowshipTab
-            userProfile={userProfile}
-            isDirector={effectiveIsDirector}
-            isLeader={isLeader}
-            cellGroups={[]}
-            autoFillInviteId={openFillInviteId}
-            onAutoFillInviteConsumed={() =>
-              setSearchParamsRoot(prev => { const n = new URLSearchParams(prev); n.delete('openFillInvite'); return n }, { replace: true })
-            }
-          />
-        )}
+        <ShepherdCareTab
+          userProfile={userProfile}
+          isDirector={effectiveIsDirector}
+          isLeader={isLeader}
+          canSeeAllCells={effectiveCanSeeAllCells}
+          canTransfer={capabilities.canTransferMembers}
+        />
+
+        <MyFellowshipTab
+          userProfile={userProfile}
+          isDirector={effectiveIsDirector}
+          isLeader={isLeader}
+          cellGroups={[]}
+          autoFillInviteId={openFillInviteId}
+          onAutoFillInviteConsumed={() =>
+            setSearchParamsRoot(prev => { const n = new URLSearchParams(prev); n.delete('openFillInvite'); return n }, { replace: true })
+          }
+        />
       </div>
     </div>
   )
@@ -349,9 +338,11 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [savingPrayer, setSavingPrayer]   = useState(false)
 
   // Member detail sheet
-  const [detailMember, setDetailMember]   = useState(null)
-  const [detailProfile, setDetailProfile] = useState(null)
-  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailMember, setDetailMember]         = useState(null)
+  const [detailProfile, setDetailProfile]       = useState(null)
+  const [detailVisitor, setDetailVisitor]       = useState(null)
+  const [detailAttendance, setDetailAttendance] = useState([])
+  const [detailLoading, setDetailLoading]       = useState(false)
 
   // PCS lookup — names + visitorIds of people already in PCS
   const [pcsNames, setPcsNames]     = useState(new Set())
@@ -645,6 +636,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               const bday       = member.birthday
               const anniv      = member.anniversary
               const bdaySoon   = isUpcomingSoon(bday)
+              const bdaySoon30 = isUpcomingSoon(bday, 30)
               const annivSoon  = isUpcomingSoon(anniv)
               const inPCS      = isInPCS(member)
               const notified   = notifiedPCS.has(member.id)
@@ -667,13 +659,27 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                       onClick={() => {
                         setDetailMember(member)
                         setDetailProfile(null)
-                        if (member.visitorId) {
-                          setDetailLoading(true)
-                          getMemberProfile(member.visitorId)
-                            .then(p => setDetailProfile(p))
-                            .catch(() => {})
-                            .finally(() => setDetailLoading(false))
-                        }
+                        setDetailVisitor(null)
+                        setDetailAttendance([])
+                        setDetailLoading(true)
+                        const memberNameLower = String(member.name || '').trim().toLowerCase()
+                        Promise.all([
+                          member.visitorId ? getMemberProfile(member.visitorId).catch(() => null) : Promise.resolve(null),
+                          member.visitorId ? getDelightVisitorById(member.visitorId).catch(() => null) : Promise.resolve(null),
+                          selectedCellId ? getRecentCellReportsForHeatmap(selectedCellId, 5).catch(() => []) : Promise.resolve([]),
+                        ]).then(([profile, visitor, reports]) => {
+                          setDetailProfile(profile)
+                          setDetailVisitor(visitor)
+                          const todayStr = new Date().toISOString().slice(0, 10)
+                          setDetailAttendance(
+                            reports
+                              .filter(r => r.reportDate && r.reportDate <= todayStr)
+                              .map(r => ({
+                                date: r.reportDate,
+                                present: r.attendeeNames.has(memberNameLower),
+                              }))
+                          )
+                        }).finally(() => setDetailLoading(false))
                       }}
                     >
                       <span className={`w-3 h-3 rounded-full flex-shrink-0 mt-0.5 ${GLOW_DOT[glow]}`} />
@@ -721,7 +727,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                   {/* ── Birthday / Anniversary ── */}
                   {(bday || anniv) && (
                     <div className="flex flex-wrap gap-1.5 mb-3">
-                      {bday && (
+                      {bdaySoon30 && (
                         <span className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1 font-medium ${
                           bdaySoon ? 'bg-pink-100 text-pink-700' : 'bg-pink-50 text-pink-600'
                         }`}>
@@ -923,138 +929,279 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
             </div>
 
             {/* Scrollable body */}
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+            <div className="overflow-y-auto flex-1 px-4 py-4 space-y-3 bg-slate-50">
 
-              {/* Contact */}
-              {(detailMember.phone || detailMember.email) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Contact</p>
-                  <div className="space-y-2">
-                    {detailMember.phone && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-400 text-sm">📞</span>
-                        <a href={`tel:${detailMember.phone}`} className="text-sm text-slate-800 hover:text-indigo-600">{detailMember.phone}</a>
-                      </div>
-                    )}
-                    {detailMember.email && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-400 text-sm">✉</span>
-                        <a href={`mailto:${detailMember.email}`} className="text-sm text-slate-800 hover:text-indigo-600 break-all">{detailMember.email}</a>
-                      </div>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              {/* Location */}
-              {(detailMember.locality || detailMember.address) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Location</p>
-                  {detailMember.locality && <p className="text-sm text-slate-800">📍 {detailMember.locality}</p>}
-                  {detailMember.address && <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{detailMember.address}</p>}
-                </section>
-              )}
-
-              {/* Personal */}
-              {(detailMember.birthday || detailMember.anniversary || detailMember.occupation) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Personal</p>
-                  <div className="space-y-1.5">
-                    {detailMember.birthday && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">🎂</span>
-                        <span className="text-sm text-slate-800">{detailMember.birthday}</span>
-                        {isUpcomingSoon(detailMember.birthday) && <span className="text-xs text-pink-500 font-semibold">Soon!</span>}
-                      </div>
-                    )}
-                    {detailMember.anniversary && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">💍</span>
-                        <span className="text-sm text-slate-800">{detailMember.anniversary}</span>
-                        {isUpcomingSoon(detailMember.anniversary) && <span className="text-xs text-rose-500 font-semibold">Soon!</span>}
-                      </div>
-                    )}
-                    {detailMember.occupation && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">💼</span>
-                        <span className="text-sm text-slate-800">{detailMember.occupation}</span>
-                      </div>
+              {/* Contact icons */}
+              {(() => {
+                const ph = normalisePhone(detailMember.phone)
+                const email = detailMember.email || detailVisitor?.email
+                if (!ph && !email) return null
+                return (
+                  <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
+                    <div className="flex gap-5">
+                      {ph && (
+                        <a href={`tel:+91${ph}`} className="flex flex-col items-center gap-1 group">
+                          <span className="w-11 h-11 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-100 transition">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.35 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.6a16 16 0 0 0 6 6l.96-.96a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16z"/></svg>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">Call</span>
+                        </a>
+                      )}
+                      {ph && (
+                        <a href={`https://wa.me/91${ph}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1 group">
+                          <span className="w-11 h-11 rounded-full bg-green-50 text-green-600 flex items-center justify-center group-hover:bg-green-100 transition">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">WhatsApp</span>
+                        </a>
+                      )}
+                      {email && (
+                        <a href={`mailto:${email}`} className="flex flex-col items-center gap-1 group">
+                          <span className="w-11 h-11 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-100 transition">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">Email</span>
+                        </a>
+                      )}
+                    </div>
+                    {normalisePhone(detailMember.phone) && (
+                      <p className="text-[10px] text-slate-400 mt-2">{detailMember.phone}</p>
                     )}
                   </div>
-                </section>
-              )}
+                )
+              })()}
 
-              {/* Cell Involvement */}
-              {(detailMember.role || detailMember.since) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Cell Involvement</p>
-                  <div className="space-y-1.5">
-                    {detailMember.role && <p className="text-sm text-slate-800">🏷 {detailMember.role}</p>}
-                    {detailMember.since && <p className="text-sm text-slate-800">⏳ Member since {detailMember.since}</p>}
-                  </div>
-                </section>
-              )}
-
-              {/* Faith background — from member_profiles (public read) */}
-              {detailLoading && (
-                <p className="text-xs text-slate-400 text-center py-2">Loading faith details…</p>
-              )}
-              {!detailLoading && detailProfile && (detailProfile.baptised || detailProfile.maritalStatus) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Faith Background</p>
-                  <div className="space-y-1.5">
-                    {detailProfile.baptised === 'yes' && (
-                      <div>
-                        <p className="text-sm text-slate-800">✝ Baptised</p>
-                        {detailProfile.baptismDate && <p className="text-xs text-slate-500 ml-5">{detailProfile.baptismDate}{detailProfile.baptismPlace ? ` · ${detailProfile.baptismPlace}` : ''}</p>}
-                        {detailProfile.baptismChurch && <p className="text-xs text-slate-500 ml-5">{detailProfile.baptismChurch}</p>}
+              {detailLoading ? (
+                <p className="text-xs text-slate-400 text-center py-4">Loading details…</p>
+              ) : (
+                <>
+                  {/* Personal */}
+                  {(detailVisitor?.dob || detailMember.birthday || detailMember.anniversary || detailVisitor?.nativity || detailVisitor?.currentPlace || detailMember.locality || detailMember.address || detailMember.occupation || detailVisitor?.howKnown) && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Personal</p>
                       </div>
-                    )}
-                    {detailProfile.baptised === 'no' && <p className="text-sm text-slate-800">✝ Not yet baptised</p>}
-                    {detailProfile.maritalStatus && (
-                      <div>
-                        <p className="text-sm text-slate-800">💑 {detailProfile.maritalStatus}</p>
-                        {detailProfile.spouseName && <p className="text-xs text-slate-500 ml-5">Spouse: {detailProfile.spouseName}</p>}
+                      <div className="px-3 py-1 divide-y divide-slate-50">
+                        {(detailVisitor?.dob || detailMember.birthday) && (() => {
+                          const d = detailVisitor?.dob || detailMember.birthday
+                          return (
+                            <div className="flex items-start justify-between gap-2 py-1.5">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Date of Birth</span>
+                              <span className="text-[11px] font-semibold text-right text-slate-800">
+                                {fmt(d)}
+                                {isUpcomingSoon(d, 30) && <span className="ml-1 text-pink-500">🎂</span>}
+                              </span>
+                            </div>
+                          )
+                        })()}
+                        {detailMember.anniversary && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Anniversary</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">
+                              {fmt(detailMember.anniversary)}
+                              {isUpcomingSoon(detailMember.anniversary, 30) && <span className="ml-1 text-rose-500">💍</span>}
+                            </span>
+                          </div>
+                        )}
+                        {detailVisitor?.nativity && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Nativity</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailVisitor.nativity}</span>
+                          </div>
+                        )}
+                        {detailVisitor?.currentPlace && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Current Place</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailVisitor.currentPlace}</span>
+                          </div>
+                        )}
+                        {detailMember.locality && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Locality</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailMember.locality}</span>
+                          </div>
+                        )}
+                        {detailMember.address && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Address</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800 leading-snug">{detailMember.address}</span>
+                          </div>
+                        )}
+                        {detailMember.occupation && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Occupation</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailMember.occupation}</span>
+                          </div>
+                        )}
+                        {detailVisitor?.howKnown && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">How Known</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailVisitor.howKnown}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </section>
-              )}
+                    </div>
+                  )}
 
-              {/* Membership status */}
-              {!detailLoading && detailProfile?.membershipStatus && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Membership</p>
-                  <p className="text-sm text-slate-800">🪪 {detailProfile.membershipStatus}</p>
-                </section>
-              )}
+                  {/* Church Journey */}
+                  {(detailVisitor?.attendedDate || detailVisitor?.serviceAttended || detailMember.role || detailMember.since) && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Church Journey</p>
+                      </div>
+                      <div className="px-3 py-3 space-y-2">
+                        {detailVisitor?.attendedDate && (
+                          <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                            <div>
+                              <p className="text-[8px] font-bold uppercase tracking-widest text-emerald-100 mb-0.5">Time in Church</p>
+                              <p className="text-base font-black text-white leading-tight">{miniDur(detailVisitor.attendedDate)}</p>
+                              <p className="text-[9px] text-emerald-100 mt-0.5">since {fmt(detailVisitor.attendedDate)}</p>
+                            </div>
+                            {detailVisitor.serviceAttended && (
+                              <span className="text-[9px] font-bold text-emerald-100 bg-white/20 px-2 py-1 rounded-full border border-white/30">{detailVisitor.serviceAttended}</span>
+                            )}
+                          </div>
+                        )}
+                        {!detailVisitor?.attendedDate && detailVisitor?.serviceAttended && (
+                          <div className="flex items-start justify-between gap-2 py-1">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Service</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailVisitor.serviceAttended}</span>
+                          </div>
+                        )}
+                        {(detailMember.role || detailMember.since) && (
+                          <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-lg px-2.5 py-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              {detailMember.role && <p className="text-[10px] font-bold text-slate-700">{detailMember.role}</p>}
+                              {detailMember.since && <p className="text-[9px] text-slate-400">Cell member since {fmt(detailMember.since)}</p>}
+                            </div>
+                            {detailMember.since && miniDur(detailMember.since) && (
+                              <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
+                                {miniDur(detailMember.since)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
-              {/* Shepherd Notes */}
-              {detailMember.notes && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Shepherd Notes</p>
-                  <p className="text-sm text-slate-700 leading-relaxed italic">{detailMember.notes}</p>
-                </section>
+                  {/* Spiritual & Membership */}
+                  {detailProfile && (detailProfile.baptised || detailProfile.maritalStatus || detailProfile.membershipStatus || detailProfile.permanentAddress) && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Spiritual & Membership</p>
+                      </div>
+                      <div className="px-3 py-1 divide-y divide-slate-50">
+                        {detailProfile.baptised && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Baptised</span>
+                            <span className={`text-[11px] font-semibold text-right ${detailProfile.baptised === 'yes' ? 'text-emerald-700' : 'text-slate-800'}`}>
+                              {detailProfile.baptised === 'yes' ? 'Yes' : detailProfile.baptised === 'no' ? 'No' : detailProfile.baptised}
+                            </span>
+                          </div>
+                        )}
+                        {detailProfile.baptised === 'yes' && detailProfile.baptismDate && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Baptism Date</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{fmt(detailProfile.baptismDate)}</span>
+                          </div>
+                        )}
+                        {detailProfile.baptised === 'yes' && detailProfile.baptismPlace && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Baptism Place</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailProfile.baptismPlace}</span>
+                          </div>
+                        )}
+                        {detailProfile.baptised === 'yes' && detailProfile.baptismChurch && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Baptism Church</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailProfile.baptismChurch}</span>
+                          </div>
+                        )}
+                        {detailProfile.maritalStatus && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Marital Status</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800 capitalize">{detailProfile.maritalStatus}</span>
+                          </div>
+                        )}
+                        {detailProfile.maritalStatus?.toLowerCase() === 'married' && detailProfile.marriageDate && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Marriage Date</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{fmt(detailProfile.marriageDate)}</span>
+                          </div>
+                        )}
+                        {detailProfile.maritalStatus?.toLowerCase() === 'married' && detailProfile.spouseName && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Spouse</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailProfile.spouseName}</span>
+                          </div>
+                        )}
+                        {detailProfile.membershipStatus && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Membership</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800 capitalize">{detailProfile.membershipStatus}</span>
+                          </div>
+                        )}
+                        {detailProfile.permanentAddress && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Perm. Address</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800 leading-snug">{detailProfile.permanentAddress}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cell Attendance */}
+                  {detailAttendance.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Cell Attendance (last {detailAttendance.length})</p>
+                      </div>
+                      <div className="px-3 py-1 divide-y divide-slate-50">
+                        {detailAttendance.map((r, i) => (
+                          <div key={i} className="flex items-center gap-2.5 py-1.5">
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] flex-shrink-0 ${r.present ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-500'}`}>
+                              {r.present ? '✓' : '✕'}
+                            </span>
+                            <span className="text-[11px] font-semibold text-slate-700 flex-1">{r.date ? fmt(r.date) : '—'}</span>
+                            <span className={`text-[10px] font-medium ${r.present ? 'text-green-600' : 'text-red-400'}`}>
+                              {r.present ? 'Present' : 'Absent'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Shepherd Notes */}
+                  {detailMember.notes && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Shepherd Notes</p>
+                      </div>
+                      <div className="px-3 py-3">
+                        <p className="text-sm text-slate-700 leading-relaxed italic">{detailMember.notes}</p>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
             </div>
 
             {/* Footer actions */}
-            <div className="px-5 py-4 border-t border-slate-100 flex gap-2 flex-shrink-0">
-              {detailMember.phone && (() => { const ph = normalisePhone(detailMember.phone); return ph ? (
-                <a
-                  href={`https://wa.me/91${ph}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-green-50 text-green-700 text-sm font-semibold hover:bg-green-100 transition"
-                >
-                  WhatsApp
-                </a>
-              ) : null })()}
+            <div className="px-5 py-4 border-t border-slate-100 flex-shrink-0">
               <button
                 type="button"
                 onClick={() => { setPrayerMember(detailMember); setPrayerSubject(''); setDetailMember(null) }}
-                className="flex-1 px-4 py-2.5 rounded-2xl bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition"
+                className="w-full px-4 py-2.5 rounded-2xl bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition"
               >
                 🙏 Add Prayer
               </button>
@@ -1100,9 +1247,8 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
   const [showAddForm, setShowAddForm] = useState(false)
   const [addForm, setAddForm]         = useState(EMPTY_MEMBER_FORM)
   const [adding, setAdding]           = useState(false)
-  const [addSearch, setAddSearch]         = useState('')
-  const [addSearchOpen, setAddSearchOpen] = useState(false)
-  const [directoryList, setDirectoryList] = useState([])
+  const [addSearch, setAddSearch]               = useState('')
+  const [directoryList, setDirectoryList]       = useState([])
   const [directoryLoading, setDirectoryLoading] = useState(false)
 
   const [editId, setEditId]     = useState(null)
@@ -1134,12 +1280,17 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
   const openDetail = (member) => {
     setDetailMember(member)
     setDetailProfile(null)
+    setDetailVisitor(null)
+    setDetailAttendance([])
     if (member.visitorId) {
       setDetailLoading(true)
-      getMemberProfile(member.visitorId)
-        .then(p => setDetailProfile(p))
-        .catch(() => {})
-        .finally(() => setDetailLoading(false))
+      Promise.all([
+        getMemberProfile(member.visitorId).catch(() => null),
+        getDelightVisitorById(member.visitorId).catch(() => null),
+      ]).then(([profile, visitor]) => {
+        setDetailProfile(profile)
+        setDetailVisitor(visitor)
+      }).finally(() => setDetailLoading(false))
     }
   }
 
@@ -1400,7 +1551,10 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
                   setAddSearch('')
                   if (next && directoryList.length === 0) {
                     setDirectoryLoading(true)
-                    getDelightVisitors().then(setDirectoryList).catch(() => {}).finally(() => setDirectoryLoading(false))
+                    getDelightVisitors()
+                      .then(setDirectoryList)
+                      .catch(() => {})
+                      .finally(() => setDirectoryLoading(false))
                   }
                 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-all">
@@ -1419,53 +1573,53 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
 
               {/* Directory search picker */}
               {!addForm.visitorId ? (
-                <div className="relative">
-                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                    </svg>
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 overflow-hidden">
+                  <div className="px-3 pt-3 pb-2">
+                    <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">Select from People&apos;s Directory</p>
+                    <div className="relative">
+                      <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                      </svg>
+                      <input
+                        type="text"
+                        placeholder="Search by name…"
+                        value={addSearch}
+                        autoComplete="off"
+                        onChange={e => setAddSearch(e.target.value)}
+                        className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400"
+                      />
+                    </div>
                   </div>
-                  <input
-                    type="text"
-                    placeholder={directoryLoading ? 'Loading directory…' : 'Search People\'s Directory…'}
-                    value={addSearch}
-                    autoComplete="off"
-                    disabled={directoryLoading}
-                    onChange={e => { setAddSearch(e.target.value); setAddSearchOpen(true) }}
-                    onFocus={() => setAddSearchOpen(true)}
-                    onBlur={() => setTimeout(() => setAddSearchOpen(false), 150)}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-60"
-                  />
-                  {addSearchOpen && addSearch.trim().length > 0 && (() => {
-                    const q = addSearch.trim().toLowerCase()
-                    const matches = directoryList.filter(v => v.name && v.name.toLowerCase().includes(q)).slice(0, 8)
-                    return (
-                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-2xl border border-slate-200 shadow-xl z-20 overflow-hidden max-h-56 overflow-y-auto">
-                        {matches.length === 0 ? (
-                          <div className="px-4 py-3 text-center">
-                            <p className="text-sm text-slate-500 font-medium">Not in People&apos;s Directory</p>
-                            <p className="text-xs text-slate-400 mt-0.5">New people can only be added via D Light Visitor Entry</p>
+                  <div className="max-h-52 overflow-y-auto border-t border-indigo-100">
+                    {directoryLoading ? (
+                      <p className="px-3 py-4 text-xs text-slate-400 text-center">Loading directory…</p>
+                    ) : (() => {
+                      const q = addSearch.trim().toLowerCase()
+                      const matches = directoryList.filter(v => v.name && (!q || v.name.toLowerCase().includes(q)))
+                      if (matches.length === 0) return (
+                        <div className="px-3 py-3 text-center">
+                          <p className="text-xs text-slate-500 font-medium">Not in People&apos;s Directory</p>
+                          <p className="text-xs text-slate-400 mt-0.5">New people can only be added via D Light Visitor Entry</p>
+                        </div>
+                      )
+                      return matches.map(v => (
+                        <button key={v.id} type="button"
+                          onClick={() => {
+                            setAddForm(f => ({ ...f, name: v.name, visitorId: v.id, phone: f.phone || v.phone || '', birthday: f.birthday || (v.dob ? String(v.dob).slice(0, 10) : '') }))
+                            setAddSearch('')
+                          }}
+                          className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 hover:bg-indigo-100 border-b border-indigo-50 last:border-0 transition-colors">
+                          <div className="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                            {v.name.charAt(0).toUpperCase()}
                           </div>
-                        ) : matches.map(v => (
-                          <button key={v.id} type="button"
-                            onMouseDown={() => {
-                              setAddForm(f => ({ ...f, name: v.name, visitorId: v.id, phone: f.phone || v.phone || '', birthday: f.birthday || (v.dob ? String(v.dob).slice(0, 10) : '') }))
-                              setAddSearch('')
-                              setAddSearchOpen(false)
-                            }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-indigo-50 text-left border-b border-slate-50 last:border-0">
-                            <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                              {v.name.charAt(0).toUpperCase()}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-slate-800 truncate">{v.name}</p>
-                              {v.phone && <p className="text-xs text-slate-400">{v.phone}</p>}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )
-                  })()}
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{v.name}</p>
+                            {v.phone && <p className="text-xs text-slate-400">{v.phone}</p>}
+                          </div>
+                        </button>
+                      ))
+                    })()}
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-2xl border-2 border-emerald-200 bg-emerald-50">
@@ -1824,168 +1978,273 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
             </div>
 
             {/* Scrollable body */}
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+            <div className="overflow-y-auto flex-1 px-4 py-4 space-y-3 bg-slate-50">
 
-              {/* Contact */}
-              {(detailMember.phone || detailMember.email) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Contact</p>
-                  <div className="space-y-2">
-                    {detailMember.phone && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-400 text-sm">📞</span>
-                        <a href={`tel:${detailMember.phone}`} className="text-sm text-slate-800 hover:text-indigo-600">{detailMember.phone}</a>
-                      </div>
-                    )}
-                    {detailMember.email && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-400 text-sm">✉</span>
-                        <a href={`mailto:${detailMember.email}`} className="text-sm text-slate-800 hover:text-indigo-600 break-all">{detailMember.email}</a>
-                      </div>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              {/* Location */}
-              {(detailMember.locality || detailMember.address || detailProfile?.permanentAddress) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Location</p>
-                  <div className="space-y-1">
-                    {detailMember.locality && <p className="text-sm text-slate-800">📍 {detailMember.locality}</p>}
-                    {detailMember.address && <p className="text-xs text-slate-500 leading-relaxed">Current: {detailMember.address}</p>}
-                    {detailProfile?.permanentAddress && <p className="text-xs text-slate-500 leading-relaxed">Permanent: {detailProfile.permanentAddress}</p>}
-                  </div>
-                </section>
-              )}
-
-              {/* Personal */}
-              {(detailMember.birthday || detailMember.anniversary || detailMember.occupation) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Personal</p>
-                  <div className="space-y-1.5">
-                    {detailMember.birthday && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">🎂</span>
-                        <span className="text-sm text-slate-800">{detailMember.birthday}</span>
-                        {isUpcomingSoon(detailMember.birthday) && <span className="text-xs text-pink-500 font-semibold">Soon!</span>}
-                      </div>
-                    )}
-                    {detailMember.anniversary && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">💍</span>
-                        <span className="text-sm text-slate-800">{detailMember.anniversary}</span>
-                        {isUpcomingSoon(detailMember.anniversary) && <span className="text-xs text-rose-500 font-semibold">Soon!</span>}
-                      </div>
-                    )}
-                    {detailMember.occupation && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">💼</span>
-                        <span className="text-sm text-slate-800">{detailMember.occupation}</span>
-                      </div>
+              {/* Contact icons */}
+              {(() => {
+                const ph = normalisePhone(detailMember.phone)
+                const email = detailMember.email || detailVisitor?.email
+                if (!ph && !email) return null
+                return (
+                  <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
+                    <div className="flex gap-5">
+                      {ph && (
+                        <a href={`tel:+91${ph}`} className="flex flex-col items-center gap-1 group">
+                          <span className="w-11 h-11 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-100 transition">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.35 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.6a16 16 0 0 0 6 6l.96-.96a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16z"/></svg>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">Call</span>
+                        </a>
+                      )}
+                      {ph && (
+                        <a href={`https://wa.me/91${ph}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1 group">
+                          <span className="w-11 h-11 rounded-full bg-green-50 text-green-600 flex items-center justify-center group-hover:bg-green-100 transition">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">WhatsApp</span>
+                        </a>
+                      )}
+                      {email && (
+                        <a href={`mailto:${email}`} className="flex flex-col items-center gap-1 group">
+                          <span className="w-11 h-11 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-100 transition">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">Email</span>
+                        </a>
+                      )}
+                    </div>
+                    {normalisePhone(detailMember.phone) && (
+                      <p className="text-[10px] text-slate-400 mt-2">{detailMember.phone}</p>
                     )}
                   </div>
-                </section>
-              )}
+                )
+              })()}
 
-              {/* Cell Involvement */}
-              {(detailMember.role || detailMember.since) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Cell Involvement</p>
-                  <div className="space-y-1.5">
-                    {detailMember.role && <p className="text-sm text-slate-800">🏷 {detailMember.role}</p>}
-                    {detailMember.since && <p className="text-sm text-slate-800">⏳ Attending since {detailMember.since} · {calcAttendanceDuration(detailMember.since) || '—'}</p>}
-                  </div>
-                </section>
-              )}
-
-              {detailLoading && (
-                <p className="text-xs text-slate-400 text-center py-2">Loading profile…</p>
-              )}
-
-              {/* Faith Background */}
-              {!detailLoading && detailProfile && (detailProfile.baptised || detailProfile.maritalStatus) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Faith Background</p>
-                  <div className="space-y-1.5">
-                    {detailProfile.baptised === 'yes' && (
-                      <div>
-                        <p className="text-sm text-slate-800">✝ Baptised</p>
-                        {detailProfile.baptismDate && <p className="text-xs text-slate-500 ml-5">{detailProfile.baptismDate}{detailProfile.baptismPlace ? ` · ${detailProfile.baptismPlace}` : ''}</p>}
-                        {detailProfile.baptismChurch && <p className="text-xs text-slate-500 ml-5">{detailProfile.baptismChurch}</p>}
+              {detailLoading ? (
+                <p className="text-xs text-slate-400 text-center py-4">Loading details…</p>
+              ) : (
+                <>
+                  {/* Personal */}
+                  {(detailVisitor?.dob || detailMember.birthday || detailMember.anniversary || detailVisitor?.nativity || detailVisitor?.currentPlace || detailMember.locality || detailMember.address || detailMember.occupation || detailVisitor?.howKnown) && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Personal</p>
                       </div>
-                    )}
-                    {detailProfile.baptised === 'no' && <p className="text-sm text-slate-800">✝ Not yet baptised</p>}
-                    {detailProfile.maritalStatus && (
-                      <div>
-                        <p className="text-sm text-slate-800">💑 {detailProfile.maritalStatus}</p>
-                        {detailProfile.marriageDate && <p className="text-xs text-slate-500 ml-5">Since {detailProfile.marriageDate}</p>}
-                        {detailProfile.spouseName && <p className="text-xs text-slate-500 ml-5">Spouse: {detailProfile.spouseName}</p>}
+                      <div className="px-3 py-1 divide-y divide-slate-50">
+                        {(detailVisitor?.dob || detailMember.birthday) && (() => {
+                          const d = detailVisitor?.dob || detailMember.birthday
+                          return (
+                            <div className="flex items-start justify-between gap-2 py-1.5">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Date of Birth</span>
+                              <span className="text-[11px] font-semibold text-right text-slate-800">
+                                {fmt(d)}
+                                {isUpcomingSoon(d, 30) && <span className="ml-1 text-pink-500">🎂</span>}
+                              </span>
+                            </div>
+                          )
+                        })()}
+                        {detailMember.anniversary && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Anniversary</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">
+                              {fmt(detailMember.anniversary)}
+                              {isUpcomingSoon(detailMember.anniversary, 30) && <span className="ml-1 text-rose-500">💍</span>}
+                            </span>
+                          </div>
+                        )}
+                        {detailVisitor?.nativity && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Nativity</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailVisitor.nativity}</span>
+                          </div>
+                        )}
+                        {detailVisitor?.currentPlace && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Current Place</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailVisitor.currentPlace}</span>
+                          </div>
+                        )}
+                        {detailMember.locality && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Locality</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailMember.locality}</span>
+                          </div>
+                        )}
+                        {detailMember.address && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Address</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800 leading-snug">{detailMember.address}</span>
+                          </div>
+                        )}
+                        {detailMember.occupation && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Occupation</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailMember.occupation}</span>
+                          </div>
+                        )}
+                        {detailVisitor?.howKnown && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">How Known</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailVisitor.howKnown}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </section>
-              )}
+                    </div>
+                  )}
 
-              {/* Ministry */}
-              {!detailLoading && detailProfile && (detailProfile.ministryNotes || detailProfile.ministryHistory?.length > 0) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Ministry</p>
-                  <div className="space-y-1.5">
-                    {detailProfile.ministryHistory?.map((h, i) => (
-                      <p key={i} className="text-sm text-slate-800">• {h}</p>
-                    ))}
-                    {detailProfile.ministryNotes && <p className="text-xs text-slate-500 leading-relaxed italic">{detailProfile.ministryNotes}</p>}
-                  </div>
-                </section>
-              )}
+                  {/* Church Journey */}
+                  {(detailVisitor?.attendedDate || detailVisitor?.serviceAttended || detailMember.role || detailMember.since) && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Church Journey</p>
+                      </div>
+                      <div className="px-3 py-3 space-y-2">
+                        {detailVisitor?.attendedDate && (
+                          <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                            <div>
+                              <p className="text-[8px] font-bold uppercase tracking-widest text-emerald-100 mb-0.5">Time in Church</p>
+                              <p className="text-base font-black text-white leading-tight">{miniDur(detailVisitor.attendedDate)}</p>
+                              <p className="text-[9px] text-emerald-100 mt-0.5">since {fmt(detailVisitor.attendedDate)}</p>
+                            </div>
+                            {detailVisitor.serviceAttended && (
+                              <span className="text-[9px] font-bold text-emerald-100 bg-white/20 px-2 py-1 rounded-full border border-white/30">{detailVisitor.serviceAttended}</span>
+                            )}
+                          </div>
+                        )}
+                        {!detailVisitor?.attendedDate && detailVisitor?.serviceAttended && (
+                          <div className="flex items-start justify-between gap-2 py-1">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Service</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailVisitor.serviceAttended}</span>
+                          </div>
+                        )}
+                        {(detailMember.role || detailMember.since) && (
+                          <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-lg px-2.5 py-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              {detailMember.role && <p className="text-[10px] font-bold text-slate-700">{detailMember.role}</p>}
+                              {detailMember.since && <p className="text-[9px] text-slate-400">Cell member since {fmt(detailMember.since)}</p>}
+                            </div>
+                            {detailMember.since && miniDur(detailMember.since) && (
+                              <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
+                                {miniDur(detailMember.since)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
-              {/* Leadership */}
-              {!detailLoading && detailProfile && (detailProfile.leaderSince || detailProfile.directorOf || detailProfile.isDirector) && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Leadership</p>
-                  <div className="space-y-1">
-                    {detailProfile.isDirector && detailProfile.directorOf && (
-                      <p className="text-sm text-slate-800">👑 Director — {detailProfile.directorOf}{detailProfile.directorSince ? ` (since ${detailProfile.directorSince})` : ''}</p>
-                    )}
-                    {detailProfile.leaderSince && (
-                      <p className="text-sm text-slate-800">🏷 Leader since {detailProfile.leaderSince}{detailProfile.leaderUntil ? ` to ${detailProfile.leaderUntil}` : ''}</p>
-                    )}
-                  </div>
-                </section>
-              )}
+                  {/* Spiritual & Membership */}
+                  {detailProfile && (detailProfile.baptised || detailProfile.maritalStatus || detailProfile.membershipStatus || detailProfile.permanentAddress || detailProfile.ministryHistory?.length > 0 || detailProfile.leaderSince || detailProfile.isDirector) && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Spiritual & Membership</p>
+                      </div>
+                      <div className="px-3 py-1 divide-y divide-slate-50">
+                        {detailProfile.baptised && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Baptised</span>
+                            <span className={`text-[11px] font-semibold text-right ${detailProfile.baptised === 'yes' ? 'text-emerald-700' : 'text-slate-800'}`}>
+                              {detailProfile.baptised === 'yes' ? 'Yes' : detailProfile.baptised === 'no' ? 'No' : detailProfile.baptised}
+                            </span>
+                          </div>
+                        )}
+                        {detailProfile.baptised === 'yes' && detailProfile.baptismDate && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Baptism Date</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{fmt(detailProfile.baptismDate)}</span>
+                          </div>
+                        )}
+                        {detailProfile.baptised === 'yes' && detailProfile.baptismPlace && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Baptism Place</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailProfile.baptismPlace}</span>
+                          </div>
+                        )}
+                        {detailProfile.baptised === 'yes' && detailProfile.baptismChurch && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Baptism Church</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailProfile.baptismChurch}</span>
+                          </div>
+                        )}
+                        {detailProfile.maritalStatus && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Marital Status</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800 capitalize">{detailProfile.maritalStatus}</span>
+                          </div>
+                        )}
+                        {detailProfile.maritalStatus?.toLowerCase() === 'married' && detailProfile.marriageDate && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Marriage Date</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{fmt(detailProfile.marriageDate)}</span>
+                          </div>
+                        )}
+                        {detailProfile.maritalStatus?.toLowerCase() === 'married' && detailProfile.spouseName && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Spouse</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailProfile.spouseName}</span>
+                          </div>
+                        )}
+                        {detailProfile.membershipStatus && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Membership</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800 capitalize">{detailProfile.membershipStatus}</span>
+                          </div>
+                        )}
+                        {detailProfile.permanentAddress && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Perm. Address</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800 leading-snug">{detailProfile.permanentAddress}</span>
+                          </div>
+                        )}
+                        {detailProfile.isDirector && detailProfile.directorOf && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Director</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailProfile.directorOf}{detailProfile.directorSince ? ` · since ${fmt(detailProfile.directorSince)}` : ''}</span>
+                          </div>
+                        )}
+                        {detailProfile.leaderSince && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Leader Since</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{fmt(detailProfile.leaderSince)}{detailProfile.leaderUntil ? ` – ${fmt(detailProfile.leaderUntil)}` : ''}</span>
+                          </div>
+                        )}
+                        {detailProfile.ministryHistory?.length > 0 && (
+                          <div className="py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Ministry</span>
+                            <div className="space-y-1">
+                              {detailProfile.ministryHistory.map((h, i) => (
+                                <p key={i} className="text-[11px] font-semibold text-slate-800">• {h}</p>
+                              ))}
+                              {detailProfile.ministryNotes && <p className="text-[10px] text-slate-400 italic mt-1">{detailProfile.ministryNotes}</p>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
-              {/* Membership status (no number) */}
-              {!detailLoading && detailProfile?.membershipStatus && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Membership</p>
-                  <p className="text-sm text-slate-800">🪪 {detailProfile.membershipStatus}</p>
-                </section>
-              )}
-
-              {/* Shepherd Notes */}
-              {detailMember.notes && (
-                <section>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Shepherd Notes</p>
-                  <p className="text-sm text-slate-700 leading-relaxed italic">{detailMember.notes}</p>
-                </section>
+                  {/* Shepherd Notes */}
+                  {detailMember.notes && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Shepherd Notes</p>
+                      </div>
+                      <div className="px-3 py-3">
+                        <p className="text-sm text-slate-700 leading-relaxed italic">{detailMember.notes}</p>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
             </div>
 
-            {/* Footer */}
-            {detailMember.phone && (() => { const ph = normalisePhone(detailMember.phone); return ph ? (
-              <div className="px-5 py-4 border-t border-slate-100 flex-shrink-0">
-                <a
-                  href={`https://wa.me/91${ph}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-green-50 text-green-700 text-sm font-semibold hover:bg-green-100 transition"
-                >
-                  WhatsApp
-                </a>
-              </div>
-            ) : null })()}
           </div>
         </div>
       )}
