@@ -7,10 +7,12 @@ import {
   getTasks,
   createTask,
   updateTask,
+  subscribeTasksByDepartment,
   subscribeCellMemberReferralTasks,
   getDepartmentEntries,
   addDepartmentEntry,
   getDepartmentTeamMembers,
+  subscribeDepartmentTeamMembers,
   addDepartmentTeamMember,
   updateDepartmentTeamMember,
   deleteDepartmentTeamMember,
@@ -46,6 +48,7 @@ import {
   updateDepartmentUpdate,
   deleteDepartmentUpdate,
   getDelightVisitors,
+  subscribeDelightVisitors,
   addDelightVisitor,
   updateDelightVisitor,
   deleteDelightVisitor,
@@ -653,7 +656,11 @@ export default function DepartmentHub() {
   }, [department, slug, activeTab, opsSubTab])
 
   useEffect(() => {
-    const wantsDlightTeam = slug === 'd-light' && (activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team'))
+    const wantsDlightTeam = slug === 'd-light' && (
+      activeTab === 'team' ||
+      (activeTab === 'operations' && opsSubTab === 'team') ||
+      activeTab === 'summary'
+    )
     if (!wantsDlightTeam) {
       setDlightTeamSubOpts([])
       return
@@ -665,15 +672,38 @@ export default function DepartmentHub() {
         )
       )
       .catch(() => setDlightTeamSubOpts([]))
-    // Refresh team members from Firestore so the Director always sees the latest list
+    // Real-time subscription so new/edited team members appear immediately
     if (department?.name) {
       setLoadingTeam(true)
-      getDepartmentTeamMembers(department.name)
-        .then((list) => { setTeam(list); setTeamError('') })
-        .catch(() => setTeamError('Failed to load team.'))
-        .finally(() => setLoadingTeam(false))
+      const unsub = subscribeDepartmentTeamMembers(department.name, (list) => {
+        setTeam(list)
+        setTeamError('')
+        setLoadingTeam(false)
+      })
+      return unsub
     }
   }, [slug, activeTab, opsSubTab, department])
+
+  // Real-time team subscription for all non-Cell, non-DLight departments
+  useEffect(() => {
+    if (!department?.name || slug === 'cell' || slug === 'd-light') return
+    setLoadingTeam(true)
+    const unsub = subscribeDepartmentTeamMembers(department.name, (list) => {
+      setTeam(list)
+      setTeamError('')
+      setLoadingTeam(false)
+    })
+    return unsub
+  }, [slug, department])
+
+  // Real-time tasks subscription for all departments (except Cell which has no tasks)
+  useEffect(() => {
+    if (!department?.name || slug === 'cell') return
+    const unsub = subscribeTasksByDepartment(department.name, (list) => {
+      setTasks(list)
+    })
+    return unsub
+  }, [slug, department])
 
   useEffect(() => {
     if (slug !== 'river-kids' || activeTab !== 'attendance' || !department) return
@@ -882,21 +912,20 @@ export default function DepartmentHub() {
   }, [slug, activeTab, opsSubTab])
 
   useEffect(() => {
-    if (slug === 'd-light' && (activeTab === 'visitorEntry' || (activeTab === 'summary' && canEditDelightVisitors))) {
-      setLoadingDelightVisitors(true)
-      // Silently migrate any legacy "Sunday Service" records to "English Service"
-      migrateSundayServiceToEnglish().catch(() => {})
-      getDelightVisitors()
-        .then((visitors) => {
-          // Apply migration in local state too (for records updated this session)
-          setDelightVisitors(visitors.map(v =>
-            v.serviceAttended === 'Sunday Service' ? { ...v, serviceAttended: 'English Service' } : v
-          ))
-        })
-        .catch(() => setDelightVisitors([]))
-        .finally(() => setLoadingDelightVisitors(false))
-    }
-  }, [slug, activeTab])
+    if (slug !== 'd-light') return
+    // Silently migrate any legacy "Sunday Service" records once
+    migrateSundayServiceToEnglish().catch(() => {})
+    setLoadingDelightVisitors(true)
+    // Real-time subscription so the director's dashboard updates immediately when any
+    // D Light user adds, edits, or deletes a visitor in any tab or session.
+    const unsub = subscribeDelightVisitors((visitors) => {
+      setDelightVisitors(visitors.map(v =>
+        v.serviceAttended === 'Sunday Service' ? { ...v, serviceAttended: 'English Service' } : v
+      ))
+      setLoadingDelightVisitors(false)
+    })
+    return unsub
+  }, [slug])
 
   useEffect(() => {
     const isTeamSection = activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team')
@@ -8233,7 +8262,7 @@ export default function DepartmentHub() {
                         await upsertMemberProfile(fillInviteOpen.visitorId, profilePayload, userProfile?.email || '')
                       }
                     }
-                    await completePCSFillInvitation(fillInviteOpen.id, userProfile?.email || '')
+                    await completePCSFillInvitation(fillInviteOpen.id, userProfile?.email || '', fillInviteOpen.visitorId || '')
                     setPendingFillInvitations(prev => prev.filter(i => i.id !== fillInviteOpen.id))
                     setFillInviteOpen(null)
                   } catch { alert('Failed to save profile details') }

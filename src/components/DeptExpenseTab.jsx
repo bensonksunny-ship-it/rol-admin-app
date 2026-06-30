@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
-import { createFinanceExpense, getFinanceExpenseByDept, deleteFinanceExpense } from '../services/firestore'
+import { createFinanceExpense, subscribeFinanceExpenseByDept, deleteFinanceExpense } from '../services/firestore'
 
 function today() {
   return format(new Date(), 'yyyy-MM-dd')
@@ -29,17 +29,17 @@ export default function DeptExpenseTab({ department }) {
   const [loadingEntries, setLoadingEntries] = useState(true)
   const [loadErr, setLoadErr] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+  const [retryKey, setRetryKey] = useState(0)
 
-  const load = () => {
+  useEffect(() => {
     setLoadingEntries(true)
     setLoadErr('')
-    getFinanceExpenseByDept(department)
-      .then(setEntries)
-      .catch(() => setLoadErr('Failed to load entries. Tap to retry.'))
-      .finally(() => setLoadingEntries(false))
-  }
-
-  useEffect(() => { load() }, [department])
+    const unsub = subscribeFinanceExpenseByDept(department, (entries) => {
+      setEntries(entries)
+      setLoadingEntries(false)
+    })
+    return unsub
+  }, [department, retryKey])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -180,7 +180,7 @@ export default function DeptExpenseTab({ department }) {
         {loadErr ? (
           <div className="px-5 py-4 text-center">
             <p className="text-sm text-red-500">{loadErr}</p>
-            <button type="button" onClick={load} className="mt-2 text-sm text-indigo-600 hover:underline">Retry</button>
+            <button type="button" onClick={() => setRetryKey(k => k + 1)} className="mt-2 text-sm text-indigo-600 hover:underline">Retry</button>
           </div>
         ) : loadingEntries ? (
           <div className="px-5 py-6 text-center text-slate-400 text-sm">Loading…</div>

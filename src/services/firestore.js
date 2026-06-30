@@ -195,6 +195,17 @@ export async function deleteTask(id) {
   await deleteDoc(doc(db, 'tasks', id))
 }
 
+export function subscribeTasksByDepartment(department, onChange) {
+  if (!db || !department) return () => {}
+  const q = query(collection(db, 'tasks'), where('department', '==', department), orderBy('createdAt', 'desc'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, deadline: toDate(data.deadline) }
+    }))
+  }, () => {})
+}
+
 // Real-time listener for cell-leader referrals sent to the Caring department
 export function subscribeCellMemberReferralTasks(onChange) {
   if (!db) return () => {}
@@ -497,6 +508,36 @@ export async function getDepartmentTeamMembers(department) {
   })
   list.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
   return list
+}
+
+export function subscribeDepartmentTeamMembers(department, onChange) {
+  if (!db || !department) return () => {}
+  const q = query(collection(db, 'department_team_members'), where('department', '==', department))
+  return onSnapshot(q, (snap) => {
+    const list = snap.docs.map((d) => {
+      const data = d.data()
+      const rolePosition = data.rolePosition ?? data.role ?? ''
+      const subDepts = normalizeSubDepartments(data)
+      return {
+        id: d.id,
+        department: data.department,
+        name: data.name,
+        role: rolePosition,
+        rolePosition,
+        subDepartment: subDepts[0] || '',
+        subDepartments: subDepts,
+        phone: data.phone || '',
+        status: data.status || 'active',
+        memberSince: data.memberSince || '',
+        notes: data.notes || '',
+        isFormer: data.isFormer ?? false,
+        visitorId: data.visitorId || '',
+        createdAt: toDate(data.createdAt),
+      }
+    })
+    list.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
+    onChange(list)
+  }, () => {})
 }
 
 export async function addDepartmentTeamMember(department, data, addedBy) {
@@ -1105,6 +1146,20 @@ export async function getFinanceExpenseByDept(department) {
       return { id: d.id, ...data, date: toDate(data.date) }
     })
     .sort((a, b) => (b.date || 0) - (a.date || 0))
+}
+
+export function subscribeFinanceExpenseByDept(department, onChange) {
+  if (!db || !department) return () => {}
+  const q = query(collection(db, 'finance_expense'), where('department', '==', department))
+  return onSnapshot(q, (snap) => {
+    const entries = snap.docs
+      .map((d) => {
+        const data = d.data()
+        return { id: d.id, ...data, date: toDate(data.date) }
+      })
+      .sort((a, b) => (b.date || 0) - (a.date || 0))
+    onChange(entries)
+  }, () => {})
 }
 
 export async function approveFinanceWeeklyEntry(id) {
@@ -2276,6 +2331,32 @@ export async function getDelightVisitors() {
       createdBy: data.createdBy || '',
     }
   })
+}
+
+export function subscribeDelightVisitors(onChange) {
+  if (!db) return () => {}
+  const q = query(collection(db, DELIGHT_VISITORS_COLLECTION), orderBy('createdAt', 'desc'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        name: data.name || '',
+        dob: data.dob || '',
+        phone: data.phone || '',
+        email: data.email || '',
+        nativity: data.nativity || '',
+        currentPlace: data.currentPlace || '',
+        serviceAttended: data.serviceAttended || '',
+        attendedDate: data.attendedDate || '',
+        howKnown: data.howKnown || '',
+        source: data.source || '',
+        year: data.year ? Number(data.year) : null,
+        createdAt: toDate(data.createdAt),
+        createdBy: data.createdBy || '',
+      }
+    }))
+  }, () => {})
 }
 
 export async function addDelightVisitor(data) {
@@ -4107,6 +4188,7 @@ export async function getMemberProfileWithContext(visitorId, phone, personId, na
 // Caring Director sends a profile-fill invitation to the Cell Leader of a PCS person.
 
 const PCS_FILL_INVITATIONS = 'pcs_fill_invitations'
+const PCS_PROFILE_GRANTS = 'pcs_profile_grants'
 
 export async function sendPCSFillInvitation({ pcsEntryId, visitorId, personName, cellId, cellName, cellLeaderName, sentBy }) {
   if (!db || !pcsEntryId || !cellId) return null
@@ -4121,6 +4203,14 @@ export async function sendPCSFillInvitation({ pcsEntryId, visitorId, personName,
     sentAt:          Timestamp.now(),
     status:          'pending',
   })
+  // Create a write-grant so the cell leader can write to member_profiles/{visitorId}
+  if (visitorId) {
+    await setDoc(doc(db, PCS_PROFILE_GRANTS, visitorId), {
+      cellId,
+      grantedAt: Timestamp.now(),
+      invitationId: ref.id,
+    })
+  }
   return ref.id
 }
 
@@ -4150,11 +4240,15 @@ export function subscribePCSFillInvitationsByCellId(cellId, onChange) {
   }, () => {})
 }
 
-export async function completePCSFillInvitation(id, filledBy = '') {
+export async function completePCSFillInvitation(id, filledBy = '', visitorId = '') {
   if (!db || !id) return
   await updateDoc(doc(db, PCS_FILL_INVITATIONS, id), {
     status:      'completed',
     completedAt: Timestamp.now(),
     filledBy,
   })
+  // Revoke the write-grant so the cell leader can no longer write to member_profiles
+  if (visitorId) {
+    await deleteDoc(doc(db, PCS_PROFILE_GRANTS, visitorId))
+  }
 }

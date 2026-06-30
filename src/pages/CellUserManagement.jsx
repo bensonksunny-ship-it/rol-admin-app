@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { ROLES } from '../constants/roles'
-import { getAllUsers, updateUserByAdmin, setUserStatus, getDelightVisitors } from '../services/firestore'
+import { getAllUsers, updateUserByAdmin, setUserStatus, getDelightVisitors, getCellGroups } from '../services/firestore'
 
 export default function CellUserManagement() {
   const { userProfile } = useAuth()
@@ -15,11 +15,13 @@ export default function CellUserManagement() {
     role: '',
     department: '',
     cellGroup: '',
+    cellId: '',
     status: 'active',
   })
   const [membersList, setMembersList] = useState([])
   const [nameSuggestions, setNameSuggestions] = useState([])
   const [showNameSuggestions, setShowNameSuggestions] = useState(false)
+  const [cellGroupsList, setCellGroupsList] = useState([])
 
   const isAdminOrFounder =
     userProfile?.role === ROLES.ADMIN || userProfile?.role === ROLES.FOUNDER
@@ -42,6 +44,7 @@ export default function CellUserManagement() {
       }
       setMembersList(unique)
     }).catch(() => {})
+    getCellGroups('Cell').then(setCellGroupsList).catch(() => {})
   }, [])
 
   const filteredUsers = useMemo(() => {
@@ -74,6 +77,7 @@ export default function CellUserManagement() {
       role: u.role || '',
       department: u.department || '',
       cellGroup: u.cellGroup || '',
+      cellId: u.cellId || '',
       status: u.status || 'active',
     })
     setModalOpen(true)
@@ -88,11 +92,12 @@ export default function CellUserManagement() {
         phone: form.phone,
         status: form.status,
       }
-      // Only Admin can change role/department/cellGroup
+      // Only Admin can change role/department/cellGroup/cellId
       if (isAdminOrFounder) {
         payload.role = form.role
         payload.department = form.department
         payload.cellGroup = form.cellGroup
+        payload.cellId = form.cellId
       }
       await updateUserByAdmin(editingId, payload)
       setUsers((prev) =>
@@ -313,12 +318,32 @@ export default function CellUserManagement() {
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Cell Group
                   </label>
-                  <input
-                    type="text"
-                    value={form.cellGroup}
-                    onChange={(e) => setForm((f) => ({ ...f, cellGroup: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                  />
+                  {cellGroupsList.length > 0 ? (
+                    <select
+                      value={form.cellId || ''}
+                      onChange={(e) => {
+                        const cg = cellGroupsList.find((g) => g.id === e.target.value)
+                        setForm((f) => ({
+                          ...f,
+                          cellId: cg ? cg.id : '',
+                          cellGroup: cg ? cg.cellName : '',
+                        }))
+                      }}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    >
+                      <option value="">— no cell linked —</option>
+                      {cellGroupsList.filter((g) => g.status !== 'inactive').map((g) => (
+                        <option key={g.id} value={g.id}>{g.cellName}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={form.cellGroup}
+                      onChange={(e) => setForm((f) => ({ ...f, cellGroup: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    />
+                  )}
                 </div>
               )}
               <div>

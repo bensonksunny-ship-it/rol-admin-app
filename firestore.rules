@@ -76,10 +76,25 @@ service cloud.firestore {
     }
 
     // Church member profiles (baptism, marriage, leadership history) — Caring holds highest authority
-    // Cell leaders may also write when a Caring Director has sent them a profile-fill invitation
+    // Cell leaders may write only when a Caring Director has sent a profile-fill invitation
+    // (active write grants are tracked in pcs_profile_grants/{visitorId})
     match /member_profiles/{visitorId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
+      allow write: if isSignedIn() && (
+        isFullAccess() ||
+        canAccessDept('Caring') ||
+        (canAccessDept('Cell') &&
+         visitorId != '' &&
+         exists(/databases/$(database)/documents/pcs_profile_grants/$(visitorId)) &&
+         get(/databases/$(database)/documents/pcs_profile_grants/$(visitorId)).data.cellId == userLinkedCellId())
+      );
+    }
+
+    // Write-grant tokens: Caring creates on invitation send, Cell deletes after filling
+    match /pcs_profile_grants/{visitorId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
     }
 
     match /department_sub_departments/{docId} {

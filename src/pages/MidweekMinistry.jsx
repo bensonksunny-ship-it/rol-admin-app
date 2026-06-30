@@ -380,7 +380,10 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       })
 
       syncMidweekAttendanceToCellReport(selectedCellId, cellName, today, presentMembers, updatedBy, visitors)
-        .catch((err) => console.error('Failed to sync attendance to cell report:', err))
+        .catch((err) => {
+          console.error('Failed to sync attendance to cell report:', err)
+          setSaveError('Attendance could not be saved to reports. Ask your Cell Director to update your profile with the correct Cell ID.')
+        })
     }
   }, [pendingTimings, selectedCellId, today, presentIds, userProfile, segmentOrder.length, cellGroups, members, visitors])
 

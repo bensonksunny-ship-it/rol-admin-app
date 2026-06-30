@@ -1670,7 +1670,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
                           await upsertMemberProfile(fillInviteOpen.visitorId, profilePayload, userProfile?.email || '')
                         }
                       }
-                      await completePCSFillInvitation(fillInviteOpen.id, userProfile?.email || '')
+                      await completePCSFillInvitation(fillInviteOpen.id, userProfile?.email || '', fillInviteOpen.visitorId || '')
                       setPendingInvitations(prev => prev.filter(i => i.id !== fillInviteOpen.id))
                       setFillInviteOpen(null)
                       showToastMsg('Profile details submitted. Thank you!')

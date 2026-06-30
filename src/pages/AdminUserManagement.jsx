@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { DEPARTMENT_LIST } from '../constants/departments'
 import { ROLES, POSITION_OPTIONS, deriveRoleFromPositions, deriveDepartmentsFromPositions } from '../constants/roles'
-import { getAllUsers, getDelightVisitors } from '../services/firestore'
+import { getAllUsers, getDelightVisitors, getCellGroups } from '../services/firestore'
 import { auth, functions, httpsCallable } from '../lib/firebase'
 import { logAction } from '../utils/auditLog'
 
@@ -32,6 +32,7 @@ export default function AdminUserManagement() {
   const [membersList, setMembersList] = useState([])
   const [nameSuggestions, setNameSuggestions] = useState([])
   const [showNameSuggestions, setShowNameSuggestions] = useState(false)
+  const [cellGroupsList, setCellGroupsList] = useState([])
 
   const isCellLeaderSelected = (form.positions || []).some(
     (p) => String(p?.department || '').trim().toLowerCase() === 'cell' && String(p?.position || '').trim().toLowerCase() === 'cell leader'
@@ -57,6 +58,7 @@ export default function AdminUserManagement() {
       }
       setMembersList(unique)
     }).catch(() => {})
+    getCellGroups('Cell').then(setCellGroupsList).catch(() => {})
   }, [canManageUsers])
 
   const sortedUsers = useMemo(
@@ -570,38 +572,43 @@ export default function AdminUserManagement() {
                   </div>
                 )}
                 {isCellLeaderSelected && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">
-                        Cell Group (required)
-                      </label>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Cell Group (required)
+                    </label>
+                    {cellGroupsList.length > 0 ? (
+                      <select
+                        value={form.cellId || ''}
+                        onChange={(e) => {
+                          const cg = cellGroupsList.find((g) => g.id === e.target.value)
+                          setForm((f) => ({
+                            ...f,
+                            cellId: cg ? cg.id : '',
+                            cellGroup: cg ? cg.cellName : '',
+                          }))
+                        }}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        required
+                      >
+                        <option value="">— select cell group —</option>
+                        {cellGroupsList.filter((g) => g.status !== 'inactive').map((g) => (
+                          <option key={g.id} value={g.id}>{g.cellName}</option>
+                        ))}
+                      </select>
+                    ) : (
                       <input
                         type="text"
                         value={form.cellGroup}
                         onChange={(e) => setForm((f) => ({ ...f, cellGroup: e.target.value }))}
                         className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        placeholder="Cell group name"
                         required
                       />
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Used to link your profile to the Olive cell report.
-                      </p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">
-                        Cell ID (optional, recommended)
-                      </label>
-                      <input
-                        type="text"
-                        value={form.cellId}
-                        onChange={(e) => setForm((f) => ({ ...f, cellId: e.target.value }))}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                        placeholder="Paste the Cell Group document ID"
-                      />
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        This locks the leader to exactly one cell even if names change.
-                      </p>
-                    </div>
-                  </>
+                    )}
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Links the leader to their cell's reports and attendance.
+                    </p>
+                  </div>
                 )}
               </div>
               <div>
