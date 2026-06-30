@@ -20,6 +20,7 @@ import {
   subscribePCSFillInvitationsByCellId,
   completePCSFillInvitation,
   createTask,
+  getDelightVisitors,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
@@ -1068,7 +1069,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
 // ─── Tab 3: My Fellowship ─────────────────────────────────────────────────────
 
 const EMPTY_MEMBER_FORM = {
-  name: '', phone: '', email: '', locality: '', address: '',
+  name: '', visitorId: '', phone: '', email: '', locality: '', address: '',
   birthday: '', anniversary: '', since: '', occupation: '', role: '', notes: '',
 }
 
@@ -1099,6 +1100,10 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
   const [showAddForm, setShowAddForm] = useState(false)
   const [addForm, setAddForm]         = useState(EMPTY_MEMBER_FORM)
   const [adding, setAdding]           = useState(false)
+  const [addSearch, setAddSearch]         = useState('')
+  const [addSearchOpen, setAddSearchOpen] = useState(false)
+  const [directoryList, setDirectoryList] = useState([])
+  const [directoryLoading, setDirectoryLoading] = useState(false)
 
   const [editId, setEditId]     = useState(null)
   const [editForm, setEditForm] = useState(EMPTY_MEMBER_FORM)
@@ -1219,12 +1224,17 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
 
   const handleAddMember = async (e) => {
     e.preventDefault()
-    if (!addForm.name.trim() || !selectedCellId) return
+    if (!selectedCellId) return
+    if (!addForm.visitorId) {
+      showToastMsg('Select a person from the People\'s Directory first.', 'error')
+      return
+    }
     setAdding(true)
     try {
       await addCellGroupMember(selectedCellId, { ...addForm, status: 'active' })
       showToastMsg(`${addForm.name} added successfully.`)
       setAddForm(EMPTY_MEMBER_FORM)
+      setAddSearch('')
       setShowAddForm(false)
       await refreshMembers(selectedCellId)
     } catch { showToastMsg('Failed to add member.', 'error') }
@@ -1383,24 +1393,128 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
             </div>
             {canEdit && (
               <button type="button"
-                onClick={() => { setShowAddForm((v) => !v); setAddForm(EMPTY_MEMBER_FORM) }}
+                onClick={() => {
+                  const next = !showAddForm
+                  setShowAddForm(next)
+                  setAddForm(EMPTY_MEMBER_FORM)
+                  setAddSearch('')
+                  if (next && directoryList.length === 0) {
+                    setDirectoryLoading(true)
+                    getDelightVisitors().then(setDirectoryList).catch(() => {}).finally(() => setDirectoryLoading(false))
+                  }
+                }}
                 className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-all">
                 {showAddForm ? '✕ Cancel' : '+ Add Member'}
               </button>
             )}
           </div>
 
-          {/* Add Member Form */}
+          {/* Add Member Form — directory search enforced */}
           {showAddForm && (
             <div className="bg-white rounded-3xl border border-indigo-200 p-5 shadow-sm space-y-3">
-              <h3 className="font-bold text-slate-900">New Member</h3>
-              <form onSubmit={handleAddMember} className="space-y-3">
-                <MemberFormFields form={addForm} onChange={setAddForm} />
-                <button type="submit" disabled={adding || !addForm.name.trim()}
-                  className="w-full py-3 rounded-2xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                  {adding ? 'Adding…' : '✓ Add to Fellowship'}
-                </button>
-              </form>
+              <div>
+                <h3 className="font-bold text-slate-900">Add Member</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Select from People&apos;s Directory. New people must first be registered via D Light Visitor Entry.</p>
+              </div>
+
+              {/* Directory search picker */}
+              {!addForm.visitorId ? (
+                <div className="relative">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                    </svg>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder={directoryLoading ? 'Loading directory…' : 'Search People\'s Directory…'}
+                    value={addSearch}
+                    autoComplete="off"
+                    disabled={directoryLoading}
+                    onChange={e => { setAddSearch(e.target.value); setAddSearchOpen(true) }}
+                    onFocus={() => setAddSearchOpen(true)}
+                    onBlur={() => setTimeout(() => setAddSearchOpen(false), 150)}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-60"
+                  />
+                  {addSearchOpen && addSearch.trim().length > 0 && (() => {
+                    const q = addSearch.trim().toLowerCase()
+                    const matches = directoryList.filter(v => v.name && v.name.toLowerCase().includes(q)).slice(0, 8)
+                    return (
+                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-2xl border border-slate-200 shadow-xl z-20 overflow-hidden max-h-56 overflow-y-auto">
+                        {matches.length === 0 ? (
+                          <div className="px-4 py-3 text-center">
+                            <p className="text-sm text-slate-500 font-medium">Not in People&apos;s Directory</p>
+                            <p className="text-xs text-slate-400 mt-0.5">New people can only be added via D Light Visitor Entry</p>
+                          </div>
+                        ) : matches.map(v => (
+                          <button key={v.id} type="button"
+                            onMouseDown={() => {
+                              setAddForm(f => ({ ...f, name: v.name, visitorId: v.id, phone: f.phone || v.phone || '', birthday: f.birthday || (v.dob ? String(v.dob).slice(0, 10) : '') }))
+                              setAddSearch('')
+                              setAddSearchOpen(false)
+                            }}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-indigo-50 text-left border-b border-slate-50 last:border-0">
+                            <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                              {v.name.charAt(0).toUpperCase()}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-800 truncate">{v.name}</p>
+                              {v.phone && <p className="text-xs text-slate-400">{v.phone}</p>}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-2xl border-2 border-emerald-200 bg-emerald-50">
+                  <span className="w-9 h-9 rounded-full bg-emerald-500 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
+                    {addForm.name.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="flex-1 text-sm font-semibold text-emerald-900">{addForm.name}</span>
+                  <button type="button"
+                    onClick={() => { setAddForm(f => ({ ...f, name: '', visitorId: '' })); setAddSearch('') }}
+                    className="w-7 h-7 rounded-full bg-white border border-slate-200 text-slate-400 hover:text-red-500 flex items-center justify-center text-base leading-none">×</button>
+                </div>
+              )}
+
+              {/* Extra fields — only shown after a person is selected */}
+              {addForm.visitorId && (
+                <form onSubmit={handleAddMember} className="space-y-3 pt-1">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <input type="tel" value={addForm.phone} onChange={e => setAddForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone number"
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                    <input type="email" value={addForm.email} onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))} placeholder="Email (optional)"
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  </div>
+                  <input type="text" value={addForm.locality} onChange={e => setAddForm(f => ({ ...f, locality: e.target.value }))} placeholder="Locality / Area"
+                    className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-xs text-slate-500 font-semibold mb-1 block">Birthday</label>
+                      <input type="date" value={addForm.birthday} onChange={e => setAddForm(f => ({ ...f, birthday: e.target.value }))}
+                        className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 font-semibold mb-1 block">Anniversary</label>
+                      <input type="date" value={addForm.anniversary} onChange={e => setAddForm(f => ({ ...f, anniversary: e.target.value }))}
+                        className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 font-semibold mb-1 block">Member Since</label>
+                    <input type="date" value={addForm.since} onChange={e => setAddForm(f => ({ ...f, since: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  </div>
+                  <textarea value={addForm.notes} onChange={e => setAddForm(f => ({ ...f, notes: e.target.value }))} placeholder="Notes (optional)" rows={2}
+                    className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  <button type="submit" disabled={adding}
+                    className="w-full py-3 rounded-2xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-all">
+                    {adding ? 'Adding…' : '✓ Add to Fellowship'}
+                  </button>
+                </form>
+              )}
             </div>
           )}
 
