@@ -340,6 +340,7 @@ function ExpandedProfile({ p, onEdit }) {
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[10px] font-bold text-slate-700">{c.cellName || c.cellId}</p>
+                    {c.leader && <p className="text-[9px] text-slate-500">Leader: {c.leader}</p>}
                     {c.since && <p className="text-[8px] text-slate-400">since {fmt(c.since)}</p>}
                   </div>
                   {cellDur && <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{cellDur}</span>}
@@ -566,7 +567,7 @@ export default function PeopleDirectory() {
         const entry = (m.personId && byId[m.personId]) || (m.visitorId && byVisitorId[m.visitorId])
         if (!entry) return
         const cell = cellById[m.cellId]
-        entry.cells.push({ ...m, cellName: cell?.cellName || m.cellId })
+        entry.cells.push({ ...m, cellName: cell?.cellName || m.cellId, leader: cell?.leader || '', leaderPersonId: cell?.leaderPersonId || '' })
       })
 
       // Attach dept teams
@@ -789,7 +790,7 @@ export default function PeopleDirectory() {
                             </div>
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               {p.phone && <span className="text-[10px] text-slate-400">{p.phone}</span>}
-                              {primaryCell && <span className="text-[10px] text-emerald-600">{primaryCell.cellName}</span>}
+                              {primaryCell && <span className="text-[10px] text-emerald-600">{primaryCell.cellName}{primaryCell.leader ? ` · ${primaryCell.leader}` : ''}</span>}
                             </div>
                           </div>
 

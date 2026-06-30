@@ -225,6 +225,12 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
+    // Central people registry — Caring is the primary gatekeeper; other depts read for search/linking
+    match /people/{personId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('D Light'));
+    }
+
     // Lightweight PCS membership lookup — any signed-in user can read, Caring writes
     match /pcs_lookup/{docId} {
       allow read: if isSignedIn();
@@ -342,6 +348,16 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+    }
+
+    match /sec_core/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
+    }
+
+    match /sec_core_sunday_leader/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
     }
 
     // Sunday Plan checklists — weekly instances

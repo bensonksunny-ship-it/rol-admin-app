@@ -19,6 +19,7 @@ import {
   getCellGroupMembers,
   getSundayServiceAttendance,
   setSundayServiceAttendance,
+  syncCellAttendanceToReport,
   getSundayChecklistDefaults,
   setSundayChecklistDefault,
   getSundayWeeklyChecklists,
@@ -446,10 +447,13 @@ function CellAttendanceTab({ userProfile, canEnter }) {
       ? current.filter((id) => id !== memberId)
       : [...current, memberId]
     setAttendanceMap((m) => ({ ...m, [cellId]: { ...m[cellId], presentIds: next } }))
+    const members = membersMap[cellId] || []
+    const presentNames = next.map(id => members.find(m => m.id === id)?.name || '').filter(Boolean)
     await setSundayServiceAttendance(
       selectedDate, cellId, next,
       userProfile?.displayName || userProfile?.email || 'unknown'
     )
+    syncCellAttendanceToReport(selectedDate, cellId, presentNames).catch(() => {})
   }
 
   // When date changes, clear attendance cache so it reloads

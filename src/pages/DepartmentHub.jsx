@@ -89,6 +89,7 @@ import {
   addPerson,
   updatePerson,
   getPerson,
+  getPeople,
   getSundayPlan,
   setSundayPlanSection,
   sendPCSFillInvitation,
@@ -262,9 +263,9 @@ export default function DepartmentHub() {
   const [cellMemberLinkedVisitor, setCellMemberLinkedVisitor] = useState(null)
   const [cellMemberLinkedVisitorForm, setCellMemberLinkedVisitorForm] = useState({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
   const [cellGroupModalOpen, setCellGroupModalOpen] = useState(false)
-  const [newCellGroupForm, setNewCellGroupForm] = useState({ cellId: '', cellName: '', leader: '', meetingDay: '', launchDate: '', status: 'active' })
+  const [newCellGroupForm, setNewCellGroupForm] = useState({ cellId: '', cellName: '', leader: '', leaderPersonId: '', meetingDay: '', launchDate: '', status: 'active' })
   const [editingCellGroupId, setEditingCellGroupId] = useState(null)
-  const [cellGroupEditForm, setCellGroupEditForm] = useState({ cellId: '', cellName: '', leader: '', meetingDay: '', launchDate: '', status: 'active' })
+  const [cellGroupEditForm, setCellGroupEditForm] = useState({ cellId: '', cellName: '', leader: '', leaderPersonId: '', meetingDay: '', launchDate: '', status: 'active' })
   const [cellGroupEditModalOpen, setCellGroupEditModalOpen] = useState(false)
   const [latestCellAttendance, setLatestCellAttendance] = useState(null)
   const [cellAttendanceModalOpen, setCellAttendanceModalOpen] = useState(false)
@@ -3806,7 +3807,7 @@ export default function DepartmentHub() {
                 setPcsExpandedLoading(true)
                 Promise.all([
                   getDelightVisitorById(entry.visitorId),
-                  getMemberProfileWithContext(entry.visitorId),
+                  getMemberProfileWithContext(entry.visitorId, entry.phone, entry.personId, entry.name),
                 ]).then(([v, ctx]) => {
                   if (v) {
                     setPcsExpandedVisitor(v)
@@ -3943,6 +3944,7 @@ export default function DepartmentHub() {
               const ctx = pcsExpandedContext
               const deptTeams = ctx?.deptTeams || []
               const worshipTeams = ctx?.worshipTeams || []
+              const secCoreRoles = ctx?.secCoreRoles || []
 
               // Church duration
               const joinDate = entry.attendedDate ? new Date(entry.attendedDate) : null
@@ -3965,8 +3967,9 @@ export default function DepartmentHub() {
 
               // Auto-detected ministry entries (read-only, from system records)
               const autoMinistry = [
-                ...deptTeams.map(t => ({ id: `dept-${t.id}`, ministry: t.department, role: t.rolePosition || t.role || '', from: t.since || '', to: '', isAuto: true })),
-                ...worshipTeams.map(t => ({ id: `wor-${t.id}`, ministry: 'Worship', role: t.positions?.[0] || '', from: t.since || '', to: '', isAuto: true })),
+                ...deptTeams.map(t => ({ id: `dept-${t.id}`, ministry: t.department, role: t.rolePosition || t.role || '', from: t.memberSince || t.since || '', to: '', isAuto: true })),
+                ...worshipTeams.map(t => ({ id: `wor-${t.id}`, ministry: 'Worship', role: (t.positions || [])[0] || t.rolePosition || '', from: t.memberSince || t.since || t.createdAt || '', to: '', isAuto: true })),
+                ...secCoreRoles.map(m => ({ id: `sc-${m.personId || m.name}`, ministry: 'Director Board', role: m.type ? m.type.charAt(0).toUpperCase() + m.type.slice(1) : '', from: m.from || '', to: m.to || '', isAuto: true })),
               ]
 
               // Membership docs
@@ -4015,6 +4018,16 @@ export default function DepartmentHub() {
                   {extra}
                 </div>
               )
+
+              // Cell group lookup (hoisted so PDF button can use it)
+              const _normalPhone = (entry.phone || '').replace(/\s+/g, '')
+              const _cellMember = allCellMembers.find(m =>
+                m.status !== 'inactive' && (
+                  (entry.visitorId && m.visitorId && m.visitorId === entry.visitorId) ||
+                  (_normalPhone && m.phone && m.phone.replace(/\s+/g, '') === _normalPhone)
+                )
+              )
+              const _cg = _cellMember ? cellGroups.find(g => g.id === _cellMember.cellId) : null
 
               // ── Stamp view (read-only, clean portrait) ──────────────
               if (!isEditing) {
@@ -4074,7 +4087,7 @@ export default function DepartmentHub() {
                               const manual = (entry.ministries || []).map(r => ({ ...r, isAuto: false }))
                               const manualNames = new Set(manual.map(r => r.ministry?.toLowerCase()))
                               const auto = autoMinistry.filter(a => !manualNames.has(a.ministry?.toLowerCase()))
-                              downloadProfileAsPDF(f, churchDuration, [...manual, ...auto])
+                              downloadProfileAsPDF(f, churchDuration, [...manual, ...auto], _cg)
                             }}
                             className="flex-1 py-2 rounded-xl bg-white/10 text-white text-xs font-black hover:bg-white/20 transition-colors border border-white/20">
                             Download PDF
@@ -4326,13 +4339,25 @@ export default function DepartmentHub() {
 
                       {/* Cell connection */}
                       {(() => {
-                        const cellMember = entry.visitorId ? allCellMembers.find(m => m.visitorId === entry.visitorId && m.status !== 'inactive') : null
-                        const cg = cellMember ? cellGroups.find(g => g.id === cellMember.cellId) : null
+                        const cellMember = _cellMember
+                        const cg = _cg
                         const notified = pcsNotifiedIds.has(entry.id)
                         const notifying = pcsNotifyingId === entry.id
+
+                        // All memberships for this person (history)
+                        const _np = (entry.phone || '').replace(/\s+/g, '')
+                        const allMemberships = allCellMembers
+                          .filter(m =>
+                            (entry.visitorId && m.visitorId && m.visitorId === entry.visitorId) ||
+                            (_np && m.phone && m.phone.replace(/\s+/g, '') === _np)
+                          )
+                          .sort((a, b) => (a.since || '').localeCompare(b.since || ''))
+                        const pastMemberships = allMemberships.filter(m => m.status === 'inactive')
+                        const fmtMon = (d) => d ? new Date(d).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : null
+
                         return (
                           <div className="mb-3">
-                            <div className="flex items-center justify-between gap-2 mb-1">
+                            <div className="flex items-center justify-between gap-2 mb-1.5">
                               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Cell Group</p>
                               {!cg && entry.visitorId && canEdit && (
                                 notified
@@ -4352,11 +4377,15 @@ export default function DepartmentHub() {
                                     </button>
                               )}
                             </div>
+
+                            {/* Current cell */}
                             {cg
                               ? <>
                                   <span className="inline-flex items-center gap-1.5 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
                                     <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                                    {cg.cellName || 'Unnamed Cell'}{cg.leader ? <span className="text-emerald-500">· {cg.leader}</span> : null}
+                                    <span className="font-semibold">{cg.cellName || 'Unnamed Cell'}</span>
+                                    {cg.leader ? <span className="text-emerald-600"> · {cg.leader}</span> : null}
+                                    {cellMember?.since ? <span className="text-slate-400"> · since {fmtMon(cellMember.since)}</span> : null}
                                   </span>
                                   {canEdit && (() => {
                                     const inv = pcsInviteStatus[entry.id]
@@ -4404,8 +4433,35 @@ export default function DepartmentHub() {
                                     )
                                   })()}
                                 </>
-                              : <p className="text-xs text-slate-400">{entry.visitorId ? 'Not in a cell group' : 'Link visitor record to see cell'}</p>
+                              : <p className="text-xs text-slate-400">{entry.visitorId || _np ? 'Not currently in a cell group' : 'Link visitor record to see cell'}</p>
                             }
+
+                            {/* Cell history */}
+                            {pastMemberships.length > 0 && (
+                              <div className="mt-2.5">
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Cell History</p>
+                                <div className="space-y-1">
+                                  {pastMemberships.map((m) => {
+                                    const pastCg = cellGroups.find(g => g.id === m.cellId)
+                                    const fromStr = fmtMon(m.since)
+                                    const toStr = fmtMon(m.leftDate)
+                                    return (
+                                      <div key={`${m.cellId}-${m.id}`} className="flex items-start gap-2 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg">
+                                        <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-slate-300 flex-shrink-0" />
+                                        <div>
+                                          <span className="font-semibold text-slate-600">{pastCg?.cellName || 'Unknown Cell'}</span>
+                                          {(fromStr || toStr) && (
+                                            <span className="text-slate-400 ml-1">
+                                              · {fromStr || '?'} – {toStr || 'unknown'}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )
                       })()}
@@ -4728,33 +4784,20 @@ export default function DepartmentHub() {
               )
             }
 
-            const downloadProfileAsPDF = (data, dur, ministry) => {
+            const downloadProfileAsPDF = (data, dur, ministry, cellGroup) => {
               const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null
 
-              // Coloured pill chip
-              const chip = (label, value, labelColor, valueColor, bg, border) => value && String(value).trim()
-                ? `<div style="background:${bg};border:1px solid ${border};border-radius:10px;padding:7px 10px;break-inside:avoid">
-                    <div style="font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:${labelColor};margin-bottom:2px">${label}</div>
-                    <div style="font-size:11px;font-weight:700;color:${valueColor};line-height:1.3">${value}</div>
+              const field = (label, value) => value && String(value).trim()
+                ? `<div style="padding:5px 0;border-bottom:1px solid #f0f0f0">
+                    <div style="font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#6b7280;margin-bottom:1px">${label}</div>
+                    <div style="font-size:10.5px;color:#1f2937;font-weight:500">${value}</div>
                   </div>`
                 : ''
 
-              // Field helpers per section colour
-              const bf = (l, v) => chip(l, v, '#1d4ed8', '#1e3a8a', '#dbeafe', '#bfdbfe')
-              const ef = (l, v) => chip(l, v, '#047857', '#064e3b', '#d1fae5', '#a7f3d0')
-              const vf = (l, v) => chip(l, v, '#6d28d9', '#4c1d95', '#ede9fe', '#ddd6fe')
-              const af = (l, v) => chip(l, v, '#b45309', '#78350f', '#fef3c7', '#fde68a')
-
-              const secBand = (title, titleColor, titleBg, bgColor, fillPct, chips) =>
-                `<div style="margin-bottom:0;background:${bgColor};padding:14px 16px 16px;break-inside:avoid">
-                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                    <div style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;color:${titleColor}">${title}</div>
-                    <div style="font-size:9px;font-weight:900;color:${titleColor}">${fillPct}</div>
-                  </div>
-                  <div style="width:100%;height:4px;background:rgba(255,255,255,0.25);border-radius:4px;margin-bottom:12px;overflow:hidden">
-                    <div style="height:100%;width:${fillPct};background:rgba(255,255,255,0.8);border-radius:4px"></div>
-                  </div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${chips}</div>
+              const section = (title, accentColor, content) =>
+                `<div style="margin-bottom:14px;break-inside:avoid">
+                  <div style="font-size:7.5px;font-weight:800;text-transform:uppercase;letter-spacing:.15em;color:${accentColor};border-bottom:1.5px solid ${accentColor};padding-bottom:3px;margin-bottom:6px">${title}</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">${content}</div>
                 </div>`
 
               const ministryRows = ministry?.length
@@ -4763,91 +4806,107 @@ export default function DepartmentHub() {
                     const to   = r.to   ? new Date(r.to)   : new Date()
                     const tot  = from ? (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) : 0
                     const yrs  = Math.floor(tot / 12), mos = tot % 12
-                    const dur  = from ? ([yrs > 0 ? `${yrs}y` : '', mos > 0 ? `${mos}m` : ''].filter(Boolean).join(' ') || '<1m') : ''
-                    return `<div style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);border-radius:10px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;break-inside:avoid">
+                    const tenureDur = from ? ([yrs > 0 ? `${yrs}y` : '', mos > 0 ? `${mos}m` : ''].filter(Boolean).join(' ') || '<1m') : ''
+                    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:4px;break-inside:avoid">
                       <div>
-                        <div style="font-size:11px;font-weight:800;color:#fff">${r.ministry}${r.role ? `<span style="font-weight:500;color:rgba(255,255,255,0.7)"> · ${r.role}</span>` : ''}</div>
-                        ${from ? `<div style="font-size:9px;color:rgba(255,255,255,0.6);margin-top:2px">since ${from.toLocaleDateString('en-IN',{month:'short',year:'numeric'})}</div>` : ''}
+                        <span style="font-size:10px;font-weight:700;color:#1f2937">${r.ministry}</span>
+                        ${r.role ? `<span style="font-size:9.5px;color:#6b7280"> · ${r.role}</span>` : ''}
+                        ${from ? `<div style="font-size:8px;color:#9ca3af;margin-top:1px">since ${from.toLocaleDateString('en-IN',{month:'short',year:'numeric'})}</div>` : ''}
                       </div>
-                      ${dur ? `<span style="font-size:10px;font-weight:900;background:#d1fae5;color:#064e3b;padding:2px 8px;border-radius:20px;white-space:nowrap;flex-shrink:0">${dur}</span>` : ''}
+                      ${tenureDur ? `<span style="font-size:8.5px;font-weight:700;color:#1d4ed8;white-space:nowrap;background:#eff6ff;border:1px solid #bfdbfe;padding:1px 7px;border-radius:20px">${tenureDur}</span>` : ''}
                     </div>`
                   }).join('')
-                : '<div style="font-size:11px;color:rgba(255,255,255,0.5)">No ministry records</div>'
-
-              const s1Pct = Math.round(['name','phone','email','dob','nativity','currentPlace','serviceAttended','howKnown','attendedDate'].filter(k => data[k] && String(data[k]).trim()).length / 9 * 100) + '%'
-              const s3Keys = ['baptised','maritalStatus',...(data.baptised==='yes'?['baptismDate','baptismPlace','baptismChurch']:[]),...(data.maritalStatus==='Married'?['marriageDate','spouseName']:[])]
-              const s3Pct = s3Keys.length ? Math.round(s3Keys.filter(k => data[k] && String(data[k]).trim()).length / s3Keys.length * 100) + '%' : '0%'
+                : ''
 
               const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PCS — ${data.name || 'Profile'}</title>
               <style>
-                * { box-sizing: border-box; margin: 0; padding: 0; }
-                @page { size: A4 portrait; margin: 0; }
-                html, body { width: 210mm; height: 297mm; font-family: 'Segoe UI', Arial, sans-serif; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-                body { background: #f1f5f9; }
-                @media print { .no-print { display:none !important; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
+                * { box-sizing:border-box; margin:0; padding:0; }
+                @page { size:A4 portrait; margin:0; }
+                html,body { width:210mm; font-family:'Segoe UI',Arial,sans-serif; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; color-adjust:exact !important; }
+                @media print { .no-print{display:none!important} * {-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important} }
               </style></head><body>
-              <div style="width:210mm;min-height:297mm;background:#f1f5f9;display:flex;flex-direction:column">
 
-                <!-- Indigo header -->
-                <div style="background:linear-gradient(160deg,#3730a3 0%,#4f46e5 50%,#6366f1 100%);padding:28px 24px 22px;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact">
-                  <div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.2em;color:#a5b4fc;margin-bottom:2px">River Of Life Church · Bangalore</div>
-                  <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;color:#e0e7ff;margin-bottom:18px">Personal Caring System — Profile</div>
-                  <!-- Avatar -->
-                  <div style="width:72px;height:72px;border-radius:50%;background:${data.membershipNumber ? 'linear-gradient(135deg,#f59e0b,#f97316)' : 'linear-gradient(135deg,#818cf8,#a78bfa)'};display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:900;color:#fff;margin:0 auto 14px;border:3px solid rgba(255,255,255,0.3)">
+              <div style="width:210mm;min-height:297mm;display:flex;flex-direction:column;background:#fff">
+
+                <!-- Navy header band -->
+                <div style="background:#1e3a5f;padding:20px 24px 18px;display:flex;align-items:center;justify-content:space-between;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+                  <div>
+                    <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.2em;color:#93c5fd;margin-bottom:3px">River Of Life Church · Bangalore</div>
+                    <div style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#fff">Personal Caring System — Member Profile</div>
+                  </div>
+                  <div style="text-align:right">
+                    ${data.membershipNumber ? `<div style="font-size:11px;font-weight:800;color:#fbbf24">Member #${data.membershipNumber}</div>` : ''}
+                    <div style="font-size:8px;color:#93c5fd;margin-top:2px">Confidential</div>
+                  </div>
+                </div>
+
+                <!-- Name block with light blue tint -->
+                <div style="background:#f0f7ff;padding:16px 24px;border-bottom:1px solid #dbeafe;display:flex;align-items:center;justify-content:space-between;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+                  <div>
+                    <div style="font-size:22px;font-weight:800;color:#1e3a5f;letter-spacing:-.3px">${data.name || '—'}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
+                      ${data.leadershipPosition ? `<span style="font-size:9px;font-weight:600;color:#1e40af;background:#dbeafe;border:1px solid #bfdbfe;padding:2px 9px;border-radius:20px">${data.leadershipPosition}</span>` : ''}
+                      ${data.membershipStatus === 'member' ? `<span style="font-size:9px;font-weight:600;color:#92400e;background:#fef3c7;border:1px solid #fde68a;padding:2px 9px;border-radius:20px">Member</span>` : ''}
+                      ${dur ? `<span style="font-size:9px;color:#4b5563;background:#f3f4f6;border:1px solid #e5e7eb;padding:2px 9px;border-radius:20px">${dur} in church</span>` : ''}
+                    </div>
+                  </div>
+                  <div style="width:54px;height:54px;border-radius:50%;background:#1e3a5f;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#fff;flex-shrink:0;-webkit-print-color-adjust:exact;print-color-adjust:exact">
                     ${(data.name || '?')[0].toUpperCase()}
                   </div>
-                  <div style="font-size:22px;font-weight:900;color:#fff;margin-bottom:8px;letter-spacing:-.3px">${data.name || '—'}</div>
-                  <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-bottom:14px">
-                    ${data.membershipNumber ? `<span style="background:rgba(251,191,36,0.25);color:#fde68a;font-size:10px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid rgba(251,191,36,0.4)">Member #${data.membershipNumber}</span>` : ''}
-                    ${data.leadershipPosition ? `<span style="background:rgba(52,211,153,0.2);color:#a7f3d0;font-size:10px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid rgba(52,211,153,0.35)">${data.leadershipPosition}</span>` : ''}
-                    ${dur ? `<span style="background:rgba(255,255,255,0.12);color:#c7d2fe;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.2)">${dur} in church</span>` : ''}
-                  </div>
-                  <!-- Overall bar -->
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <div style="flex:1;height:5px;background:rgba(255,255,255,0.2);border-radius:5px;overflow:hidden">
-                      <div style="height:100%;width:${s1Pct};background:rgba(255,255,255,0.7);border-radius:5px"></div>
+                </div>
+
+                <!-- Body -->
+                <div style="padding:18px 24px;flex:1">
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 28px">
+
+                    <!-- Left -->
+                    <div>
+                      ${section('Contact & Personal', '#1d4ed8',
+                        field('Phone', data.phone) +
+                        field('Email', data.email) +
+                        field('Date of Birth', fmt(data.dob)) +
+                        field('Nativity', data.nativity) +
+                        field('Current Place', data.currentPlace) +
+                        field('How Known', data.howKnown)
+                      )}
+                      ${section('Church Journey', '#065f46',
+                        field('First Visit', fmt(data.attendedDate)) +
+                        field('Service Attended', data.serviceAttended) +
+                        field('PCS Year', data.year ? String(data.year) : null) +
+                        (cellGroup ? field('Cell Group', cellGroup.cellName || 'Unnamed Cell') + (cellGroup.leader ? field('Cell Leader', cellGroup.leader) : '') : '')
+                      )}
                     </div>
-                    <span style="font-size:10px;font-weight:900;color:rgba(255,255,255,0.6);white-space:nowrap">${s1Pct} complete</span>
-                  </div>
-                </div>
 
-                <!-- Blue — Contact & Personal -->
-                ${secBand('Contact & Personal','#1e3a8a','#1e40af','#2563eb', s1Pct,
-                  bf('Phone', data.phone) + bf('Email', data.email) + bf('Date of Birth', fmt(data.dob)) + bf('Nativity', data.nativity) + bf('Current Place', data.currentPlace) + bf('How Known', data.howKnown)
-                )}
+                    <!-- Right -->
+                    <div>
+                      ${(data.baptised || data.maritalStatus) ? section('Spiritual', '#5b21b6',
+                        field('Baptised', data.baptised === 'yes' ? 'Yes' : data.baptised === 'no' ? 'No' : null) +
+                        (data.baptised === 'yes' ? field('Baptism Date', fmt(data.baptismDate)) + field('Baptism Place', data.baptismPlace) + field('Baptism Church', data.baptismChurch) : '') +
+                        field('Marital Status', data.maritalStatus) +
+                        (data.maritalStatus === 'Married' ? field('Marriage Date', fmt(data.marriageDate)) + field('Spouse', data.spouseName) : '')
+                      ) : ''}
+                      ${data.membershipStatus ? section('Membership', '#92400e',
+                        field('Status', data.membershipStatus === 'member' ? 'Member' : data.membershipStatus) +
+                        field('Membership No.', data.membershipNumber) +
+                        field('Permanent Address', data.permanentAddress)
+                      ) : ''}
+                    </div>
+                  </div>
 
-                <!-- Emerald — Church Journey -->
-                <div style="background:#059669;padding:14px 16px 16px;-webkit-print-color-adjust:exact;print-color-adjust:exact">
-                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                    <div style="font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;color:#d1fae5">Church Journey</div>
-                    ${dur ? `<span style="font-size:11px;font-weight:900;color:#fff;background:rgba(255,255,255,0.18);padding:3px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.25)">${dur} in church</span>` : ''}
-                  </div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:${ministry?.length ? '10px' : '0'}">
-                    ${ef('First Visit', fmt(data.attendedDate))} ${ef('Service Attended', data.serviceAttended)} ${ef('PCS Year', data.year ? String(data.year) : null)}
-                  </div>
+                  <!-- Ministry & Leadership -->
                   ${ministry?.length ? `
-                    <div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#a7f3d0;margin-bottom:6px">Ministry & Leadership</div>
-                    <div style="display:flex;flex-direction:column;gap:6px">${ministryRows}</div>` : ''}
+                  <div style="margin-top:14px;break-inside:avoid">
+                    <div style="font-size:7.5px;font-weight:800;text-transform:uppercase;letter-spacing:.15em;color:#1e3a5f;border-bottom:1.5px solid #1e3a5f;padding-bottom:3px;margin-bottom:8px">Ministry &amp; Leadership</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px">${ministryRows}</div>
+                  </div>` : ''}
                 </div>
-
-                <!-- Violet — Spiritual -->
-                ${(data.baptised || data.maritalStatus) ? secBand('Spiritual','#4c1d95','#5b21b6','#7c3aed', s3Pct,
-                  vf('Baptised', data.baptised === 'yes' ? 'Yes' : data.baptised === 'no' ? 'No' : null) +
-                  (data.baptised === 'yes' ? vf('Baptism Date', fmt(data.baptismDate)) + vf('Baptism Place', data.baptismPlace) + vf('Baptism Church', data.baptismChurch) : '') +
-                  vf('Marital Status', data.maritalStatus) +
-                  (data.maritalStatus === 'Married' ? vf('Marriage Date', fmt(data.marriageDate)) + vf('Spouse', data.spouseName) : '')
-                ) : ''}
-
-                <!-- Amber — Membership -->
-                ${data.membershipStatus ? secBand('Membership','#78350f','#92400e','#d97706','—',
-                  af('Status', data.membershipStatus === 'member' ? 'Member' : 'Applying') + af('Membership #', data.membershipNumber) + af('Permanent Address', data.permanentAddress)
-                ) : ''}
 
                 <!-- Footer -->
-                <div style="background:#1e293b;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;margin-top:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact">
-                  <span style="font-size:9px;color:#64748b">Generated ${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})} · River Of Life Church</span>
-                  <span style="font-size:9px;color:#475569;font-weight:700">Confidential · PCS Record</span>
+                <div style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:8px 24px;display:flex;justify-content:space-between;align-items:center;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+                  <span style="font-size:8px;color:#9ca3af">Generated ${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})} · River Of Life Church, Bangalore</span>
+                  <span style="font-size:8px;color:#9ca3af;font-weight:600">PCS · Confidential Record</span>
                 </div>
+
               </div>
               <script>window.onload=function(){window.print()}<\/script>
               </body></html>`
@@ -6826,7 +6885,7 @@ export default function DepartmentHub() {
                   {canEdit && (
                     <button
                       type="button"
-                      onClick={() => { setNewCellGroupForm({ cellId: '', cellName: '', leader: '', meetingDay: '', launchDate: '', status: 'active' }); setCellGroupModalOpen(true) }}
+                      onClick={() => { setNewCellGroupForm({ cellId: '', cellName: '', leader: '', leaderPersonId: '', meetingDay: '', launchDate: '', status: 'active' }); setCellGroupModalOpen(true) }}
                       className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
                     >
                       + Add cell group
@@ -6889,6 +6948,7 @@ export default function DepartmentHub() {
                                       cellId: cell.cellId || cell.id || '',
                                       cellName: cell.cellName || '',
                                       leader: cell.leader || '',
+                                      leaderPersonId: cell.leaderPersonId || '',
                                       meetingDay: cell.meetingDay || '',
                                       launchDate: cell.launchDate ? String(cell.launchDate).slice(0, 10) : '',
                                       status: cell.status || 'active',
@@ -7202,7 +7262,7 @@ export default function DepartmentHub() {
                                 <td className="px-3 py-2 text-slate-600">{cell.launchDate ? formatDMY(cell.launchDate) : '—'}</td>
                                 {canEdit && (
                                   <td className="px-3 py-2 space-x-2">
-                                    <button type="button" onClick={() => { setEditingCellGroupId(cell.id); setCellGroupEditForm({ cellId: cell.cellId || cell.id || '', cellName: cell.cellName || '', leader: cell.leader || '', meetingDay: cell.meetingDay || '', launchDate: cell.launchDate ? String(cell.launchDate).slice(0, 10) : '', status: 'inactive' }); setCellGroupEditModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
+                                    <button type="button" onClick={() => { setEditingCellGroupId(cell.id); setCellGroupEditForm({ cellId: cell.cellId || cell.id || '', cellName: cell.cellName || '', leader: cell.leader || '', leaderPersonId: cell.leaderPersonId || '', meetingDay: cell.meetingDay || '', launchDate: cell.launchDate ? String(cell.launchDate).slice(0, 10) : '', status: 'inactive' }); setCellGroupEditModalOpen(true) }} className="text-blue-600 hover:underline">Edit</button>
                                     <button type="button" onClick={async () => { await updateCellGroup(cell.id, { status: 'active' }); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, status: 'active' } : c))); }} className="text-emerald-600 hover:underline">Make Active</button>
                                   </td>
                                 )}
@@ -7280,9 +7340,9 @@ export default function DepartmentHub() {
                     try {
                       const id = await addCellGroup({ ...newCellGroupForm, department: department.name })
                       const logicalCellId = (newCellGroupForm.cellId || '').trim() || id
-                      setCellGroups((prev) => [...prev, { id, cellId: logicalCellId, cellName: newCellGroupForm.cellName, leader: newCellGroupForm.leader, meetingDay: newCellGroupForm.meetingDay, launchDate: newCellGroupForm.launchDate, status: newCellGroupForm.status || 'active', memberCount: 0, department: department.name }])
+                      setCellGroups((prev) => [...prev, { id, cellId: logicalCellId, cellName: newCellGroupForm.cellName, leader: newCellGroupForm.leader, leaderPersonId: newCellGroupForm.leaderPersonId, meetingDay: newCellGroupForm.meetingDay, launchDate: newCellGroupForm.launchDate, status: newCellGroupForm.status || 'active', memberCount: 0, department: department.name }])
                       setCellGroupModalOpen(false)
-                      setNewCellGroupForm({ cellId: '', cellName: '', leader: '', meetingDay: '', launchDate: '', status: 'active' })
+                      setNewCellGroupForm({ cellId: '', cellName: '', leader: '', leaderPersonId: '', meetingDay: '', launchDate: '', status: 'active' })
                     } catch (err) {
                       console.error(err)
                       alert('Failed to save')
@@ -7301,7 +7361,10 @@ export default function DepartmentHub() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Leader</label>
-                    <input type="text" value={newCellGroupForm.leader} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, leader: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    <LeaderPicker
+                      value={{ name: newCellGroupForm.leader, personId: newCellGroupForm.leaderPersonId }}
+                      onChange={({ name, personId }) => setNewCellGroupForm(f => ({ ...f, leader: name, leaderPersonId: personId }))}
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Day of Cell</label>
@@ -7359,7 +7422,10 @@ export default function DepartmentHub() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Leader</label>
-                    <input type="text" value={cellGroupEditForm.leader} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, leader: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    <LeaderPicker
+                      value={{ name: cellGroupEditForm.leader, personId: cellGroupEditForm.leaderPersonId }}
+                      onChange={({ name, personId }) => setCellGroupEditForm(f => ({ ...f, leader: name, leaderPersonId: personId }))}
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Meeting Day</label>
@@ -8183,6 +8249,120 @@ export default function DepartmentHub() {
         </div>
       )}
 
+    </div>
+  )
+}
+
+// ─── Cell Leader Picker ────────────────────────────────────────────────────────
+function LeaderPicker({ value, onChange }) {
+  const [query, setQuery] = useState('')
+  const [allPeople, setAllPeople] = useState(null)
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const inputRef = useRef(null)
+
+  const loadPeople = async () => {
+    if (allPeople) return allPeople
+    setLoading(true)
+    try {
+      const [people, visitors] = await Promise.all([getPeople(), getDelightVisitors()])
+      const seen = new Set()
+      const merged = []
+      for (const p of people) {
+        const key = (p.phone || '').replace(/\s+/g, '') || p.id
+        if (!seen.has(key)) { seen.add(key); merged.push({ id: p.id, name: p.name || '', phone: p.phone || '' }) }
+      }
+      for (const v of visitors) {
+        const key = (v.phone || '').replace(/\s+/g, '')
+        if (key && !seen.has(key)) { seen.add(key); merged.push({ id: v.id, name: v.name || '', phone: v.phone || '' }) }
+      }
+      merged.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      setAllPeople(merged)
+      setLoading(false)
+      return merged
+    } catch { setLoading(false); return [] }
+  }
+
+  const handleFocus = async () => {
+    setOpen(true)
+    const list = await loadPeople()
+    const q = query.toLowerCase().trim()
+    setResults(q ? list.filter(p => p.name.toLowerCase().includes(q) || p.phone.includes(q)).slice(0, 8) : list.slice(0, 8))
+  }
+
+  useEffect(() => {
+    if (!allPeople) return
+    const q = query.toLowerCase().trim()
+    setResults(q ? allPeople.filter(p => p.name.toLowerCase().includes(q) || p.phone.includes(q)).slice(0, 8) : allPeople.slice(0, 8))
+  }, [query, allPeople])
+
+  const select = (person) => {
+    onChange({ name: person.name, personId: person.id })
+    setOpen(false)
+    setQuery('')
+  }
+
+  const clear = () => {
+    onChange({ name: '', personId: '' })
+    setQuery('')
+    setOpen(false)
+  }
+
+  const isLinked = !!(value.name && value.personId)
+  const hasNameOnly = !!(value.name && !value.personId)
+
+  return (
+    <div className="relative">
+      {isLinked ? (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-300 bg-indigo-50">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-indigo-900 truncate">{value.name}</p>
+            <p className="text-xs text-indigo-500">Linked to directory</p>
+          </div>
+          <button type="button" onClick={clear} className="text-slate-400 hover:text-red-500 transition-colors text-lg leading-none flex-shrink-0">×</button>
+        </div>
+      ) : (
+        <>
+          {hasNameOnly && (
+            <div className="flex items-center gap-2 px-3 py-1.5 mb-1.5 rounded-lg bg-amber-50 border border-amber-200">
+              <span className="text-xs text-amber-800 flex-1 truncate">"{value.name}" — not linked</span>
+              <button type="button" onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0) }} className="text-xs font-semibold text-indigo-600 hover:underline flex-shrink-0">Link →</button>
+              <button type="button" onClick={clear} className="text-slate-400 hover:text-red-500 transition-colors text-base leading-none flex-shrink-0">×</button>
+            </div>
+          )}
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onFocus={handleFocus}
+            placeholder={hasNameOnly ? 'Search directory to link…' : 'Search people directory…'}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+          />
+        </>
+      )}
+      {open && !isLinked && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setQuery('') }} />
+          <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+            {loading && <p className="px-3 py-2.5 text-sm text-slate-400">Loading…</p>}
+            {!loading && results.length === 0 && <p className="px-3 py-2.5 text-sm text-slate-400">No results found</p>}
+            {results.map(p => (
+              <button key={p.id} type="button" onClick={() => select(p)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-indigo-50 text-left transition-colors">
+                <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-700 flex-shrink-0">
+                  {(p.name || '?')[0].toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">{p.name}</p>
+                  {p.phone && <p className="text-xs text-slate-400">{p.phone}</p>}
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

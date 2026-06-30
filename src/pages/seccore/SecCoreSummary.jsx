@@ -3,6 +3,7 @@ import { format, addWeeks, subWeeks } from 'date-fns'
 import {
   getSecCoreDirectorBoard,
   setSecCoreDirectorBoard,
+  subscribeToDirectorBoard,
   getSecCoreSundayLeaderEntries,
   getSecCoreSundayLeaderEntry,
   setSecCoreSundayLeaderEntry,
@@ -10,12 +11,22 @@ import {
   subscribeToBoardPoints,
   updateBoardPoint,
   getPeople,
+  getDelightVisitors,
 } from '../../services/firestore'
 import { useAuth } from '../../context/AuthContext'
 import { formatDisplayDate } from '../../utils/date'
 import { DEPARTMENT_LIST } from '../../constants/departments'
 
 const DEPT_NAMES = DEPARTMENT_LIST.map(d => d.name)
+
+function dur(from, to) {
+  if (!from) return null
+  const s = new Date(from), e = to ? new Date(to) : new Date()
+  const totalMonths = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth())
+  if (totalMonths < 1) return '<1m'
+  const y = Math.floor(totalMonths / 12), m = totalMonths % 12
+  return [y > 0 ? `${y}y` : '', m > 0 ? `${m}m` : ''].filter(Boolean).join(' ')
+}
 
 // ─── People search picker ─────────────────────────────────────────────────────
 
@@ -26,10 +37,28 @@ function PersonPicker({ value, onChange }) {
   const [open, setOpen]           = useState(false)
   const inputRef = useRef(null)
 
-  // Load people lazily on first focus
+  // Load people lazily on first focus — merge both collections, people takes priority
   const loadPeople = () => {
     if (allPeople !== null) return
-    getPeople().then(setAllPeople).catch(() => setAllPeople([]))
+    Promise.all([
+      getPeople().catch(() => []),
+      getDelightVisitors().catch(() => []),
+    ]).then(([people, visitors]) => {
+      const seen = new Set()
+      const merged = []
+      for (const p of people) {
+        merged.push(p)
+        if (p.phone) seen.add(p.phone.replace(/\s+/g, ''))
+      }
+      for (const v of visitors) {
+        const phone = (v.phone || '').replace(/\s+/g, '')
+        if (phone && seen.has(phone)) continue
+        merged.push(v)
+        if (phone) seen.add(phone)
+      }
+      merged.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      setAllPeople(merged)
+    }).catch(() => setAllPeople([]))
   }
 
   const results = allPeople
@@ -118,7 +147,7 @@ function nextSundayISO() {
 
 // ─── Director Board tab ───────────────────────────────────────────────────────
 
-const BLANK_MEMBER = { personId: '', name: '', role: '', type: 'director', department: '' }
+const BLANK_MEMBER = { personId: '', name: '', role: '', type: 'director', department: '', from: '', to: '' }
 
 const POSITION_STYLES = {
   director:    { active: 'bg-indigo-600 border-indigo-600 text-white', dot: 'bg-indigo-500', badge: 'bg-indigo-50 text-indigo-700 border-indigo-100' },
@@ -130,76 +159,72 @@ function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
   const person = value.personId ? { personId: value.personId, name: value.name } : null
   const style = POSITION_STYLES[value.type] || POSITION_STYLES.director
 
+  const Field = ({ label, sub, children }) => (
+    <div>
+      <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">
+        {label}{sub && <span className="normal-case font-normal tracking-normal text-slate-300 ml-1">{sub}</span>}
+      </label>
+      {children}
+    </div>
+  )
+
   return (
-    <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50 space-y-3">
-      {/* Type toggle */}
-      <div className="flex gap-2">
-        {['director', 'coordinator', 'secretary'].map(t => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => onChange({ ...value, type: t })}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-              value.type === t
-                ? POSITION_STYLES[t].active
-                : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
-            }`}
+    <div className="px-4 py-3 space-y-3">
+      {/* Row 1: Position + Department */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Position">
+          <select
+            value={value.type}
+            onChange={e => onChange({ ...value, type: e.target.value })}
+            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
           >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
+            <option value="director">Director</option>
+            <option value="coordinator">Coordinator</option>
+            <option value="secretary">Secretary</option>
+          </select>
+        </Field>
+        <Field label="Department" sub="(optional)">
+          <select
+            value={value.department}
+            onChange={e => onChange({ ...value, department: e.target.value })}
+            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+          >
+            <option value="">— select —</option>
+            {DEPT_NAMES.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </Field>
       </div>
 
-      {/* Person picker from directory */}
-      <div>
-        <label className="block text-xs text-slate-500 mb-1">Person <span className="text-slate-400">(from People Directory)</span></label>
+      {/* Row 2: Person picker */}
+      <Field label="Person" sub="(from People Directory)">
         <PersonPicker
           value={person}
           onChange={p => onChange({ ...value, personId: p?.personId || '', name: p?.name || '' })}
         />
+      </Field>
+
+      {/* Row 3: From + To */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="From">
+          <input type="date" value={value.from || ''} onChange={e => onChange({ ...value, from: e.target.value })}
+            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </Field>
+        <Field label="To" sub="(blank = current)">
+          <input type="date" value={value.to || ''} onChange={e => onChange({ ...value, to: e.target.value })}
+            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+        </Field>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {/* Department */}
-        <div>
-          <label className="block text-xs text-slate-500 mb-1">Department <span className="text-slate-400">(optional)</span></label>
-          <select
-            value={value.department}
-            onChange={e => onChange({ ...value, department: e.target.value })}
-            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          >
-            <option value="">— select dept —</option>
-            {DEPT_NAMES.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </div>
-
-        {/* Role / title */}
-        <div>
-          <label className="block text-xs text-slate-500 mb-1">Role / Title <span className="text-slate-400">(optional)</span></label>
-          <input
-            type="text"
-            value={value.role}
-            onChange={e => onChange({ ...value, role: e.target.value })}
-            onKeyDown={e => e.key === 'Enter' && onSubmit()}
-            placeholder="e.g. Chairman, Youth Secretary…"
-            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          />
-        </div>
-      </div>
-
-      <div className="flex gap-2 justify-end">
+      {/* Actions */}
+      <div className="flex gap-2 justify-end pt-1">
         {onCancel && (
           <button type="button" onClick={onCancel}
-            className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50">
+            className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
             Cancel
           </button>
         )}
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={!value.name.trim()}
-          className={`px-4 py-1.5 rounded-lg text-white text-sm font-medium disabled:opacity-40 transition-colors ${style.active}`}
-        >
+        <button type="button" onClick={onSubmit} disabled={!value.name.trim()}
+          className={`px-4 py-1.5 rounded-lg text-white text-xs font-bold disabled:opacity-40 transition-colors ${style.active}`}>
           {submitLabel}
         </button>
       </div>
@@ -208,26 +233,36 @@ function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
 }
 
 function DirectorBoardTab({ canEdit, userProfile }) {
-  const [data, setData]         = useState({ members: [], notes: '' })
+  const [members, setMembers]   = useState([])
   const [loading, setLoading]   = useState(true)
   const [saving, setSaving]     = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [newMember, setNewMember] = useState(BLANK_MEMBER)
   const [editIdx, setEditIdx]   = useState(null)
   const [showForm, setShowForm] = useState(false)
 
   useEffect(() => {
-    getSecCoreDirectorBoard()
-      .then((d) => setData({ members: d.members || [], notes: d.notes || '' }))
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    const unsub = subscribeToDirectorBoard(
+      (d) => { setMembers(d.members || []); setLoading(false) },
+      ()  => {
+        // Listener failed — fall back to one-time read
+        getSecCoreDirectorBoard()
+          .then(d => setMembers(d.members || []))
+          .catch(() => {})
+          .finally(() => setLoading(false))
+      }
+    )
+    return unsub
   }, [])
 
-  const save = async (patch) => {
-    const next = { ...data, ...patch }
-    setData(next)
+  const save = async (nextMembers) => {
     setSaving(true)
+    setSaveError('')
     try {
-      await setSecCoreDirectorBoard(next, userProfile?.displayName || userProfile?.email)
+      await setSecCoreDirectorBoard({ members: nextMembers }, userProfile?.displayName || userProfile?.email)
+    } catch (e) {
+      console.error('Director board save failed:', e)
+      setSaveError('Save failed. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -235,42 +270,47 @@ function DirectorBoardTab({ canEdit, userProfile }) {
 
   const addMember = () => {
     if (!newMember.name.trim()) return
-    save({ members: [...data.members, {
+    const next = [...members, {
       personId: newMember.personId || '',
       name: newMember.name.trim(),
       role: newMember.role.trim(),
       type: newMember.type,
       department: newMember.department?.trim() || '',
-    }]})
+      from: newMember.from || '',
+      to: newMember.to || '',
+    }]
     setNewMember(BLANK_MEMBER)
     setShowForm(false)
+    save(next)
   }
 
   const applyEdit = () => {
     if (editIdx == null) return
-    const updated = data.members.map((m, i) =>
+    const next = members.map((m, i) =>
       i === editIdx ? {
         personId: newMember.personId || m.personId || '',
         name: newMember.name.trim() || m.name,
         role: newMember.role.trim(),
         type: newMember.type,
         department: newMember.department?.trim() || '',
+        from: newMember.from || '',
+        to: newMember.to || '',
       } : m
     )
     setEditIdx(null)
     setNewMember(BLANK_MEMBER)
-    save({ members: updated })
+    save(next)
   }
 
-  const removeMember = (idx) => save({ members: data.members.filter((_, i) => i !== idx) })
+  const removeMember = (idx) => save(members.filter((_, i) => i !== idx))
 
   if (loading) return <p className="text-sm text-slate-400">Loading…</p>
 
   // Group members by type; treat legacy entries (no type) as directors
   const byType = {
-    director:    data.members.filter(m => !m.type || m.type === 'director'),
-    coordinator: data.members.filter(m => m.type === 'coordinator'),
-    secretary:   data.members.filter(m => m.type === 'secretary'),
+    director:    members.filter(m => !m.type || m.type === 'director'),
+    coordinator: members.filter(m => m.type === 'coordinator'),
+    secretary:   members.filter(m => m.type === 'secretary'),
   }
 
   const MemberRow = ({ m, idx }) => {
@@ -295,12 +335,24 @@ function DirectorBoardTab({ canEdit, userProfile }) {
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${style.badge}`}>{m.department}</span>
                 )}
                 {m.role && <span className="text-xs text-slate-500">{m.role}</span>}
+                {m.from && (
+                  <span className="text-[10px] text-slate-400">
+                    {new Date(m.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                    {' – '}
+                    {m.to ? new Date(m.to).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Present'}
+                  </span>
+                )}
+                {dur(m.from, m.to || null) && (
+                  <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full border ${style.badge}`}>
+                    {dur(m.from, m.to || null)}
+                  </span>
+                )}
               </div>
             </div>
             {canEdit && (
               <div className="flex gap-2 shrink-0">
                 <button type="button"
-                  onClick={() => { setEditIdx(idx); setNewMember({ personId: m.personId || '', name: m.name, role: m.role || '', type: m.type || 'director', department: m.department || '' }); setShowForm(false) }}
+                  onClick={() => { setEditIdx(idx); setNewMember({ personId: m.personId || '', name: m.name, role: m.role || '', type: m.type || 'director', department: m.department || '', from: m.from || '', to: m.to || '' }); setShowForm(false) }}
                   className="text-xs text-indigo-600 hover:underline">Edit</button>
                 <button type="button" onClick={() => removeMember(idx)}
                   className="text-xs text-red-500 hover:underline">Remove</button>
@@ -313,9 +365,9 @@ function DirectorBoardTab({ canEdit, userProfile }) {
   }
 
   const SECTIONS = [
+    { key: 'secretary',   label: 'Secretaries' },
     { key: 'director',    label: 'Directors' },
     { key: 'coordinator', label: 'Coordinators' },
-    { key: 'secretary',   label: 'Secretaries' },
   ]
 
   const typeLabel = (t) => t.charAt(0).toUpperCase() + t.slice(1)
@@ -323,32 +375,39 @@ function DirectorBoardTab({ canEdit, userProfile }) {
   return (
     <div className="space-y-4">
 
-      {SECTIONS.map((sec, si) => {
-        const members = byType[sec.key]
-        const style = POSITION_STYLES[sec.key]
-        return (
-          <div key={sec.key} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${style.dot}`} />
-                <h3 className="font-semibold text-slate-800 text-sm">{sec.label}</h3>
-                <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">{members.length}</span>
+      {/* Three columns side by side */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {SECTIONS.map((sec, si) => {
+          const secMembers = byType[sec.key]
+          const style = POSITION_STYLES[sec.key]
+          return (
+            <div key={sec.key} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${style.dot}`} />
+                  <h3 className="font-semibold text-slate-800 text-sm">{sec.label}</h3>
+                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">{secMembers.length}</span>
+                </div>
+                {saving && si === 0 && <span className="text-xs text-slate-400">Saving…</span>}
               </div>
-              {saving && si === 0 && <span className="text-xs text-slate-400">Saving…</span>}
+              {secMembers.length === 0 ? (
+                <p className="px-4 py-4 text-sm text-slate-400">No {sec.label.toLowerCase()} added yet.</p>
+              ) : (
+                <ul>
+                  {secMembers.map((m, i) => {
+                    const realIdx = members.indexOf(m)
+                    return <MemberRow key={i} m={m} idx={realIdx} />
+                  })}
+                </ul>
+              )}
             </div>
-            {members.length === 0 ? (
-              <p className="px-4 py-4 text-sm text-slate-400">No {sec.label.toLowerCase()} added yet.</p>
-            ) : (
-              <ul>
-                {members.map((m, i) => {
-                  const realIdx = data.members.indexOf(m)
-                  return <MemberRow key={i} m={m} idx={realIdx} />
-                })}
-              </ul>
-            )}
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
+
+      {saveError && (
+        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{saveError}</p>
+      )}
 
       {/* Add new member */}
       {canEdit && (
@@ -378,29 +437,6 @@ function DirectorBoardTab({ canEdit, userProfile }) {
         </div>
       )}
 
-      {/* Shared notes */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-2">
-        <h3 className="font-semibold text-slate-800 text-sm">Board Notes</h3>
-        {canEdit ? (
-          <>
-            <textarea
-              value={data.notes}
-              onChange={(e) => setData((d) => ({ ...d, notes: e.target.value }))}
-              placeholder="Agenda items, decisions, meeting notes…"
-              rows={4}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-            />
-            <div className="flex justify-end">
-              <button type="button" disabled={saving} onClick={() => save({ notes: data.notes })}
-                className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
-                {saving ? 'Saving…' : 'Save Notes'}
-              </button>
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-slate-700 whitespace-pre-wrap">{data.notes || '— No notes yet —'}</p>
-        )}
-      </div>
     </div>
   )
 }

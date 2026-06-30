@@ -1566,6 +1566,7 @@ export async function getCellGroup(cellId) {
     cellId: data.cellId != null && data.cellId !== '' ? String(data.cellId) : snap.id,
     cellName: data.cellName || '',
     leader: data.leader || '',
+    leaderPersonId: data.leaderPersonId || '',
     meetingDay: data.meetingDay || '',
     launchDate: data.launchDate || '',
     memberCount: Number(data.memberCount) || 0,
@@ -1591,6 +1592,7 @@ export async function getCellGroups(department) {
       cellId: data.cellId != null && data.cellId !== '' ? String(data.cellId) : d.id,
       cellName: data.cellName || '',
       leader: data.leader || '',
+      leaderPersonId: data.leaderPersonId || '',
       meetingDay: data.meetingDay || '',
       launchDate: data.launchDate || '',
       memberCount: Number(data.memberCount) || 0,
@@ -1607,6 +1609,7 @@ export async function addCellGroup(data) {
   await setDoc(ref, {
     cellName: data.cellName || '',
     leader: data.leader || '',
+    leaderPersonId: data.leaderPersonId || '',
     meetingDay: data.meetingDay || '',
     launchDate: data.launchDate ? String(data.launchDate).slice(0, 10) : '',
     memberCount: 0,
@@ -1623,6 +1626,7 @@ export async function updateCellGroup(id, data) {
   const payload = {}
   if (data.cellName !== undefined) payload.cellName = String(data.cellName)
   if (data.leader !== undefined) payload.leader = String(data.leader)
+  if (data.leaderPersonId !== undefined) payload.leaderPersonId = String(data.leaderPersonId || '')
   if (data.meetingDay !== undefined) payload.meetingDay = String(data.meetingDay)
   if (data.launchDate !== undefined) payload.launchDate = data.launchDate ? String(data.launchDate).slice(0, 10) : ''
   if (data.memberCount !== undefined) payload.memberCount = Number(data.memberCount) || 0
@@ -1650,6 +1654,7 @@ export async function getCellGroupMembers(cellId) {
       role: data.role || '',
       locality: data.locality || '',
       since: data.since || '',
+      leftDate: data.leftDate || '',
       status: data.status === 'inactive' ? 'inactive' : 'active',
       visitorId: data.visitorId || '',
       createdAt: toDate(data.createdAt),
@@ -1709,6 +1714,9 @@ export async function updateCellGroupMember(cellId, memberId, data) {
     notes:       data.notes       !== undefined ? String(data.notes)                                   : undefined,
     status:      data.status      !== undefined ? (data.status === 'inactive' ? 'inactive' : 'active') : undefined,
     visitorId:   data.visitorId   !== undefined ? String(data.visitorId) : undefined,
+    leftDate:    data.leftDate    !== undefined ? String(data.leftDate).slice(0, 10)
+                 : data.status === 'inactive'   ? new Date().toISOString().slice(0, 10)
+                 : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId), clean)
@@ -3173,6 +3181,26 @@ export async function setSundayServiceAttendance(dateStr, cellId, presentIds, up
   }, { merge: true })
 }
 
+/** Sync cell-level name list into sunday_reports.sundayCellAttendance so Reports History reflects it. */
+export async function syncCellAttendanceToReport(dateStr, cellId, presentNames) {
+  if (!db || !dateStr || !cellId) return
+  const id = String(dateStr).slice(0, 10)
+  const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+  const names = Array.isArray(presentNames) ? presentNames.filter(Boolean) : []
+  try {
+    await updateDoc(ref, {
+      [`sundayCellAttendance.${cellId}`]: names,
+      updatedAt: Timestamp.now(),
+    })
+  } catch {
+    await setDoc(ref, {
+      date: id,
+      sundayCellAttendance: { [cellId]: names },
+      updatedAt: Timestamp.now(),
+    }, { merge: true })
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SUNDAY CHECKLISTS — defaults + weekly instances
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3600,6 +3628,15 @@ export async function getSecCoreDirectorBoard() {
   return snap.exists() ? snap.data() : {}
 }
 
+export function subscribeToDirectorBoard(onChange, onError) {
+  if (!db) { onError?.(); return () => {} }
+  return onSnapshot(
+    doc(db, SEC_CORE_COLLECTION, 'director_board'),
+    (snap) => onChange(snap.exists() ? snap.data() : {}),
+    (err) => { console.error('subscribeToDirectorBoard:', err); onError?.() }
+  )
+}
+
 export async function setSecCoreDirectorBoard(data, updatedBy) {
   if (!db) return
   await setDoc(doc(db, SEC_CORE_COLLECTION, 'director_board'), {
@@ -4022,18 +4059,47 @@ export async function getAllWorshipTeamMembers() {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }
 
-export async function getMemberProfileWithContext(visitorId) {
+export async function getMemberProfileWithContext(visitorId, phone, personId, name) {
   if (!db || !visitorId) return null
   const safe = (p) => p.catch(() => null)
-  const [profile, deptSnap, worshipSnap] = await Promise.all([
+  const normalPhone = (phone || '').replace(/\s+/g, '')
+
+  const queries = [
     safe(getMemberProfile(visitorId)),
     safe(getDocs(query(collection(db, 'department_team_members'), where('visitorId', '==', visitorId)))),
     safe(getDocs(query(collection(db, 'worship_team_members'),    where('visitorId', '==', visitorId)))),
-  ])
+    normalPhone ? safe(getDocs(query(collection(db, 'department_team_members'), where('phone', '==', normalPhone)))) : Promise.resolve(null),
+    normalPhone ? safe(getDocs(query(collection(db, 'worship_team_members'),    where('phone', '==', normalPhone)))) : Promise.resolve(null),
+    safe(getDoc(doc(db, SEC_CORE_COLLECTION, 'director_board'))),
+  ]
+  const [profile, deptById, worshipById, deptByPhone, worshipByPhone, boardSnap] = await Promise.all(queries)
+
+  // Merge visitorId results + phone results, deduplicate by doc id
+  const mergeDocs = (snapA, snapB) => {
+    const seen = new Set()
+    const out = []
+    for (const snap of [snapA, snapB]) {
+      if (!snap) continue
+      for (const d of snap.docs) {
+        if (!seen.has(d.id)) { seen.add(d.id); out.push({ id: d.id, ...d.data() }) }
+      }
+    }
+    return out
+  }
+
+  // Find this person's entries in the Sec Core director board
+  const boardMembers = boardSnap?.exists() ? (boardSnap.data().members || []) : []
+  const nameLower = (name || '').toLowerCase().trim()
+  const secCoreRoles = boardMembers.filter(m =>
+    (personId && m.personId && m.personId === personId) ||
+    (nameLower && m.name?.toLowerCase().trim() === nameLower)
+  )
+
   return {
-    profile:     profile || {},
-    deptTeams:   deptSnap   ? deptSnap.docs.map(d   => ({ id: d.id,   ...d.data() }))   : [],
-    worshipTeams: worshipSnap ? worshipSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [],
+    profile:      profile || {},
+    deptTeams:    mergeDocs(deptById, deptByPhone),
+    worshipTeams: mergeDocs(worshipById, worshipByPhone),
+    secCoreRoles,
   }
 }
 
