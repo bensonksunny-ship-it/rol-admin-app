@@ -5540,6 +5540,10 @@ export default function DepartmentHub() {
                 <form
                   onSubmit={async (e) => {
                     e.preventDefault()
+                    if (!editingMember && !memberForm.visitorId) {
+                      setTeamError('You must select a person from the People\'s Directory. New people can only be added by the D Light Director via Visitor Entry.')
+                      return
+                    }
                     try {
                       if (editingMember) {
                         await updateDepartmentTeamMember(editingMember.id, memberForm)
@@ -5591,7 +5595,7 @@ export default function DepartmentHub() {
                         {editingMember ? 'Edit Team Member' : 'Add New Team Member'}
                       </h3>
                       <p className="text-xs text-indigo-500 mt-0.5">
-                        {editingMember ? 'Update the details below' : 'Search from the member database'}
+                        {editingMember ? 'Update the details below' : 'Must be selected from People\'s Directory'}
                       </p>
                     </div>
                   </div>
@@ -5600,7 +5604,7 @@ export default function DepartmentHub() {
                     {/* Name / Search */}
                     <div>
                       <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                        Name
+                        Name <span className="text-indigo-400 font-normal normal-case tracking-normal">(from People&apos;s Directory)</span>
                       </label>
                       {editingMember ? (
                         <input
@@ -5631,7 +5635,7 @@ export default function DepartmentHub() {
                           </div>
                           <input
                             type="text"
-                            placeholder={teamVisitorsLoading ? 'Loading members…' : 'Search member by name…'}
+                            placeholder={teamVisitorsLoading ? 'Loading directory…' : 'Search People\'s Directory…'}
                             value={teamMemberSearch}
                             autoComplete="off"
                             disabled={teamVisitorsLoading}
@@ -5646,7 +5650,10 @@ export default function DepartmentHub() {
                             return (
                               <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl border border-slate-200 shadow-xl z-20 overflow-hidden max-h-56 overflow-y-auto">
                                 {matches.length === 0 ? (
-                                  <p className="px-4 py-4 text-sm text-slate-400 text-center">No members found.</p>
+                                  <div className="px-4 py-3 text-center">
+                                    <p className="text-sm text-slate-500 font-medium">Not in People&apos;s Directory</p>
+                                    <p className="text-xs text-slate-400 mt-0.5">New people can only be added via D Light Visitor Entry</p>
+                                  </div>
                                 ) : matches.map((v) => (
                                   <button
                                     key={v.id}
@@ -7552,7 +7559,7 @@ export default function DepartmentHub() {
                     onSubmit={async (e) => {
                       e.preventDefault()
                       if (!editingCellMemberId && !cellMemberForm.visitorId) {
-                        alert('Please select a person from the visitor list above.')
+                        alert('You must select a person from the People\'s Directory. Only people who have visited (entered via D Light Visitor Entry) can be added to a cell group.')
                         return
                       }
                       try {
@@ -7604,7 +7611,7 @@ export default function DepartmentHub() {
                     {!editingCellMemberId && (
                       <div className="rounded-xl border border-indigo-100 bg-indigo-50 overflow-hidden">
                         <div className="px-3 pt-3 pb-2">
-                          <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">Select from Visitor Entry</p>
+                          <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">Select from People&apos;s Directory</p>
                           <div className="relative">
                             <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
                               <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -7628,7 +7635,10 @@ export default function DepartmentHub() {
                               !q || v.name.toLowerCase().includes(q)
                             )
                             if (matches.length === 0) return (
-                              <p className="px-3 py-4 text-xs text-slate-400 text-center">No matches found.</p>
+                              <div className="px-3 py-3 text-center">
+                                <p className="text-xs text-slate-500 font-medium">Not in People&apos;s Directory</p>
+                                <p className="text-xs text-slate-400 mt-0.5">New people are added via D Light Visitor Entry</p>
+                              </div>
                             )
                             return matches.map(v => (
                               <button
@@ -7688,7 +7698,7 @@ export default function DepartmentHub() {
                           </div>
                         ) : (
                           <div className="px-3 py-2.5 rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 text-center">
-                            Search and select a visitor above
+                            Search and select from the People&apos;s Directory above
                           </div>
                         )}
                       </div>
