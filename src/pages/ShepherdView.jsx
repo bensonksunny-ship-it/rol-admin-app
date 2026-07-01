@@ -138,12 +138,7 @@ export default function ShepherdView({ embedded = false }) {
   const { userProfile } = useAuth()
   const [searchParamsRoot, setSearchParamsRoot] = useSearchParams()
 
-  // When a fill-invite notification is tapped, the URL gains openFillInvite=<id>.
-  // Switch to My Fellowship immediately so MyFellowshipTab mounts and can open the form.
   const openFillInviteId = searchParamsRoot.get('openFillInvite') || null
-  useEffect(() => {
-    if (openFillInviteId) setTab('fellowship')
-  }, [openFillInviteId])
 
   const isDirector = useMemo(() => isCellDirectorInPositions(userProfile), [userProfile])
   const isLeader   = useMemo(() => isCellLeaderInPositions(userProfile),   [userProfile])
@@ -152,15 +147,11 @@ export default function ShepherdView({ embedded = false }) {
   // Founder View Switcher — use simulated capabilities when active
   const { viewAsRole, capabilities } = useViewAs()
   const isSimulating = isFounder && viewAsRole !== 'founder'
-  // When simulating, override what role can do
   const effectiveIsDirector = isSimulating
     ? (viewAsRole === 'director')
     : (isDirector || isFounder)
   const effectiveCanSeeAllCells = isSimulating
     ? capabilities.canSeeAllCells
-    : (isDirector || isFounder)
-  const effectiveCanEditContent = isSimulating
-    ? capabilities.canEditContent
     : (isDirector || isFounder)
 
   return (
@@ -190,21 +181,7 @@ export default function ShepherdView({ embedded = false }) {
           canSeeAllCells={effectiveCanSeeAllCells}
           canTransfer={capabilities.canTransferMembers}
         />
-
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-1 mb-3">Mid Week</p>
-          <MinistryContentTab isDirector={effectiveIsDirector} />
-        </div>
-
-        <MyFellowshipTab
-          userProfile={userProfile}
-          isDirector={effectiveIsDirector}
-          isLeader={isLeader}
-          autoFillInviteId={openFillInviteId}
-          onAutoFillInviteConsumed={() =>
-            setSearchParamsRoot(prev => { const n = new URLSearchParams(prev); n.delete('openFillInvite'); return n }, { replace: true })
-          }
-        />
+        <MinistryContentTab isDirector={effectiveIsDirector} />
       </div>
     </div>
   )
