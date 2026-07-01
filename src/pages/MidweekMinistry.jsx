@@ -81,7 +81,7 @@ export default function MidweekMinistry({ embedded = false }) {
     <div className={embedded ? undefined : 'min-h-screen bg-slate-50'}>
       {!embedded && <DepartmentTabBar slug="cell" activeTab="midweek" />}
 
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+      <div className={`max-w-2xl mx-auto space-y-5 ${embedded ? 'py-4' : 'px-4 py-6'}`}>
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Mid-week Ministry</h1>
           <p className="text-slate-500 text-sm mt-0.5">Live cell meeting tools</p>

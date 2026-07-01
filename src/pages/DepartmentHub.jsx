@@ -118,6 +118,7 @@ import BoardPointsModal from '../components/BoardPointsModal'
 import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
 import DLightDirectorDashboard from '../components/DLightDirectorDashboard'
 import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
+import { defaultCellTab, visibleCellTabs } from '../utils/cellTabVisibility'
 import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import CellOperationsToggle from './cell/CellOperationsToggle'
@@ -531,13 +532,18 @@ export default function DepartmentHub() {
   const isCellLeader = slug === 'cell' && !canViewAllCells
   useEffect(() => {
     const nextTabs = getDepartmentHubTabs(slug)
-    const cellLeaderTabs = ['leaderEntry', 'reports']
-    if (tabFromUrl && nextTabs.includes(tabFromUrl)) {
-      setActiveTab(isCellLeader && !cellLeaderTabs.includes(tabFromUrl) ? 'leaderEntry' : tabFromUrl)
+    if (slug === 'cell') {
+      // Wait for profile before committing to a cell tab — avoids summary flash for cell leaders
+      if (!userProfile) return
+      const allowed = visibleCellTabs(userProfile)
+      const fallback = defaultCellTab(userProfile)
+      setActiveTab(tabFromUrl && allowed.includes(tabFromUrl) ? tabFromUrl : fallback)
+    } else if (tabFromUrl && nextTabs.includes(tabFromUrl)) {
+      setActiveTab(tabFromUrl)
     } else {
-      setActiveTab(isCellLeader ? 'leaderEntry' : 'summary')
+      setActiveTab('summary')
     }
-  }, [slug, tabFromUrl, isCellLeader])
+  }, [slug, tabFromUrl, userProfile])
 
   function formatDuration(firstSundayStr) {
     if (!firstSundayStr) return '—'

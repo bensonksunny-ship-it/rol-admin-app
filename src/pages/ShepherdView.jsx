@@ -158,7 +158,7 @@ export default function ShepherdView({ embedded = false }) {
     <div className={embedded ? undefined : 'min-h-screen bg-slate-50'}>
       {!embedded && <DepartmentTabBar slug="cell" activeTab="shepherd" />}
 
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
+      <div className={`max-w-5xl mx-auto space-y-5 ${embedded ? 'py-4' : 'px-4 py-6'}`}>
         {/* Page Header */}
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Shepherd's Hub</h1>

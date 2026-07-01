@@ -17,17 +17,6 @@ export default function CellLeaderEntryTab() {
         </span>
         <button
           type="button"
-          onClick={() => setView('midweek')}
-          className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-sm font-medium rounded border transition ${
-            view === 'midweek'
-              ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-indigo-700'
-          }`}
-        >
-          Mid-week
-        </button>
-        <button
-          type="button"
           onClick={() => setView('shepherd')}
           className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-sm font-medium rounded border transition ${
             view === 'shepherd'
@@ -36,6 +25,17 @@ export default function CellLeaderEntryTab() {
           }`}
         >
           Shepherd Care
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('midweek')}
+          className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-sm font-medium rounded border transition ${
+            view === 'midweek'
+              ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-indigo-700'
+          }`}
+        >
+          Mid-week
         </button>
       </div>
 

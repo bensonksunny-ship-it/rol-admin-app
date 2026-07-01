@@ -10,6 +10,7 @@ import { ROLES } from '../../constants/roles'
 import { getDepartmentRole } from '../../utils/access'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 import { subscribePCSFillInvitationsByCellId } from '../../services/firestore'
+import rolccLogo from '../../assets/rolcc_logo BW.jpg'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard', founderOnly: true },
@@ -525,18 +526,12 @@ export default function Sidebar() {
         {open ? '✕' : '☰'}
       </button>
       <div className="flex items-center gap-2">
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{
-            background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
-            boxShadow: '0 2px 8px rgba(99,102,241,0.4)',
-          }}
-        >
-          <span
-            className="text-white font-black text-sm leading-none select-none"
-            style={{ fontFamily: "'Montserrat', Inter, system-ui, sans-serif" }}
-          >R</span>
-        </div>
+        <img
+          src={rolccLogo}
+          alt="ROLCC"
+          className="w-8 h-8 rounded-lg object-cover flex-shrink-0"
+          style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}
+        />
         <span
           className="font-black"
           style={{
