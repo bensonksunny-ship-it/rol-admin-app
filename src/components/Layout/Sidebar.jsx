@@ -499,9 +499,9 @@ export default function Sidebar() {
       className="lg:hidden fixed top-0 left-0 right-0 flex items-center justify-between px-3"
       style={{
         zIndex: 40,
-        paddingTop: 'env(safe-area-inset-top, 0px)',
-        minHeight: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
-        height: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
+        paddingTop: 'env(safe-area-inset-top, 24px)',
+        minHeight: 'calc(3.5rem + env(safe-area-inset-top, 24px))',
+        height: 'calc(3.5rem + env(safe-area-inset-top, 24px))',
         ...(isDay ? {
           background: 'rgba(255,255,255,0.88)',
           backdropFilter: 'blur(20px) saturate(200%)',

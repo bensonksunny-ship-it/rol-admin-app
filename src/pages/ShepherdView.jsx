@@ -706,7 +706,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       {/* Status filter + legend bar */}
       {selectedCellId && !loadingMembers && (
         <div className="bg-white rounded-3xl border border-slate-200 p-3 shadow-sm space-y-1.5">
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-0.5">
+          <div className="flex flex-wrap gap-2">
             {[
               { key: 'all',      label: 'All',            count: activeMembers.length, dot: 'bg-slate-400',  activeClass: 'bg-slate-900 text-white' },
               { key: 'green',    label: 'Healthy',         count: statusCounts.green,   dot: 'bg-green-400',  activeClass: 'bg-slate-900 text-white' },
@@ -718,11 +718,11 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                 key={key}
                 type="button"
                 onClick={() => setGlowFilter(key)}
-                className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
                   glowFilter === key ? activeClass : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full ${dot}`} />
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />
                 {label} <span className="opacity-60">{count}</span>
               </button>
             ))}

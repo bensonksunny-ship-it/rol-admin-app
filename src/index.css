@@ -2,7 +2,7 @@
 
 :root {
   /* Offset for sticky elements on mobile — below fixed header + notch */
-  --sticky-top: calc(3.5rem + env(safe-area-inset-top, 0px));
+  --sticky-top: calc(3.5rem + env(safe-area-inset-top, 24px));
   --rol-primary: #1e40af;
   --rol-primary-dark: #1e3a8a;
   --rol-accent: #3b82f6;
