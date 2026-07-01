@@ -46,7 +46,10 @@
       "Bash(grep -v \"//\\\\|cellGroups\\\\|cellMembers\\\\|cellGroup\\\\[\")",
       "Bash(grep -v \"//\\\\|addCell\\\\|editCell\\\\|cellGroup\\\\b\\\\|setCellGroup\\\\|loadingCell\\\\|cellGroups\\\\b\")",
       "Bash(git log *)",
-      "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; npm run dev' -WindowStyle Normal)"
+      "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; npm run dev' -WindowStyle Normal)",
+      "Bash(grep -v \"//\\\\|ShepherdCareTab\")",
+      "Bash(awk 'NR>100')",
+      "Bash(awk 'NR>=1380 && NR<=2482' src/pages/ShepherdView.jsx)"
     ]
   }
 }

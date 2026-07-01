@@ -23,6 +23,7 @@ import {
   subscribePCSFillInvitationsByCellId,
   completePCSFillInvitation,
   createPCSAddNotification,
+  getRecentSundayAttendanceNamesByCell,
   getDelightVisitors,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
@@ -344,6 +345,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [detailProfile, setDetailProfile]         = useState(null)
   const [detailVisitor, setDetailVisitor]         = useState(null)
   const [detailAttendance, setDetailAttendance]   = useState([])
+  const [detailSundayHistory, setDetailSundayHistory] = useState([])
   const [detailMinistries, setDetailMinistries]   = useState([])
   const [detailLoading, setDetailLoading]         = useState(false)
 
@@ -680,6 +682,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                         setDetailProfile(null)
                         setDetailVisitor(null)
                         setDetailAttendance([])
+                        setDetailSundayHistory([])
                         setDetailMinistries([])
                         setDetailLoading(true)
                         const memberNameLower = String(member.name || '').trim().toLowerCase()
@@ -687,7 +690,8 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                           member.visitorId ? getMemberProfileWithContext(member.visitorId, member.phone, null, member.name).catch(() => null) : Promise.resolve(null),
                           member.visitorId ? getDelightVisitorById(member.visitorId).catch(() => null) : Promise.resolve(null),
                           selectedCellId ? getRecentCellReportsForHeatmap(selectedCellId, 5).catch(() => []) : Promise.resolve([]),
-                        ]).then(([ctx, visitor, reports]) => {
+                          selectedCellId ? getRecentSundayAttendanceNamesByCell(selectedCellId, 5).catch(() => []) : Promise.resolve([]),
+                        ]).then(([ctx, visitor, reports, sundayRecords]) => {
                           setDetailProfile(ctx?.profile || null)
                           setDetailVisitor(visitor)
                           const deptTeams = ctx?.deptTeams || []
@@ -705,6 +709,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                                 present: r.attendeeNames.has(memberNameLower),
                               }))
                           )
+                          setDetailSundayHistory(sundayRecords)
                         }).finally(() => setDetailLoading(false))
                       }}
                     >
@@ -1291,15 +1296,16 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                   )}
 
                   {/* Sunday Attendance */}
-                  {sundayHistory.length > 0 && (
+                  {detailSundayHistory.length > 0 && (
                     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                       <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
                         <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Sunday Attendance (last {sundayHistory.length})</p>
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Sunday Attendance (last {detailSundayHistory.length})</p>
                       </div>
                       <div className="px-3 py-3 flex items-center gap-2 flex-wrap">
-                        {sundayHistory.map((s, i) => {
-                          const present = s.presentIds.includes(detailMember.id)
+                        {detailSundayHistory.map((s, i) => {
+                          const memberNameLower = String(detailMember.name || '').trim().toLowerCase()
+                          const present = s.presentNames.includes(memberNameLower)
                           const isLatest = i === 0
                           return (
                             <span

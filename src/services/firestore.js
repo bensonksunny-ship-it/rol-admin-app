@@ -3255,6 +3255,31 @@ export async function getRecentSundayAttendanceForCell(cellId, count = 5) {
     .map(d => ({ date: d.date || null, presentIds: d.presentIds || [] }))
 }
 
+/**
+ * Get last N Sundays where attendance was recorded for a cell, from sunday_reports.
+ * Returns [{date, presentNames: string[]}] newest first.
+ * Uses name-based matching (same source as Reports History).
+ */
+export async function getRecentSundayAttendanceNamesByCell(cellId, count = 5) {
+  if (!db || !cellId) return []
+  const q = query(collection(db, SUNDAY_REPORTS_COLLECTION), orderBy('date', 'desc'), limit(count * 4))
+  const snap = await getDocs(q)
+  if (snap.empty) return []
+  const results = []
+  for (const d of snap.docs) {
+    const sca = d.data().sundayCellAttendance
+    if (!sca || typeof sca !== 'object') continue
+    const names = sca[cellId]
+    if (!Array.isArray(names)) continue
+    results.push({
+      date: d.id,
+      presentNames: names.map(n => String(n).trim().toLowerCase()).filter(Boolean),
+    })
+    if (results.length >= count) break
+  }
+  return results
+}
+
 export async function getSundayServiceAttendance(dateStr, cellId) {
   if (!db || !dateStr || !cellId) return { presentIds: [] }
   const id = `${String(dateStr).slice(0, 10)}_${cellId}`
