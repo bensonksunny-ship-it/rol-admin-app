@@ -9,6 +9,9 @@ import {
   updateTask,
   subscribeTasksByDepartment,
   subscribeCellMemberReferralTasks,
+  subscribePCSAddNotifications,
+  completePCSAddNotification,
+  dismissPCSAddNotification,
   getDepartmentEntries,
   addDepartmentEntry,
   getDepartmentTeamMembers,
@@ -401,6 +404,11 @@ export default function DepartmentHub() {
   const [cellReferralTasks, setCellReferralTasks] = useState([])
   const [cellReferralAdding, setCellReferralAdding] = useState(new Set())
   const [cellReferralRemoving, setCellReferralRemoving] = useState(new Set())
+
+  const [pcsAddNotifications, setPcsAddNotifications] = useState([])
+  const [pcsAddOpen, setPcsAddOpen] = useState(false)
+  const [pcsAddAdding, setPcsAddAdding] = useState(new Set())
+  const [pcsAddDismissing, setPcsAddDismissing] = useState(new Set())
   const [delightVisitorForm, setDelightVisitorForm] = useState({
     name: '',
     dob: '',
@@ -1047,6 +1055,13 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (slug !== 'caring') return
     const unsub = subscribeCellMemberReferralTasks(setCellReferralTasks)
+    return unsub
+  }, [slug])
+
+  // Live listener for "Add to PCS" notifications sent by cell leaders
+  useEffect(() => {
+    if (slug !== 'caring') return
+    const unsub = subscribePCSAddNotifications(setPcsAddNotifications)
     return unsub
   }, [slug])
 
@@ -5211,6 +5226,131 @@ export default function DepartmentHub() {
                       </div>
                     )}
 
+                  </div>
+                )}
+
+                {/* ── Add to PCS — notifications from Cell ── */}
+                {pcsAddNotifications.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setPcsAddOpen(o => !o)}
+                      className="w-full px-4 py-3 flex items-center gap-3 hover:bg-indigo-50 transition-colors text-left"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0" />
+                      <p className="text-sm font-bold text-indigo-800 flex-1">Add to PCS — from Cell</p>
+                      <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                        {pcsAddNotifications.length}
+                      </span>
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-indigo-400 transition-transform flex-shrink-0 ${pcsAddOpen ? 'rotate-180' : ''}`}>
+                        <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+
+                    {pcsAddOpen && (
+                      <>
+                        <p className="px-4 pb-2 text-xs text-slate-400 border-t border-indigo-100 pt-3">
+                          Cell leaders requested these members be added to PCS.
+                        </p>
+                        <div className="divide-y divide-slate-100">
+                          {pcsAddNotifications.map(notif => {
+                            const name      = notif.memberName || ''
+                            const phone     = notif.memberPhone || ''
+                            const visitorId = notif.visitorId || ''
+                            const cellName  = notif.cellName  || ''
+                            const sentBy    = notif.sentByName || notif.sentBy || ''
+                            const adding    = pcsAddAdding.has(notif.id)
+                            const dismissing = pcsAddDismissing.has(notif.id)
+                            const inVisitorList = visitorId
+                              ? delightVisitors.some(v => v.id === visitorId)
+                              : delightVisitors.some(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())
+
+                            return (
+                              <div key={notif.id} className="flex items-center gap-3 px-4 py-3">
+                                <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                                  {String(name || '?').split(' ').slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('')}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-slate-900 text-sm truncate">{name}</p>
+                                  <p className="text-xs text-slate-400 mt-0.5 truncate">
+                                    {[phone, cellName ? `Cell: ${cellName}` : '', sentBy ? `by ${sentBy}` : ''].filter(Boolean).join(' · ')}
+                                  </p>
+                                  {!inVisitorList && (
+                                    <p className="text-xs text-amber-600 font-medium mt-0.5">Not in visitor list yet</p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    disabled={dismissing || adding}
+                                    onClick={async () => {
+                                      setPcsAddDismissing(prev => new Set([...prev, notif.id]))
+                                      try {
+                                        await dismissPCSAddNotification(notif.id)
+                                        setPcsAddNotifications(prev => prev.filter(n => n.id !== notif.id))
+                                      } catch { /* ignore */ }
+                                      finally {
+                                        setPcsAddDismissing(prev => { const s = new Set(prev); s.delete(notif.id); return s })
+                                      }
+                                    }}
+                                    className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-500 flex items-center justify-center text-base transition-colors disabled:opacity-40"
+                                    title="Dismiss"
+                                  >
+                                    {dismissing ? '…' : '×'}
+                                  </button>
+                                  {inVisitorList ? (
+                                    <button
+                                      type="button"
+                                      disabled={adding}
+                                      onClick={async () => {
+                                        setPcsAddAdding(prev => new Set([...prev, notif.id]))
+                                        try {
+                                          const resolvedVisitorId = visitorId ||
+                                            (delightVisitors.find(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())?.id || '')
+                                          await addPCSEntry({
+                                            visitorId: resolvedVisitorId, name, phone,
+                                            year: new Date().getFullYear(), addedBy: userProfile?.email || 'unknown',
+                                          })
+                                          await completePCSAddNotification(notif.id)
+                                          setPcsEntries(prev => [{
+                                            id: `add_${notif.id}`, visitorId: resolvedVisitorId, name, phone,
+                                            year: new Date().getFullYear(), addedAt: new Date(), addedBy: userProfile?.email || '',
+                                          }, ...prev])
+                                          setPcsAddNotifications(prev => prev.filter(n => n.id !== notif.id))
+                                        } catch { /* ignore */ }
+                                        finally {
+                                          setPcsAddAdding(prev => { const s = new Set(prev); s.delete(notif.id); return s })
+                                        }
+                                      }}
+                                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                                    >
+                                      {adding ? 'Adding…' : 'Add to PCS'}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingDelightVisitorId(null)
+                                        setDelightVisitorForm(f => ({
+                                          ...f, name, phone,
+                                          dob: '', email: '', nativity: '', currentPlace: '',
+                                          serviceAttended: '', attendedDate: '', howKnown: '', source: '',
+                                          year: new Date().getFullYear(),
+                                        }))
+                                        setDelightVisitorModalOpen(true)
+                                      }}
+                                      className="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 transition-colors whitespace-nowrap"
+                                    >
+                                      + Visitor List
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 

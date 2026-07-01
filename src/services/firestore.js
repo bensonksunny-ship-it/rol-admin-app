@@ -4265,3 +4265,37 @@ export async function completePCSFillInvitation(id, filledBy = '', visitorId = '
     await deleteDoc(doc(db, PCS_PROFILE_GRANTS, visitorId))
   }
 }
+
+// ─── PCS Add Notifications (Cell → Caring) ────────────────────────────────────
+const PCS_ADD_NOTIFICATIONS = 'pcs_add_notifications'
+
+export async function createPCSAddNotification({ visitorId, memberName, memberPhone, cellId, cellName, sentBy, sentByName }) {
+  if (!db) return
+  return addDoc(collection(db, PCS_ADD_NOTIFICATIONS), {
+    visitorId:   visitorId   || '',
+    memberName:  memberName  || '',
+    memberPhone: memberPhone || '',
+    cellId:      cellId      || '',
+    cellName:    cellName    || '',
+    sentBy:      sentBy      || '',
+    sentByName:  sentByName  || '',
+    sentAt:      Timestamp.now(),
+    status:      'pending',
+  })
+}
+
+export function subscribePCSAddNotifications(onChange) {
+  if (!db) return () => {}
+  const q = query(collection(db, PCS_ADD_NOTIFICATIONS), where('status', '==', 'pending'))
+  return onSnapshot(q, snap => onChange(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => {})
+}
+
+export async function completePCSAddNotification(id) {
+  if (!db || !id) return
+  await updateDoc(doc(db, PCS_ADD_NOTIFICATIONS, id), { status: 'added', completedAt: Timestamp.now() })
+}
+
+export async function dismissPCSAddNotification(id) {
+  if (!db || !id) return
+  await updateDoc(doc(db, PCS_ADD_NOTIFICATIONS, id), { status: 'dismissed' })
+}

@@ -22,7 +22,7 @@ import {
   upsertMemberProfile,
   subscribePCSFillInvitationsByCellId,
   completePCSFillInvitation,
-  createTask,
+  createPCSAddNotification,
   getDelightVisitors,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
@@ -434,21 +434,14 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     setNotifyingPCS(prev => new Set([...prev, member.id]))
     try {
       const cellName = cellGroups.find(g => g.id === selectedCellId)?.cellName || ''
-      await createTask({
-        taskTitle: `Add ${member.name} to PCS`,
-        department: 'Caring',
-        assignedPerson: '',
-        priority: 'Medium',
-        deadline: '',
-        status: 'Pending',
-        notes: `Referred from Cell by ${userProfile?.name || userProfile?.email || 'Cell Leader'}. ${member.name} is a cell member (${cellName}) but not yet in PCS.${member.phone ? ` Phone: ${member.phone}` : ''}`,
-        createdBy: userProfile?.email || '',
-        cellMemberReferral: true,
-        memberName: member.name,
+      await createPCSAddNotification({
+        visitorId:   member.visitorId || '',
+        memberName:  member.name,
         memberPhone: member.phone || '',
-        memberVisitorId: member.visitorId || '',
-        cellId: selectedCellId,
+        cellId:      selectedCellId,
         cellName,
+        sentBy:      userProfile?.email || '',
+        sentByName:  userProfile?.name  || userProfile?.email || 'Cell Leader',
       })
       setNotifiedPCS(prev => new Set([...prev, member.id]))
       showToast(`Caring Director notified for ${member.name}.`)
@@ -1662,21 +1655,14 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
     setNotifyingPCS(prev => new Set([...prev, member.id]))
     try {
       const cellName = allCellGroups.find(g => g.id === selectedCellId)?.cellName || ''
-      await createTask({
-        taskTitle: `Add ${member.name} to PCS`,
-        department: 'Caring',
-        assignedPerson: '',
-        priority: 'Medium',
-        deadline: '',
-        status: 'Pending',
-        notes: `Referred from Cell by ${userProfile?.name || userProfile?.email || 'Cell Leader'}. ${member.name} is a cell member (${cellName}) but not yet in PCS.${member.phone ? ` Phone: ${member.phone}` : ''}`,
-        createdBy: userProfile?.email || '',
-        cellMemberReferral: true,
-        memberName: member.name,
+      await createPCSAddNotification({
+        visitorId:   member.visitorId || '',
+        memberName:  member.name,
         memberPhone: member.phone || '',
-        memberVisitorId: member.visitorId || '',
-        cellId: selectedCellId,
+        cellId:      selectedCellId,
         cellName,
+        sentBy:      userProfile?.email || '',
+        sentByName:  userProfile?.name  || userProfile?.email || 'Cell Leader',
       })
       setNotifiedPCS(prev => new Set([...prev, member.id]))
       showToastMsg(`Caring Director notified for ${member.name}.`)
