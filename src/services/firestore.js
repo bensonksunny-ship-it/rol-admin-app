@@ -3242,6 +3242,19 @@ export async function getLatestSundayAttendanceForCell(cellId) {
   return { presentIds: sorted[0].presentIds || [], date: sorted[0].date || null }
 }
 
+/** Get last N Sunday attendance records for a cell, newest first. */
+export async function getRecentSundayAttendanceForCell(cellId, count = 5) {
+  if (!db || !cellId) return []
+  const q = query(collection(db, SUNDAY_SVC_ATTENDANCE), where('cellId', '==', cellId))
+  const snap = await getDocs(q)
+  if (snap.empty) return []
+  return snap.docs
+    .map(d => d.data())
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+    .slice(0, count)
+    .map(d => ({ date: d.date || null, presentIds: d.presentIds || [] }))
+}
+
 export async function getSundayServiceAttendance(dateStr, cellId) {
   if (!db || !dateStr || !cellId) return { presentIds: [] }
   const id = `${String(dateStr).slice(0, 10)}_${cellId}`

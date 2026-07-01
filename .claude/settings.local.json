@@ -44,7 +44,9 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('scripts', {}\\)\\)\")",
       "Bash(grep -v \"//\\\\|isCellDirector\\\\|CellUser\\\\|cellReport\\\\|midweek\\\\|sunday\")",
       "Bash(grep -v \"//\\\\|cellGroups\\\\|cellMembers\\\\|cellGroup\\\\[\")",
-      "Bash(grep -v \"//\\\\|addCell\\\\|editCell\\\\|cellGroup\\\\b\\\\|setCellGroup\\\\|loadingCell\\\\|cellGroups\\\\b\")"
+      "Bash(grep -v \"//\\\\|addCell\\\\|editCell\\\\|cellGroup\\\\b\\\\|setCellGroup\\\\|loadingCell\\\\|cellGroups\\\\b\")",
+      "Bash(git log *)",
+      "PowerShell(cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd \"C:\\\\Users\\\\User\\\\Documents\\\\ROL Admin app\"; npm run dev' -WindowStyle Normal)"
     ]
   }
 }

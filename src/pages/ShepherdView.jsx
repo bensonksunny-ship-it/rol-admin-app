@@ -8,6 +8,7 @@ import {
   transferCellMember,
   getRecentCellReportsForHeatmap,
   getLatestSundayAttendanceForCell,
+  getRecentSundayAttendanceForCell,
   addCellGroupMember,
   updateCellGroupMember,
   getMidweekPrayerPoints,
@@ -188,6 +189,16 @@ export default function ShepherdView({ embedded = false }) {
           canSeeAllCells={effectiveCanSeeAllCells}
           canTransfer={capabilities.canTransferMembers}
         />
+
+        <MyFellowshipTab
+          userProfile={userProfile}
+          isDirector={effectiveIsDirector}
+          isLeader={isLeader}
+          autoFillInviteId={openFillInviteId}
+          onAutoFillInviteConsumed={() =>
+            setSearchParamsRoot(prev => { const n = new URLSearchParams(prev); n.delete('openFillInvite'); return n }, { replace: true })
+          }
+        />
       </div>
     </div>
   )
@@ -312,7 +323,8 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [selectedCellId, setSelectedCellId] = useState(null)
   const [members, setMembers]               = useState([])
   const [heatmap, setHeatmap]               = useState([])
-  const [sundayAtt, setSundayAtt]           = useState({ presentIds: [], date: null })
+  const [sundayHistory, setSundayHistory]   = useState([])
+  const sundayAtt = sundayHistory[0] || { presentIds: [], date: null }
   const [loadingGroups, setLoadingGroups]   = useState(true)
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [search, setSearch]                 = useState('')
@@ -371,18 +383,18 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     setLoadingMembers(true)
     setMembers([])
     setHeatmap([])
-    setSundayAtt({ presentIds: [], date: null })
+    setSundayHistory([])
     setNotifiedPCS(new Set())
     Promise.all([
       getCellGroupMembers(selectedCellId),
       getRecentCellReportsForHeatmap(selectedCellId, 2),
-      getLatestSundayAttendanceForCell(selectedCellId),
+      getRecentSundayAttendanceForCell(selectedCellId, 5),
     ])
       .then(([m, h, s]) => {
         const todayStr = new Date().toISOString().slice(0, 10)
         setMembers(m)
         setHeatmap(h.filter(r => r.reportDate && r.reportDate < todayStr))
-        setSundayAtt(s)
+        setSundayHistory(s)
       })
       .finally(() => setLoadingMembers(false))
   }, [selectedCellId])
@@ -1270,18 +1282,40 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                         <div className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />
                         <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Cell Attendance (last {detailAttendance.length})</p>
                       </div>
-                      <div className="px-3 py-1 divide-y divide-slate-50">
-                        {detailAttendance.map((r, i) => (
-                          <div key={i} className="flex items-center gap-2.5 py-1.5">
-                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] flex-shrink-0 ${r.present ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-500'}`}>
-                              {r.present ? '✓' : '✕'}
-                            </span>
-                            <span className="text-[11px] font-semibold text-slate-700 flex-1">{r.date ? fmt(r.date) : '—'}</span>
-                            <span className={`text-[10px] font-medium ${r.present ? 'text-green-600' : 'text-red-400'}`}>
-                              {r.present ? 'Present' : 'Absent'}
-                            </span>
-                          </div>
-                        ))}
+                      <div className="px-3 py-3 flex items-center gap-2 flex-wrap">
+                        {detailAttendance.map((r, i) => {
+                          const isLatest = i === 0
+                          return (
+                            <span
+                              key={i}
+                              title={r.date ? fmt(r.date) : ''}
+                              className={`rounded-full flex-shrink-0 ${r.present ? 'bg-green-400' : 'bg-red-300'} ${isLatest ? 'w-4 h-4' : 'w-2.5 h-2.5'}`}
+                            />
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sunday Attendance */}
+                  {sundayHistory.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Sunday Attendance (last {sundayHistory.length})</p>
+                      </div>
+                      <div className="px-3 py-3 flex items-center gap-2 flex-wrap">
+                        {sundayHistory.map((s, i) => {
+                          const present = s.presentIds.includes(detailMember.id)
+                          const isLatest = i === 0
+                          return (
+                            <span
+                              key={i}
+                              title={s.date ? fmt(s.date) : ''}
+                              className={`rounded-full flex-shrink-0 ${present ? 'bg-emerald-400' : 'bg-red-300'} ${isLatest ? 'w-4 h-4' : 'w-2.5 h-2.5'}`}
+                            />
+                          )
+                        })}
                       </div>
                     </div>
                   )}
