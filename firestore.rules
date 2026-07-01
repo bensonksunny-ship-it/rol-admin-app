@@ -65,7 +65,7 @@ service cloud.firestore {
 
     match /tasks/{taskId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
-      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department) || request.resource.data.cellMemberReferral == true);
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 

@@ -447,7 +447,8 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       })
       setNotifiedPCS(prev => new Set([...prev, member.id]))
       showToast(`Caring Director notified for ${member.name}.`)
-    } catch {
+    } catch (err) {
+      console.error('Notify Caring error:', err)
       showToast('Failed to notify. Please try again.', 'error')
     } finally {
       setNotifyingPCS(prev => { const s = new Set(prev); s.delete(member.id); return s })
