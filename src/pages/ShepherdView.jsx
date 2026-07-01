@@ -170,7 +170,7 @@ export default function ShepherdView({ embedded = false }) {
       <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
         {/* Page Header */}
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Shepherd Care</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Shepherd's Hub</h1>
           <p className="text-slate-500 text-sm mt-0.5">
             Shepherd your members · Manage your fellowship
           </p>
@@ -190,6 +190,11 @@ export default function ShepherdView({ embedded = false }) {
           canSeeAllCells={effectiveCanSeeAllCells}
           canTransfer={capabilities.canTransferMembers}
         />
+
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-1 mb-3">Mid Week</p>
+          <MinistryContentTab isDirector={effectiveIsDirector} />
+        </div>
 
         <MyFellowshipTab
           userProfile={userProfile}
@@ -315,6 +320,112 @@ function MinistryContentTab({ isDirector }) {
   )
 }
 
+// ─── Shepherd's Hub Dashboard ────────────────────────────────────────────────
+
+function ShepherdHubDashboard({ cellName, leaderName, activeMembers, statusCounts, heatmap, sundayNamesHistory, pendingFillInvCount, pcsLoading }) {
+  const lastReport       = heatmap?.[0]
+  const lastCellDate     = lastReport?.reportDate
+  const lastCellPresent  = lastReport?.attendeeNames?.size || 0
+  const lastSundayRecord = sundayNamesHistory?.[0]
+  const lastSundayPresent = lastSundayRecord
+    ? activeMembers.filter(m => lastSundayRecord.presentNames.includes(String(m.name || '').trim().toLowerCase())).length
+    : null
+  const total = activeMembers.length
+
+  const upcoming = activeMembers.flatMap(m => [
+    m.birthday    ? { name: m.name, date: m.birthday,    type: 'birthday'    } : null,
+    m.anniversary ? { name: m.name, date: m.anniversary, type: 'anniversary' } : null,
+  ]).filter(Boolean).filter(ev => isUpcomingSoon(ev.date, 7))
+
+  return (
+    <div className="relative overflow-hidden bg-gradient-to-br from-indigo-600 to-violet-700 rounded-3xl p-5 shadow-lg text-white">
+      {/* decorative rings */}
+      <div className="pointer-events-none absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/5" />
+      <div className="pointer-events-none absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-white/5" />
+
+      {/* header */}
+      <div className="relative mb-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300">Shepherd's Hub</p>
+        <h2 className="text-2xl font-black leading-tight mt-0.5">{cellName || 'My Cell'}</h2>
+        {leaderName && <p className="text-indigo-200 text-sm mt-0.5">Welcome back, {leaderName}</p>}
+      </div>
+
+      {/* stat chips */}
+      <div className="relative grid grid-cols-5 gap-1.5 mb-4">
+        {[
+          { label: 'Total',   count: total,                              bg: 'bg-white/15' },
+          { label: 'Healthy', count: statusCounts.green,                 bg: 'bg-green-500/30' },
+          { label: 'Attn',    count: statusCounts.amber,                 bg: 'bg-amber-400/30' },
+          { label: 'Urgent',  count: statusCounts.red,                   bg: 'bg-red-500/30' },
+          { label: 'No PCS',  count: pcsLoading ? '…' : statusCounts.notPcs, bg: 'bg-orange-400/30' },
+        ].map(s => (
+          <div key={s.label} className={`${s.bg} rounded-2xl p-2 text-center`}>
+            <p className="text-lg font-black leading-none">{s.count}</p>
+            <p className="text-[9px] font-bold mt-1 leading-none text-indigo-100">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* activity row */}
+      {(lastCellDate || lastSundayRecord) && (
+        <div className="relative flex gap-2 mb-3">
+          {lastCellDate && (
+            <div className="flex-1 bg-white/10 rounded-2xl px-3 py-2.5">
+              <p className="text-[9px] font-black uppercase tracking-wider text-indigo-200">Last Cell</p>
+              <p className="text-sm font-black mt-0.5">
+                {lastCellPresent}/{total} <span className="text-xs font-medium text-indigo-200">present</span>
+              </p>
+              <p className="text-[9px] text-indigo-300 mt-0.5">{fmt(lastCellDate)}</p>
+            </div>
+          )}
+          {lastSundayRecord && (
+            <div className="flex-1 bg-white/10 rounded-2xl px-3 py-2.5">
+              <p className="text-[9px] font-black uppercase tracking-wider text-indigo-200">Last Sunday</p>
+              <p className="text-sm font-black mt-0.5">
+                {lastSundayPresent}/{total} <span className="text-xs font-medium text-indigo-200">present</span>
+              </p>
+              <p className="text-[9px] text-indigo-300 mt-0.5">{fmt(lastSundayRecord.date)}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* upcoming celebrations */}
+      {upcoming.length > 0 && (
+        <div className="relative bg-white/10 rounded-2xl px-3 py-2.5 mb-3">
+          <p className="text-[9px] font-black uppercase tracking-wider text-indigo-200 mb-2">This Week</p>
+          <div className="space-y-2">
+            {upcoming.map((ev, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-base leading-none">{ev.type === 'birthday' ? '🎂' : '💍'}</span>
+                <div>
+                  <p className="text-sm font-bold leading-none">{ev.name}</p>
+                  <p className="text-[10px] text-indigo-200 mt-0.5">
+                    {ev.type === 'birthday' ? 'Birthday' : 'Anniversary'} · {formatShortDate(ev.date)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* pending fill invitation alert */}
+      {pendingFillInvCount > 0 && (
+        <div className="relative flex items-center gap-2.5 bg-yellow-400/20 border border-yellow-300/40 rounded-2xl px-3 py-2.5">
+          <span className="text-xl leading-none flex-shrink-0">📋</span>
+          <div>
+            <p className="text-sm font-bold leading-none">
+              {pendingFillInvCount} profile fill request{pendingFillInvCount > 1 ? 's' : ''} pending
+            </p>
+            <p className="text-[10px] text-yellow-200 mt-0.5">From Caring Director · see My Fellowship below</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Tab 2: Shepherd Care ─────────────────────────────────────────────────────
 
 function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = true, canTransfer: canTransferProp = true }) {
@@ -355,6 +466,10 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [notifyingPCS, setNotifyingPCS] = useState(new Set())
   const [notifiedPCS, setNotifiedPCS]   = useState(new Set())
 
+  // Hub dashboard data
+  const [sundayNamesHistory, setSundayNamesHistory] = useState([])
+  const [pendingFillInvCount, setPendingFillInvCount] = useState(0)
+
   // Mark Inactive (cell leaders only)
   const [inactiveTarget, setInactiveTarget]   = useState(null)
   const [markingInactive, setMarkingInactive] = useState(false)
@@ -386,17 +501,20 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     setMembers([])
     setHeatmap([])
     setSundayHistory([])
+    setSundayNamesHistory([])
     setNotifiedPCS(new Set())
     Promise.all([
       getCellGroupMembers(selectedCellId),
       getRecentCellReportsForHeatmap(selectedCellId, 2),
       getRecentSundayAttendanceForCell(selectedCellId, 5),
+      getRecentSundayAttendanceNamesByCell(selectedCellId, 1),
     ])
-      .then(([m, h, s]) => {
+      .then(([m, h, s, sn]) => {
         const todayStr = new Date().toISOString().slice(0, 10)
         setMembers(m)
         setHeatmap(h.filter(r => r.reportDate && r.reportDate < todayStr))
         setSundayHistory(s)
+        setSundayNamesHistory(sn)
       })
       .finally(() => setLoadingMembers(false))
   }, [selectedCellId])
@@ -418,6 +536,16 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       .catch(() => setPcsNames(new Set()))
       .finally(() => setPcsLoading(false))
   }, [])
+
+  // Subscribe to pending fill invitations for hub badge count
+  useEffect(() => {
+    const cellId = userProfile?.cellGroupId || userProfile?.cellId
+    if (!cellId) return
+    const unsub = subscribePCSFillInvitationsByCellId(cellId, (invs) => {
+      setPendingFillInvCount(invs.filter(i => i.status === 'pending').length)
+    })
+    return unsub
+  }, [userProfile?.cellGroupId, userProfile?.cellId])
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -582,6 +710,20 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
             </select>
           )}
         </div>
+      )}
+
+      {/* Shepherd's Hub Dashboard */}
+      {selectedCellId && !loadingMembers && activeMembers.length > 0 && (
+        <ShepherdHubDashboard
+          cellName={cellGroups.find(g => g.id === selectedCellId)?.cellName || ''}
+          leaderName={userProfile?.name || userProfile?.displayName || ''}
+          activeMembers={activeMembers}
+          statusCounts={statusCounts}
+          heatmap={heatmap}
+          sundayNamesHistory={sundayNamesHistory}
+          pendingFillInvCount={pendingFillInvCount}
+          pcsLoading={pcsLoading}
+        />
       )}
 
       {/* Status filter + legend bar */}
