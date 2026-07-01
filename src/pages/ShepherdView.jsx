@@ -188,17 +188,6 @@ export default function ShepherdView({ embedded = false }) {
           canSeeAllCells={effectiveCanSeeAllCells}
           canTransfer={capabilities.canTransferMembers}
         />
-
-        <MyFellowshipTab
-          userProfile={userProfile}
-          isDirector={effectiveIsDirector}
-          isLeader={isLeader}
-          cellGroups={[]}
-          autoFillInviteId={openFillInviteId}
-          onAutoFillInviteConsumed={() =>
-            setSearchParamsRoot(prev => { const n = new URLSearchParams(prev); n.delete('openFillInvite'); return n }, { replace: true })
-          }
-        />
       </div>
     </div>
   )
@@ -352,6 +341,10 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [notifyingPCS, setNotifyingPCS] = useState(new Set())
   const [notifiedPCS, setNotifiedPCS]   = useState(new Set())
 
+  // Mark Inactive (cell leaders only)
+  const [inactiveTarget, setInactiveTarget]   = useState(null)
+  const [markingInactive, setMarkingInactive] = useState(false)
+
   // Load cell groups
   useEffect(() => {
     getCellGroups('Cell').then(setCellGroups).finally(() => setLoadingGroups(false))
@@ -470,6 +463,19 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     } finally {
       setTransferring(false)
     }
+  }
+
+  const handleMarkInactiveShepherd = async () => {
+    if (!inactiveTarget || !selectedCellId) return
+    setMarkingInactive(true)
+    try {
+      await updateCellGroupMember(selectedCellId, inactiveTarget.id, { status: 'inactive' })
+      showToast(`${inactiveTarget.name} moved to Inactive.`)
+      setMembers(prev => prev.map(m => m.id === inactiveTarget.id ? { ...m, status: 'inactive' } : m))
+      setInactiveTarget(null)
+      setDetailMember(null)
+    } catch { showToast('Failed to mark inactive.', 'error') }
+    finally { setMarkingInactive(false) }
   }
 
   // Transfer only for Directors/Founders (effectiveIsDirector covers both)
@@ -890,6 +896,36 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
         </div>
       )}
 
+      {/* Mark Inactive Confirmation Modal */}
+      {inactiveTarget && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Mark as Inactive?</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{inactiveTarget.name}</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600">
+              This will remove <span className="font-semibold">{inactiveTarget.name}</span> from the active members list and move them to Inactive.
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setInactiveTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                Cancel
+              </button>
+              <button type="button" onClick={handleMarkInactiveShepherd} disabled={markingInactive}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold disabled:opacity-50 hover:bg-red-600">
+                {markingInactive ? 'Moving…' : 'Mark Inactive'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Transfer Modal */}
       {transferState && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1268,7 +1304,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
             </div>
 
             {/* Footer actions */}
-            <div className="px-5 py-4 border-t border-slate-100 flex-shrink-0">
+            <div className="px-5 py-4 border-t border-slate-100 flex-shrink-0 space-y-2">
               <button
                 type="button"
                 onClick={() => { setPrayerMember(detailMember); setPrayerSubject(''); setDetailMember(null) }}
@@ -1276,6 +1312,15 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               >
                 🙏 Add Prayer
               </button>
+              {isLeader && !isDirector && (
+                <button
+                  type="button"
+                  onClick={() => setInactiveTarget(detailMember)}
+                  className="w-full px-4 py-2.5 rounded-2xl bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100 transition"
+                >
+                  Mark Inactive
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1331,9 +1376,6 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
   const [deactivateTarget, setDeactivateTarget]   = useState(null)
   const [deactivateReason, setDeactivateReason]   = useState('')
   const [submittingDeactivate, setSubmittingDeactivate] = useState(false)
-
-  const [inactiveTarget, setInactiveTarget]   = useState(null)
-  const [markingInactive, setMarkingInactive] = useState(false)
 
   // PCS lookup — to know which members are NOT yet in PCS
   const [pcsNames, setPcsNames]       = useState(new Set())
@@ -1613,19 +1655,6 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
     }
   }
 
-  const handleMarkInactive = async () => {
-    if (!inactiveTarget || !selectedCellId) return
-    setMarkingInactive(true)
-    try {
-      await updateCellGroupMember(selectedCellId, inactiveTarget.id, { status: 'inactive' })
-      showToastMsg(`${inactiveTarget.name} moved to Inactive.`)
-      setInactiveTarget(null)
-      setDetailMember(null)
-      await refreshMembers(selectedCellId)
-    } catch { showToastMsg('Failed to mark inactive.', 'error') }
-    finally { setMarkingInactive(false) }
-  }
-
   return (
     <div className="space-y-5">
       {toast && (
@@ -1675,42 +1704,6 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
         </div>
       )}
 
-      {inactiveTarget && (
-        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 px-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-900 text-base">Mark as Inactive?</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{inactiveTarget.name}</p>
-              </div>
-            </div>
-            <p className="text-sm text-slate-600">
-              This will remove <span className="font-semibold">{inactiveTarget.name}</span> from the active members list and move them to Inactive.
-            </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setInactiveTarget(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleMarkInactive}
-                disabled={markingInactive}
-                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold disabled:opacity-50 hover:bg-red-600"
-              >
-                {markingInactive ? 'Moving…' : 'Mark Inactive'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {isDirector && (
         <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center gap-3">
           <label className="text-sm font-medium text-slate-600">Cell Group</label>
@@ -1732,33 +1725,6 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
 
       {selectedCellId && (
         <>
-          {/* Header */}
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="font-bold text-slate-900 text-lg">Active Members</h2>
-              <p className="text-slate-400 text-sm">{activeMembers.length} member{activeMembers.length !== 1 ? 's' : ''}</p>
-            </div>
-            {canEdit && (
-              <button type="button"
-                onClick={() => {
-                  const next = !showAddForm
-                  setShowAddForm(next)
-                  setAddForm(EMPTY_MEMBER_FORM)
-                  setAddSearch('')
-                  if (next && directoryList.length === 0) {
-                    setDirectoryLoading(true)
-                    getDelightVisitors()
-                      .then(setDirectoryList)
-                      .catch(() => {})
-                      .finally(() => setDirectoryLoading(false))
-                  }
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-all">
-                {showAddForm ? '✕ Cancel' : '+ Add Member'}
-              </button>
-            )}
-          </div>
-
           {/* Add Member Form — directory search enforced */}
           {showAddForm && (
             <div className="bg-white rounded-3xl border border-indigo-200 p-5 shadow-sm space-y-3">
@@ -2461,40 +2427,25 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
 
             </div>
 
-            {/* Footer actions for cell leaders */}
-            {isLeader && !isDirector && (
-              <div className="px-5 py-4 border-t border-slate-100 flex-shrink-0 space-y-2">
-                {/* Notify Caring — only if member is NOT in PCS */}
-                {(() => {
-                  if (pcsLoading) return null
-                  const inPCS = isInPCS(detailMember)
-                  const notified = notifiedPCS.has(detailMember.id)
-                  const notifying = notifyingPCS.has(detailMember.id)
-                  if (inPCS) return null
-                  return notified ? (
-                    <div className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-orange-50 text-orange-500 text-sm font-semibold">
-                      <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
-                      Caring Director Notified
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={notifying}
-                      onClick={() => handleNotifyCaringFromFellowship(detailMember)}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-orange-50 text-orange-600 text-sm font-semibold hover:bg-orange-100 transition disabled:opacity-50"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
-                      {notifying ? 'Notifying…' : 'Notify Caring Director'}
-                    </button>
-                  )
-                })()}
-                <button
-                  type="button"
-                  onClick={() => setInactiveTarget(detailMember)}
-                  className="w-full px-4 py-2.5 rounded-2xl bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100 transition"
-                >
-                  Mark Inactive
-                </button>
+            {/* Footer — Notify Caring (cell leaders only, non-PCS members) */}
+            {isLeader && !isDirector && !pcsLoading && !isInPCS(detailMember) && (
+              <div className="px-5 py-4 border-t border-slate-100 flex-shrink-0">
+                {notifiedPCS.has(detailMember.id) ? (
+                  <div className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-orange-50 text-orange-500 text-sm font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
+                    Caring Director Notified
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={notifyingPCS.has(detailMember.id)}
+                    onClick={() => handleNotifyCaringFromFellowship(detailMember)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-orange-50 text-orange-600 text-sm font-semibold hover:bg-orange-100 transition disabled:opacity-50"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
+                    {notifyingPCS.has(detailMember.id) ? 'Notifying…' : 'Notify Caring Director'}
+                  </button>
+                )}
               </div>
             )}
 
