@@ -50,7 +50,8 @@
       "Bash(grep -v \"//\\\\|ShepherdCareTab\")",
       "Bash(awk 'NR>100')",
       "Bash(awk 'NR>=1380 && NR<=2482' src/pages/ShepherdView.jsx)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "Bash(grep -E \"^C:.*\\\\.\\(jsx|js\\)$|error|warning\")"
     ]
   }
 }

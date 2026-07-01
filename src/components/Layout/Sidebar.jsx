@@ -10,7 +10,7 @@ import { ROLES } from '../../constants/roles'
 import { getDepartmentRole } from '../../utils/access'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 import { subscribePCSFillInvitationsByCellId } from '../../services/firestore'
-import rolccLogo from '../../assets/rolcc_logo BW.jpg'
+import rolccLogo from '../../assets/rolcc_logo BW.JPG'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard', founderOnly: true },
