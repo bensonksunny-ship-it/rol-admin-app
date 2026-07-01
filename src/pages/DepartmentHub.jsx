@@ -1426,7 +1426,7 @@ export default function DepartmentHub() {
         />
       )}
 
-      <div className="space-y-6 p-4">
+      <div className="space-y-6 py-4 px-2 lg:px-6">
       {isAccountsEntryRoute ? (
         <Outlet />
       ) : loading ? (
