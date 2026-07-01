@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
 :root {
+  /* Offset for sticky elements on mobile — below fixed header + notch */
+  --sticky-top: calc(3.5rem + env(safe-area-inset-top, 0px));
   --rol-primary: #1e40af;
   --rol-primary-dark: #1e3a8a;
   --rol-accent: #3b82f6;
@@ -45,6 +47,13 @@ body {
 @media (max-width: 1023px) {
   :root:not(.dark) body {
     background-attachment: scroll;
+  }
+}
+
+/* On desktop the sidebar replaces the top bar — sticky elements sit at top:0 */
+@media (min-width: 1024px) {
+  :root {
+    --sticky-top: 0px;
   }
 }
 

@@ -125,8 +125,8 @@ export default function DepartmentTabBar({
 
   return (
     <div
-      className="sticky top-0 z-40 shadow-lg"
-      style={{ background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 60%, #7c3aed 100%)' }}
+      className="sticky z-40 shadow-lg"
+      style={{ top: 'var(--sticky-top)', background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 60%, #7c3aed 100%)' }}
     >
       {/* ── Department name banner ── */}
       <div className="flex items-center px-4 pt-2.5 pb-1 gap-2">

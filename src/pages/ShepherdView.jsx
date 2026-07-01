@@ -705,35 +705,31 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
 
       {/* Status filter + legend bar */}
       {selectedCellId && !loadingMembers && (
-        <div className="bg-white rounded-3xl border border-slate-200 p-3 shadow-sm">
-          <div className="flex flex-wrap gap-2">
+        <div className="bg-white rounded-3xl border border-slate-200 p-3 shadow-sm space-y-1.5">
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-0.5">
             {[
-              { key: 'all',      label: 'All',             count: activeMembers.length,  dot: 'bg-slate-400',  activeClass: 'bg-slate-900 text-white' },
-              { key: 'green',    label: 'Healthy',          count: statusCounts.green,    dot: 'bg-green-400',  activeClass: 'bg-slate-900 text-white' },
-              { key: 'amber',    label: 'Needs Attention',  count: statusCounts.amber,    dot: 'bg-amber-400',  activeClass: 'bg-slate-900 text-white' },
-              { key: 'red',      label: 'Urgent',           count: statusCounts.red,      dot: 'bg-red-400',    activeClass: 'bg-slate-900 text-white' },
-              { key: 'not-pcs',  label: 'Not in PCS',       count: statusCounts.notPcs,   dot: 'bg-orange-400', activeClass: 'bg-orange-500 text-white' },
+              { key: 'all',      label: 'All',            count: activeMembers.length, dot: 'bg-slate-400',  activeClass: 'bg-slate-900 text-white' },
+              { key: 'green',    label: 'Healthy',         count: statusCounts.green,   dot: 'bg-green-400',  activeClass: 'bg-slate-900 text-white' },
+              { key: 'amber',    label: 'Needs Attention', count: statusCounts.amber,   dot: 'bg-amber-400',  activeClass: 'bg-slate-900 text-white' },
+              { key: 'red',      label: 'Urgent',          count: statusCounts.red,     dot: 'bg-red-400',    activeClass: 'bg-slate-900 text-white' },
+              { key: 'not-pcs',  label: 'Not in PCS',      count: statusCounts.notPcs,  dot: 'bg-orange-400', activeClass: 'bg-orange-500 text-white' },
             ].map(({ key, label, count, dot, activeClass }) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setGlowFilter(key)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                  glowFilter === key
-                    ? activeClass
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                  glowFilter === key ? activeClass : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 <span className={`w-2 h-2 rounded-full ${dot}`} />
                 {label} <span className="opacity-60">{count}</span>
               </button>
             ))}
-            {sundayDate && (
-              <span className="ml-auto text-xs text-slate-400 self-center">
-                Sunday pulse: {sundayDate}
-              </span>
-            )}
           </div>
+          {sundayDate && (
+            <p className="text-xs text-slate-400 px-1">Sunday pulse: {sundayDate}</p>
+          )}
         </div>
       )}
 
@@ -907,9 +903,8 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                     )}
                   </div>
 
-                  {/* ── Contact icons + Action buttons ── */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* Contact icons */}
+                  {/* ── Contact icons + Prayer ── */}
+                  <div className="flex items-center gap-2">
                     {phone10 && (
                       <a href={`tel:+91${phone10}`} className="flex flex-col items-center gap-0.5 group" onClick={e => e.stopPropagation()}>
                         <span className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-100 transition">
@@ -944,34 +939,39 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                       <span className="w-9 h-9 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center group-hover:bg-violet-100 transition text-base">🙏</span>
                       <span className="text-[9px] text-slate-400 font-medium">Prayer</span>
                     </button>
-                    {canTransfer() && otherCells.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => { setTransferState({ memberId: member.id, memberName: member.name }); setTransferTarget('') }}
-                        className="flex-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200 transition"
-                      >
-                        Transfer
-                      </button>
-                    )}
-                    {/* Notify Caring — only visible if member is NOT in PCS */}
-                    {pcsStatus === 'out' && (
-                      notified ? (
-                        <span className="w-full flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-500 text-xs font-semibold">
-                          ✓ Caring Notified
-                        </span>
-                      ) : (
+                  </div>
+
+                  {/* ── Action buttons (Transfer / Notify Caring) ── */}
+                  {(canTransfer() && otherCells.length > 0 || pcsStatus === 'out') && (
+                    <div className="flex gap-2 mt-2">
+                      {canTransfer() && otherCells.length > 0 && (
                         <button
                           type="button"
-                          disabled={notifying}
-                          onClick={() => handleNotifyCaring(member)}
-                          className="w-full flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition disabled:opacity-50"
+                          onClick={() => { setTransferState({ memberId: member.id, memberName: member.name }); setTransferTarget('') }}
+                          className="flex-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200 transition"
                         >
-                          <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
-                          {notifying ? 'Notifying…' : 'Notify Caring'}
+                          Transfer
                         </button>
-                      )
-                    )}
-                  </div>
+                      )}
+                      {pcsStatus === 'out' && (
+                        notified ? (
+                          <span className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-500 text-xs font-semibold">
+                            ✓ Caring Notified
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={notifying}
+                            onClick={() => handleNotifyCaring(member)}
+                            className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition disabled:opacity-50"
+                          >
+                            <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
+                            {notifying ? 'Notifying…' : 'Notify Caring'}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  )}
                   </div>{/* end p-5 */}
                 </div>
               )
