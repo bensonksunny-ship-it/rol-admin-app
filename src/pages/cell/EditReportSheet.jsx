@@ -35,9 +35,8 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
   const [meetingDate, setMeetingDate]       = useState(isNew ? '' : (row?.meetingDateISO || ''))
   const [newCellId, setNewCellId]           = useState(isNew ? (linkedCellId || '') : '')
 
-  // Member search
-  const [allMembers, setAllMembers]     = useState([])
-  const [memberSearch, setMemberSearch] = useState('')
+  // Member list
+  const [allMembers, setAllMembers] = useState([])
 
   // UI
   const [loading, setLoading]     = useState(!isNew)
@@ -103,15 +102,6 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
     () => segmentTimings.reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0),
     [segmentTimings]
   )
-
-  const memberSuggestions = useMemo(() => {
-    const q = memberSearch.trim().toLowerCase()
-    if (!q) return []
-    const presentNames = new Set(attendees.map((a) => String(a.name || '').trim().toLowerCase()))
-    return allMembers
-      .filter((m) => !presentNames.has(m.name.trim().toLowerCase()) && m.name.toLowerCase().includes(q))
-      .slice(0, 8)
-  }, [memberSearch, allMembers, attendees])
 
   function addAttendee(member) {
     setAttendees((prev) => {
@@ -264,9 +254,7 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
               {activeTab === 'Attendance' && (
                 <AttendanceTab
                   attendees={attendees}
-                  memberSearch={memberSearch}
-                  memberSuggestions={memberSuggestions}
-                  onSearchChange={setMemberSearch}
+                  allMembers={allMembers}
                   onAdd={addAttendee}
                   onRemove={removeAttendee}
                 />
@@ -328,58 +316,71 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
 
 // ── Tab sub-components ────────────────────────────────────────────────────────
 
-function AttendanceTab({ attendees, memberSearch, memberSuggestions, onSearchChange, onAdd, onRemove }) {
+function AttendanceTab({ attendees, allMembers, onAdd, onRemove }) {
+  const [search, setSearch] = useState('')
+
+  const presentSet = new Set(attendees.map((a) => String(a.name || '').trim().toLowerCase()))
+
+  const filtered = allMembers.filter(
+    (m) => !search.trim() || m.name.toLowerCase().includes(search.trim().toLowerCase())
+  )
+
+  const toggle = (member) => {
+    const key = member.name.trim().toLowerCase()
+    if (presentSet.has(key)) {
+      const idx = attendees.findIndex((a) => String(a.name || '').trim().toLowerCase() === key)
+      if (idx !== -1) onRemove(idx)
+    } else {
+      onAdd(member)
+    }
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
         👥 Members Attended — {attendees.length}
       </p>
 
-      {/* Current attendees as removable pills */}
-      {attendees.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {attendees.map((a, i) => (
-            <span
-              key={a.id || i}
-              className="flex items-center gap-1 bg-emerald-50 border border-emerald-100 text-emerald-800 text-sm font-medium px-3 py-1.5 rounded-full"
-            >
-              {a.name}
-              <button
-                type="button"
-                onClick={() => onRemove(i)}
-                className="ml-0.5 text-emerald-500 hover:text-red-500 transition-colors font-bold leading-none"
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Member search */}
-      <div className="relative">
-        <input
-          type="text"
-          value={memberSearch}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="+ Add member…"
-          className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-        />
-        {memberSuggestions.length > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-10 overflow-hidden">
-            {memberSuggestions.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => onAdd(m)}
-                className="w-full text-left px-4 py-2.5 text-sm text-slate-800 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
-              >
-                {m.name}
-              </button>
-            ))}
+      {allMembers.length === 0 ? (
+        <p className="text-sm text-slate-400 text-center py-6">No cell members found.</p>
+      ) : (
+        <>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search members…"
+            className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          />
+          <div className="space-y-1.5">
+            {filtered.map((m) => {
+              const present = presentSet.has(m.name.trim().toLowerCase())
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => toggle(m)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors ${
+                    present
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[11px] font-bold ${
+                    present ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'
+                  }`}>
+                    {present ? '✓' : ''}
+                  </span>
+                  <span className="text-sm font-medium text-left flex-1">{m.name}</span>
+                </button>
+              )
+            })}
+            {filtered.length === 0 && (
+              <p className="text-sm text-slate-400 text-center py-4">No members match "{search}"</p>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   )
 }

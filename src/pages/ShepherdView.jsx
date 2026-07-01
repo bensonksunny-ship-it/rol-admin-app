@@ -16,6 +16,7 @@ import {
   getCellMemberPendingChanges,
   getPCSLookup,
   getMemberProfile,
+  getMemberProfileWithContext,
   getDelightVisitorById,
   upsertMemberProfile,
   subscribePCSFillInvitationsByCellId,
@@ -338,11 +339,12 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [savingPrayer, setSavingPrayer]   = useState(false)
 
   // Member detail sheet
-  const [detailMember, setDetailMember]         = useState(null)
-  const [detailProfile, setDetailProfile]       = useState(null)
-  const [detailVisitor, setDetailVisitor]       = useState(null)
-  const [detailAttendance, setDetailAttendance] = useState([])
-  const [detailLoading, setDetailLoading]       = useState(false)
+  const [detailMember, setDetailMember]           = useState(null)
+  const [detailProfile, setDetailProfile]         = useState(null)
+  const [detailVisitor, setDetailVisitor]         = useState(null)
+  const [detailAttendance, setDetailAttendance]   = useState([])
+  const [detailMinistries, setDetailMinistries]   = useState([])
+  const [detailLoading, setDetailLoading]         = useState(false)
 
   // PCS lookup — names + visitorIds of people already in PCS
   const [pcsNames, setPcsNames]     = useState(new Set())
@@ -383,7 +385,12 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       getRecentCellReportsForHeatmap(selectedCellId, 2),
       getLatestSundayAttendanceForCell(selectedCellId),
     ])
-      .then(([m, h, s]) => { setMembers(m); setHeatmap(h); setSundayAtt(s) })
+      .then(([m, h, s]) => {
+        const todayStr = new Date().toISOString().slice(0, 10)
+        setMembers(m)
+        setHeatmap(h.filter(r => r.reportDate && r.reportDate < todayStr))
+        setSundayAtt(s)
+      })
       .finally(() => setLoadingMembers(false))
   }, [selectedCellId])
 
@@ -661,19 +668,26 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                         setDetailProfile(null)
                         setDetailVisitor(null)
                         setDetailAttendance([])
+                        setDetailMinistries([])
                         setDetailLoading(true)
                         const memberNameLower = String(member.name || '').trim().toLowerCase()
                         Promise.all([
-                          member.visitorId ? getMemberProfile(member.visitorId).catch(() => null) : Promise.resolve(null),
+                          member.visitorId ? getMemberProfileWithContext(member.visitorId, member.phone, null, member.name).catch(() => null) : Promise.resolve(null),
                           member.visitorId ? getDelightVisitorById(member.visitorId).catch(() => null) : Promise.resolve(null),
                           selectedCellId ? getRecentCellReportsForHeatmap(selectedCellId, 5).catch(() => []) : Promise.resolve([]),
-                        ]).then(([profile, visitor, reports]) => {
-                          setDetailProfile(profile)
+                        ]).then(([ctx, visitor, reports]) => {
+                          setDetailProfile(ctx?.profile || null)
                           setDetailVisitor(visitor)
+                          const deptTeams = ctx?.deptTeams || []
+                          const worshipTeams = ctx?.worshipTeams || []
+                          setDetailMinistries([
+                            ...deptTeams.map(t => ({ ministry: t.department, role: t.rolePosition || t.role || '', from: t.since || '' })),
+                            ...worshipTeams.map(t => ({ ministry: 'Worship', role: (t.positions || [])[0] || '', from: t.since || '' })),
+                          ])
                           const todayStr = new Date().toISOString().slice(0, 10)
                           setDetailAttendance(
                             reports
-                              .filter(r => r.reportDate && r.reportDate <= todayStr)
+                              .filter(r => r.reportDate && r.reportDate < todayStr)
                               .map(r => ({
                                 date: r.reportDate,
                                 present: r.attendeeNames.has(memberNameLower),
@@ -699,30 +713,24 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                     </div>
                   </div>
 
-                  {/* ── PCS status row — always visible ── */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      marginBottom: 10,
-                      padding: '5px 10px',
-                      borderRadius: 8,
-                      backgroundColor: pcsStatus === 'out' ? '#fff7ed' : pcsStatus === 'in' ? '#eef2ff' : '#f8fafc',
-                      border: `1px solid ${pcsStatus === 'out' ? '#fed7aa' : pcsStatus === 'in' ? '#c7d2fe' : '#e2e8f0'}`,
-                    }}
-                  >
-                    <span style={{
-                      width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                      backgroundColor: pcsStatus === 'out' ? '#f97316' : pcsStatus === 'in' ? '#6366f1' : '#94a3b8',
-                    }} />
-                    <span style={{
-                      fontSize: 11, fontWeight: 700,
-                      color: pcsStatus === 'out' ? '#c2410c' : pcsStatus === 'in' ? '#4338ca' : '#94a3b8',
-                    }}>
-                      {pcsStatus === 'out' ? 'Not in PCS' : pcsStatus === 'in' ? 'In PCS' : 'Checking PCS…'}
-                    </span>
-                  </div>
+                  {/* ── PCS status — only show when NOT in PCS ── */}
+                  {pcsStatus === 'out' && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        marginBottom: 10,
+                        padding: '5px 10px',
+                        borderRadius: 8,
+                        backgroundColor: '#fff7ed',
+                        border: '1px solid #fed7aa',
+                      }}
+                    >
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, backgroundColor: '#f97316' }} />
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#c2410c' }}>Not in PCS</span>
+                    </div>
+                  )}
 
                   {/* ── Birthday / Anniversary ── */}
                   {(bday || anniv) && (
@@ -763,28 +771,42 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                     )}
                   </div>
 
-                  {/* ── Action buttons ── */}
-                  <div className="flex flex-wrap gap-2">
+                  {/* ── Contact icons + Action buttons ── */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Contact icons */}
                     {phone10 && (
-                      <a
-                        href={`https://wa.me/91${phone10}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 text-green-700 text-xs font-semibold hover:bg-green-100 transition"
-                      >
-                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-                          <path d="M12 0C5.373 0 0 5.373 0 12c0 2.124.558 4.122 1.535 5.857L.057 23.882a.5.5 0 0 0 .598.625l6.273-1.643A11.954 11.954 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.886 0-3.655-.523-5.166-1.433l-.371-.22-3.724.976.994-3.634-.24-.381A9.961 9.961 0 0 1 2 12c0-5.514 4.486-10 10-10s10 4.486 10 10-4.486 10-10 10z"/>
-                        </svg>
-                        WhatsApp
+                      <a href={`tel:+91${phone10}`} className="flex flex-col items-center gap-0.5 group" onClick={e => e.stopPropagation()}>
+                        <span className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-100 transition">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.35 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.6a16 16 0 0 0 6 6l.96-.96a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16z"/></svg>
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-medium">Call</span>
                       </a>
                     )}
+                    {phone10 && (
+                      <a href={`https://wa.me/91${phone10}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-0.5 group" onClick={e => e.stopPropagation()}>
+                        <span className="w-9 h-9 rounded-full bg-green-50 text-green-600 flex items-center justify-center group-hover:bg-green-100 transition">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-medium">WhatsApp</span>
+                      </a>
+                    )}
+                    {member.email && (
+                      <a href={`mailto:${member.email}`} className="flex flex-col items-center gap-0.5 group" onClick={e => e.stopPropagation()}>
+                        <span className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-100 transition">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-medium">Email</span>
+                      </a>
+                    )}
+                    {(phone10 || member.email) && <div className="w-px h-8 bg-slate-200 mx-0.5" />}
                     <button
                       type="button"
                       onClick={() => { setPrayerMember(member); setPrayerSubject('') }}
-                      className="flex-1 px-3 py-2 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition"
+                      className="flex flex-col items-center gap-0.5 group"
+                      title="Add Prayer"
                     >
-                      🙏 Add Prayer
+                      <span className="w-9 h-9 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center group-hover:bg-violet-100 transition text-base">🙏</span>
+                      <span className="text-[9px] text-slate-400 font-medium">Prayer</span>
                     </button>
                     {canTransfer() && otherCells.length > 0 && (
                       <button
@@ -1088,8 +1110,33 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                     </div>
                   )}
 
+                  {/* Ministry & Leadership */}
+                  {detailMinistries.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Ministry & Leadership</p>
+                      </div>
+                      <div className="px-3 py-2 space-y-1.5">
+                        {detailMinistries.map((m, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2">
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-bold text-slate-700">
+                                {m.ministry}{m.role ? <span className="font-normal text-slate-400"> · {m.role}</span> : ''}
+                              </p>
+                              {m.from && <p className="text-[8px] text-slate-400 mt-0.5">since {fmt(m.from)}</p>}
+                            </div>
+                            {m.from && miniDur(m.from) && (
+                              <span className="text-[9px] font-black text-violet-700 bg-violet-100 border border-violet-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{miniDur(m.from)}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Spiritual & Membership */}
-                  {detailProfile && (detailProfile.baptised || detailProfile.maritalStatus || detailProfile.membershipStatus || detailProfile.permanentAddress) && (
+                  {detailProfile && (detailProfile.baptised || detailProfile.maritalStatus || detailProfile.membershipStatus || detailProfile.permanentAddress || detailProfile.isDirector || detailProfile.leaderSince || detailProfile.ministryHistory?.length > 0) && (
                     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                       <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
                         <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
@@ -1150,6 +1197,29 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                           <div className="flex items-start justify-between gap-2 py-1.5">
                             <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Perm. Address</span>
                             <span className="text-[11px] font-semibold text-right text-slate-800 leading-snug">{detailProfile.permanentAddress}</span>
+                          </div>
+                        )}
+                        {detailProfile.isDirector && detailProfile.directorOf && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Director</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{detailProfile.directorOf}{detailProfile.directorSince ? ` · since ${fmt(detailProfile.directorSince)}` : ''}</span>
+                          </div>
+                        )}
+                        {detailProfile.leaderSince && (
+                          <div className="flex items-start justify-between gap-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Leader Since</span>
+                            <span className="text-[11px] font-semibold text-right text-slate-800">{fmt(detailProfile.leaderSince)}{detailProfile.leaderUntil ? ` – ${fmt(detailProfile.leaderUntil)}` : ''}</span>
+                          </div>
+                        )}
+                        {detailProfile.ministryHistory?.length > 0 && (
+                          <div className="py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Ministry</span>
+                            <div className="space-y-1">
+                              {detailProfile.ministryHistory.map((h, i) => (
+                                <p key={i} className="text-[11px] font-semibold text-slate-800">• {h}</p>
+                              ))}
+                              {detailProfile.ministryNotes && <p className="text-[10px] text-slate-400 italic mt-1">{detailProfile.ministryNotes}</p>}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1267,9 +1337,12 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
     setTimeout(() => setToast(null), 3500)
   }, [])
 
-  const [detailMember, setDetailMember]   = useState(null)
-  const [detailProfile, setDetailProfile] = useState(null)
-  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailMember, setDetailMember]         = useState(null)
+  const [detailProfile, setDetailProfile]       = useState(null)
+  const [detailVisitor, setDetailVisitor]       = useState(null)
+  const [detailAttendance, setDetailAttendance] = useState([])
+  const [detailMinistries, setDetailMinistries] = useState([])
+  const [detailLoading, setDetailLoading]       = useState(false)
 
   // Profile fill invitations sent by Caring Director
   const [pendingInvitations, setPendingInvitations] = useState([])
@@ -1282,14 +1355,21 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
     setDetailProfile(null)
     setDetailVisitor(null)
     setDetailAttendance([])
+    setDetailMinistries([])
     if (member.visitorId) {
       setDetailLoading(true)
       Promise.all([
-        getMemberProfile(member.visitorId).catch(() => null),
+        getMemberProfileWithContext(member.visitorId, member.phone, null, member.name).catch(() => null),
         getDelightVisitorById(member.visitorId).catch(() => null),
-      ]).then(([profile, visitor]) => {
-        setDetailProfile(profile)
+      ]).then(([ctx, visitor]) => {
+        setDetailProfile(ctx?.profile || null)
         setDetailVisitor(visitor)
+        const deptTeams = ctx?.deptTeams || []
+        const worshipTeams = ctx?.worshipTeams || []
+        setDetailMinistries([
+          ...deptTeams.map(t => ({ ministry: t.department, role: t.rolePosition || t.role || '', from: t.since || '' })),
+          ...worshipTeams.map(t => ({ ministry: 'Worship', role: (t.positions || [])[0] || '', from: t.since || '' })),
+        ])
       }).finally(() => setDetailLoading(false))
     }
   }
@@ -2133,6 +2213,31 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
                             )}
                           </div>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ministry & Leadership */}
+                  {detailMinistries.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                        <div className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />
+                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Ministry & Leadership</p>
+                      </div>
+                      <div className="px-3 py-2 space-y-1.5">
+                        {detailMinistries.map((m, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2">
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-bold text-slate-700">
+                                {m.ministry}{m.role ? <span className="font-normal text-slate-400"> · {m.role}</span> : ''}
+                              </p>
+                              {m.from && <p className="text-[8px] text-slate-400 mt-0.5">since {fmt(m.from)}</p>}
+                            </div>
+                            {m.from && miniDur(m.from) && (
+                              <span className="text-[9px] font-black text-violet-700 bg-violet-100 border border-violet-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{miniDur(m.from)}</span>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
