@@ -273,6 +273,14 @@ service cloud.firestore {
       allow delete: if isSignedIn() && isFullAccess();
     }
 
+    // Visitor proposals: Cell Leader proposes → D-Light Director reviews
+    match /cell_visitor_proposals/{docId} {
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow read:   if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Cell'));
+      allow update: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
+      allow delete: if isSignedIn() && isFullAccess();
+    }
+
     // PCS profile-fill invitations: Caring Director sends → Cell Leader fills
     match /pcs_fill_invitations/{docId} {
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));

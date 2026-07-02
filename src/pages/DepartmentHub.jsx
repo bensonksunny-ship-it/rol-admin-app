@@ -104,6 +104,9 @@ import {
   completePCSFillInvitation,
   getFinanceIncome,
   getFinanceExpense,
+  subscribeCellVisitorProposals,
+  completeCellVisitorProposal,
+  dismissCellVisitorProposal,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -410,6 +413,11 @@ export default function DepartmentHub() {
   const [pcsAddOpen, setPcsAddOpen] = useState(false)
   const [pcsAddAdding, setPcsAddAdding] = useState(new Set())
   const [pcsAddDismissing, setPcsAddDismissing] = useState(new Set())
+
+  const [cellVisitorProposals, setCellVisitorProposals] = useState([])
+  const [cellVisitorProposalOpen, setCellVisitorProposalOpen] = useState(false)
+  const [cellVisitorProposalAdding, setCellVisitorProposalAdding] = useState(new Set())
+  const [cellVisitorProposalDismissing, setCellVisitorProposalDismissing] = useState(new Set())
   const [delightVisitorForm, setDelightVisitorForm] = useState({
     name: '',
     dob: '',
@@ -1068,6 +1076,13 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (slug !== 'caring') return
     const unsub = subscribePCSAddNotifications(setPcsAddNotifications)
+    return unsub
+  }, [slug])
+
+  // Live listener for visitor proposals sent by cell leaders to D-Light
+  useEffect(() => {
+    if (slug !== 'd-light') return
+    const unsub = subscribeCellVisitorProposals(setCellVisitorProposals)
     return unsub
   }, [slug])
 
@@ -2154,6 +2169,90 @@ export default function DepartmentHub() {
                     </tbody>
                   </table>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ── From Cell Reports: visitor proposals ── */}
+          {activeTab === 'visitorEntry' && slug === 'd-light' && cellVisitorProposals.length > 0 && (
+            <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setCellVisitorProposalOpen(o => !o)}
+                className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-indigo-50 transition-colors"
+              >
+                <span className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0" />
+                <p className="text-sm font-bold text-indigo-800 flex-1">Visitors from Cell Reports</p>
+                <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                  {cellVisitorProposals.length}
+                </span>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-indigo-400 transition-transform flex-shrink-0 ${cellVisitorProposalOpen ? 'rotate-180' : ''}`}>
+                  <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+
+              {cellVisitorProposalOpen && (
+                <>
+                  <p className="px-4 pb-2 text-xs text-slate-400 border-t border-indigo-100 pt-3">
+                    Cell leaders flagged these visitors for D-Light registration. Review and accept or dismiss each one.
+                  </p>
+                  <ul className="divide-y divide-indigo-50">
+                    {cellVisitorProposals.map((p) => (
+                      <li key={p.id} className="px-4 py-3 flex flex-wrap items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-slate-800 text-sm truncate">{p.visitorName}</p>
+                          {p.phone && <p className="text-xs text-slate-500">{p.phone}</p>}
+                          <p className="text-xs text-slate-400 mt-0.5">{p.cellName || p.cellId} · {p.reportDate}</p>
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          <button
+                            type="button"
+                            disabled={cellVisitorProposalAdding.has(p.id) || cellVisitorProposalDismissing.has(p.id)}
+                            onClick={async () => {
+                              setCellVisitorProposalAdding(prev => new Set([...prev, p.id]))
+                              try {
+                                const newId = await addDelightVisitor({
+                                  name:        p.visitorName,
+                                  phone:       p.phone || '',
+                                  source:      'cell',
+                                  year:        new Date().getFullYear(),
+                                  createdBy:   userProfile?.email || 'unknown',
+                                })
+                                await completeCellVisitorProposal(p.id)
+                                if (newId) {
+                                  setCellVisitorProposalAdding(prev => { const s = new Set(prev); s.delete(p.id); return s })
+                                }
+                              } catch (e) {
+                                console.error('Accept visitor proposal error', e)
+                                alert('Failed to add visitor')
+                                setCellVisitorProposalAdding(prev => { const s = new Set(prev); s.delete(p.id); return s })
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 disabled:opacity-50"
+                          >
+                            {cellVisitorProposalAdding.has(p.id) ? 'Adding…' : 'Add to D-Light'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={cellVisitorProposalAdding.has(p.id) || cellVisitorProposalDismissing.has(p.id)}
+                            onClick={async () => {
+                              setCellVisitorProposalDismissing(prev => new Set([...prev, p.id]))
+                              try {
+                                await dismissCellVisitorProposal(p.id)
+                              } catch (e) {
+                                console.error('Dismiss visitor proposal error', e)
+                                setCellVisitorProposalDismissing(prev => { const s = new Set(prev); s.delete(p.id); return s })
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            {cellVisitorProposalDismissing.has(p.id) ? 'Dismissing…' : 'Dismiss'}
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
             </div>
           )}
