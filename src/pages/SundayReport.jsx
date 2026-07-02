@@ -19,16 +19,20 @@ import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 
 const MANUAL_ONLY_KEYS = [
-  { key: 'others', title: 'Others' },
   { key: 'nonCell', title: 'Non Cell' },
-  { key: 'secondWeekAttendeesNames', title: 'Second Week Attendees' },
+  { key: 'others', title: 'Others' },
   { key: 'riverKids', title: 'River Kids' },
 ]
 
+const SECOND_WEEK_KEY = { key: 'secondWeekAttendeesNames', title: 'Second Week Attendees' }
+
 const PASTORAL_KEY = { key: 'pastoralAttendees', title: 'Pastoral Attendees' }
 
+/** Currently the only pastor on record — shown as a one-tap suggestion above the search/manual-add options */
+const PASTORAL_ATTENDEE_SUGGESTIONS = ['Pastor Benson K Sunny']
+
 /** Local-only UX: order for Done → scroll to next attendance section */
-const ATTENDANCE_SECTION_ORDER = ['cells', 'pastoral', 'newComers', 'others', 'nonCell', 'secondWeekAttendeesNames', 'riverKids']
+const ATTENDANCE_SECTION_ORDER = ['pastoral', 'cells', 'nonCell', 'others', 'riverKids', 'newComers', 'secondWeekAttendeesNames']
 
 
 /** Map legacy report field → normalized cell name (lowercase, no spaces) */
@@ -69,22 +73,58 @@ function migrateLegacyCellAttendance(report, cellGroups) {
   return sca
 }
 
-function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, className = '' }) {
+function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, className = '' }) {
+  const [query, setQuery] = useState('')
   const nameSet = useMemo(() => new Set((names || []).map(n => n.trim().toLowerCase())), [names])
   const unusedSuggestions = useMemo(
     () => suggestions.filter(s => !nameSet.has(s.trim().toLowerCase())),
     [suggestions, nameSet]
   )
+  const searchResults = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q || !people) return []
+    return people
+      .filter((p) => p.name && p.name.trim().toLowerCase().includes(q) && !nameSet.has(p.name.trim().toLowerCase()))
+      .slice(0, 8)
+  }, [query, people, nameSet])
 
   return (
     <div className={`rounded-xl border p-4 shadow-sm ${className || 'bg-white border-slate-200'}`}>
       <h3 className="font-semibold text-slate-800 mb-3">{title}</h3>
 
+      {/* Search people directory */}
+      {canEdit && people && (
+        <div className="mb-3 relative">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={searchPlaceholder}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+          />
+          {searchResults.length > 0 && (
+            <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+              {searchResults.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => { onAddValue?.(p.name.trim()); setQuery('') }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col"
+                >
+                  <span className="text-slate-800 font-medium">{p.name}</span>
+                  {p.phone && <span className="text-xs text-slate-400">{p.phone}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* D-Light visitor suggestions */}
       {canEdit && (loadingSuggestions || unusedSuggestions.length > 0) && (
         <div className="mb-3">
           <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-            From D-Light this week — tap to add
+            {suggestionsLabel}
           </p>
           {loadingSuggestions ? (
             <p className="text-xs text-slate-400">Loading visitors…</p>
@@ -128,10 +168,10 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
             )}
           </li>
         ))}
-        {canEdit && (
+        {canEdit && showManualAdd && (
           <li>
             <button type="button" onClick={onAdd} className="text-indigo-600 hover:underline text-sm font-medium">
-              + Add person
+              {people ? '+ Add name manually' : '+ Add person'}
             </button>
           </li>
         )}
@@ -277,6 +317,8 @@ export default function SundayReport({ embedded = false }) {
   const [showProgramConfirm, setShowProgramConfirm] = useState(false)
   const [dlightSuggestions, setDlightSuggestions] = useState([])
   const [loadingDlight, setLoadingDlight] = useState(false)
+  const [secondWeekSuggestions, setSecondWeekSuggestions] = useState([])
+  const [loadingSecondWeekSuggestions, setLoadingSecondWeekSuggestions] = useState(false)
   const [peopleDirectory, setPeopleDirectory] = useState([])
   const [cellMemberNames, setCellMemberNames] = useState(new Set())
   const [editingLogIdx, setEditingLogIdx] = useState(null)
@@ -412,12 +454,18 @@ export default function SundayReport({ embedded = false }) {
       .finally(() => setLoadingMembers(false))
   }, [expandedCellId])
 
-  // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days before the Sunday)
+  // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days before the Sunday),
+  // plus the 4 weeks before that (candidates for "Second Week Attendees")
   useEffect(() => {
     setLoadingDlight(true)
+    setLoadingSecondWeekSuggestions(true)
     const sunday = new Date(selectedDate + 'T00:00:00')
     const weekAgo = new Date(sunday)
     weekAgo.setDate(sunday.getDate() - 6)
+    const priorWeeksEnd = new Date(weekAgo)
+    priorWeeksEnd.setDate(weekAgo.getDate() - 1)
+    const priorWeeksStart = new Date(weekAgo)
+    priorWeeksStart.setDate(weekAgo.getDate() - 28)
     getDelightVisitors()
       .then(visitors => {
         const thisWeek = visitors.filter(v => {
@@ -427,9 +475,20 @@ export default function SundayReport({ embedded = false }) {
         })
         const names = [...new Set(thisWeek.map(v => v.name).filter(Boolean))]
         setDlightSuggestions(names)
+
+        const priorWeeks = visitors.filter(v => {
+          if (!v.attendedDate) return false
+          const d = new Date(v.attendedDate + 'T00:00:00')
+          return d >= priorWeeksStart && d <= priorWeeksEnd
+        })
+        const priorNames = [...new Set(priorWeeks.map(v => v.name).filter(Boolean))]
+        setSecondWeekSuggestions(priorNames)
       })
-      .catch(() => setDlightSuggestions([]))
-      .finally(() => setLoadingDlight(false))
+      .catch(() => { setDlightSuggestions([]); setSecondWeekSuggestions([]) })
+      .finally(() => {
+        setLoadingDlight(false)
+        setLoadingSecondWeekSuggestions(false)
+      })
   }, [selectedDate])
 
   // Single master load — clears stale data immediately so previous date never bleeds through
@@ -968,7 +1027,31 @@ export default function SundayReport({ embedded = false }) {
               </div>
             )}
 
-            {/* Attendance — cell tiles */}
+            {/* Attendance — all groups combined into one stacked layout, Pastoral first */}
+            <h2 className="text-lg font-semibold text-slate-800 mb-1">Attendance</h2>
+
+            <AttendanceSectionShell
+              sectionRef={pastoralSectionRef}
+              completed={completedSections.pastoral}
+              isActive={activeSectionId === 'pastoral'}
+              canManage={canEditEffective}
+              onDone={() => handleAttendanceDone('pastoral')}
+              onUndo={() => handleAttendanceUndo('pastoral')}
+            >
+              <NameListSection
+                title={PASTORAL_KEY.title}
+                names={report?.[PASTORAL_KEY.key] || []}
+                canEdit={pastoralEdit}
+                onAddValue={(value) => addCellNameValue(PASTORAL_KEY.key, value)}
+                onEdit={(idx, value) => updateCellList(PASTORAL_KEY.key, idx, value)}
+                onRemove={(idx) => removeCellName(PASTORAL_KEY.key, idx)}
+                suggestions={PASTORAL_ATTENDEE_SUGGESTIONS}
+                suggestionsLabel="Pastors — tap to add"
+                showManualAdd={false}
+                className="border-0 shadow-none bg-transparent p-0"
+              />
+            </AttendanceSectionShell>
+
             <AttendanceSectionShell
               sectionRef={cellsSectionRef}
               completed={completedSections.cells}
@@ -977,7 +1060,7 @@ export default function SundayReport({ embedded = false }) {
               onDone={() => handleAttendanceDone('cells')}
               onUndo={() => handleAttendanceUndo('cells')}
             >
-              <h2 className="text-lg font-semibold text-slate-800 mb-1">Attendance</h2>
+              <h3 className="font-semibold text-slate-800 mb-3">Cell Groups</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {cellGroups.map((g) => {
                   const expanded = expandedCellId === g.id
@@ -1030,24 +1113,50 @@ export default function SundayReport({ embedded = false }) {
               {cellGroups.length === 0 && <p className="text-sm text-slate-500">No cell groups found. Add cells under Cell department.</p>}
             </AttendanceSectionShell>
 
-            <AttendanceSectionShell
-              sectionRef={pastoralSectionRef}
-              completed={completedSections.pastoral}
-              isActive={activeSectionId === 'pastoral'}
-              canManage={canEditEffective}
-              onDone={() => handleAttendanceDone('pastoral')}
-              onUndo={() => handleAttendanceUndo('pastoral')}
-            >
-              <NameListSection
-                title={PASTORAL_KEY.title}
-                names={report?.[PASTORAL_KEY.key] || []}
-                canEdit={pastoralEdit}
-                onAdd={() => addCellName(PASTORAL_KEY.key)}
-                onEdit={(idx, value) => updateCellList(PASTORAL_KEY.key, idx, value)}
-                onRemove={(idx) => removeCellName(PASTORAL_KEY.key, idx)}
-                className="border-0 shadow-none bg-transparent p-0"
-              />
-            </AttendanceSectionShell>
+            {MANUAL_ONLY_KEYS.map(({ key, title }) => {
+              const refMap = {
+                others: othersSectionRef,
+                nonCell: nonCellSectionRef,
+                riverKids: riverKidsSectionRef,
+              }
+              const sectionRef = refMap[key]
+              const manualEdit = canEditEffective && !completedSections[key]
+              return (
+                <AttendanceSectionShell
+                  key={key}
+                  sectionRef={sectionRef}
+                  completed={completedSections[key]}
+                  isActive={activeSectionId === key}
+                  canManage={canEditEffective}
+                  onDone={() => handleAttendanceDone(key)}
+                  onUndo={() => handleAttendanceUndo(key)}
+                >
+                  {key === 'nonCell' ? (
+                    <NonCellSection
+                      names={report?.[key] || []}
+                      canEdit={manualEdit}
+                      people={peopleDirectory}
+                      cellMemberNames={cellMemberNames}
+                      onAddValue={(value) => addCellNameValue(key, value)}
+                      onEdit={(idx, value) => updateCellList(key, idx, value)}
+                      onRemove={(idx) => removeCellName(key, idx)}
+                      className="border-0 shadow-none bg-transparent p-0"
+                    />
+                  ) : (
+                    <NameListSection
+                      title={title}
+                      names={report?.[key] || []}
+                      canEdit={manualEdit}
+                      onAdd={() => addCellName(key)}
+                      onAddValue={(value) => addCellNameValue(key, value)}
+                      onEdit={(idx, value) => updateCellList(key, idx, value)}
+                      onRemove={(idx) => removeCellName(key, idx)}
+                      className="border-0 shadow-none bg-transparent p-0"
+                    />
+                  )}
+                </AttendanceSectionShell>
+              )
+            })}
 
             {/* ── New Comers — auto-populated from D-Light Visitors ── */}
             <div ref={newComersSectionRef} className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 shadow-sm">
@@ -1080,53 +1189,28 @@ export default function SundayReport({ embedded = false }) {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {MANUAL_ONLY_KEYS.map(({ key, title }) => {
-                const refMap = {
-                  others: othersSectionRef,
-                  nonCell: nonCellSectionRef,
-                  secondWeekAttendeesNames: secondWeekSectionRef,
-                  riverKids: riverKidsSectionRef,
-                }
-                const sectionRef = refMap[key]
-                const manualEdit = canEditEffective && !completedSections[key]
-                return (
-                  <AttendanceSectionShell
-                    key={key}
-                    sectionRef={sectionRef}
-                    completed={completedSections[key]}
-                    isActive={activeSectionId === key}
-                    canManage={canEditEffective}
-                    onDone={() => handleAttendanceDone(key)}
-                    onUndo={() => handleAttendanceUndo(key)}
-                  >
-                    {key === 'nonCell' ? (
-                      <NonCellSection
-                        names={report?.[key] || []}
-                        canEdit={manualEdit}
-                        people={peopleDirectory}
-                        cellMemberNames={cellMemberNames}
-                        onAddValue={(value) => addCellNameValue(key, value)}
-                        onEdit={(idx, value) => updateCellList(key, idx, value)}
-                        onRemove={(idx) => removeCellName(key, idx)}
-                        className="border-0 shadow-none bg-transparent p-0"
-                      />
-                    ) : (
-                      <NameListSection
-                        title={title}
-                        names={report?.[key] || []}
-                        canEdit={manualEdit}
-                        onAdd={() => addCellName(key)}
-                        onEdit={(idx, value) => updateCellList(key, idx, value)}
-                        onRemove={(idx) => removeCellName(key, idx)}
-                        className="border-0 shadow-none bg-transparent p-0"
-                      />
-                    )}
-                  </AttendanceSectionShell>
-                )
-              })}
-            </div>
-
+            <AttendanceSectionShell
+              sectionRef={secondWeekSectionRef}
+              completed={completedSections[SECOND_WEEK_KEY.key]}
+              isActive={activeSectionId === SECOND_WEEK_KEY.key}
+              canManage={canEditEffective}
+              onDone={() => handleAttendanceDone(SECOND_WEEK_KEY.key)}
+              onUndo={() => handleAttendanceUndo(SECOND_WEEK_KEY.key)}
+            >
+              <NameListSection
+                title={SECOND_WEEK_KEY.title}
+                names={report?.[SECOND_WEEK_KEY.key] || []}
+                canEdit={canEditEffective && !completedSections[SECOND_WEEK_KEY.key]}
+                onAdd={() => addCellName(SECOND_WEEK_KEY.key)}
+                onAddValue={(value) => addCellNameValue(SECOND_WEEK_KEY.key, value)}
+                onEdit={(idx, value) => updateCellList(SECOND_WEEK_KEY.key, idx, value)}
+                onRemove={(idx) => removeCellName(SECOND_WEEK_KEY.key, idx)}
+                suggestions={secondWeekSuggestions}
+                loadingSuggestions={loadingSecondWeekSuggestions}
+                suggestionsLabel="New comers from the last 4 weeks — tap to add"
+                className="border-0 shadow-none bg-transparent p-0"
+              />
+            </AttendanceSectionShell>
           </>
         )}
       </div>

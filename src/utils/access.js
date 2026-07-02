@@ -43,10 +43,14 @@ export function getDepartmentRole(user, departmentName) {
     // p found but both role and position are empty — fall through to top-level legacy check.
   }
 
-  // Legacy fallback: top-level `role` + `department` fields.
+  // Legacy fallback: top-level `role` + `department`/`departments` fields.
   // Covers: no positions array, empty positions array, or positions entry with no role/position.
+  // `departments[]` is the synced multi-dept array — catches directors whose primary
+  // `department` field isn't this dept but who hold a role here.
   const userDeptNorm = String(user?.department || '').trim().toLowerCase().replace(/-/g, ' ')
-  if (userDeptNorm && userDeptNorm === targetDept) {
+  const depts = Array.isArray(user?.departments) ? user.departments : []
+  const deptsNorm = depts.map((d) => String(d || '').trim().toLowerCase().replace(/-/g, ' '))
+  if (userDeptNorm === targetDept || deptsNorm.includes(targetDept)) {
     const r = String(user?.role || '').trim().toLowerCase()
     if (r === 'director') return 'DIRECTOR'
     if (r === 'coordinator') return 'COORDINATOR'

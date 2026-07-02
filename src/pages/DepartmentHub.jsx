@@ -3905,6 +3905,7 @@ export default function DepartmentHub() {
               const isExpanded = pcsExpandedId === entry.id
               const isInCell = !!(entry.visitorId && cellVisitorIds.has(entry.visitorId))
               const menuOpen = pcsMenuOpenId === entry.id
+              const isPastor = entry.name?.trim().toLowerCase() === 'benson k sunny'
               return (
                 <div className="relative">
                   {menuOpen && (
@@ -3912,27 +3913,43 @@ export default function DepartmentHub() {
                   )}
                   <div
                     className={`flex items-center gap-2 rounded-2xl pl-2 pr-1 py-2 border transition-all cursor-pointer
-                      ${isExpanded
-                        ? 'bg-indigo-600 border-indigo-600 shadow-md'
-                        : hasMember
-                          ? 'bg-amber-50 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
-                          : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300'}`}
+                      ${isPastor
+                        ? isExpanded
+                          ? 'bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-700 border-amber-400 shadow-lg ring-2 ring-amber-300 ring-offset-1'
+                          : 'bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 border-amber-400 shadow-sm ring-1 ring-amber-300 ring-offset-1 hover:from-amber-100 hover:to-amber-100'
+                        : isExpanded
+                          ? 'bg-indigo-600 border-indigo-600 shadow-md'
+                          : hasMember
+                            ? 'bg-amber-50 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
+                            : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300'}`}
                     onClick={() => handleChipClick(entry)}
                   >
                     <div className="relative flex-shrink-0">
                       <div className={`w-8 h-8 rounded-full text-white text-sm font-bold flex items-center justify-center
-                        ${isExpanded ? 'bg-white/25' : hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
+                        ${isPastor ? 'bg-gradient-to-br from-amber-500 to-yellow-600' : isExpanded ? 'bg-white/25' : hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
                         {entry.name.charAt(0).toUpperCase()}
                       </div>
+                      {isPastor && (
+                        <span className="absolute -top-1.5 -left-1.5 text-amber-500" title="Pastor">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M2 18h20l-2-9-5 4-3-8-3 8-5-4-2 9z"/>
+                          </svg>
+                        </span>
+                      )}
                       {isInCell && (
                         <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" title="In a cell group" />
                       )}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${isExpanded ? 'text-white' : hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
+                        <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${isPastor ? isExpanded ? 'text-white' : 'text-amber-900' : isExpanded ? 'text-white' : hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
                           {entry.name}
                         </p>
+                        {isPastor && (
+                          <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-amber-200' : 'bg-amber-500 text-white'}`}>
+                            Pastor
+                          </span>
+                        )}
                         {hasLeadership && (
                           <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
                             {entry.leadershipPosition}
@@ -3940,7 +3957,7 @@ export default function DepartmentHub() {
                         )}
                       </div>
                       {hasMember
-                        ? <p className={`text-xs font-medium leading-tight ${isExpanded ? 'text-indigo-200' : 'text-amber-600'}`}>#{entry.membershipNumber}</p>
+                        ? <p className={`text-xs font-medium leading-tight ${isExpanded ? 'text-indigo-200' : isPastor ? 'text-amber-700' : 'text-amber-600'}`}>#{entry.membershipNumber}</p>
                         : <p className={`text-xs leading-tight ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>No member #</p>
                       }
                     </div>

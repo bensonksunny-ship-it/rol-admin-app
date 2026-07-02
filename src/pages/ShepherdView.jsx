@@ -513,7 +513,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       })
       .finally(() => { if (!cancelled) setLoadingMembers(false) })
     return () => { cancelled = true }
-  }, [selectedCellId])
+  }, [selectedCellId, canSeeAllCells])
 
   // Load PCS entries to determine which members are already in PCS
   useEffect(() => {

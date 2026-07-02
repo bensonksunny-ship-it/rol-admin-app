@@ -158,6 +158,7 @@ function computeMeetingDateISO(meetingDay, weekStartDate) {
 export default function CellReport() {
   const { userProfile, user: authUser } = useAuth()
   const [cellGroups, setCellGroups] = useState([])
+  const [cellGroupsLoading, setCellGroupsLoading] = useState(true)
   const [selectedCellId, setSelectedCellId] = useState(null)
   const [report, setReport] = useState(null)
   const [attendees, setAttendees] = useState([])
@@ -275,7 +276,7 @@ export default function CellReport() {
   const canEditSelectedCellReport = Boolean(selectedCellId && canEditReportForCell(selectedCellId) && !isDirectorReadOnly)
   // Directors can record/edit program timers even though they can't edit attendance.
   const canEditTimer = canEditCurrentReport || isDirectorReadOnly
-  const meetingLocked = Boolean(report?.meetingFinalizedAt || report?.meetingFinalized)
+  const meetingLocked = Boolean(report?.meetingFinalizedAt)
 
   const cell = useMemo(() => cellGroups.find((g) => g.id === effectiveCellId) || null, [cellGroups, effectiveCellId])
   const activeCellGroups = useMemo(() => cellGroups.filter((c) => c.status !== 'inactive'), [cellGroups])
@@ -302,6 +303,7 @@ export default function CellReport() {
     getCellGroups(CELL_DEPARTMENT)
       .then(setCellGroups)
       .catch(() => setCellGroups([]))
+      .finally(() => setCellGroupsLoading(false))
   }, [])
 
   // So Firestore rules allow create: set user cellId when we detect leader by name
@@ -310,6 +312,13 @@ export default function CellReport() {
       updateUser(authUser.uid, { cellId: myCellId }).catch(() => {})
     }
   }, [authUser?.uid, myCellId, userProfile?.cellId])
+
+  // Clear text inputs when the active cell or report date changes so that text
+  // typed in one expanded row / date doesn't bleed into a different one.
+  useEffect(() => {
+    setVisitorInput('')
+    setChildInput('')
+  }, [effectiveCellId, reportDate])
 
   useEffect(() => {
     if (!effectiveCellId) {
@@ -396,9 +405,11 @@ export default function CellReport() {
       setDirectorRowsLoading(false)
       return
     }
-    if (visibleDirectorRows.length === 0) {
+    // While cell groups are still fetching, keep the loading state so the
+    // director sees a single spinner from mount rather than empty → spinner.
+    if (cellGroupsLoading || visibleDirectorRows.length === 0) {
       setDirectorRowsMap({})
-      setDirectorRowsLoading(false)
+      setDirectorRowsLoading(cellGroupsLoading)
       return
     }
     let cancelled = false
@@ -443,7 +454,7 @@ export default function CellReport() {
     return () => {
       cancelled = true
     }
-  }, [isDirectorView, visibleDirectorRows, reportDateByCellId])
+  }, [isDirectorView, visibleDirectorRows, reportDateByCellId, cellGroupsLoading])
 
   useEffect(() => {
     if (!reportDate) return
@@ -467,12 +478,12 @@ export default function CellReport() {
   }, [isDirectorView, selectedCellId, canEditSelectedCellReport])
 
   useEffect(() => {
-    if (!isLeaderView || canEditCurrentReport) return
+    if (cellGroupsLoading || !isLeaderView || canEditCurrentReport) return
     const allowed = new Set(isDirectorReadOnly
       ? ['attendance', 'timer', 'backToBible', 'meetingReport']
       : ['attendance', 'backToBible', 'meetingReport'])
     setLeaderTab((t) => allowed.has(t) ? t : 'attendance')
-  }, [isLeaderView, canEditCurrentReport, isDirectorReadOnly])
+  }, [cellGroupsLoading, isLeaderView, canEditCurrentReport, isDirectorReadOnly])
 
   useEffect(() => {
     if (!cell?.cellName || !reportDate) { setProgramLogs([]); return }
@@ -1290,7 +1301,7 @@ export default function CellReport() {
             </div>
           </div>
           <div className="flex border-b border-slate-200 overflow-x-auto">
-            {(canEditCurrentReport ? CELL_REPORT_TABS_ALL : isDirectorReadOnly ? CELL_REPORT_TABS_DIRECTOR : CELL_REPORT_TABS_VIEW_ONLY).map(({ key, label }) => (
+            {((cellGroupsLoading || canEditCurrentReport) ? CELL_REPORT_TABS_ALL : isDirectorReadOnly ? CELL_REPORT_TABS_DIRECTOR : CELL_REPORT_TABS_VIEW_ONLY).map(({ key, label }) => (
               <button
                 key={key}
                 type="button"
@@ -1710,6 +1721,7 @@ export default function CellReport() {
                         {canEditTimer && !meetingLocked ? (
                           <button
                             type="button"
+                            disabled={saving}
                             onClick={async () => {
                               if (!report) return
                               try {
