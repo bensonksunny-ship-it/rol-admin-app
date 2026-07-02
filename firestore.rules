@@ -185,12 +185,12 @@ service cloud.firestore {
       allow create, update, delete: if isSignedIn() && (
         isFullAccess() ||
         isCellDirector() ||
-        (canAccessDept('Cell') && userLinkedCellId() == cellId)
+        (canAccessDept('Cell') && userLinkedCellMatchesDocId(cellId))
       );
     }
     match /cell_groups/{cellId}/program_items/{itemId} {
-      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellId() == cellId));
-      allow create, update, delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && userLinkedCellId() == cellId));
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(cellId)));
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(cellId)));
     }
     match /cell_program_log/{docId} {
       allow read, write: if request.auth != null;
@@ -202,11 +202,24 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
-    // Prefer cellGroupId when set; otherwise cellId (leader’s linked cell for report edits).
+    // Prefer cellGroupId when set; otherwise cellId (leader's linked cell for report edits).
     function userLinkedCellId() {
       let d = getUserData();
       let g = d.get('cellGroupId', null);
       return g != null && g != '' ? g : d.get('cellId', null);
+    }
+    // True when the given cell_groups Firestore doc ID matches the user's linked cell.
+    // Handles two cases:
+    //  1. Profile stores the doc ID directly - exact match.
+    //  2. Profile stores a logical cellId string (e.g. "bethany") - look up the
+    //     cell_groups doc and compare its cellId field against the profile value.
+    function userLinkedCellMatchesDocId(docId) {
+      let linked = userLinkedCellId();
+      return linked != null && linked != '' && (
+        linked == docId ||
+        (exists(/databases/$(database)/documents/cell_groups/$(docId)) &&
+         get(/databases/$(database)/documents/cell_groups/$(docId)).data.get('cellId', '') == linked)
+      );
     }
     function isCellDirector() {
       // Accept 'Cell' in either the singular `department` field or the `departments` array,
@@ -215,20 +228,20 @@ service cloud.firestore {
         (userDepartment() == 'Cell' || 'Cell' in userDepartments());
     }
     match /cell_reports/{reportId} {
-      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
-      allow create: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && request.resource.data.cellId == userLinkedCellId()));
-      allow update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(resource.data.cellId)));
+      allow create: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(request.resource.data.cellId)));
+      allow update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(resource.data.cellId)));
       allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }
     match /cell_reports/{reportId}/attendees/{attendeeId} {
-      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userLinkedCellId()));
-      allow create, update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', '') == userLinkedCellId()));
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))));
+      allow create, update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))));
       allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }
 
     // Weekly cell report history
     match /cell_report_history/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && resource.data.cellId == userLinkedCellId()));
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(resource.data.cellId)));
       allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }
 
@@ -343,7 +356,7 @@ service cloud.firestore {
     // Mid-week Ministry: segment order settings per cell group
     match /cell_midweek_settings/{cellId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
-      allow create, update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellId() == cellId));
+      allow create, update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(cellId)));
       allow delete: if isSignedIn() && isFullAccess();
     }
 

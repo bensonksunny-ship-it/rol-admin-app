@@ -333,15 +333,19 @@ export default function CellReport() {
       setLoading(false)
       return
     }
+    let cancelled = false
     setLoading(true)
     Promise.all([
       getCellReportByCellAndDate(effectiveCellId, reportDate),
       getCellGroup(effectiveCellId),
     ])
       .then(([r, c]) => {
+        if (cancelled) return
         if (r) {
           setReport(r)
-          return getCellReportAttendees(r.id).then(setAttendees)
+          return getCellReportAttendees(r.id).then((att) => {
+            if (!cancelled) setAttendees(att)
+          })
         }
         setReport(null)
         setAttendees([])
@@ -359,17 +363,19 @@ export default function CellReport() {
             reportDate,
           }
           return createCellReport(newReport, userProfile?.email || 'unknown').then((id) => {
-            setReport({ id, ...newReport, visitorsList: [], childrenList: [], createdBy: userProfile?.email })
-            setAttendees([])
+            if (!cancelled) {
+              setReport({ id, ...newReport, visitorsList: [], childrenList: [], createdBy: userProfile?.email })
+              setAttendees([])
+            }
           })
         }
       })
       .catch(() => {
-        setReport(null)
-        setAttendees([])
+        if (!cancelled) { setReport(null); setAttendees([]) }
       })
-      .finally(() => setLoading(false))
-  }, [effectiveCellId, reportDate, userProfile, cellGroups])
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [effectiveCellId, reportDate, userProfile])
 
   useEffect(() => {
     if (!effectiveCellId) {
@@ -457,16 +463,16 @@ export default function CellReport() {
   useEffect(() => {
     if (!isDirectorView || !selectedCellId || canEditSelectedCellReport) return
     const allowed = new Set(['summary', 'backToBible', 'meetingReport'])
-    if (!allowed.has(leaderTab)) setLeaderTab('summary')
-  }, [isDirectorView, selectedCellId, canEditSelectedCellReport, leaderTab])
+    setLeaderTab((t) => allowed.has(t) ? t : 'summary')
+  }, [isDirectorView, selectedCellId, canEditSelectedCellReport])
 
   useEffect(() => {
     if (!isLeaderView || canEditCurrentReport) return
     const allowed = new Set(isDirectorReadOnly
       ? ['attendance', 'timer', 'backToBible', 'meetingReport']
       : ['attendance', 'backToBible', 'meetingReport'])
-    if (!allowed.has(leaderTab)) setLeaderTab('attendance')
-  }, [isLeaderView, canEditCurrentReport, isDirectorReadOnly, leaderTab])
+    setLeaderTab((t) => allowed.has(t) ? t : 'attendance')
+  }, [isLeaderView, canEditCurrentReport, isDirectorReadOnly])
 
   useEffect(() => {
     if (!cell?.cellName || !reportDate) { setProgramLogs([]); return }

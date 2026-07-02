@@ -46,13 +46,15 @@ function getInitials(name) {
 export default function CellHistory({ embedded = false }) {
   const { userProfile } = useAuth()
 
-  const [cellGroups, setCellGroups]   = useState([])
+  const [cellGroups, setCellGroups]       = useState([])
+  const [cellGroupsLoaded, setCellGroupsLoaded] = useState(false)
   const [loading, setLoading]         = useState(true)
   const [history, setHistory]         = useState([])
   const [expandedId, setExpandedId]   = useState(null)
 
   const isDirector = useMemo(() => {
     if (!userProfile) return false
+    if (userProfile.globalRole === 'FOUNDER' || userProfile.role === 'FOUNDER') return true
     if (isCellDirectorInPositions(userProfile)) return true
     // Fallback: top-level fields match Firestore rules' isCellDirector() check.
     // Handles legacy users without a positions array and multi-dept directors
@@ -102,7 +104,10 @@ export default function CellHistory({ embedded = false }) {
 
   // Load cell groups (needed to resolve linked cell)
   useEffect(() => {
-    getCellGroups(CELL_DEPARTMENT).then(setCellGroups).catch(() => setCellGroups([]))
+    getCellGroups(CELL_DEPARTMENT)
+      .then(setCellGroups)
+      .catch(() => setCellGroups([]))
+      .finally(() => setCellGroupsLoaded(true))
   }, [])
 
   // Resolve leader's linked cell ID from profile
@@ -133,6 +138,10 @@ export default function CellHistory({ embedded = false }) {
   // Load history (archived) + live (current-week) reports, merged
   useEffect(() => {
     if (!userProfile) return
+    // For leaders, wait until cellGroups has loaded so linkedCellId is resolved.
+    // Without this guard the effect fires immediately with linkedCellId=null and
+    // shows a false "no records" state before the groups arrive.
+    if (!isDirector && !cellGroupsLoaded) return
     let alive = true
     setLoading(true)
     ;(async () => {
@@ -146,7 +155,7 @@ export default function CellHistory({ embedded = false }) {
             getLatestCellReports(50),
           ])
         } else {
-          if (!linkedCellId) { if (alive) setHistory([]); return }
+          if (!linkedCellId) { if (alive) { setHistory([]); setLoading(false) } return }
           ;[historyList, liveList] = await Promise.all([
             getCellReportHistory({ cellId: linkedCellId, limitCount: 200 }),
             getCellReportsByCell(linkedCellId),
@@ -186,7 +195,7 @@ export default function CellHistory({ embedded = false }) {
       }
     })()
     return () => { alive = false }
-  }, [userProfile, isDirector, linkedCellId])
+  }, [userProfile, isDirector, linkedCellId, cellGroupsLoaded])
 
   // Sort newest first
   const sorted = useMemo(

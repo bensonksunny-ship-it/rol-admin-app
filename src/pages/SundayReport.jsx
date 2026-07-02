@@ -12,6 +12,7 @@ import {
   getSundayProgramLogsByDate,
   updateSundayProgramLog,
   getDelightVisitors,
+  getPeople,
 } from '../services/firestore'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
@@ -19,6 +20,7 @@ import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'others', title: 'Others' },
+  { key: 'nonCell', title: 'Non Cell' },
   { key: 'secondWeekAttendeesNames', title: 'Second Week Attendees' },
   { key: 'riverKids', title: 'River Kids' },
 ]
@@ -26,7 +28,7 @@ const MANUAL_ONLY_KEYS = [
 const PASTORAL_KEY = { key: 'pastoralAttendees', title: 'Pastoral Attendees' }
 
 /** Local-only UX: order for Done → scroll to next attendance section */
-const ATTENDANCE_SECTION_ORDER = ['cells', 'pastoral', 'newComers', 'others', 'secondWeekAttendeesNames', 'riverKids']
+const ATTENDANCE_SECTION_ORDER = ['cells', 'pastoral', 'newComers', 'others', 'nonCell', 'secondWeekAttendeesNames', 'riverKids']
 
 
 /** Map legacy report field → normalized cell name (lowercase, no spaces) */
@@ -138,6 +140,83 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
   )
 }
 
+function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, onEdit, onRemove, className = '' }) {
+  const [query, setQuery] = useState('')
+  const nameSet = useMemo(() => new Set((names || []).map(n => n.trim().toLowerCase())), [names])
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return []
+    return (people || [])
+      .filter((p) => {
+        if (!p.name) return false
+        const lower = p.name.trim().toLowerCase()
+        if (!lower.includes(q)) return false
+        if (nameSet.has(lower)) return false
+        if (cellMemberNames?.has(lower)) return false
+        return true
+      })
+      .slice(0, 8)
+  }, [query, people, nameSet, cellMemberNames])
+
+  return (
+    <div className={`rounded-xl border p-4 shadow-sm ${className || 'bg-white border-slate-200'}`}>
+      <h3 className="font-semibold text-slate-800 mb-3">Non Cell</h3>
+
+      {canEdit && (
+        <div className="mb-3 relative">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search people directory…"
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+          />
+          {results.length > 0 && (
+            <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+              {results.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => { onAddValue(p.name.trim()); setQuery('') }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col"
+                >
+                  <span className="text-slate-800 font-medium">{p.name}</span>
+                  {p.phone && <span className="text-xs text-slate-400">{p.phone}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <ul className="space-y-2">
+        {(names || []).map((name, idx) => (
+          <li key={idx} className="flex items-center gap-2">
+            {canEdit ? (
+              <>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => onEdit(idx, e.target.value)}
+                  className="flex-1 px-2 py-1.5 rounded border border-slate-300 text-sm"
+                />
+                <button type="button" onClick={() => onRemove(idx)} className="text-red-600 hover:underline text-sm">
+                  Remove
+                </button>
+              </>
+            ) : (
+              <span className="text-slate-800">{name || '—'}</span>
+            )}
+          </li>
+        ))}
+        {(names || []).length === 0 && !canEdit && (
+          <li className="text-sm text-slate-400">No names added.</li>
+        )}
+      </ul>
+    </div>
+  )
+}
+
 /** Local-only: wrap attendance blocks with Done/Undo, scroll target, completed/active styling */
 function AttendanceSectionShell({
   sectionRef,
@@ -198,6 +277,8 @@ export default function SundayReport({ embedded = false }) {
   const [showProgramConfirm, setShowProgramConfirm] = useState(false)
   const [dlightSuggestions, setDlightSuggestions] = useState([])
   const [loadingDlight, setLoadingDlight] = useState(false)
+  const [peopleDirectory, setPeopleDirectory] = useState([])
+  const [cellMemberNames, setCellMemberNames] = useState(new Set())
   const [editingLogIdx, setEditingLogIdx] = useState(null)
   const [editingLogTime, setEditingLogTime] = useState('')
   const [editingProgramIdx, setEditingProgramIdx] = useState(null)
@@ -209,6 +290,7 @@ export default function SundayReport({ embedded = false }) {
   const pastoralSectionRef = useRef(null)
   const newComersSectionRef = useRef(null)
   const othersSectionRef = useRef(null)
+  const nonCellSectionRef = useRef(null)
   const secondWeekSectionRef = useRef(null)
   const riverKidsSectionRef = useRef(null)
 
@@ -218,6 +300,7 @@ export default function SundayReport({ embedded = false }) {
       pastoral: pastoralSectionRef,
       newComers: newComersSectionRef,
       others: othersSectionRef,
+      nonCell: nonCellSectionRef,
       secondWeekAttendeesNames: secondWeekSectionRef,
       riverKids: riverKidsSectionRef,
     }),
@@ -236,15 +319,16 @@ export default function SundayReport({ embedded = false }) {
       }))
       .filter((r) => r.count > 0)
     const othersCount       = (report?.others || []).filter(Boolean).length
+    const nonCellCount      = (report?.nonCell || []).filter(Boolean).length
     const secondWeekCount   = (report?.secondWeekAttendeesNames || []).filter(Boolean).length
     const newcomersCount    = dlightSuggestions.filter(Boolean).length
     const pastoralCount     = (report?.pastoralAttendees || []).filter(Boolean).length
     const riverKidsCount    = (report?.riverKids || []).filter(Boolean).length
     const sundaySchool      = Number(report?.summary?.sundaySchool) || 0
     const cellTotal         = cellRows.reduce((s, r) => s + r.count, 0)
-    const totalAdults       = cellTotal + othersCount + secondWeekCount + newcomersCount + pastoralCount
+    const totalAdults       = cellTotal + othersCount + nonCellCount + secondWeekCount + newcomersCount + pastoralCount
     const total             = totalAdults + sundaySchool + riverKidsCount
-    return { cellRows, othersCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total }
+    return { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total }
   }, [cellGroups, report, dlightSuggestions])
 
   /** First incomplete attendance section = “active” highlight (editors only) */
@@ -291,6 +375,30 @@ export default function SundayReport({ embedded = false }) {
   const handleAttendanceUndo = useCallback((sectionId) => {
     setCompletedSections((prev) => ({ ...prev, [sectionId]: false }))
   }, [])
+
+  // Load the people directory once — used to search/select names for the Non Cell section
+  useEffect(() => {
+    getPeople().then(setPeopleDirectory).catch(() => setPeopleDirectory([]))
+  }, [])
+
+  // Build the set of names already belonging to a cell — excluded from Non Cell search results
+  useEffect(() => {
+    if (!cellGroups.length) {
+      setCellMemberNames(new Set())
+      return
+    }
+    Promise.all(cellGroups.map((g) => getCellGroupMembers(g.id)))
+      .then((lists) => {
+        const set = new Set()
+        lists.forEach((list) => {
+          (list || []).forEach((m) => {
+            if (m.status !== 'inactive' && m.name) set.add(String(m.name).trim().toLowerCase())
+          })
+        })
+        setCellMemberNames(set)
+      })
+      .catch(() => setCellMemberNames(new Set()))
+  }, [cellGroups])
 
   useEffect(() => {
     if (!expandedCellId) {
@@ -397,7 +505,7 @@ export default function SundayReport({ embedded = false }) {
     if (!report || !canEdit) return
     setSaving(true)
     try {
-      const { cellRows, othersCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
+      const { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
       const cellAttendanceCount = cellRows.reduce((s, r) => s + r.count, 0)
 
       const cellBreakdown = Object.fromEntries(cellRows.map((r) => [r.name, r.count]))
@@ -406,6 +514,7 @@ export default function SundayReport({ embedded = false }) {
         ...report.summary,
         cellAttendance: cellAttendanceCount,
         othersCount,
+        nonCellCount,
         newcomers: newcomersCount,
         secondWeekAttendees: secondWeekCount,
         riverKids: riverKidsCount,
@@ -568,10 +677,11 @@ export default function SundayReport({ embedded = false }) {
       rows.push([])
     }
 
-    const { cellRows, othersCount, secondWeekCount, newcomersCount, riverKidsCount, totalAdults, total } = summaryComputed
+    const { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, totalAdults, total } = summaryComputed
     rows.push(['Attendance', 'Count'])
     cellRows.forEach((r) => rows.push([r.name, r.count]))
     rows.push(['Others', othersCount])
+    rows.push(['Non Cell', nonCellCount])
     rows.push(['New Comers', newcomersCount])
     rows.push(['Second Week Attendees', secondWeekCount])
     rows.push(['River Kids', riverKidsCount])
@@ -594,6 +704,7 @@ export default function SundayReport({ embedded = false }) {
       { label: 'Pastoral Attendees', key: 'pastoralAttendees' },
       { label: 'New Comers', key: 'newComers' },
       { label: 'Others', key: 'others' },
+      { label: 'Non Cell', key: 'nonCell' },
       { label: 'Second Week Attendees', key: 'secondWeekAttendeesNames' },
       { label: 'River Kids', key: 'riverKids' },
     ]
@@ -973,6 +1084,7 @@ export default function SundayReport({ embedded = false }) {
               {MANUAL_ONLY_KEYS.map(({ key, title }) => {
                 const refMap = {
                   others: othersSectionRef,
+                  nonCell: nonCellSectionRef,
                   secondWeekAttendeesNames: secondWeekSectionRef,
                   riverKids: riverKidsSectionRef,
                 }
@@ -988,15 +1100,28 @@ export default function SundayReport({ embedded = false }) {
                     onDone={() => handleAttendanceDone(key)}
                     onUndo={() => handleAttendanceUndo(key)}
                   >
-                    <NameListSection
-                      title={title}
-                      names={report?.[key] || []}
-                      canEdit={manualEdit}
-                      onAdd={() => addCellName(key)}
-                      onEdit={(idx, value) => updateCellList(key, idx, value)}
-                      onRemove={(idx) => removeCellName(key, idx)}
-                      className="border-0 shadow-none bg-transparent p-0"
-                    />
+                    {key === 'nonCell' ? (
+                      <NonCellSection
+                        names={report?.[key] || []}
+                        canEdit={manualEdit}
+                        people={peopleDirectory}
+                        cellMemberNames={cellMemberNames}
+                        onAddValue={(value) => addCellNameValue(key, value)}
+                        onEdit={(idx, value) => updateCellList(key, idx, value)}
+                        onRemove={(idx) => removeCellName(key, idx)}
+                        className="border-0 shadow-none bg-transparent p-0"
+                      />
+                    ) : (
+                      <NameListSection
+                        title={title}
+                        names={report?.[key] || []}
+                        canEdit={manualEdit}
+                        onAdd={() => addCellName(key)}
+                        onEdit={(idx, value) => updateCellList(key, idx, value)}
+                        onRemove={(idx) => removeCellName(key, idx)}
+                        className="border-0 shadow-none bg-transparent p-0"
+                      />
+                    )}
                   </AttendanceSectionShell>
                 )
               })}
@@ -1031,7 +1156,7 @@ export default function SundayReport({ embedded = false }) {
 // ─── Service Complete Modal ───────────────────────────────────────────────────
 
 function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sundaySchoolValue, onSundaySchoolChange, saving, onSave, onClose }) {
-  const { cellRows, othersCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
+  const { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
   const logByName = {}
   for (const log of programLogs) {
     const key = String(log.programName || '').trim().toLowerCase()
@@ -1103,6 +1228,10 @@ function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sun
               <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
                 <span className="text-slate-600">Others</span>
                 <span className="tabular-nums text-slate-800">{othersCount}</span>
+              </div>
+              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
+                <span className="text-slate-600">Non Cell</span>
+                <span className="tabular-nums text-slate-800">{nonCellCount}</span>
               </div>
               <div className="flex justify-between items-center px-4 py-2 rounded-xl bg-slate-50 text-sm">
                 <span className="text-slate-600">Sunday School</span>

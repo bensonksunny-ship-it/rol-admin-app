@@ -2166,8 +2166,8 @@ export async function addCellReportAttendee(reportId, data, createdBy) {
     phone: data.phone || '',
     locality: data.locality || '',
   })
-  const attendees = await getCellReportAttendees(reportId)
-  await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), { membersAttended: attendees.length })
+  // membersAttended is kept in sync by the useEffect in CellReport that watches
+  // attendees.length — no second write here to avoid the double-update race.
   return ref.id
 }
 

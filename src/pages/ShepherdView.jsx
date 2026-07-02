@@ -460,20 +460,34 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   useEffect(() => {
     if (!cellGroups.length || !userProfile) return
     if (canSeeAllCells && isDirector) return
+    // 1. Match by cellGroupId/cellId against group's doc ID or cellId field
     const fromProfile = String(userProfile.cellGroupId || userProfile.cellId || '').trim()
     if (fromProfile) {
       const hit = cellGroups.find((g) => g.id === fromProfile || g.cellId === fromProfile)
       if (hit) { setSelectedCellId(hit.id); return }
     }
-    const nameMatch = cellGroups.find(
-      (g) => String(g.cellName || '').toLowerCase() === String(userProfile.cellGroup || '').toLowerCase()
-    )
-    if (nameMatch) setSelectedCellId(nameMatch.id)
-  }, [cellGroups, userProfile, isDirector])
+    // 2. Match by cell group name stored in profile
+    const cellGroupName = String(userProfile.cellGroup || '').trim()
+    if (cellGroupName) {
+      const nameMatch = cellGroups.find(
+        (g) => String(g.cellName || '').toLowerCase() === cellGroupName.toLowerCase()
+      )
+      if (nameMatch) { setSelectedCellId(nameMatch.id); return }
+    }
+    // 3. Fallback: match by the leader name field on the cell group document
+    const userName = String(userProfile.displayName || userProfile.name || '').trim()
+    if (userName) {
+      const leaderMatch = cellGroups.find(
+        (g) => String(g.leader || '').trim().toLowerCase() === userName.toLowerCase()
+      )
+      if (leaderMatch) setSelectedCellId(leaderMatch.id)
+    }
+  }, [cellGroups, userProfile, isDirector, canSeeAllCells])
 
   // Load members + heatmap + Sunday attendance when cell changes
   useEffect(() => {
     if (!selectedCellId) return
+    let cancelled = false
     setLoadingMembers(true)
     setMembers([])
     setHeatmap([])
@@ -487,13 +501,18 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       getRecentSundayAttendanceNamesByCell(selectedCellId, 1),
     ])
       .then(([m, h, s, sn]) => {
+        if (cancelled) return
         const todayStr = new Date().toISOString().slice(0, 10)
         setMembers(m)
         setHeatmap(h.filter(r => r.reportDate && r.reportDate < todayStr))
         setSundayHistory(s)
         setSundayNamesHistory(sn)
       })
-      .finally(() => setLoadingMembers(false))
+      .catch(() => {
+        if (!cancelled) { setMembers([]); setHeatmap([]); setSundayHistory([]); setSundayNamesHistory([]) }
+      })
+      .finally(() => { if (!cancelled) setLoadingMembers(false) })
+    return () => { cancelled = true }
   }, [selectedCellId])
 
   // Load PCS entries to determine which members are already in PCS
@@ -514,15 +533,17 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       .finally(() => setPcsLoading(false))
   }, [])
 
-  // Subscribe to pending fill invitations for hub badge count
+  // Subscribe to pending fill invitations for hub badge count.
+  // Fall back to the resolved selectedCellId for leaders matched by name whose
+  // profile doesn't yet have cellGroupId/cellId set.
   useEffect(() => {
-    const cellId = userProfile?.cellGroupId || userProfile?.cellId
+    const cellId = userProfile?.cellGroupId || userProfile?.cellId || selectedCellId
     if (!cellId) return
     const unsub = subscribePCSFillInvitationsByCellId(cellId, (invs) => {
       setPendingFillInvCount(invs.filter(i => i.status === 'pending').length)
     })
     return unsub
-  }, [userProfile?.cellGroupId, userProfile?.cellId])
+  }, [userProfile?.cellGroupId, userProfile?.cellId, selectedCellId])
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -1600,13 +1621,24 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
       .finally(() => setPcsLoading(false))
   }, [])
 
-  // Subscribe to pending fill invitations for this cell leader
+  // Load People's Directory lazily when the Add Member form first opens
   useEffect(() => {
-    const cellId = userProfile?.cellGroupId || userProfile?.cellId
+    if (!showAddForm || directoryList.length > 0) return
+    setDirectoryLoading(true)
+    getDelightVisitors()
+      .then(setDirectoryList)
+      .catch(() => setDirectoryList([]))
+      .finally(() => setDirectoryLoading(false))
+  }, [showAddForm, directoryList.length])
+
+  // Subscribe to pending fill invitations for this cell leader.
+  // Fall back to resolved selectedCellId for leaders matched by name.
+  useEffect(() => {
+    const cellId = userProfile?.cellGroupId || userProfile?.cellId || selectedCellId
     if (!cellId) return
     const unsub = subscribePCSFillInvitationsByCellId(cellId, setPendingInvitations)
     return unsub
-  }, [userProfile?.cellGroupId, userProfile?.cellId])
+  }, [userProfile?.cellGroupId, userProfile?.cellId, selectedCellId])
 
   // Auto-open fill form when parent passes an invite ID (from sidebar notification click)
   useEffect(() => {
@@ -1621,15 +1653,28 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
   useEffect(() => {
     if (!allCellGroups.length || !userProfile) return
     if (isDirector && !isLeader) return
+    // 1. Match by cellGroupId/cellId against group's doc ID or cellId field
     const fromProfile = String(userProfile.cellGroupId || userProfile.cellId || '').trim()
     if (fromProfile) {
       const hit = allCellGroups.find((g) => g.id === fromProfile || g.cellId === fromProfile)
       if (hit) { setSelectedCellId(hit.id); return }
     }
-    const nameMatch = allCellGroups.find(
-      (g) => String(g.cellName || '').toLowerCase() === String(userProfile.cellGroup || '').toLowerCase()
-    )
-    if (nameMatch) setSelectedCellId(nameMatch.id)
+    // 2. Match by cell group name stored in profile
+    const cellGroupName = String(userProfile.cellGroup || '').trim()
+    if (cellGroupName) {
+      const nameMatch = allCellGroups.find(
+        (g) => String(g.cellName || '').toLowerCase() === cellGroupName.toLowerCase()
+      )
+      if (nameMatch) { setSelectedCellId(nameMatch.id); return }
+    }
+    // 3. Fallback: match by the leader name field on the cell group document
+    const userName = String(userProfile.displayName || userProfile.name || '').trim()
+    if (userName) {
+      const leaderMatch = allCellGroups.find(
+        (g) => String(g.leader || '').trim().toLowerCase() === userName.toLowerCase()
+      )
+      if (leaderMatch) setSelectedCellId(leaderMatch.id)
+    }
   }, [allCellGroups, userProfile, isDirector, isLeader])
 
   const refreshMembers = useCallback(async (cellId) => {
@@ -1645,11 +1690,11 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
 
   useEffect(() => {
     if (!selectedCellId) return
-    getCellMemberPendingChanges(selectedCellId)
+    getCellMemberPendingChanges()
       .then((changes) => {
         const ids = new Set(
           changes
-            .filter((c) => c.changeType === 'deactivate' && c.status === 'pending')
+            .filter((c) => c.cellId === selectedCellId && c.changeType === 'deactivate' && c.status === 'pending')
             .map((c) => c.memberId)
         )
         setPendingDeactivationIds(ids)
