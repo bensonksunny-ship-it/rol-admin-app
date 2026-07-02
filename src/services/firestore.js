@@ -1999,34 +1999,44 @@ function cellReportAttendeesRef(reportId) {
   return collection(db, CELL_REPORTS_COLLECTION, reportId, 'attendees')
 }
 
-export async function getCellReportByCellAndDate(cellId, reportDate) {
+export async function getCellReportByCellAndDate(cellId, reportDate, altCellId) {
   if (!db || !cellId || !reportDate) return null
   const dateStr = String(reportDate).slice(0, 10)
-  const q = query(
+  function buildShape(d) {
+    const data = d.data()
+    return {
+      id: d.id,
+      cellId: data.cellId || '',
+      cellName: data.cellName || '',
+      meetingDay: data.meetingDay || '',
+      membersAttended: Number(data.membersAttended) || 0,
+      visitors: Number(data.visitors) || 0,
+      children: Number(data.children) || 0,
+      visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
+      childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
+      reportDate: data.reportDate || '',
+      attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
+      meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
+      createdBy: data.createdBy || '',
+      createdAt: toDate(data.createdAt),
+    }
+  }
+  const snap = await getDocs(query(
     collection(db, CELL_REPORTS_COLLECTION),
     where('cellId', '==', cellId),
     where('reportDate', '==', dateStr)
-  )
-  const snap = await getDocs(q)
-  const doc = snap.docs[0]
-  if (!doc) return null
-  const data = doc.data()
-  return {
-    id: doc.id,
-    cellId: data.cellId || '',
-    cellName: data.cellName || '',
-    meetingDay: data.meetingDay || '',
-    membersAttended: Number(data.membersAttended) || 0,
-    visitors: Number(data.visitors) || 0,
-    children: Number(data.children) || 0,
-    visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
-    childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
-    reportDate: data.reportDate || '',
-    attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
-    meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
-    createdBy: data.createdBy || '',
-    createdAt: toDate(data.createdAt),
+  ))
+  if (!snap.empty) return buildShape(snap.docs[0])
+  // Fallback: legacy reports may store a logical cellId (e.g. "bethany") instead of the Firestore doc ID.
+  if (altCellId && altCellId !== cellId) {
+    const snap2 = await getDocs(query(
+      collection(db, CELL_REPORTS_COLLECTION),
+      where('cellId', '==', altCellId),
+      where('reportDate', '==', dateStr)
+    ))
+    if (!snap2.empty) return buildShape(snap2.docs[0])
   }
+  return null
 }
 
 export async function getCellReportsByCell(cellId) {
@@ -3212,19 +3222,28 @@ export async function transferCellMember(fromCellId, memberId, toCellId) {
  * Get the last `count` cell reports for a given cellId, each with their attendee names.
  * Returns: [{ reportId, reportDate, attendeeNames: Set<string> }, ...]  (newest first)
  */
-export async function getRecentCellReportsForHeatmap(cellId, count = 2) {
+export async function getRecentCellReportsForHeatmap(cellId, count = 2, altCellId) {
   if (!db || !cellId) return []
-  const q = query(
-    collection(db, CELL_REPORTS_COLLECTION),
-    where('cellId', '==', cellId),
-    orderBy('reportDate', 'desc'),
-    limit(count)
-  )
-  const snap = await getDocs(q)
-  if (snap.empty) return []
-
-  const results = await Promise.all(
-    snap.docs.map(async (d) => {
+  async function fetchDocs(cid) {
+    const snap = await getDocs(query(
+      collection(db, CELL_REPORTS_COLLECTION),
+      where('cellId', '==', cid),
+      orderBy('reportDate', 'desc'),
+      limit(count)
+    ))
+    return snap.docs
+  }
+  let docs = await fetchDocs(cellId)
+  if (docs.length < count && altCellId && altCellId !== cellId) {
+    const fallbackDocs = await fetchDocs(altCellId)
+    const seen = new Set(docs.map((d) => d.id))
+    const merged = [...docs, ...fallbackDocs.filter((d) => !seen.has(d.id))]
+    merged.sort((a, b) => (b.data().reportDate || '').localeCompare(a.data().reportDate || ''))
+    docs = merged.slice(0, count)
+  }
+  if (docs.length === 0) return []
+  return Promise.all(
+    docs.map(async (d) => {
       const attendeeSnap = await getDocs(
         collection(db, CELL_REPORTS_COLLECTION, d.id, 'attendees')
       )
@@ -3234,7 +3253,6 @@ export async function getRecentCellReportsForHeatmap(cellId, count = 2) {
       return { reportId: d.id, reportDate: d.data().reportDate || '', attendeeNames }
     })
   )
-  return results
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

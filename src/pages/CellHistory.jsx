@@ -12,7 +12,8 @@ import {
   getCellGroupMembers,
   deleteCellReportFull,
 } from '../services/firestore'
-import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
+import { isCellLeaderInPositions } from '../utils/cellReportPermissions'
+import { getDepartmentRole } from '../utils/access'
 import { formatDisplayDate } from '../utils/date'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { AnimatePresence } from 'framer-motion'
@@ -90,18 +91,11 @@ export default function CellHistory({ embedded = false }) {
   const isDirector = useMemo(() => {
     if (!userProfile) return false
     if (userProfile.globalRole === 'FOUNDER' || userProfile.role === 'FOUNDER') return true
-    if (isCellDirectorInPositions(userProfile)) return true
-    // Fallback: top-level role/department fields, matching Firestore rules' isCellDirector().
-    // Only used for legacy profiles with no positions array at all — otherwise a Director
-    // of an unrelated department (e.g. a Cell Leader who is also River Kids Director) whose
-    // primary `department` field happens to be 'Cell' would incorrectly see every cell's
-    // reports instead of just their own.
-    if (Array.isArray(userProfile.positions) && userProfile.positions.length > 0) return false
-    const depts = Array.isArray(userProfile.departments) ? userProfile.departments : []
-    return (
-      userProfile.role === 'Director' &&
-      (userProfile.department === 'Cell' || depts.includes('Cell'))
-    )
+    // getDepartmentRole checks positions[] for a Cell-specific entry before ever
+    // touching the top-level role/department fields, so a Director of an unrelated
+    // department (e.g. a Cell Leader who is also River Kids Director) can't be
+    // misread as a Cell Director just because those flat fields happen to line up.
+    return getDepartmentRole(userProfile, 'Cell') === 'DIRECTOR'
   }, [userProfile])
 
   const isLeader = useMemo(() => isCellLeaderInPositions(userProfile), [userProfile])

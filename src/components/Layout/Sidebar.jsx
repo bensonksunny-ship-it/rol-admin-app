@@ -9,7 +9,7 @@ import { getDepartmentPath } from '../../constants/departments'
 import { ROLES } from '../../constants/roles'
 import { getDepartmentRole } from '../../utils/access'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
-import { subscribePCSFillInvitationsByCellId } from '../../services/firestore'
+import { subscribePCSFillInvitationsByCellId, subscribeCellVisitorProposals } from '../../services/firestore'
 import rolccLogo from '../../assets/rolcc_logo BW.JPG'
 
 const navItems = [
@@ -102,7 +102,9 @@ function NotifPanel({ isDay, notifications, posStyle, onAction }) {
               <p className={`text-sm ${isDay ? 'text-slate-700' : 'text-slate-200'}`}>{n.body}</p>
               {n.cellName && <p className={`text-xs mt-0.5 ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>{n.cellName}</p>}
               {n.sentAt && <p className={`text-[10px] mt-1 ${isDay ? 'text-slate-300' : 'text-slate-600'}`}>{fmtDate(n.sentAt)}</p>}
-              <p className={`text-xs font-semibold mt-1.5 ${isDay ? 'text-violet-600' : 'text-violet-400'}`}>Tap to fill →</p>
+              <p className={`text-xs font-semibold mt-1.5 ${isDay ? 'text-violet-600' : 'text-violet-400'}`}>
+                {n.type === 'visitor_proposal' ? 'Tap to review →' : 'Tap to fill →'}
+              </p>
             </button>
           ))}
         </div>
@@ -354,7 +356,12 @@ export default function Sidebar() {
   // ── Notifications ───────────────────────────────────────────────────────────
   const navigate = useNavigate()
   const [notifOpen, setNotifOpen] = useState(false)
-  const [notifications, setNotifications] = useState([])
+  const [fillNotifications, setFillNotifications] = useState([])
+  const [visitorProposalNotifications, setVisitorProposalNotifications] = useState([])
+  const notifications = useMemo(
+    () => [...fillNotifications, ...visitorProposalNotifications],
+    [fillNotifications, visitorProposalNotifications]
+  )
   const notifDesktopRef = useRef(null)
   const notifMobileRef = useRef(null)
 
@@ -362,6 +369,8 @@ export default function Sidebar() {
     setNotifOpen(false)
     if (n.type === 'pcs_fill') {
       navigate('/department/cell?tab=leaderEntry&openFillInvite=' + (n.inviteId || ''))
+    } else if (n.type === 'visitor_proposal') {
+      navigate('/department/d-light?tab=visitorEntry')
     }
   }
 
@@ -369,7 +378,7 @@ export default function Sidebar() {
     const cellId = userProfile?.cellGroupId || userProfile?.cellId
     if (!cellId) return
     return subscribePCSFillInvitationsByCellId(cellId, (invites) => {
-      setNotifications(invites.map((inv) => ({
+      setFillNotifications(invites.map((inv) => ({
         id: inv.id,
         inviteId: inv.id,
         type: 'pcs_fill',
@@ -380,6 +389,23 @@ export default function Sidebar() {
       })))
     })
   }, [userProfile?.cellGroupId, userProfile?.cellId])
+
+  // D-Light: visitor proposals forwarded by Cell/Caring — surfaced on the bell so a
+  // D-Light user doesn't have to be on the Visitor Entry tab to know one arrived.
+  useEffect(() => {
+    const canSeeDLight = isFounder || !!getDepartmentRole(userProfile, 'D Light')
+    if (!canSeeDLight) return
+    return subscribeCellVisitorProposals((proposals) => {
+      setVisitorProposalNotifications(proposals.map((p) => ({
+        id: p.id,
+        type: 'visitor_proposal',
+        title: 'New Visitor to Register',
+        body: `${p.visitorName || 'Someone'} was flagged for D-Light registration`,
+        cellName: p.cellName || p.sentByName || '',
+        sentAt: typeof p.createdAt?.toDate === 'function' ? p.createdAt.toDate() : p.createdAt,
+      })))
+    })
+  }, [userProfile, isFounder])
 
   useEffect(() => {
     if (!notifOpen) return

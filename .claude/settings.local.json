@@ -57,7 +57,12 @@
       "Bash(npx firebase *)",
       "Bash(gcloud auth *)",
       "Bash(node *)",
-      "Skill(dataviz)"
+      "Skill(dataviz)",
+      "Bash(firebase --version)",
+      "Bash(firebase projects:list)",
+      "Bash(firebase deploy *)",
+      "Bash(npx playwright *)",
+      "Bash(gcloud --version)"
     ]
   }
 }

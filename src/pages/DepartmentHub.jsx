@@ -175,6 +175,8 @@ async function mergeTasksEntriesTeam(canonicalName) {
   return { tasks, entries, team }
 }
 
+const WEEKDAY_OPTIONS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
 const VISITOR_START_YEAR = 2014
 const VISITOR_CURRENT_YEAR = new Date().getFullYear()
 const VISITOR_SERVICE_LABELS = { E: 'English Service', M: 'Malayalam', T: 'Tamil' }
@@ -7682,7 +7684,12 @@ export default function DepartmentHub() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Day of Cell</label>
-                    <input type="text" placeholder="e.g. Tuesday" value={newCellGroupForm.meetingDay} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, meetingDay: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    <select value={newCellGroupForm.meetingDay} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, meetingDay: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
+                      <option value="">— select a day —</option>
+                      {WEEKDAY_OPTIONS.map((day) => (
+                        <option key={day} value={day}>{day}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Launch Date</label>
@@ -7743,7 +7750,12 @@ export default function DepartmentHub() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Meeting Day</label>
-                    <input type="text" placeholder="e.g. Tuesday" value={cellGroupEditForm.meetingDay} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, meetingDay: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    <select value={cellGroupEditForm.meetingDay} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, meetingDay: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
+                      <option value="">— select a day —</option>
+                      {WEEKDAY_OPTIONS.map((day) => (
+                        <option key={day} value={day}>{day}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Launch Date</label>

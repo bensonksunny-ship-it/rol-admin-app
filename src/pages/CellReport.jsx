@@ -360,7 +360,7 @@ export default function CellReport() {
     let cancelled = false
     setLoading(true)
     Promise.all([
-      getCellReportByCellAndDate(effectiveCellId, reportDate),
+      getCellReportByCellAndDate(effectiveCellId, reportDate, cell?.cellId !== effectiveCellId ? cell?.cellId : null),
       getCellGroup(effectiveCellId),
     ])
       .then(([r, c]) => {
@@ -432,7 +432,7 @@ export default function CellReport() {
     Promise.all(
       visibleDirectorRows.map(async (c) => {
         const expectedDate = reportDateByCellId[c.id]
-        const reportForWeek = await getCellReportByCellAndDate(c.id, expectedDate)
+        const reportForWeek = await getCellReportByCellAndDate(c.id, expectedDate, c.cellId !== c.id ? c.cellId : null)
         if (!reportForWeek) {
           return [
             c.id,

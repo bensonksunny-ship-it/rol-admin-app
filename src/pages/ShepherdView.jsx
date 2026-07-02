@@ -493,6 +493,8 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     setSundayHistory([])
     setSundayNamesHistory([])
     setNotifiedPCS(new Set())
+    const _cg = cellGroups.find((g) => g.id === selectedCellId)
+    const altCellId = _cg?.cellId !== selectedCellId ? _cg?.cellId : null
     // Each call is caught independently — e.g. a cell leader whose profile isn't
     // explicitly linked (resolved to this cell only via the name/leader-match
     // fallback below) can be denied read access to cell_reports/sunday attendance
@@ -501,7 +503,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     // member list, showing "no members" even though the roster loaded fine.
     Promise.all([
       getCellGroupMembers(selectedCellId).catch(() => []),
-      getRecentCellReportsForHeatmap(selectedCellId, 2).catch(() => []),
+      getRecentCellReportsForHeatmap(selectedCellId, 2, altCellId).catch(() => []),
       getRecentSundayAttendanceForCell(selectedCellId, 5).catch(() => []),
       getRecentSundayAttendanceNamesByCell(selectedCellId, 1).catch(() => []),
     ])
