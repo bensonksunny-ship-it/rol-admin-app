@@ -509,7 +509,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
         if (cancelled) return
         const todayStr = new Date().toISOString().slice(0, 10)
         setMembers(m)
-        setHeatmap(h.filter(r => r.reportDate && r.reportDate < todayStr))
+        setHeatmap(h.filter(r => r.reportDate && r.reportDate <= todayStr))
         setSundayHistory(s)
         setSundayNamesHistory(sn)
       })

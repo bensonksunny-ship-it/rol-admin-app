@@ -221,11 +221,27 @@ service cloud.firestore {
          get(/databases/$(database)/documents/cell_groups/$(docId)).data.get('cellId', '') == linked)
       );
     }
+    // True when the user's `positions` array has an explicit Cell-department Director
+    // entry (new `role: 'DIRECTOR'` schema or legacy `position: 'Director'` schema).
+    function hasCellDirectorPosition() {
+      return isSignedIn() && getUserData().get('positions', []).hasAny([
+        {'department': 'Cell', 'role': 'DIRECTOR'},
+        {'department': 'Cell', 'position': 'Director'}
+      ]);
+    }
     function isCellDirector() {
-      // Accept 'Cell' in either the singular `department` field or the `departments` array,
-      // so multi-department directors (whose primary dept isn't Cell) are not blocked.
-      return isSignedIn() && getUserRole() == 'Director' &&
-        (userDepartment() == 'Cell' || 'Cell' in userDepartments());
+      // Prefer the explicit positions-array check above. Only fall back to the
+      // top-level role/department fields for legacy profiles with no positions
+      // array at all — otherwise a Director of an unrelated department (e.g. a
+      // Cell Leader who is also River Kids Director) whose primary `department`
+      // field happens to be 'Cell' would incorrectly gain full Cell Director
+      // access to every cell's reports and members.
+      return isSignedIn() && (
+        hasCellDirectorPosition() ||
+        (getUserData().get('positions', []).size() == 0 &&
+          getUserRole() == 'Director' &&
+          (userDepartment() == 'Cell' || 'Cell' in userDepartments()))
+      );
     }
     match /cell_reports/{reportId} {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(resource.data.cellId)));
@@ -273,10 +289,10 @@ service cloud.firestore {
       allow delete: if isSignedIn() && isFullAccess();
     }
 
-    // Visitor proposals: Cell Leader proposes → D-Light Director reviews
+    // Visitor proposals: Cell/Caring propose → D-Light Director reviews
     match /cell_visitor_proposals/{docId} {
-      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
-      allow read:   if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Cell'));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Caring'));
+      allow read:   if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Cell') || canAccessDept('Caring'));
       allow update: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
       allow delete: if isSignedIn() && isFullAccess();
     }

@@ -91,9 +91,12 @@ export default function CellHistory({ embedded = false }) {
     if (!userProfile) return false
     if (userProfile.globalRole === 'FOUNDER' || userProfile.role === 'FOUNDER') return true
     if (isCellDirectorInPositions(userProfile)) return true
-    // Fallback: top-level fields match Firestore rules' isCellDirector() check.
-    // Handles legacy users without a positions array and multi-dept directors
-    // whose primary `department` field isn't 'Cell'.
+    // Fallback: top-level role/department fields, matching Firestore rules' isCellDirector().
+    // Only used for legacy profiles with no positions array at all — otherwise a Director
+    // of an unrelated department (e.g. a Cell Leader who is also River Kids Director) whose
+    // primary `department` field happens to be 'Cell' would incorrectly see every cell's
+    // reports instead of just their own.
+    if (Array.isArray(userProfile.positions) && userProfile.positions.length > 0) return false
     const depts = Array.isArray(userProfile.departments) ? userProfile.departments : []
     return (
       userProfile.role === 'Director' &&
@@ -261,7 +264,7 @@ export default function CellHistory({ embedded = false }) {
   }, [])
 
   const renderGrid = (rows) => (
-    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 gap-1.5 items-start">
+    <div className="flex flex-wrap gap-1.5 items-start">
       {rows.map((row) => {
         const expanded = expandedId === row.id
         return (
@@ -277,7 +280,7 @@ export default function CellHistory({ embedded = false }) {
               onDelete={() => handleDelete(row)}
             />
             {expanded && (
-              <div className="col-span-full bg-white rounded-2xl border border-indigo-200 shadow-sm shadow-indigo-50 overflow-hidden -mt-1">
+              <div className="w-full basis-full bg-white rounded-2xl border border-indigo-200 shadow-sm shadow-indigo-50 overflow-hidden">
                 <HistoryDetail row={row} />
               </div>
             )}
@@ -440,7 +443,7 @@ function HistoryCard({ row, weekColor, expanded, onToggle, canEdit = false, isDi
       onClick={onToggle}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
       title={`${row.cellName || '—'} · ${duration}`}
-      className={`group relative aspect-square w-full flex flex-col items-center justify-center text-center gap-0.5 px-1 py-1 rounded-lg border shadow-sm cursor-pointer transition-all ${
+      className={`group relative w-[1in] h-[1in] flex-shrink-0 flex flex-col items-center justify-center text-center gap-0.5 px-1 py-1 rounded-lg border shadow-sm cursor-pointer transition-all ${
         expanded ? 'border-indigo-300 shadow-indigo-100 bg-indigo-50/40' : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md'
       }`}
     >

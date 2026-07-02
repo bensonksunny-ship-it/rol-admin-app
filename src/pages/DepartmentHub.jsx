@@ -413,6 +413,8 @@ export default function DepartmentHub() {
   const [pcsAddOpen, setPcsAddOpen] = useState(false)
   const [pcsAddAdding, setPcsAddAdding] = useState(new Set())
   const [pcsAddDismissing, setPcsAddDismissing] = useState(new Set())
+  const [pcsAddForwarding, setPcsAddForwarding] = useState(new Set())
+  const [pcsAddForwarded, setPcsAddForwarded] = useState(new Set())
 
   const [cellVisitorProposals, setCellVisitorProposals] = useState([])
   const [cellVisitorProposalOpen, setCellVisitorProposalOpen] = useState(false)
@@ -5448,22 +5450,36 @@ export default function DepartmentHub() {
                                     >
                                       {adding ? 'Adding…' : 'Add to PCS'}
                                     </button>
+                                  ) : pcsAddForwarded.has(notif.id) ? (
+                                    <span className="text-xs text-emerald-600 font-medium px-1">✓ Forwarded to D-Light</span>
                                   ) : (
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        setEditingDelightVisitorId(null)
-                                        setDelightVisitorForm(f => ({
-                                          ...f, name, phone,
-                                          dob: '', email: '', nativity: '', currentPlace: '',
-                                          serviceAttended: '', attendedDate: '', howKnown: '', source: '',
-                                          year: new Date().getFullYear(),
-                                        }))
-                                        setDelightVisitorModalOpen(true)
+                                      disabled={pcsAddForwarding.has(notif.id) || dismissing}
+                                      onClick={async () => {
+                                        setPcsAddForwarding(prev => new Set([...prev, notif.id]))
+                                        try {
+                                          await createCellVisitorProposal({
+                                            visitorName: name,
+                                            phone,
+                                            cellId:      notif.cellId   || '',
+                                            cellName:    notif.cellName || '',
+                                            reportId:    '',
+                                            reportDate:  '',
+                                            sentBy:      userProfile?.email || '',
+                                            sentByName:  userProfile?.displayName || userProfile?.name || '',
+                                          })
+                                          setPcsAddForwarded(prev => new Set([...prev, notif.id]))
+                                        } catch (e) {
+                                          console.error('Forward to D-Light error', e)
+                                          alert('Failed to forward to D-Light. Please try again.')
+                                        } finally {
+                                          setPcsAddForwarding(prev => { const s = new Set(prev); s.delete(notif.id); return s })
+                                        }
                                       }}
-                                      className="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 transition-colors whitespace-nowrap"
+                                      className="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-colors whitespace-nowrap"
                                     >
-                                      + Visitor List
+                                      {pcsAddForwarding.has(notif.id) ? 'Forwarding…' : 'Forward to D-Light'}
                                     </button>
                                   )}
                                 </div>
