@@ -7,7 +7,6 @@ import {
   setCellBackToBibleShepherdFields,
   transferCellMember,
   getRecentCellReportsForHeatmap,
-  getLatestSundayAttendanceForCell,
   getRecentSundayAttendanceForCell,
   addCellGroupMember,
   updateCellGroupMember,
@@ -494,11 +493,17 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     setSundayHistory([])
     setSundayNamesHistory([])
     setNotifiedPCS(new Set())
+    // Each call is caught independently — e.g. a cell leader whose profile isn't
+    // explicitly linked (resolved to this cell only via the name/leader-match
+    // fallback below) can be denied read access to cell_reports/sunday attendance
+    // by security rules while still being allowed to read the members subcollection.
+    // A single Promise.all() would let that one denial wipe out an otherwise-valid
+    // member list, showing "no members" even though the roster loaded fine.
     Promise.all([
-      getCellGroupMembers(selectedCellId),
-      getRecentCellReportsForHeatmap(selectedCellId, 2),
-      getRecentSundayAttendanceForCell(selectedCellId, 5),
-      getRecentSundayAttendanceNamesByCell(selectedCellId, 1),
+      getCellGroupMembers(selectedCellId).catch(() => []),
+      getRecentCellReportsForHeatmap(selectedCellId, 2).catch(() => []),
+      getRecentSundayAttendanceForCell(selectedCellId, 5).catch(() => []),
+      getRecentSundayAttendanceNamesByCell(selectedCellId, 1).catch(() => []),
     ])
       .then(([m, h, s, sn]) => {
         if (cancelled) return
@@ -507,9 +512,6 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
         setHeatmap(h.filter(r => r.reportDate && r.reportDate < todayStr))
         setSundayHistory(s)
         setSundayNamesHistory(sn)
-      })
-      .catch(() => {
-        if (!cancelled) { setMembers([]); setHeatmap([]); setSundayHistory([]); setSundayNamesHistory([]) }
       })
       .finally(() => { if (!cancelled) setLoadingMembers(false) })
     return () => { cancelled = true }
@@ -537,7 +539,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   // Fall back to the resolved selectedCellId for leaders matched by name whose
   // profile doesn't yet have cellGroupId/cellId set.
   useEffect(() => {
-    const cellId = userProfile?.cellGroupId || userProfile?.cellId || selectedCellId
+    const cellId = selectedCellId || userProfile?.cellGroupId || userProfile?.cellId
     if (!cellId) return
     const unsub = subscribePCSFillInvitationsByCellId(cellId, (invs) => {
       setPendingFillInvCount(invs.filter(i => i.status === 'pending').length)
@@ -698,7 +700,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
           ) : (
             <select
               value={selectedCellId || ''}
-              onChange={(e) => { setSelectedCellId(e.target.value); setGlowFilter('all') }}
+              onChange={(e) => { setSelectedCellId(e.target.value); setGlowFilter('all'); setSearch('') }}
               className="px-3 py-1.5 rounded-xl border border-slate-300 text-sm flex-1"
             >
               <option value="">— choose a cell —</option>
@@ -789,7 +791,13 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
             {filteredMembers.map((member) => {
               const glow       = getGlow(member.name, heatmap)
               const phone10    = normalisePhone(member.phone)
-              const isSunday   = sundayAtt.presentIds.includes(member.id)
+              // Primary: doc-ID match from sunday_service_attendance (SundayMinistry.jsx writes this).
+              // Fallback: name match from sunday_reports.sundayCellAttendance when the older
+              // SundayReport.jsx form was used and never wrote to sunday_service_attendance.
+              const memberNameLow = String(member.name || '').trim().toLowerCase()
+              const isSunday = sundayHistory.length > 0
+                ? sundayAtt.presentIds.includes(member.id)
+                : !!(sundayNamesHistory[0]?.presentNames?.includes(memberNameLow))
               const bday       = member.birthday
               const anniv      = member.anniversary
               const bdaySoon   = isUpcomingSoon(bday)

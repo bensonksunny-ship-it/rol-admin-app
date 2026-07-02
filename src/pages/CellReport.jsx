@@ -27,6 +27,8 @@ import {
   getLatestCellReports,
   updateUser,
   getCellMemberPendingChanges,
+  createCellVisitorProposal,
+  getCellVisitorProposalsByReport,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole } from '../utils/access'
@@ -184,6 +186,10 @@ export default function CellReport() {
   const [latestReportLogs, setLatestReportLogs] = useState({})
   const [visitorInput, setVisitorInput] = useState('')
   const [childInput, setChildInput] = useState('')
+  const [proposedVisitorNames, setProposedVisitorNames] = useState(new Set())
+  const [proposalModal, setProposalModal] = useState(null)
+  const [proposalPhone, setProposalPhone] = useState('')
+  const [proposalSubmitting, setProposalSubmitting] = useState(false)
   const [leaderAddMemberOpen, setLeaderAddMemberOpen] = useState(false)
   const [leaderAddMemberForm, setLeaderAddMemberForm] = useState({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
   const [editCellSearch, setEditCellSearch] = useState('')
@@ -319,6 +325,15 @@ export default function CellReport() {
     setVisitorInput('')
     setChildInput('')
   }, [effectiveCellId, reportDate])
+
+  // Pre-populate proposed visitor names from Firestore so the "Registered" badge
+  // survives page refreshes.
+  useEffect(() => {
+    if (!report?.id) { setProposedVisitorNames(new Set()); return }
+    getCellVisitorProposalsByReport(report.id)
+      .then((proposals) => setProposedVisitorNames(new Set(proposals.map((p) => p.visitorName))))
+      .catch(() => {})
+  }, [report?.id])
 
   useEffect(() => {
     if (!effectiveCellId) {
@@ -1015,15 +1030,29 @@ export default function CellReport() {
                                               {(report.visitorsList || []).map((name, i) => (
                                                 <li key={`${name}-${i}`} className="flex items-center justify-between gap-2">
                                                   <span className="text-slate-700">{name}</span>
-                                                  {canEditSelectedCellReport && (
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => handleRemoveVisitor(i)}
-                                                      className="text-red-600 text-xs hover:underline"
-                                                    >
-                                                      Remove
-                                                    </button>
-                                                  )}
+                                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                                    {proposedVisitorNames.has(name) ? (
+                                                      <span className="text-xs text-emerald-600 font-medium">✓ Registered</span>
+                                                    ) : (
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => { setProposalModal({ name, reportId: report.id, reportDate }); setProposalPhone('') }}
+                                                        className="text-indigo-600 text-xs hover:underline"
+                                                        title="Register in D-Light"
+                                                      >
+                                                        Register
+                                                      </button>
+                                                    )}
+                                                    {canEditSelectedCellReport && (
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveVisitor(i)}
+                                                        className="text-red-600 text-xs hover:underline"
+                                                      >
+                                                        Remove
+                                                      </button>
+                                                    )}
+                                                  </div>
                                                 </li>
                                               ))}
                                               {(report.visitorsList || []).length === 0 && <li className="text-slate-500">No visitors</li>}
@@ -1466,11 +1495,25 @@ export default function CellReport() {
                                             (report.visitorsList || []).map((name, i) => (
                                               <li key={`${name}-${i}`} className="flex items-center justify-between gap-2">
                                                 <span className="text-slate-700">{name}</span>
-                                                {canEditCurrentReport ? (
-                                                  <button type="button" onClick={() => handleRemoveVisitor(i)} className="text-red-600 text-xs hover:underline">
-                                                    Remove
-                                                  </button>
-                                                ) : null}
+                                                <div className="flex items-center gap-1 flex-shrink-0">
+                                                  {proposedVisitorNames.has(name) ? (
+                                                    <span className="text-xs text-emerald-600 font-medium">✓ Registered</span>
+                                                  ) : (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => { setProposalModal({ name, reportId: report.id, reportDate }); setProposalPhone('') }}
+                                                      className="text-indigo-600 text-xs hover:underline"
+                                                      title="Register in D-Light"
+                                                    >
+                                                      Register
+                                                    </button>
+                                                  )}
+                                                  {canEditCurrentReport && (
+                                                    <button type="button" onClick={() => handleRemoveVisitor(i)} className="text-red-600 text-xs hover:underline">
+                                                      Remove
+                                                    </button>
+                                                  )}
+                                                </div>
                                               </li>
                                             ))
                                           )}

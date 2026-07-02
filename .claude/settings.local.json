@@ -53,7 +53,11 @@
       "Bash(npx eslint *)",
       "Bash(grep -E \"^C:.*\\\\.\\(jsx|js\\)$|error|warning\")",
       "Bash(python3 *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(npx firebase *)",
+      "Bash(gcloud auth *)",
+      "Bash(node *)",
+      "Skill(dataviz)"
     ]
   }
 }

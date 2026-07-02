@@ -2124,6 +2124,30 @@ export async function createCellReport(data, createdBy) {
   return ref.id
 }
 
+/**
+ * Patches counts on the weekly `cell_report_history` archive doc, if one already
+ * exists for that cell/week — keeps Cell Reports history from going stale when a
+ * report is edited (e.g. via the Live Entry page) after the Sunday-night archive job.
+ */
+async function syncCellReportHistoryCounts(cellId, meetingDateISO, { membersAttended, visitors, children }) {
+  if (!db || !cellId || !meetingDateISO) return
+  try {
+    const weekStart = toMondayISO(meetingDateISO)
+    const historyRef = doc(db, CELL_REPORT_HISTORY_COLLECTION, `${weekStart}_${cellId}`)
+    const historySnap = await getDoc(historyRef)
+    if (historySnap.exists()) {
+      await updateDoc(historyRef, {
+        membersAttended,
+        visitors,
+        children,
+        totalAttendance: membersAttended + visitors + children,
+      })
+    }
+  } catch (err) {
+    console.warn('syncCellReportHistoryCounts: could not patch cell_report_history', err)
+  }
+}
+
 export async function updateCellReport(reportId, data) {
   if (!db || !reportId) return
   const payload = {
@@ -2137,6 +2161,19 @@ export async function updateCellReport(reportId, data) {
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), clean)
+
+  const countsChanged = clean.membersAttended !== undefined || clean.visitors !== undefined || clean.children !== undefined
+  if (countsChanged) {
+    const reportSnap = await getDoc(doc(db, CELL_REPORTS_COLLECTION, reportId))
+    const reportData = reportSnap.exists() ? reportSnap.data() : null
+    if (reportData?.cellId && reportData?.reportDate) {
+      await syncCellReportHistoryCounts(reportData.cellId, reportData.reportDate, {
+        membersAttended: clean.membersAttended ?? (Number(reportData.membersAttended) || 0),
+        visitors: clean.visitors ?? (Number(reportData.visitors) || 0),
+        children: clean.children ?? (Number(reportData.children) || 0),
+      })
+    }
+  }
 }
 
 export async function getCellReportAttendees(reportId) {
@@ -4323,4 +4360,46 @@ export async function completePCSAddNotification(id) {
 export async function dismissPCSAddNotification(id) {
   if (!db || !id) return
   await updateDoc(doc(db, PCS_ADD_NOTIFICATIONS, id), { status: 'dismissed' })
+}
+
+// ─── Cell Visitor Proposals (Cell → D-Light) ──────────────────────────────────
+const CELL_VISITOR_PROPOSALS = 'cell_visitor_proposals'
+
+export async function createCellVisitorProposal({ visitorName, phone, cellId, cellName, reportId, reportDate, sentBy, sentByName }) {
+  if (!db) return
+  return addDoc(collection(db, CELL_VISITOR_PROPOSALS), {
+    visitorName:  visitorName  || '',
+    phone:        phone        || '',
+    cellId:       cellId       || '',
+    cellName:     cellName     || '',
+    reportId:     reportId     || '',
+    reportDate:   reportDate   || '',
+    sentBy:       sentBy       || '',
+    sentByName:   sentByName   || '',
+    status:       'pending',
+    createdAt:    Timestamp.now(),
+  })
+}
+
+export function subscribeCellVisitorProposals(onChange) {
+  if (!db) return () => {}
+  const q = query(collection(db, CELL_VISITOR_PROPOSALS), where('status', '==', 'pending'))
+  return onSnapshot(q, snap => onChange(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => {})
+}
+
+export async function completeCellVisitorProposal(id) {
+  if (!db || !id) return
+  await updateDoc(doc(db, CELL_VISITOR_PROPOSALS, id), { status: 'completed', completedAt: Timestamp.now() })
+}
+
+export async function dismissCellVisitorProposal(id) {
+  if (!db || !id) return
+  await updateDoc(doc(db, CELL_VISITOR_PROPOSALS, id), { status: 'dismissed' })
+}
+
+export async function getCellVisitorProposalsByReport(reportId) {
+  if (!db || !reportId) return []
+  const q = query(collection(db, CELL_VISITOR_PROPOSALS), where('reportId', '==', reportId))
+  const snap = await getDocs(q)
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }

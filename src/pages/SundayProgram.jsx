@@ -136,10 +136,11 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
         setParallelPrograms(defaultDoc.parallelPrograms || {})
         const seed = DEFAULT_SEED.map((s) => s.programName)
         const custom = designDoc?.customPrograms || []
-        const designs = designDoc?.designs || {}
         const all = [...seed]
         custom.forEach((p) => { if (!all.includes(p)) all.push(p) })
-        setDesignedPrograms(all.filter((p) => (designs[p] || []).length > 0))
+        // Any program from Design Program (seed or newly added) is selectable here,
+        // whether or not it has design elements assigned yet.
+        setDesignedPrograms(all)
       })
       .catch(() => {
         setItems(DEFAULT_SEED.map((x, i) => ({ ...x, duration: 0, localId: `seed-${i}` })))

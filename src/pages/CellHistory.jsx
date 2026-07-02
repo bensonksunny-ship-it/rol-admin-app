@@ -22,6 +22,41 @@ const CELL_DEPARTMENT = 'Cell'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// Fixed CVD-safe hue order — reused (not reordered) as the week color cycles
+const WEEK_COLOR_ORDER = ['blue', 'teal', 'amber', 'green', 'violet', 'red', 'pink', 'orange']
+
+const WEEK_COLOR_CLASSES = {
+  blue:   { bar: 'bg-blue-400',   badge: 'bg-blue-50 text-blue-700 border-blue-200' },
+  teal:   { bar: 'bg-teal-400',   badge: 'bg-teal-50 text-teal-700 border-teal-200' },
+  amber:  { bar: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700 border-amber-200' },
+  green:  { bar: 'bg-green-400',  badge: 'bg-green-50 text-green-700 border-green-200' },
+  violet: { bar: 'bg-violet-400', badge: 'bg-violet-50 text-violet-700 border-violet-200' },
+  red:    { bar: 'bg-red-400',    badge: 'bg-red-50 text-red-700 border-red-200' },
+  pink:   { bar: 'bg-pink-400',   badge: 'bg-pink-50 text-pink-700 border-pink-200' },
+  orange: { bar: 'bg-orange-400', badge: 'bg-orange-50 text-orange-700 border-orange-200' },
+}
+
+/** Sunday-anchored start-of-week key (YYYY-MM-DD) for a meeting date */
+function weekStartKey(dateISO) {
+  if (!dateISO) return null
+  const d = new Date(String(dateISO).slice(0, 10) + 'T00:00:00')
+  if (Number.isNaN(d.getTime())) return null
+  d.setDate(d.getDate() - d.getDay())
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+/** Assigns each unique week (oldest → newest) the next color in the fixed cycle */
+function buildWeekColorMap(rows) {
+  const weekKeys = [...new Set(rows.map((r) => weekStartKey(r.meetingDateISO)).filter(Boolean))].sort()
+  const map = {}
+  weekKeys.forEach((key, i) => {
+    map[key] = WEEK_COLOR_ORDER[i % WEEK_COLOR_ORDER.length]
+  })
+  return map
+}
 
 function formatDuration(minutes) {
   if (minutes == null || Number.isNaN(Number(minutes))) return '—'
@@ -203,9 +238,45 @@ export default function CellHistory({ embedded = false }) {
     [history]
   )
 
+  // Color each report by its meeting week, so same-week reports (across cells) share a color
+  const weekColorMap = useMemo(() => buildWeekColorMap(sorted), [sorted])
+
+  // Split out this week's reports (Sunday–Saturday) so they can be shown as their own group
+  const currentWeekKey = useMemo(() => {
+    const now = new Date()
+    const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    return weekStartKey(todayISO)
+  }, [])
+  const thisWeekRows = useMemo(
+    () => sorted.filter((row) => weekStartKey(row.meetingDateISO) === currentWeekKey),
+    [sorted, currentWeekKey]
+  )
+  const earlierRows = useMemo(
+    () => sorted.filter((row) => weekStartKey(row.meetingDateISO) !== currentWeekKey),
+    [sorted, currentWeekKey]
+  )
+
   const toggleExpand = useCallback((id) => {
     setExpandedId((prev) => (prev === id ? null : id))
   }, [])
+
+  const renderGrid = (rows) => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 items-start">
+      {rows.map((row) => (
+        <HistoryCard
+          key={row.id}
+          row={row}
+          weekColor={weekColorMap[weekStartKey(row.meetingDateISO)]}
+          expanded={expandedId === row.id}
+          onToggle={() => toggleExpand(row.id)}
+          canEdit={canEditRow(row)}
+          isDirector={isDirector}
+          onEdit={() => { setIsNewEntry(false); setEditRow(row) }}
+          onDelete={() => handleDelete(row)}
+        />
+      ))}
+    </div>
+  )
 
   if (embedded) {
     return (
@@ -234,19 +305,21 @@ export default function CellHistory({ embedded = false }) {
             <p className="text-slate-400 text-sm mt-1">Past meetings will appear here after they are submitted.</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {sorted.map((row) => (
-              <HistoryCard
-                key={row.id}
-                row={row}
-                expanded={expandedId === row.id}
-                onToggle={() => toggleExpand(row.id)}
-                canEdit={canEditRow(row)}
-                isDirector={isDirector}
-                onEdit={() => { setIsNewEntry(false); setEditRow(row) }}
-                onDelete={() => handleDelete(row)}
-              />
-            ))}
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">This Week's Reports (Sun–Sat)</p>
+              {thisWeekRows.length === 0 ? (
+                <p className="text-sm text-slate-400">No reports submitted yet this week.</p>
+              ) : (
+                renderGrid(thisWeekRows)
+              )}
+            </div>
+            {earlierRows.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Earlier Reports</p>
+                {renderGrid(earlierRows)}
+              </div>
+            )}
           </div>
         )}
         <AnimatePresence>
@@ -270,7 +343,7 @@ export default function CellHistory({ embedded = false }) {
     <div className="min-h-screen bg-slate-50">
       <DepartmentTabBar slug="cell" activeTab="cellHistory" />
 
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -308,19 +381,21 @@ export default function CellHistory({ embedded = false }) {
             <p className="text-slate-400 text-sm mt-1">Past meetings will appear here after they are submitted.</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {sorted.map((row) => (
-              <HistoryCard
-                key={row.id}
-                row={row}
-                expanded={expandedId === row.id}
-                onToggle={() => toggleExpand(row.id)}
-                canEdit={canEditRow(row)}
-                isDirector={isDirector}
-                onEdit={() => { setIsNewEntry(false); setEditRow(row) }}
-                onDelete={() => handleDelete(row)}
-              />
-            ))}
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">This Week's Reports (Sun–Sat)</p>
+              {thisWeekRows.length === 0 ? (
+                <p className="text-sm text-slate-400">No reports submitted yet this week.</p>
+              ) : (
+                renderGrid(thisWeekRows)
+              )}
+            </div>
+            {earlierRows.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Earlier Reports</p>
+                {renderGrid(earlierRows)}
+              </div>
+            )}
           </div>
         )}
         <AnimatePresence>
@@ -343,74 +418,80 @@ export default function CellHistory({ embedded = false }) {
 
 // ── History Card ──────────────────────────────────────────────────────────────
 
-function HistoryCard({ row, expanded, onToggle, canEdit = false, isDirector = false, onEdit, onDelete }) {
-  const total    = Number(row.totalAttendance) || 0
-  const members  = Number(row.membersAttended) || 0
-  const duration = formatDuration(row.meetingDurationMinutes)
+function HistoryCard({ row, weekColor, expanded, onToggle, canEdit = false, isDirector = false, onEdit, onDelete }) {
+  const total     = Number(row.totalAttendance) || 0
+  const members   = Number(row.membersAttended) || 0
+  const duration  = formatDuration(row.meetingDurationMinutes)
+  const colorCls  = WEEK_COLOR_CLASSES[weekColor]
 
   return (
-    <div className={`bg-white rounded-3xl border shadow-sm overflow-hidden transition-all ${
+    <div className={`flex bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${
       expanded ? 'border-indigo-200 shadow-indigo-50' : 'border-slate-200'
     }`}>
-      {/* Card header row */}
-      <div className="flex items-center gap-2 pr-3">
-        {/* Expand toggle */}
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex-1 text-left px-6 py-5 flex items-center justify-between gap-4 hover:bg-slate-50 transition-colors min-w-0"
-        >
-          <div className="space-y-1 flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-slate-900 text-base">{row.cellName || '—'}</span>
-              {row.meetingDateISO && (
-                <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                  {formatDisplayDate(row.meetingDateISO)}
+      {/* Week color accent bar */}
+      <div className={`w-1 flex-shrink-0 ${colorCls?.bar || 'bg-slate-200'}`} title="Colored by meeting week" />
+
+      <div className="flex-1 min-w-0">
+        {/* Card header row */}
+        <div className="flex items-center gap-1 pr-1.5">
+          {/* Expand toggle */}
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex-1 text-left pl-3 pr-1.5 py-2.5 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors min-w-0"
+          >
+            <div className="space-y-0.5 flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-bold text-slate-900 text-sm truncate">{row.cellName || '—'}</span>
+                {row.meetingDateISO && (
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${colorCls?.badge || 'bg-slate-100 text-slate-500 border-transparent'}`}>
+                    {formatDisplayDate(row.meetingDateISO)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs text-slate-500">
+                  <span className="font-semibold text-slate-700">{members}</span> mem
                 </span>
-              )}
+                <span className="text-slate-300">·</span>
+                <span className="text-xs text-slate-500">
+                  <span className="font-semibold text-slate-700">{total}</span> tot
+                </span>
+                <span className="text-slate-300">·</span>
+                <span className="text-xs text-slate-500">{duration}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm text-slate-500">
-                <span className="font-semibold text-slate-700">{members}</span> members
-              </span>
-              <span className="text-slate-300">·</span>
-              <span className="text-sm text-slate-500">
-                <span className="font-semibold text-slate-700">{total}</span> total
-              </span>
-              <span className="text-slate-300">·</span>
-              <span className="text-sm text-slate-500">{duration}</span>
+            <div className={`text-slate-400 transition-transform duration-200 flex-shrink-0 text-sm ${expanded ? 'rotate-90' : ''}`}>
+              ›
             </div>
-          </div>
-          <div className={`text-slate-400 transition-transform duration-200 flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}>
-            ›
-          </div>
-        </button>
+          </button>
 
-        {/* Action buttons */}
-        {canEdit && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onEdit() }}
-            className="p-2 rounded-xl text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex-shrink-0"
-            title="Edit report"
-          >
-            ✏️
-          </button>
-        )}
-        {isDirector && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            className="p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
-            title="Delete report"
-          >
-            🗑️
-          </button>
-        )}
+          {/* Action buttons */}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onEdit() }}
+              className="p-1 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex-shrink-0 text-sm"
+              title="Edit report"
+            >
+              ✏️
+            </button>
+          )}
+          {isDirector && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              className="p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all flex-shrink-0 text-sm"
+              title="Delete report"
+            >
+              🗑️
+            </button>
+          )}
+        </div>
+
+        {/* Expanded detail panel */}
+        {expanded && <HistoryDetail row={row} />}
       </div>
-
-      {/* Expanded detail panel */}
-      {expanded && <HistoryDetail row={row} />}
     </div>
   )
 }
