@@ -9,7 +9,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts'
 import { format, startOfWeek, subWeeks } from 'date-fns'
@@ -19,8 +18,7 @@ import { getDepartmentRole, isFounder as isFounderUser } from '../utils/access'
 import { computeMeetingDateISO, totalAttendanceFromCellReport } from '../utils/cellWeek'
 
 const CELL_DEPARTMENT = 'Cell'
-const MAX_TREND_CELLS = 6
-const TREND_COLORS = ['#6366f1', '#059669', '#d97706', '#7c3aed', '#db2777', '#0d9488']
+const TREND_LINE_COLOR = '#6366f1'
 
 function directorDepartments(userProfile) {
   const out = []
@@ -96,8 +94,8 @@ export function AlertPanelCellReports({ missingCount, onOpenDetails }) {
 
 export function MissingCellReportsTable({ rows, loading, remindLeader, dismissedIds = new Set(), onDismiss, onUndismiss }) {
   const submitted = rows.filter((r) => r.submitted).length
-  const missing   = rows.filter((r) => !r.submitted && !dismissedIds.has(r.cellId)).length
-  const dismissed = rows.filter((r) => !r.submitted && dismissedIds.has(r.cellId)).length
+  const missing   = rows.filter((r) => r.isDue && !dismissedIds.has(r.cellId)).length
+  const dismissed = rows.filter((r) => r.isDue && dismissedIds.has(r.cellId)).length
 
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -142,7 +140,7 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, dismissed
             </thead>
             <tbody className="divide-y divide-slate-50">
               {rows.map((row) => {
-                const isDismissed = !row.submitted && dismissedIds.has(row.cellId)
+                const isDismissed = row.isDue && dismissedIds.has(row.cellId)
                 return (
                   <tr key={row.cellId} className="hover:bg-slate-50 transition-colors">
                     <td className="px-5 py-3 font-medium text-slate-800">{row.cellName}</td>
@@ -157,15 +155,23 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, dismissed
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" /> Dismissed
                         </span>
-                      ) : (
+                      ) : row.isDue ? (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" /> Missing
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" /> Due
+                        </span>
+                      ) : row.isMeetingToday ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" /> Meeting Today
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-full">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300 inline-block" /> Upcoming
                         </span>
                       )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2 justify-end">
-                        {!row.submitted && !isDismissed && (
+                        {row.isDue && !isDismissed && (
                           <>
                             <button
                               type="button"
@@ -205,8 +211,8 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, dismissed
   )
 }
 
-export function CellWeeklyTrendsChart({ chartData, cellSeries }) {
-  if (!chartData?.length || !cellSeries?.length) {
+export function CellWeeklyTrendsChart({ chartData }) {
+  if (!chartData?.length) {
     return (
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
         <p className="text-sm font-bold text-slate-800">Weekly Attendance Trends</p>
@@ -218,7 +224,7 @@ export function CellWeeklyTrendsChart({ chartData, cellSeries }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
       <p className="text-sm font-bold text-slate-800">Weekly Attendance Trends</p>
-      <p className="text-xs text-slate-400 mt-0.5 mb-5">Total attendance per report · last 6 weeks · up to {MAX_TREND_CELLS} cells</p>
+      <p className="text-xs text-slate-400 mt-0.5 mb-5">Total attendance across all cells · last 6 weeks</p>
       <ResponsiveContainer width="100%" height={260}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -227,19 +233,15 @@ export function CellWeeklyTrendsChart({ chartData, cellSeries }) {
           <Tooltip
             contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
           />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
-          {cellSeries.map((c, i) => (
-            <Line
-              key={c.id}
-              type="monotone"
-              dataKey={c.id}
-              name={c.shortName}
-              stroke={TREND_COLORS[i % TREND_COLORS.length]}
-              strokeWidth={2.5}
-              dot={{ r: 3, fill: TREND_COLORS[i % TREND_COLORS.length] }}
-              activeDot={{ r: 5 }}
-            />
-          ))}
+          <Line
+            type="monotone"
+            dataKey="total"
+            name="Total Attendance"
+            stroke={TREND_LINE_COLOR}
+            strokeWidth={2.5}
+            dot={{ r: 3, fill: TREND_LINE_COLOR }}
+            activeDot={{ r: 5 }}
+          />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -286,15 +288,23 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   const reportLookup = useMemo(() => buildReportLookup(latestReports), [latestReports])
 
   const rows = useMemo(() => {
+    const todayISO = format(new Date(), 'yyyy-MM-dd')
     return visibleGroups.map((cell) => {
       const expectedDate = computeMeetingDateISO(cell.meetingDay, weekStartDate)
+      // Try Firestore doc ID first; fall back to logical cellId for legacy reports.
       const hit = reportLookup.get(`${cell.id}|${expectedDate}`)
+        || (cell.cellId !== cell.id ? reportLookup.get(`${cell.cellId}|${expectedDate}`) : null)
+      const submitted = Boolean(hit)
+      const isDue = !submitted && !!expectedDate && expectedDate < todayISO
+      const isMeetingToday = !submitted && !!expectedDate && expectedDate === todayISO
       return {
         cellId: cell.id,
         cellName: cell.cellName || 'Unnamed',
         leaderName: cell.leader || '',
         expectedDate,
-        submitted: Boolean(hit),
+        submitted,
+        isDue,
+        isMeetingToday,
       }
     })
   }, [visibleGroups, reportLookup, weekStartDate])
@@ -318,34 +328,24 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   }, [storageKey])
 
   const missingCount = useMemo(
-    () => rows.filter((r) => !r.submitted && !dismissedIds.has(r.cellId)).length,
+    () => rows.filter((r) => r.isDue && !dismissedIds.has(r.cellId)).length,
     [rows, dismissedIds]
   )
 
-  const trendCells = useMemo(() => visibleGroups.slice(0, MAX_TREND_CELLS), [visibleGroups])
-
+  // Sum attendance across every visible cell (not just a capped subset) so the
+  // trend reflects the whole department's total, per the director's request.
   const chartData = useMemo(() => {
     const cur = startOfWeek(new Date(), { weekStartsOn: 1 })
     const weeks = [5, 4, 3, 2, 1, 0].map((i) => subWeeks(cur, i))
     return weeks.map((ws) => {
-      const row = { weekLabel: format(ws, 'MMM d'), weekStart: format(ws, 'yyyy-MM-dd') }
-      for (const cell of trendCells) {
+      const total = visibleGroups.reduce((sum, cell) => {
         const expected = computeMeetingDateISO(cell.meetingDay, ws)
         const r = reportLookup.get(`${cell.id}|${expected}`)
-        row[cell.id] = totalAttendanceFromCellReport(r)
-      }
-      return row
+        return sum + totalAttendanceFromCellReport(r)
+      }, 0)
+      return { weekLabel: format(ws, 'MMM d'), weekStart: format(ws, 'yyyy-MM-dd'), total }
     })
-  }, [reportLookup, trendCells])
-
-  const cellSeries = useMemo(
-    () =>
-      trendCells.map((c) => ({
-        id: c.id,
-        shortName: (c.cellName || 'Cell').length > 14 ? `${(c.cellName || '').slice(0, 12)}…` : c.cellName || 'Cell',
-      })),
-    [trendCells]
-  )
+  }, [reportLookup, visibleGroups])
 
   const remindLeader = useCallback((row) => {
     const name = row?.cellName || 'this cell'
@@ -382,7 +382,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
           onUndismiss={undismissAlert}
         />
       </div>
-      <CellWeeklyTrendsChart chartData={chartData} cellSeries={cellSeries} />
+      <CellWeeklyTrendsChart chartData={chartData} />
     </div>
   )
 }

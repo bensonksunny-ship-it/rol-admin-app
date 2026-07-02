@@ -1,5 +1,6 @@
 import {
   collection,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
@@ -1724,6 +1725,7 @@ export async function getAllCellGroupMembers() {
     id: d.id,
     cellId: d.ref.parent.parent.id,
     name: d.data().name || '',
+    phone: d.data().phone || '',
     visitorId: d.data().visitorId || '',
     since: d.data().since || '',
     status: d.data().status === 'inactive' ? 'inactive' : 'active',

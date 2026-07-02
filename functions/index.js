@@ -39,6 +39,7 @@ exports.adminCreateUser = onCall(async (request) => {
     email,
     phone,
     membershipNumber, // used as password
+    personId,
     role,
     globalRole,
     department,
@@ -110,6 +111,7 @@ exports.adminCreateUser = onCall(async (request) => {
     email: cleanEmail,
     phone: phone || '',
     membershipNumber: cleanMembershipNumber,
+    personId: personId || '',
     role: finalRole,
     globalRole: globalRole === 'FOUNDER' ? 'FOUNDER' : null,
     department: finalDepartment,
@@ -176,6 +178,7 @@ exports.adminUpdateUser = onCall(async (request) => {
     email,
     phone,
     membershipNumber,
+    personId,
     role,
     department,
     departments,
@@ -229,6 +232,7 @@ exports.adminUpdateUser = onCall(async (request) => {
   if (cleanEmail !== undefined) firestorePayload.email = cleanEmail
   if (phone !== undefined) firestorePayload.phone = String(phone || '')
   if (cleanMembershipNumber !== undefined) firestorePayload.membershipNumber = cleanMembershipNumber
+  if (personId !== undefined) firestorePayload.personId = String(personId || '')
   if (role !== undefined) firestorePayload.role = String(role)
   if (department !== undefined) firestorePayload.department = department
   if (departments !== undefined) firestorePayload.departments = Array.isArray(departments) ? departments : []

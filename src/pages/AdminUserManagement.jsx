@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { DEPARTMENT_LIST } from '../constants/departments'
 import { ROLES, POSITION_OPTIONS, deriveRoleFromPositions, deriveDepartmentsFromPositions } from '../constants/roles'
-import { getAllUsers, getDelightVisitors, getCellGroups } from '../services/firestore'
+import { getAllUsers, getDelightVisitors, getCellGroups, getPeople } from '../services/firestore'
 import { auth, functions, httpsCallable } from '../lib/firebase'
 import { logAction } from '../utils/auditLog'
 
@@ -21,6 +21,7 @@ export default function AdminUserManagement() {
     email: '',
     phone: '',
     membershipNumber: '',
+    personId: '',
     positions: [emptyPosition()],
     cellGroup: '',
     cellId: '',
@@ -48,16 +49,16 @@ export default function AdminUserManagement() {
     getAllUsers()
       .then(setUsers)
       .finally(() => setLoading(false))
-    getDelightVisitors().then((visitors) => {
-      // Deduplicate: one entry per person (keyed by phone, else name)
+    // People's Directory is the primary source; D-Light visitors fill in anyone not yet in it.
+    Promise.all([getPeople().catch(() => []), getDelightVisitors().catch(() => [])]).then(([people, visitors]) => {
       const seen = new Set()
       const unique = []
-      for (const v of visitors) {
-        const key = v.phone ? `p:${v.phone}` : `n:${(v.name || '').toLowerCase()}`
-        if (v.name && !seen.has(key)) { seen.add(key); unique.push(v) }
+      for (const p of [...people, ...visitors]) {
+        const key = p.phone ? `p:${p.phone}` : `n:${(p.name || '').toLowerCase()}`
+        if (p.name && !seen.has(key)) { seen.add(key); unique.push(p) }
       }
       setMembersList(unique)
-    }).catch(() => {})
+    })
     getCellGroups('Cell').then(setCellGroupsList).catch(() => {})
   }, [canManageUsers])
 
@@ -83,6 +84,7 @@ export default function AdminUserManagement() {
       email: '',
       phone: '',
       membershipNumber: '',
+      personId: '',
       positions: [emptyPosition()],
       cellGroup: '',
       cellId: '',
@@ -107,6 +109,7 @@ export default function AdminUserManagement() {
       email: u.email || '',
       phone: u.phone || '',
       membershipNumber: u.membershipNumber || '',
+      personId: u.personId || '',
       positions: positions.slice(0, MAX_POSITIONS),
       cellGroup: u.cellGroup || '',
       cellId: u.cellId || '',
@@ -443,7 +446,8 @@ export default function AdminUserManagement() {
                     value={form.name}
                     onChange={(e) => {
                       const q = e.target.value
-                      setForm((f) => ({ ...f, name: q }))
+                      // Typing breaks any existing directory link — it no longer names a specific record.
+                      setForm((f) => ({ ...f, name: q, personId: '' }))
                       const hits = q.trim().length >= 1
                         ? membersList.filter((m) => m.name.toLowerCase().includes(q.toLowerCase())).slice(0, 7)
                         : []
@@ -453,7 +457,7 @@ export default function AdminUserManagement() {
                     onFocus={() => { if (nameSuggestions.length > 0) setShowNameSuggestions(true) }}
                     onBlur={() => setTimeout(() => setShowNameSuggestions(false), 150)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                    placeholder="Type to search members…"
+                    placeholder="Type to search the People's Directory…"
                     autoComplete="off"
                   />
                   {showNameSuggestions && (
@@ -462,12 +466,13 @@ export default function AdminUserManagement() {
                         <li
                           key={m.id}
                           onMouseDown={() => {
+                            // Link to this directory record — name + personId only.
+                            // Phone/email already entered here are left untouched on purpose.
                             setForm((f) => ({
                               ...f,
                               name: m.name,
-                              phone: m.phone || f.phone,
-                              email: m.email || f.email,
-                              membershipNumber: m.membershipNumber || f.membershipNumber,
+                              personId: m.id,
+                              membershipNumber: f.membershipNumber || m.membershipNumber || '',
                             }))
                             setShowNameSuggestions(false)
                             setNameSuggestions([])
@@ -481,6 +486,18 @@ export default function AdminUserManagement() {
                         </li>
                       ))}
                     </ul>
+                  )}
+                  {form.personId && (
+                    <p className="mt-1 text-xs text-indigo-600 flex items-center gap-1.5">
+                      Linked to People's Directory
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, personId: '' }))}
+                        className="text-slate-400 hover:text-red-500 underline"
+                      >
+                        Unlink
+                      </button>
+                    </p>
                   )}
                 </div>
                 <div>

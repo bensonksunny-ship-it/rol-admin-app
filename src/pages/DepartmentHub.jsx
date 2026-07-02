@@ -8595,7 +8595,10 @@ function LeaderPicker({ value, onChange }) {
     if (allPeople) return allPeople
     setLoading(true)
     try {
-      const [people, visitors] = await Promise.all([getPeople(), getDelightVisitors()])
+      // Cell leaders are almost always first recorded as a member of their own cell,
+      // not in the People's Directory or D-Light — search that roster too, or a leader
+      // who's only ever been added as a cell member never turns up in this search.
+      const [people, visitors, members] = await Promise.all([getPeople(), getDelightVisitors(), getAllCellGroupMembers()])
       const seen = new Set()
       const merged = []
       for (const p of people) {
@@ -8603,8 +8606,15 @@ function LeaderPicker({ value, onChange }) {
         if (!seen.has(key)) { seen.add(key); merged.push({ id: p.id, name: p.name || '', phone: p.phone || '' }) }
       }
       for (const v of visitors) {
-        const key = (v.phone || '').replace(/\s+/g, '')
-        if (key && !seen.has(key)) { seen.add(key); merged.push({ id: v.id, name: v.name || '', phone: v.phone || '' }) }
+        // Fall back to the doc id when there's no phone — otherwise every visitor
+        // recorded without a phone number is silently dropped from the search.
+        const key = (v.phone || '').replace(/\s+/g, '') || v.id
+        if (!seen.has(key)) { seen.add(key); merged.push({ id: v.id, name: v.name || '', phone: v.phone || '' }) }
+      }
+      for (const m of members) {
+        if (!m.name) continue
+        const key = (m.phone || '').replace(/\s+/g, '') || `member:${m.cellId}:${m.id}`
+        if (!seen.has(key)) { seen.add(key); merged.push({ id: m.visitorId || m.id, name: m.name, phone: m.phone || '' }) }
       }
       merged.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       setAllPeople(merged)
