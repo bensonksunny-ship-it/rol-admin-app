@@ -72,6 +72,14 @@ function Root() {
   )
 }
 
+// When a new service worker takes over (skipWaiting activated), reload so the
+// page runs the updated bundle instead of the old cached one.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload()
+  })
+}
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <Root />
