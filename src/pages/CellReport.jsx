@@ -2366,6 +2366,76 @@ export default function CellReport() {
         </div>
       </div>
     )}
+
+    {/* ── D-Light visitor registration modal ── */}
+    {proposalModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+          <h3 className="font-semibold text-slate-800 mb-1">Register in D-Light</h3>
+          <p className="text-sm text-slate-500 mb-4">This sends a proposal to the D-Light team. They will review and add the visitor to the directory.</p>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1">Name</label>
+              <input
+                type="text"
+                value={proposalModal.name}
+                readOnly
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1">Phone (optional)</label>
+              <input
+                type="tel"
+                value={proposalPhone}
+                onChange={(e) => setProposalPhone(e.target.value)}
+                placeholder="e.g. 9876543210"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-5">
+            <button
+              type="button"
+              disabled={proposalSubmitting}
+              onClick={async () => {
+                setProposalSubmitting(true)
+                try {
+                  const cellName = cellGroups.find((g) => g.id === effectiveCellId)?.cellName || ''
+                  await createCellVisitorProposal({
+                    visitorName: proposalModal.name,
+                    phone:       proposalPhone.trim(),
+                    cellId:      effectiveCellId || '',
+                    cellName,
+                    reportId:    proposalModal.reportId,
+                    reportDate:  proposalModal.reportDate || '',
+                    sentBy:      userProfile?.email || '',
+                    sentByName:  userProfile?.displayName || userProfile?.name || '',
+                  })
+                  setProposedVisitorNames((prev) => new Set([...prev, proposalModal.name]))
+                  setProposalModal(null)
+                } catch (e) {
+                  console.error('Visitor proposal error', e)
+                  alert('Failed to send proposal. Please try again.')
+                } finally {
+                  setProposalSubmitting(false)
+                }
+              }}
+              className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {proposalSubmitting ? 'Sending…' : 'Send to D-Light'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setProposalModal(null)}
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   </div>
   )
 }
