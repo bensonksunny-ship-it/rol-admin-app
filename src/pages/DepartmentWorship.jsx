@@ -27,6 +27,10 @@ import {
   updateDepartmentSubDepartment,
   deleteDepartmentSubDepartment,
   getDelightVisitors,
+  getWorshipSongs,
+  addWorshipSong,
+  updateWorshipSong,
+  deleteWorshipSong,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
@@ -38,6 +42,7 @@ import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import BudgetPage from './accounts/BudgetPage'
 import BoardPointsModal from '../components/BoardPointsModal'
 import UpcomingSunday from './UpcomingSunday'
+import SongDesigner from './worship/SongDesigner'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -414,6 +419,17 @@ export default function DepartmentWorship() {
   const [practiceSubPage, setPracticeSubPage] = useState('schedule')
   const [recordsSchedules, setRecordsSchedules] = useState([])
   const [loadingRecords, setLoadingRecords] = useState(false)
+
+  // Songs Directory
+  const [songs, setSongs] = useState([])
+  const [loadingSongs, setLoadingSongs] = useState(false)
+  const [songSearch, setSongSearch] = useState('')
+  const [songSubPage, setSongSubPage] = useState('directory')
+  const [songModal, setSongModal] = useState(null) // null | 'add' | song object (edit)
+  const [songForm, setSongForm] = useState({ title: '', artist: '', key: '', tempo: '', tags: '', notes: '' })
+  const [savingSong, setSavingSong] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
+
   const [budgetItemForm, setBudgetItemForm] = useState({
     category: '',
     subCategory: '',
@@ -482,6 +498,23 @@ export default function DepartmentWorship() {
   useEffect(() => {
     loadBudgetItems()
   }, [])
+
+  async function loadSongs() {
+    setLoadingSongs(true)
+    try {
+      const data = await getWorshipSongs()
+      setSongs(data)
+    } catch (e) {
+      console.error('Songs load failed:', e)
+      setSongs([])
+    } finally {
+      setLoadingSongs(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'songsDirectory') loadSongs()
+  }, [activeTab])
 
   useEffect(() => {
     if ((activeTab === 'assign' || activeTab === 'summary') && selectedDate) loadScheduleForDate(selectedDate)
@@ -2933,6 +2966,176 @@ export default function DepartmentWorship() {
             </div>
           )}
           </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Songs Directory tab ── */}
+      {activeTab === 'songsDirectory' && (
+        <div className="space-y-4">
+
+          {/* Sub-nav */}
+          <div className="flex items-center gap-1 border-b border-slate-200">
+            {[{ key: 'directory', label: 'Directory' }, { key: 'design', label: 'Design your song' }].map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSongSubPage(key)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${songSubPage === key ? 'border-violet-600 text-violet-700' : 'border-transparent text-slate-500 hover:text-violet-600'}`}
+              >{label}</button>
+            ))}
+          </div>
+
+          {/* ── Directory sub-page ── */}
+          {songSubPage === 'directory' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-slate-400">{songs.length} song{songs.length !== 1 ? 's' : ''}</p>
+                {canManageWorship && (
+                  <button
+                    type="button"
+                    onClick={() => { setSongForm({ title: '', artist: '', key: '', tempo: '', tags: '', notes: '' }); setSongModal('add') }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:scale-95 transition-all"
+                  >
+                    <span className="text-base leading-none">+</span> Add Song
+                  </button>
+                )}
+              </div>
+
+              <input
+                type="text"
+                placeholder="Search by title or artist…"
+                value={songSearch}
+                onChange={(e) => setSongSearch(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+              />
+
+              {loadingSongs ? (
+                <div className="text-center py-10 text-slate-400 text-sm">Loading…</div>
+              ) : songs.length === 0 ? (
+                <div className="text-center py-10 text-slate-400 text-sm">No songs yet. Add your first song.</div>
+              ) : (
+                <div className="space-y-2">
+                  {(() => {
+                    const filtered = songs.filter((s) => {
+                      const q = songSearch.toLowerCase()
+                      return !q || s.title?.toLowerCase().includes(q) || s.artist?.toLowerCase().includes(q)
+                    })
+                    if (filtered.length === 0) return <p className="text-center text-slate-400 text-sm py-6">No songs match your search.</p>
+                    return filtered.map((song) => (
+                      <div key={song.id} className="bg-white rounded-2xl border border-slate-200 px-4 py-3 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-800 text-sm truncate">{song.title}</p>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+                              {song.artist && <span className="text-xs text-slate-500">{song.artist}</span>}
+                              {song.key && <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{song.key}</span>}
+                              {song.tempo && <span className="text-xs text-slate-400">{song.tempo}</span>}
+                              {song.tags && <span className="text-xs text-slate-400 italic">{song.tags}</span>}
+                            </div>
+                            {song.notes && <p className="text-xs text-slate-400 mt-1 line-clamp-2">{song.notes}</p>}
+                          </div>
+                          {canManageWorship && (
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button type="button" onClick={() => { setSongForm({ title: song.title || '', artist: song.artist || '', key: song.key || '', tempo: song.tempo || '', tags: song.tags || '', notes: song.notes || '' }); setSongModal(song) }} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                              <button type="button" disabled={deletingId === song.id} onClick={async () => {
+                                if (!window.confirm(`Delete "${song.title}"?`)) return
+                                setDeletingId(song.id)
+                                try { await deleteWorshipSong(song.id); setSongs((p) => p.filter((s) => s.id !== song.id)) } finally { setDeletingId(null) }
+                              }} className="text-xs text-red-500 hover:underline disabled:opacity-40">{deletingId === song.id ? '…' : 'Delete'}</button>
+                            </div>
+                          )}
+                        </div>
+                        {Array.isArray(song.sections) && song.sections.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                            {song.sections.map((sec, i) => (
+                              <div key={i}>
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{sec.type}</p>
+                                {sec.lyrics && <p className="text-xs text-slate-600 whitespace-pre-wrap mt-0.5">{sec.lyrics}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Design your song sub-page ── */}
+          {songSubPage === 'design' && (
+            <SongDesigner
+              canManageWorship={canManageWorship}
+              userProfile={userProfile}
+              onSaved={loadSongs}
+            />
+          )}
+
+          {/* Add / Edit modal (Directory) */}
+          {songModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+                <h3 className="font-semibold text-slate-800">{songModal === 'add' ? 'Add Song' : 'Edit Song'}</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-slate-600 block mb-1">Title *</label>
+                    <input value={songForm.title} onChange={(e) => setSongForm((p) => ({ ...p, title: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" placeholder="Song title" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-600 block mb-1">Artist / Author</label>
+                    <input value={songForm.artist} onChange={(e) => setSongForm((p) => ({ ...p, artist: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" placeholder="e.g. Hillsong" />
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="text-xs font-medium text-slate-600 block mb-1">Key</label>
+                      <select value={songForm.key} onChange={(e) => setSongForm((p) => ({ ...p, key: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                        <option value="">—</option>
+                        {['C','C#/Db','D','D#/Eb','E','F','F#/Gb','G','G#/Ab','A','A#/Bb','B'].map((k) => <option key={k} value={k}>{k}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-xs font-medium text-slate-600 block mb-1">Tempo</label>
+                      <select value={songForm.tempo} onChange={(e) => setSongForm((p) => ({ ...p, tempo: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                        <option value="">—</option>
+                        {['Slow','Medium','Fast','Upbeat'].map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-600 block mb-1">Tags</label>
+                    <input value={songForm.tags} onChange={(e) => setSongForm((p) => ({ ...p, tags: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" placeholder="e.g. Praise, Communion" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-600 block mb-1">Notes</label>
+                    <textarea value={songForm.notes} onChange={(e) => setSongForm((p) => ({ ...p, notes: e.target.value }))} rows={3} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300" placeholder="Chords, links, arrangement notes…" />
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-1">
+                  <button type="button" onClick={() => setSongModal(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
+                  <button
+                    type="button"
+                    disabled={savingSong || !songForm.title.trim()}
+                    onClick={async () => {
+                      setSavingSong(true)
+                      try {
+                        if (songModal === 'add') {
+                          await addWorshipSong(songForm, userProfile?.name || 'unknown')
+                        } else {
+                          await updateWorshipSong(songModal.id, { title: songForm.title, artist: songForm.artist, key: songForm.key, tempo: songForm.tempo, tags: songForm.tags, notes: songForm.notes })
+                        }
+                        await loadSongs()
+                        setSongModal(null)
+                      } finally {
+                        setSavingSong(false)
+                      }
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 transition-all"
+                  >{savingSong ? 'Saving…' : 'Save'}</button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}

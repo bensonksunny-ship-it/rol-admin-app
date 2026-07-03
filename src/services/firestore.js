@@ -321,6 +321,43 @@ export async function deleteWorshipBudgetItem(id) {
   await deleteDoc(doc(db, 'worship_budget_items', id))
 }
 
+// Worship Songs Directory
+const WORSHIP_SONGS_COLLECTION = 'worship_songs'
+
+export async function getWorshipSongs() {
+  if (!db) return []
+  const snap = await getDocs(query(collection(db, WORSHIP_SONGS_COLLECTION), orderBy('title', 'asc')))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+export async function addWorshipSong(data, addedBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, WORSHIP_SONGS_COLLECTION), {
+    title: data.title || '',
+    artist: data.artist || '',
+    key: data.key || '',
+    tempo: data.tempo || '',
+    tags: data.tags || '',
+    notes: data.notes || '',
+    sections: Array.isArray(data.sections) ? data.sections : [],
+    blocks: Array.isArray(data.blocks) ? data.blocks : [],
+    rawText: data.rawText || '',
+    createdBy: addedBy || '',
+    createdAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function updateWorshipSong(id, data) {
+  if (!db || !id) return
+  await updateDoc(doc(db, WORSHIP_SONGS_COLLECTION, id), { ...data })
+}
+
+export async function deleteWorshipSong(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, WORSHIP_SONGS_COLLECTION, id))
+}
+
 // Sunday Ministry team members (director's team list)
 const SUNDAY_MINISTRY_DEPT = 'Sunday Ministry'
 export async function getSundayMinistryTeamMembers(options = {}) {

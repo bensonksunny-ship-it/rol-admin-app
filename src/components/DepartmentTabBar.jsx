@@ -28,6 +28,7 @@ function getTabLabel(tab) {
     case 'assign':            return 'Assign'
     case 'theTeam':           return 'The Team'
     case 'practiceRehearsal': return 'Practice'
+    case 'songsDirectory':    return 'Songs'
     case 'archives':          return 'Archives'
     case 'budget':            return 'Budget'
     case 'history':           return 'History'

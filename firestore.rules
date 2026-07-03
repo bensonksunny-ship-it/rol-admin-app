@@ -353,6 +353,10 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    match /worship_songs/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
     match /worship_schedule/{docId} {
       allow read, write: if isSignedIn();
     }
