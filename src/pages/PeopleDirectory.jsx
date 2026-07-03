@@ -56,6 +56,34 @@ function avatarColor(p) {
 const SERVICES = ['English Service', 'Malayalam Service', 'Tamil Service', 'Hindi Service']
 const MEMBERSHIP_STATUSES = ['visitor', 'regular', 'applying', 'member']
 
+// Defined at module scope (not inside EditPersonModal) — an inline component
+// definition gets recreated every render, which makes React remount the <input>
+// on each keystroke and drop focus after every letter.
+function LabelInput({ label, value, onChange, type = 'text', options }) {
+  return (
+    <div>
+      <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">{label}</label>
+      {options ? (
+        <select
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        >
+          <option value="">— select —</option>
+          {options.map(o => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
+        </select>
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+      )}
+    </div>
+  )
+}
+
 function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
   const blank = {
     name: p.name || '',
@@ -155,29 +183,6 @@ function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
       setSaving(false)
     }
   }
-
-  const LabelInput = ({ label, value, onChange, type = 'text', options }) => (
-    <div>
-      <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">{label}</label>
-      {options ? (
-        <select
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-        >
-          <option value="">— select —</option>
-          {options.map(o => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
-        </select>
-      ) : (
-        <input
-          type={type}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-        />
-      )}
-    </div>
-  )
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={e => e.target === e.currentTarget && onClose()}>
