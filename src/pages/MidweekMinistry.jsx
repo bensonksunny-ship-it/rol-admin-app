@@ -15,7 +15,6 @@ import {
   getMidweekSettings,
   setMidweekSettings,
   saveMidweekSessionSummary,
-  saveMidweekShepherdNotes,
   syncMidweekAttendanceToCellReport,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
@@ -189,10 +188,6 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
   const [pendingTimings, setPendingTimings] = useState([])
   const [saveError, setSaveError]           = useState(null)
 
-  // Shepherd notes
-  const [shepherdNotes, setShepherdNotes] = useState('')
-  const [savingNotes, setSavingNotes]     = useState(false)
-  const [savedNotes, setSavedNotes]       = useState(false)
 
   // Visitor state
   const [visitors, setVisitors]           = useState([])
@@ -606,42 +601,6 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         />
       )}
 
-      {/* ── Shepherd Notes ── */}
-      {selectedCellId && (
-        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-bold text-slate-900 text-lg">Shepherd Notes</h2>
-            {savedNotes && (
-              <span className="text-xs px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold">✓ Saved</span>
-            )}
-          </div>
-          <textarea
-            value={shepherdNotes}
-            onChange={(e) => { setShepherdNotes(e.target.value); setSavedNotes(false) }}
-            placeholder="Private notes for this meeting (follow-ups, concerns, prayer requests…)"
-            rows={4}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-slate-300 text-slate-800 placeholder-slate-400 bg-slate-50"
-          />
-          <button
-            type="button"
-            disabled={savingNotes || !shepherdNotes.trim()}
-            onClick={async () => {
-              if (!selectedCellId) return
-              setSavingNotes(true)
-              try {
-                await saveMidweekShepherdNotes(selectedCellId, today, shepherdNotes, userProfile?.name || 'unknown')
-                setSavedNotes(true)
-                setTimeout(() => setSavedNotes(false), 3000)
-              } finally {
-                setSavingNotes(false)
-              }
-            }}
-            className="w-full py-3 rounded-2xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-40 transition-all active:scale-[0.98]"
-          >
-            {savingNotes ? 'Saving…' : '💾 Save Notes'}
-          </button>
-        </div>
-      )}
 
       {/* ── Floating Prayer Button ── */}
       {selectedCellId && (

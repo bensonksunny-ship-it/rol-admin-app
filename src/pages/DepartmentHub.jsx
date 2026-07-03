@@ -84,6 +84,8 @@ import {
   syncVisitorDataEverywhere,
   updateCellMembersByVisitorId,
   updatePCSEntriesByVisitorId,
+  updateDeptTeamMembersByVisitorId,
+  updateWorshipTeamMembersByVisitorId,
   getBoardPoints,
   addBoardPoint,
   updateBoardPoint,
@@ -2835,6 +2837,8 @@ export default function DepartmentHub() {
                         await updateDelightVisitor(editingDelightVisitorId, delightVisitorForm)
                         updateCellMembersByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone, birthday: delightVisitorForm.dob }).catch(() => {})
                         updatePCSEntriesByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone }).catch(() => {})
+                        updateDeptTeamMembersByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone }).catch(() => {})
+                        updateWorshipTeamMembersByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone }).catch(() => {})
                         setDelightVisitors((prev) =>
                           prev.map((x) => (x.id === editingDelightVisitorId ? { ...x, ...delightVisitorForm } : x))
                         )
@@ -4923,6 +4927,8 @@ export default function DepartmentHub() {
                               updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }).catch(() => {})
                               updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
                               updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
+                              updateDeptTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
+                              updateWorshipTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
                               upsertMemberProfile(entry.visitorId, {
                                 baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
                                 membershipStatus,
@@ -8911,6 +8917,8 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 if (entry.visitorId) {
                   updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
                   updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
+                  updateDeptTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
+                  updateWorshipTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
                 }
                 setSaving(false)
               }}

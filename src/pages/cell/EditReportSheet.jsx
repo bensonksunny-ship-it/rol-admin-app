@@ -9,7 +9,7 @@ import {
   updateCellReportFull,
 } from '../../services/firestore'
 
-const TABS = ['Attendance', 'Timing', 'Counts', 'Notes']
+const TABS = ['Attendance', 'Timing', 'Counts']
 
 /**
  * Bottom sheet for editing an existing cell meeting report or creating a new manual entry.
@@ -29,7 +29,6 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
   // Form state
   const [attendees, setAttendees]           = useState([])
   const [segmentTimings, setSegmentTimings] = useState([])
-  const [shepherdNotes, setShepherdNotes]   = useState('')
   const [visitors, setVisitors]             = useState(0)
   const [children, setChildren]             = useState(0)
   const [meetingDate, setMeetingDate]       = useState(isNew ? '' : (row?.meetingDateISO || ''))
@@ -77,7 +76,6 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
               ? sessionData.segmentTimings.map((s) => ({ name: s.name || '', durationMinutes: Number(s.durationMinutes) || 0 }))
               : []
           )
-          setShepherdNotes(sessionData.shepherdNotes || '')
         } else if (row.programList?.length) {
           setSegmentTimings(row.programList.map((p) => ({ name: p.programName || '', durationMinutes: Number(p.durationMinutes) || 0 })))
         }
@@ -149,7 +147,7 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
       const result = await updateCellReportFull(effectiveRow, {
         attendees,
         segmentTimings,
-        shepherdNotes,
+        shepherdNotes: '',
         visitors: Number(visitors) || 0,
         children: Number(children) || 0,
         updatedBy: 'user',
@@ -276,9 +274,6 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
                   onVisitorsChange={setVisitors}
                   onChildrenChange={setChildren}
                 />
-              )}
-              {activeTab === 'Notes' && (
-                <NotesTab notes={shepherdNotes} onChange={setShepherdNotes} />
               )}
             </>
           )}
@@ -471,20 +466,6 @@ function CountRow({ label, value, readOnly = false, onChange }) {
   )
 }
 
-function NotesTab({ notes, onChange }) {
-  return (
-    <div className="space-y-3">
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">📝 Shepherd Notes</p>
-      <textarea
-        value={notes}
-        onChange={(e) => onChange(e.target.value)}
-        rows={8}
-        placeholder="Write your shepherd notes here…"
-        className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
-      />
-    </div>
-  )
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

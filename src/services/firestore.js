@@ -2215,8 +2215,13 @@ export async function addCellReportAttendee(reportId, data, createdBy) {
     phone: data.phone || '',
     locality: data.locality || '',
   })
-  // membersAttended is kept in sync by the useEffect in CellReport that watches
-  // attendees.length — no second write here to avoid the double-update race.
+  // Sync membersAttended in the same write — mirrors deleteCellReportAttendee below.
+  // Previously this relied on a separate useEffect in CellReport to catch up
+  // afterward, which could miss (permission/render timing, navigating away
+  // before it resolved), leaving the attendees subcollection correct but
+  // membersAttended/totalAttendance stuck at a stale count.
+  const attendees = await getCellReportAttendees(reportId)
+  await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), { membersAttended: attendees.length })
   return ref.id
 }
 
@@ -2566,6 +2571,7 @@ export async function addPCSEntry(data) {
 export async function updatePCSEntry(id, data) {
   if (!db || !id) return
   const payload = {}
+  if (data.visitorId !== undefined) payload.visitorId = String(data.visitorId)
   if (data.name !== undefined) payload.name = String(data.name)
   if (data.phone !== undefined) payload.phone = String(data.phone)
   if (data.email !== undefined) payload.email = String(data.email)
@@ -2579,6 +2585,15 @@ export async function updatePCSEntry(id, data) {
   if (data.membershipNumber !== undefined) payload.membershipNumber = String(data.membershipNumber)
   if (data.leadershipPosition !== undefined) payload.leadershipPosition = String(data.leadershipPosition)
   if (Object.keys(payload).length) await updateDoc(doc(db, CARING_PCS_COLLECTION, id), payload)
+  // pcs_lookup is a denormalized name/phone/visitorId index for fast search elsewhere —
+  // without this it only catches up the next time someone runs the manual bulk sync.
+  if (payload.name !== undefined || payload.phone !== undefined || payload.visitorId !== undefined) {
+    const lookupUpdate = {}
+    if (payload.name !== undefined) lookupUpdate.name = payload.name
+    if (payload.phone !== undefined) lookupUpdate.phone = payload.phone
+    if (payload.visitorId !== undefined) lookupUpdate.visitorId = payload.visitorId
+    await setDoc(doc(db, PCS_LOOKUP_COLLECTION, id), lookupUpdate, { merge: true }).catch(() => {})
+  }
 }
 
 export async function deletePCSEntry(id) {
@@ -4085,7 +4100,7 @@ export async function updateCellMembersByVisitorId(visitorId, data) {
   await Promise.all(docs.map(d => updateDoc(d.ref, payload)))
 }
 
-/** Update name/phone on all caring_pcs entries that share this visitorId. */
+/** Update name/phone on all caring_pcs entries that share this visitorId (and keep pcs_lookup in step). */
 export async function updatePCSEntriesByVisitorId(visitorId, data) {
   if (!db || !visitorId) return
   const q = query(collection(db, CARING_PCS_COLLECTION), where('visitorId', '==', visitorId))
@@ -4094,12 +4109,41 @@ export async function updatePCSEntriesByVisitorId(visitorId, data) {
   if (data.name  !== undefined) payload.name  = String(data.name)
   if (data.phone !== undefined) payload.phone = String(data.phone)
   if (!Object.keys(payload).length) return
-  await Promise.all(snap.docs.map(d => updateDoc(doc(db, CARING_PCS_COLLECTION, d.id), payload)))
+  await Promise.all(snap.docs.flatMap(d => [
+    updateDoc(doc(db, CARING_PCS_COLLECTION, d.id), payload),
+    setDoc(doc(db, PCS_LOOKUP_COLLECTION, d.id), payload, { merge: true }).catch(() => {}),
+  ]))
+}
+
+/** Update name/phone on all department_team_members entries that share this visitorId. */
+export async function updateDeptTeamMembersByVisitorId(visitorId, data) {
+  if (!db || !visitorId) return
+  const q = query(collection(db, 'department_team_members'), where('visitorId', '==', visitorId))
+  const snap = await getDocs(q)
+  const payload = {}
+  if (data.name  !== undefined) payload.name  = String(data.name)
+  if (data.phone !== undefined) payload.phone = String(data.phone)
+  if (!Object.keys(payload).length) return
+  await Promise.all(snap.docs.map(d => updateDoc(doc(db, 'department_team_members', d.id), payload)))
+}
+
+/** Update name/phone on all worship_team_members entries that share this visitorId. */
+export async function updateWorshipTeamMembersByVisitorId(visitorId, data) {
+  if (!db || !visitorId) return
+  const q = query(collection(db, 'worship_team_members'), where('visitorId', '==', visitorId))
+  const snap = await getDocs(q)
+  const payload = {}
+  if (data.name  !== undefined) payload.name  = String(data.name)
+  if (data.phone !== undefined) payload.phone = String(data.phone)
+  if (!Object.keys(payload).length) return
+  await Promise.all(snap.docs.map(d => updateDoc(doc(db, 'worship_team_members', d.id), payload)))
 }
 
 /**
  * Single call to push a name/phone/dob change from any source to ALL linked records.
- * Call this whenever the canonical data changes in visitor entry, PCS, or cell member.
+ * Call this whenever the canonical data changes in visitor entry, PCS, cell member,
+ * or a department/worship team roster entry — keeps every denormalized copy in step
+ * regardless of which screen the edit was made from.
  */
 export async function syncVisitorDataEverywhere(visitorId, { name, phone, dob } = {}) {
   if (!db || !visitorId) return
@@ -4107,6 +4151,8 @@ export async function syncVisitorDataEverywhere(visitorId, { name, phone, dob } 
     name || phone || dob ? updateDelightVisitor(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }), ...(dob !== undefined && { dob }) }) : Promise.resolve(),
     updateCellMembersByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }), ...(dob !== undefined && { birthday: dob }) }),
     updatePCSEntriesByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }) }),
+    updateDeptTeamMembersByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }) }),
+    updateWorshipTeamMembersByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }) }),
   ])
 }
 

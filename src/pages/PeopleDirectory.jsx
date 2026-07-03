@@ -118,6 +118,7 @@ function EditPersonModal({ p, onClose, onSaved, userEmail }) {
         ...(p.deptTeams || []).map((t) => updateDepartmentTeamMember(t.id, copyUpdate).catch(() => {})),
         ...(p.worshipTeams || []).map((t) => updateWorshipTeamMember(t.id, copyUpdate).catch(() => {})),
         ...(p._visitorIds || []).map((vid) => updateDelightVisitor(vid, copyUpdate).catch(() => {})),
+        ...(p.pcs?.id ? [updatePCSEntry(p.pcs.id, copyUpdate).catch(() => {})] : []),
       ])
 
       onSaved({
@@ -506,7 +507,13 @@ export default function PeopleDirectory() {
       // Unlinked PCS entries (no personId yet — legacy records)
       unlinked.forEach(p => {
         const phone = (p.phone || '').replace(/\s+/g, '')
-        if (phone && byPhone[phone]) return  // already in people collection via phone
+        if (phone && byPhone[phone]) {
+          // Matched to an existing People's Directory row by phone — attach the PCS
+          // data to it instead of silently dropping it. Without this, p.pcs stays
+          // null on the merged row, so edits never propagate to this PCS entry.
+          byPhone[phone].pcs = p
+          return
+        }
         const entry = {
           _key: 'pcs-' + p.id,
           personId: null,
