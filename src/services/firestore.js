@@ -568,7 +568,7 @@ export async function updateDepartmentTeamMember(id, data) {
     : undefined
   const payload = {
     name: data.name != null ? String(data.name) : undefined,
-    rolePosition: (data.rolePosition ?? data.role ?? '') !== undefined ? (data.rolePosition ?? data.role ?? '') : undefined,
+    rolePosition: (data.rolePosition !== undefined || data.role !== undefined) ? (data.rolePosition ?? data.role ?? '') : undefined,
     subDepartment: subDepts !== undefined ? (subDepts[0] || '') : (data.subDepartment != null ? String(data.subDepartment) : undefined),
     subDepartments: subDepts,
     phone: data.phone != null ? String(data.phone) : undefined,

@@ -8598,7 +8598,14 @@ function LeaderPicker({ value, onChange }) {
       // Cell leaders are almost always first recorded as a member of their own cell,
       // not in the People's Directory or D-Light — search that roster too, or a leader
       // who's only ever been added as a cell member never turns up in this search.
-      const [people, visitors, members] = await Promise.all([getPeople(), getDelightVisitors(), getAllCellGroupMembers()])
+      // Each source is caught independently — a failure in one (e.g. a permission
+      // gap on the cell-members collection group query) must not blank out the
+      // other two sources that loaded fine.
+      const [people, visitors, members] = await Promise.all([
+        getPeople().catch(() => []),
+        getDelightVisitors().catch(() => []),
+        getAllCellGroupMembers().catch(() => []),
+      ])
       const seen = new Set()
       const merged = []
       for (const p of people) {

@@ -1,13 +1,16 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
+import { format, startOfWeek } from 'date-fns'
 import {
   getCellGroupMembers,
   getRecentSundayReports,
+  getLatestCellReports,
   addCellGroupMember,
   updateCellGroupMember,
   deleteCellMemberPendingChange,
   updateTask,
   subscribePCSReferralTasks,
 } from '../services/firestore'
+import { totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
 
 function initials(name) {
@@ -101,9 +104,42 @@ export function CellDirectorCockpit({
     () => new Set(cellMemberData.flatMap((c) => c.names)),
     [cellMemberData]
   )
+
+  // This week's cell reports — joined onto growthData so the chart can compare
+  // active member count against who actually attended this week's meeting.
+  const [weeklyReports, setWeeklyReports] = useState([])
+  useEffect(() => {
+    getLatestCellReports(500).then(setWeeklyReports).catch(() => setWeeklyReports([]))
+  }, [])
+
+  // Bucketed by cellId + the Monday-anchored week the report's own date falls
+  // in — not by guessing an "expected" date from the cell's configured
+  // meetingDay. That guess silently misses (shows 0 attended) for any cell
+  // with a missing/wrong meetingDay or one that met on an unusual day.
+  const reportsByCellWeek = useMemo(() => {
+    const m = new Map()
+    for (const r of weeklyReports) {
+      if (!r?.cellId || !r?.reportDate) continue
+      const wk = weekStartKey(String(r.reportDate).slice(0, 10))
+      if (!m.has(r.cellId)) m.set(r.cellId, new Map())
+      m.get(r.cellId).set(wk, r)
+    }
+    return m
+  }, [weeklyReports])
+
+  const currentWeekKey = useMemo(
+    () => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+    []
+  )
+
   const growthData = useMemo(
-    () => cellMemberData.map(({ cellName, memberCount }) => ({ cellName, memberCount })),
-    [cellMemberData]
+    () => cellMemberData.map(({ cellId, cellName, memberCount }) => {
+      const cell = activeCells.find((c) => c.id === cellId)
+      const report = reportsByCellWeek.get(cellId)?.get(currentWeekKey)
+        || (cell && cell.cellId !== cellId ? reportsByCellWeek.get(cell.cellId)?.get(currentWeekKey) : null)
+      return { cellName, memberCount, attended: totalAttendanceFromCellReport(report) }
+    }),
+    [cellMemberData, activeCells, reportsByCellWeek, currentWeekKey]
   )
 
   useEffect(() => {

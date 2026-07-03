@@ -10,6 +10,10 @@ import {
   addPerson,
   updatePerson,
   updatePCSEntry,
+  updateCellGroupMember,
+  updateDepartmentTeamMember,
+  updateWorshipTeamMember,
+  updateDelightVisitor,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 
@@ -103,6 +107,18 @@ function EditPersonModal({ p, onClose, onSaved, userEmail }) {
           await updatePCSEntry(p.pcs.id, { personId: resolvedPersonId })
         }
       }
+
+      // The People's Directory is the source of truth, but name/phone are also
+      // copied into cell rosters, team lists, and D-Light visitor records.
+      // Without pushing the change out to those copies, they go stale and start
+      // looking like a different person — which is what caused the duplicates.
+      const copyUpdate = { name: personData.name, phone: personData.phone }
+      await Promise.all([
+        ...(p.cells || []).map((c) => updateCellGroupMember(c.cellId, c.id, copyUpdate).catch(() => {})),
+        ...(p.deptTeams || []).map((t) => updateDepartmentTeamMember(t.id, copyUpdate).catch(() => {})),
+        ...(p.worshipTeams || []).map((t) => updateWorshipTeamMember(t.id, copyUpdate).catch(() => {})),
+        ...(p._visitorIds || []).map((vid) => updateDelightVisitor(vid, copyUpdate).catch(() => {})),
+      ])
 
       onSaved({
         ...p,
@@ -468,6 +484,7 @@ export default function PeopleDirectory() {
           deptTeams: [],
           worshipTeams: [],
           source: 'people',
+          _visitorIds: [],
         }
         byId[p.id] = entry
         if (p.phone) byPhone[p.phone.replace(/\s+/g, '')] = entry
@@ -514,6 +531,7 @@ export default function PeopleDirectory() {
           deptTeams: [],
           worshipTeams: [],
           source: 'pcs-legacy',
+          _visitorIds: [],
         }
         merged.push(entry)
         if (phone) byPhone[phone] = entry
@@ -529,6 +547,7 @@ export default function PeopleDirectory() {
           if (!existing.attendedDate && v.attendedDate) existing.attendedDate = v.attendedDate
           if (!existing.serviceAttended && v.serviceAttended) existing.serviceAttended = v.serviceAttended
           if (!existing.howKnown && v.howKnown) existing.howKnown = v.howKnown
+          existing._visitorIds.push(v.id)
           byVisitorId[v.id] = existing
           return
         }
@@ -556,6 +575,7 @@ export default function PeopleDirectory() {
           deptTeams: [],
           worshipTeams: [],
           source: 'visitor',
+          _visitorIds: [v.id],
         }
         merged.push(entry)
         if (phone) byPhone[phone] = entry

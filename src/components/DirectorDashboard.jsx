@@ -4,18 +4,18 @@ import {
   Line,
   BarChart,
   Bar,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from 'recharts'
 import { format, startOfWeek, subWeeks } from 'date-fns'
 import { getCellGroups, getLatestCellReports } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole, isFounder as isFounderUser } from '../utils/access'
-import { computeMeetingDateISO, totalAttendanceFromCellReport } from '../utils/cellWeek'
+import { computeMeetingDateISO, totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
 
 const CELL_DEPARTMENT = 'Cell'
 const TREND_LINE_COLOR = '#6366f1'
@@ -54,6 +54,24 @@ function buildReportLookup(reports) {
   for (const r of reports || []) {
     if (!r?.cellId || !r?.reportDate) continue
     m.set(`${r.cellId}|${String(r.reportDate).slice(0, 10)}`, r)
+  }
+  return m
+}
+
+/**
+ * Buckets reports by cellId + the Monday-anchored week the report's own date
+ * falls in — not by a guessed "expected" date derived from the cell's configured
+ * meetingDay. A cell with a missing/wrong meetingDay, or one that met on a
+ * different day than usual, still gets counted here since we key off the report
+ * it actually filed rather than where we expected it to land.
+ */
+function buildReportsByCellWeek(reports) {
+  const m = new Map()
+  for (const r of reports || []) {
+    if (!r?.cellId || !r?.reportDate) continue
+    const wk = weekStartKey(String(r.reportDate).slice(0, 10))
+    if (!m.has(r.cellId)) m.set(r.cellId, new Map())
+    m.get(r.cellId).set(wk, r)
   }
   return m
 }
@@ -286,6 +304,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   )
 
   const reportLookup = useMemo(() => buildReportLookup(latestReports), [latestReports])
+  const reportsByCellWeek = useMemo(() => buildReportsByCellWeek(latestReports), [latestReports])
 
   const rows = useMemo(() => {
     const todayISO = format(new Date(), 'yyyy-MM-dd')
@@ -334,18 +353,22 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
 
   // Sum attendance across every visible cell (not just a capped subset) so the
   // trend reflects the whole department's total, per the director's request.
+  // Bucketed by the report's own week (buildReportsByCellWeek), not a guessed
+  // expected date — a cell with no/wrong meetingDay configured, or one that met
+  // on an unusual day, was otherwise silently counted as 0 for that week.
   const chartData = useMemo(() => {
     const cur = startOfWeek(new Date(), { weekStartsOn: 1 })
     const weeks = [5, 4, 3, 2, 1, 0].map((i) => subWeeks(cur, i))
     return weeks.map((ws) => {
+      const wk = format(ws, 'yyyy-MM-dd')
       const total = visibleGroups.reduce((sum, cell) => {
-        const expected = computeMeetingDateISO(cell.meetingDay, ws)
-        const r = reportLookup.get(`${cell.id}|${expected}`)
+        const r = reportsByCellWeek.get(cell.id)?.get(wk)
+          || (cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(wk) : null)
         return sum + totalAttendanceFromCellReport(r)
       }, 0)
-      return { weekLabel: format(ws, 'MMM d'), weekStart: format(ws, 'yyyy-MM-dd'), total }
+      return { weekLabel: format(ws, 'MMM d'), weekStart: wk, total }
     })
-  }, [reportLookup, visibleGroups])
+  }, [reportsByCellWeek, visibleGroups])
 
   const remindLeader = useCallback((row) => {
     const name = row?.cellName || 'this cell'
@@ -398,7 +421,7 @@ export function CellMemberGrowthChart({ cellMemberData }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
       <p className="text-sm font-bold text-slate-800">Active Members per Cell</p>
-      <p className="text-xs text-slate-400 mt-0.5 mb-5">Current active member count across all cells you oversee</p>
+      <p className="text-xs text-slate-400 mt-0.5 mb-5">Active members vs. this week's meeting attendance, per cell</p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={cellMemberData} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -406,16 +429,10 @@ export function CellMemberGrowthChart({ cellMemberData }) {
           <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} axisLine={false} tickLine={false} />
           <Tooltip
             contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
-            formatter={(value) => [value, 'Members']}
           />
-          <Bar dataKey="memberCount" radius={[6, 6, 0, 0]}>
-            {cellMemberData.map((entry, index) => (
-              <Cell
-                key={index}
-                fill={entry.memberCount >= 20 ? '#6366f1' : '#c7d2fe'}
-              />
-            ))}
-          </Bar>
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Bar dataKey="memberCount" name="Active Members" fill="#6366f1" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="attended" name="Attended This Week" fill="#10b981" radius={[6, 6, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
