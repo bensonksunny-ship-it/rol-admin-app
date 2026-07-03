@@ -11,6 +11,7 @@ import {
   updatePerson,
   updatePCSEntry,
   updateCellGroupMember,
+  updateCellGroup,
   updateDepartmentTeamMember,
   updateWorshipTeamMember,
   updateDelightVisitor,
@@ -55,7 +56,7 @@ function avatarColor(p) {
 const SERVICES = ['English Service', 'Malayalam Service', 'Tamil Service', 'Hindi Service']
 const MEMBERSHIP_STATUSES = ['visitor', 'regular', 'applying', 'member']
 
-function EditPersonModal({ p, onClose, onSaved, userEmail }) {
+function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
   const blank = {
     name: p.name || '',
     phone: p.phone || '',
@@ -109,16 +110,22 @@ function EditPersonModal({ p, onClose, onSaved, userEmail }) {
       }
 
       // The People's Directory is the source of truth, but name/phone are also
-      // copied into cell rosters, team lists, and D-Light visitor records.
+      // copied into cell rosters, team lists, D-Light visitor records, and — since
+      // a cell group stores its leader's name directly on the group doc itself
+      // (leaderPersonId can point at a people/visitor/cell-member id depending on
+      // when it was linked) — the cell group's own leader field too.
       // Without pushing the change out to those copies, they go stale and start
       // looking like a different person — which is what caused the duplicates.
       const copyUpdate = { name: personData.name, phone: personData.phone }
+      const myIds = new Set([resolvedPersonId, ...(p._visitorIds || []), ...(p.cells || []).map((c) => c.id)].filter(Boolean))
+      const leaderOfCells = (cellGroups || []).filter((g) => g.leaderPersonId && myIds.has(g.leaderPersonId))
       await Promise.all([
         ...(p.cells || []).map((c) => updateCellGroupMember(c.cellId, c.id, copyUpdate).catch(() => {})),
         ...(p.deptTeams || []).map((t) => updateDepartmentTeamMember(t.id, copyUpdate).catch(() => {})),
         ...(p.worshipTeams || []).map((t) => updateWorshipTeamMember(t.id, copyUpdate).catch(() => {})),
         ...(p._visitorIds || []).map((vid) => updateDelightVisitor(vid, copyUpdate).catch(() => {})),
         ...(p.pcs?.id ? [updatePCSEntry(p.pcs.id, copyUpdate).catch(() => {})] : []),
+        ...leaderOfCells.map((g) => updateCellGroup(g.id, { leader: personData.name }).catch(() => {})),
       ])
 
       onSaved({
@@ -427,6 +434,7 @@ export default function PeopleDirectory() {
   const { userProfile } = useAuth()
   const [loading, setLoading] = useState(true)
   const [people, setPeople] = useState([])
+  const [cellGroups, setCellGroups] = useState([])
   const [sourceCounts, setSourceCounts] = useState(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
@@ -627,6 +635,7 @@ export default function PeopleDirectory() {
         visitors: visitors.length,
       })
       setPeople(merged)
+      setCellGroups(cellGroups)
       setLoading(false)
     }).catch((err) => { console.error('PeopleDirectory load error:', err); setLoading(false) })
   }, [])
@@ -695,6 +704,7 @@ export default function PeopleDirectory() {
       {editingPerson && (
         <EditPersonModal
           p={editingPerson}
+          cellGroups={cellGroups}
           onClose={() => setEditingPerson(null)}
           onSaved={handleSaved}
           userEmail={userProfile?.email || ''}
