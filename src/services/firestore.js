@@ -682,6 +682,10 @@ export async function getDepartmentChildren(department) {
     id: d.id,
     department,
     name: d.data().name || '',
+    dob: d.data().dob || '',
+    fatherName: d.data().fatherName || '',
+    motherName: d.data().motherName || '',
+    group: d.data().group || '',
     active: d.data().active !== false,
     createdAt: toDate(d.data().createdAt),
   }))
@@ -697,6 +701,7 @@ export async function addDepartmentChild(department, childData, addedBy) {
     dob: childData.dob || '',
     fatherName: (childData.fatherName || '').trim(),
     motherName: (childData.motherName || '').trim(),
+    group: childData.group || '',
     active: true,
     addedBy: addedBy || 'unknown',
     createdAt: Timestamp.now(),
@@ -712,6 +717,7 @@ export async function updateDepartmentChild(id, data) {
   if (data.dob !== undefined) payload.dob = data.dob || ''
   if (data.fatherName !== undefined) payload.fatherName = (data.fatherName || '').trim()
   if (data.motherName !== undefined) payload.motherName = (data.motherName || '').trim()
+  if (data.group !== undefined) payload.group = data.group || ''
   if (Object.keys(payload).length) await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), payload)
 }
 

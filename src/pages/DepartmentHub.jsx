@@ -490,10 +490,11 @@ export default function DepartmentHub() {
   const [rkLoading, setRkLoading] = useState(false)
   const [rkDate, setRkDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [rkPresent, setRkPresent] = useState({})
-  const [rkChildForm, setRkChildForm] = useState({ name: '', dob: '', fatherName: '', motherName: '' })
+  const [rkChildForm, setRkChildForm] = useState({ name: '', dob: '', fatherName: '', motherName: '', group: '' })
   const [rkEditChild, setRkEditChild] = useState(null)
   const [rkSavingEdit, setRkSavingEdit] = useState(false)
   const [rkAllUsers, setRkAllUsers] = useState([])
+  const [rkAttendanceGroup, setRkAttendanceGroup] = useState('sunday-school')
   const [deptEvents, setDeptEvents] = useState([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [selectedEventId, setSelectedEventId] = useState(null)
@@ -6123,7 +6124,7 @@ export default function DepartmentHub() {
                       if (!rkChildForm.name.trim() || !department) return
                       try {
                         await addDepartmentChild(department.name, rkChildForm, userProfile?.email || userProfile?.displayName || 'unknown')
-                        setRkChildForm({ name: '', dob: '', fatherName: '', motherName: '' })
+                        setRkChildForm({ name: '', dob: '', fatherName: '', motherName: '', group: '' })
                         const list = await getDepartmentChildren(department.name)
                         setRkChildren(list.filter((c) => c.active !== false))
                       } catch { alert('Failed to add kid') }
@@ -6150,6 +6151,16 @@ export default function DepartmentHub() {
                         <PersonSearchInput label="Mother's Name" value={rkChildForm.motherName}
                           onChange={v => setRkChildForm(p => ({ ...p, motherName: v }))}
                           people={rkAllUsers} placeholder="Search or type mother's name" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Class / Group</label>
+                        <select value={rkChildForm.group} onChange={e => setRkChildForm(p => ({ ...p, group: e.target.value }))}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                          <option value="">— Unassigned —</option>
+                          <option value="sunday-school">Sunday School</option>
+                          <option value="river-kids-1">River Kids-1</option>
+                          <option value="river-kids-2">River Kids-2</option>
+                        </select>
                       </div>
                     </div>
                     <button type="submit" disabled={!rkChildForm.name.trim()}
@@ -6185,6 +6196,11 @@ export default function DepartmentHub() {
                               {c.fatherName && c.motherName && <span className="mx-1">·</span>}
                               {c.motherName && <span>Mother: <span className="font-medium">{c.motherName}</span></span>}
                             </p>
+                          )}
+                          {c.group && (
+                            <span className="inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-100">
+                              {c.group === 'sunday-school' ? 'Sunday School' : c.group === 'river-kids-1' ? 'River Kids-1' : 'River Kids-2'}
+                            </span>
                           )}
                         </div>
                         {canEdit && (
@@ -6242,6 +6258,16 @@ export default function DepartmentHub() {
                           onChange={v => setRkEditChild(p => ({ ...p, motherName: v }))}
                           people={rkAllUsers} placeholder="Search or type mother's name" />
                       </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Class / Group</label>
+                        <select value={rkEditChild.group || ''} onChange={e => setRkEditChild(p => ({ ...p, group: e.target.value }))}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                          <option value="">— Unassigned —</option>
+                          <option value="sunday-school">Sunday School</option>
+                          <option value="river-kids-1">River Kids-1</option>
+                          <option value="river-kids-2">River Kids-2</option>
+                        </select>
+                      </div>
                     </div>
                     <button type="button" disabled={rkSavingEdit || !rkEditChild.name.trim()}
                       onClick={async () => {
@@ -6250,6 +6276,7 @@ export default function DepartmentHub() {
                           await updateDepartmentChild(rkEditChild.id, {
                             name: rkEditChild.name, dob: rkEditChild.dob || '',
                             fatherName: rkEditChild.fatherName || '', motherName: rkEditChild.motherName || '',
+                            group: rkEditChild.group || '',
                           })
                           const list = await getDepartmentChildren(department.name)
                           setRkChildren(list.filter((c) => c.active !== false))
@@ -6266,66 +6293,99 @@ export default function DepartmentHub() {
           )}
 
           {/* ── Attendance tab ── */}
-          {slug === 'river-kids' && activeTab === 'attendance' && department && (
-            <div className="space-y-4">
-              {/* Header + date */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-                <div>
+          {slug === 'river-kids' && activeTab === 'attendance' && department && (() => {
+            const RK_GROUPS = [
+              { key: 'sunday-school', label: 'Sunday School' },
+              { key: 'river-kids-1',  label: 'River Kids-1'  },
+              { key: 'river-kids-2',  label: 'River Kids-2'  },
+            ]
+            const groupKids = rkChildren.filter(c => !c.group || c.group === rkAttendanceGroup)
+            const presentCount = groupKids.filter(c => rkPresent[c.id]).length
+            return (
+              <div className="space-y-3">
+                {/* Date row */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
                   <p className="font-bold text-slate-800">Attendance</p>
-                  <p className="text-xs text-slate-400">{rkChildren.length} kid{rkChildren.length !== 1 ? 's' : ''}</p>
+                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <span className="text-xs font-medium text-slate-500">Date</span>
+                    <input type="date" value={rkDate} onChange={e => setRkDate(e.target.value)}
+                      className="px-2 py-1.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                  </label>
                 </div>
-                <label className="text-sm text-slate-600 flex items-center gap-2">
-                  <span className="text-xs font-medium text-slate-500">Date</span>
-                  <input type="date" value={rkDate} onChange={(e) => setRkDate(e.target.value)}
-                    className="px-2 py-1.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-                </label>
-              </div>
 
-              {rkLoading ? (
-                <p className="text-center text-slate-400 text-sm py-8">Loading…</p>
-              ) : rkChildren.length === 0 ? (
-                <p className="text-center text-slate-400 text-sm py-8">No kids registered yet. Add them in the Kids Register tab.</p>
-              ) : (
-                <div className="space-y-2">
-                  {rkChildren.map((c) => {
-                    const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
-                    return (
-                      <div key={c.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="font-semibold text-slate-800 text-sm">{c.name}</p>
-                            {age !== null && (
-                              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full border border-indigo-100">{age}y</span>
+                {/* Sub-page switcher */}
+                <div className="flex gap-2 bg-slate-100 rounded-2xl p-1">
+                  {RK_GROUPS.map(g => (
+                    <button key={g.key} type="button" onClick={() => setRkAttendanceGroup(g.key)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${rkAttendanceGroup === g.key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Stats row */}
+                {!rkLoading && groupKids.length > 0 && (
+                  <div className="flex gap-2">
+                    <div className="flex-1 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2 text-center">
+                      <p className="text-lg font-bold text-emerald-600">{presentCount}</p>
+                      <p className="text-[10px] text-emerald-500 font-medium">Present</p>
+                    </div>
+                    <div className="flex-1 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2 text-center">
+                      <p className="text-lg font-bold text-rose-500">{groupKids.length - presentCount}</p>
+                      <p className="text-[10px] text-rose-400 font-medium">Absent</p>
+                    </div>
+                    <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-center">
+                      <p className="text-lg font-bold text-slate-600">{groupKids.length}</p>
+                      <p className="text-[10px] text-slate-400 font-medium">Total</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Kids list */}
+                {rkLoading ? (
+                  <p className="text-center text-slate-400 text-sm py-8">Loading…</p>
+                ) : groupKids.length === 0 ? (
+                  <p className="text-center text-slate-400 text-sm py-8">
+                    No kids in this group yet. Assign kids in the Kids Register tab.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {groupKids.map((c) => {
+                      const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
+                      return (
+                        <div key={c.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-slate-800 text-sm">{c.name}</p>
+                              {age !== null && (
+                                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full border border-indigo-100">{age}y</span>
+                              )}
+                            </div>
+                            {(c.fatherName || c.motherName) && (
+                              <p className="text-xs text-slate-400 mt-0.5">{[c.fatherName, c.motherName].filter(Boolean).join(' · ')}</p>
                             )}
                           </div>
-                          {(c.fatherName || c.motherName) && (
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              {[c.fatherName, c.motherName].filter(Boolean).join(' · ')}
-                            </p>
-                          )}
+                          <button type="button" disabled={!canEdit}
+                            onClick={async () => {
+                              if (!canEdit || !department) return
+                              const next = { ...rkPresent, [c.id]: !rkPresent[c.id] }
+                              setRkPresent(next)
+                              try {
+                                await setDepartmentChildAttendance(department.name, rkDate, next, userProfile?.email || userProfile?.displayName || 'unknown')
+                              } catch { alert('Failed to save') }
+                            }}
+                            className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${rkPresent[c.id] ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
+                          >
+                            {rkPresent[c.id] ? 'Present' : 'Absent'}
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          disabled={!canEdit}
-                          onClick={async () => {
-                            if (!canEdit || !department) return
-                            const next = { ...rkPresent, [c.id]: !rkPresent[c.id] }
-                            setRkPresent(next)
-                            try {
-                              await setDepartmentChildAttendance(department.name, rkDate, next, userProfile?.email || userProfile?.displayName || 'unknown')
-                            } catch { alert('Failed to save') }
-                          }}
-                          className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${rkPresent[c.id] ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
-                        >
-                          {rkPresent[c.id] ? 'Present' : 'Absent'}
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {slug === 'event-m' && activeTab === 'events' && department && (
             <div className="space-y-4">

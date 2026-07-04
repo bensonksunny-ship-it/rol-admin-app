@@ -15,6 +15,7 @@ import {
   updateDepartmentTeamMember,
   updateWorshipTeamMember,
   updateDelightVisitor,
+  getAllPersonSundayAttendance,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 
@@ -288,6 +289,7 @@ function ExpandedProfile({ p, onEdit }) {
   const allMinistries = [...manualMinistries, ...autoMinistries]
 
   const activeCells = p.cells.filter(c => c.status !== 'inactive')
+  const sundayAttendanceDates = [...new Set(p.sundayAttendance || [])].sort((a, b) => b.localeCompare(a))
 
   // Merge fields: prefer PCS values (more complete), fall back to top-level person fields
   const baptised      = p.pcs?.baptised      || p.baptised      || ''
@@ -400,7 +402,26 @@ function ExpandedProfile({ p, onEdit }) {
           </div>
         )}
 
-        {!p.attendedDate && activeCells.length === 0 && allMinistries.length === 0 && (
+        {/* Sunday Attendance — from Live Control "Others" linking */}
+        {sundayAttendanceDates.length > 0 && (
+          <div className="space-y-1 mt-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Sunday Attendance</p>
+              <span className="text-[9px] font-black text-blue-700 bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-full">
+                {sundayAttendanceDates.length} Sunday{sundayAttendanceDates.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {sundayAttendanceDates.map((d) => (
+                <span key={d} className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5">
+                  {fmt(d)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!p.attendedDate && activeCells.length === 0 && allMinistries.length === 0 && sundayAttendanceDates.length === 0 && (
           <p className="text-[10px] text-slate-300 italic">No church journey data recorded</p>
         )}
       </SectionCard>
@@ -465,7 +486,8 @@ export default function PeopleDirectory() {
       getAllWorshipTeamMembers().catch(() => []),
       getCellGroups('Cell').catch(() => []),
       getDelightVisitors().catch(() => []),
-    ]).then(([people, cellMembers, pcsEntries, deptTeams, worshipTeams, cellGroups, visitors]) => {
+      getAllPersonSundayAttendance().catch(() => []),
+    ]).then(([people, cellMembers, pcsEntries, deptTeams, worshipTeams, cellGroups, visitors, sundayAttendance]) => {
       const cellById = {}
       cellGroups.forEach(c => { cellById[c.id] = c })
 
@@ -499,6 +521,7 @@ export default function PeopleDirectory() {
           worshipTeams: [],
           source: 'people',
           _visitorIds: [],
+          sundayAttendance: [],
         }
         byId[p.id] = entry
         if (p.phone) byPhone[p.phone.replace(/\s+/g, '')] = entry
@@ -552,6 +575,7 @@ export default function PeopleDirectory() {
           worshipTeams: [],
           source: 'pcs-legacy',
           _visitorIds: [],
+          sundayAttendance: [],
         }
         merged.push(entry)
         if (phone) byPhone[phone] = entry
@@ -596,6 +620,7 @@ export default function PeopleDirectory() {
           worshipTeams: [],
           source: 'visitor',
           _visitorIds: [v.id],
+          sundayAttendance: [],
         }
         merged.push(entry)
         if (phone) byPhone[phone] = entry
@@ -622,6 +647,13 @@ export default function PeopleDirectory() {
         const entry = (t.personId && byId[t.personId]) || (t.visitorId && byVisitorId[t.visitorId])
         if (!entry) return
         entry.worshipTeams.push(t)
+      })
+
+      // Attach Sunday attendance records (linked from Live Control's "Others" section)
+      sundayAttendance.forEach(a => {
+        const entry = (a.personId && byId[a.personId]) || (a.visitorId && byVisitorId[a.visitorId])
+        if (!entry) return
+        entry.sundayAttendance.push(a.date)
       })
 
       // Sort final merged list by date descending

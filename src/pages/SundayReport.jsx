@@ -75,7 +75,7 @@ function migrateLegacyCellAttendance(report, cellGroups) {
   return sca
 }
 
-function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, className = '' }) {
+function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, linkedNames = null, className = '' }) {
   const [query, setQuery] = useState('')
   const [linkingIdx, setLinkingIdx] = useState(null)
   const [linkQuery, setLinkQuery] = useState('')
@@ -158,7 +158,9 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
       )}
 
       <ul className="space-y-2">
-        {(names || []).map((name, idx) => (
+        {(names || []).map((name, idx) => {
+          const isLinked = linkedNames?.has(String(name).trim().toLowerCase())
+          return (
           <li key={idx} className={linkDirectory ? 'relative' : undefined}>
             <div className="flex items-center gap-2">
               {canEdit ? (
@@ -169,13 +171,18 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
                     onChange={(e) => onEdit(idx, e.target.value)}
                     className="flex-1 px-2 py-1.5 rounded border border-slate-300 text-sm"
                   />
+                  {isLinked && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold whitespace-nowrap">
+                      ✓ Linked
+                    </span>
+                  )}
                   {linkDirectory && (
                     <button
                       type="button"
                       onClick={() => { setLinkingIdx(linkingIdx === idx ? null : idx); setLinkQuery('') }}
                       className="text-indigo-600 hover:underline text-sm font-medium whitespace-nowrap"
                     >
-                      Link
+                      {isLinked ? 'Re-link' : 'Link'}
                     </button>
                   )}
                   <button type="button" onClick={() => onRemove(idx)} className="text-red-600 hover:underline text-sm">
@@ -217,7 +224,8 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
               </div>
             )}
           </li>
-        ))}
+          )
+        })}
         {canEdit && showManualAdd && (
           <li>
             <button type="button" onClick={onAdd} className="text-indigo-600 hover:underline text-sm font-medium">
@@ -470,10 +478,36 @@ export default function SundayReport({ embedded = false }) {
     setCompletedSections((prev) => ({ ...prev, [sectionId]: false }))
   }, [])
 
-  // Load the people directory once — used to search/select names for the Non Cell section
-  useEffect(() => {
-    getPeople().then(setPeopleDirectory).catch(() => setPeopleDirectory([]))
+  // Load the search pool for the Non Cell section — People's Directory is tiny on its own,
+  // so merge in D-Light Visitors too (same pattern as the cell-leader picker) or there's
+  // barely anyone left to find once cell members are excluded.
+  const loadPeopleDirectory = useCallback(() => {
+    return Promise.all([getPeople().catch(() => []), getDelightVisitors().catch(() => [])])
+      .then(([people, visitors]) => {
+        const seen = new Set()
+        const merged = []
+        for (const p of [...people, ...visitors]) {
+          const key = (p.phone || '').replace(/\s+/g, '') || p.id
+          if (p.name && !seen.has(key)) { seen.add(key); merged.push(p) }
+        }
+        setPeopleDirectory(merged)
+      })
+      .catch(() => setPeopleDirectory([]))
   }, [])
+
+  useEffect(() => {
+    loadPeopleDirectory()
+  }, [loadPeopleDirectory])
+
+  // On tab focus: also refresh the Non Cell search pool, so a visitor/person just added
+  // in another tab (e.g. D-Light Visitors) shows up without needing a full page reload.
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') loadPeopleDirectory()
+    }
+    document.addEventListener('visibilitychange', handleVisible)
+    return () => document.removeEventListener('visibilitychange', handleVisible)
+  }, [loadPeopleDirectory])
 
   // Load all D-Light visitor records once — combined with the people directory as the
   // "Link" search pool for Others, so a name can be tied to their actual profile/visitor
@@ -693,6 +727,20 @@ export default function SundayReport({ embedded = false }) {
   const addCellNameValue = (key, value) => updateReport({ [key]: [...(report?.[key] || []), value] })
   const removeCellName = (key, idx) => updateReport({ [key]: (report?.[key] || []).filter((_, i) => i !== idx) })
 
+  // Search pool for linking an "Others" name — People Directory + D-Light visitors, tagged by source.
+  const othersLinkDirectory = useMemo(
+    () => [
+      ...peopleDirectory.map((p) => ({ id: p.id, name: p.name, phone: p.phone, source: 'people' })),
+      ...delightVisitorsAll.map((v) => ({ id: v.id, name: v.name, phone: v.phone, source: 'visitor' })),
+    ],
+    [peopleDirectory, delightVisitorsAll]
+  )
+
+  const othersLinkedNames = useMemo(
+    () => new Set(Object.keys(report?.othersLinked || {})),
+    [report?.othersLinked]
+  )
+
   /**
    * Link an "Others" entry to a real profile — either a People Directory record or a
    * D-Light visitor record — so their own profile can show this Sunday's attendance.
@@ -707,12 +755,21 @@ export default function SundayReport({ embedded = false }) {
       (m) => String(m.name || '').trim().toLowerCase() === name.toLowerCase()
     )
     if (matchedMember) {
+      // Belongs to a cell — move out of Others entirely into that cell's attendance.
       const others = (report?.others || []).filter((_, i) => i !== idx)
       const sca = { ...(report?.sundayCellAttendance || {}) }
       const list = [...(sca[matchedMember.cellId] || [])]
       if (!list.some((n) => String(n).trim().toLowerCase() === name.toLowerCase())) list.push(name)
       sca[matchedMember.cellId] = list
       updateReport({ others, sundayCellAttendance: sca })
+    } else {
+      // Not in any cell — stay in Others, but replace the typed name with the
+      // canonical directory/visitor name and mark this entry as linked.
+      const others = [...(report?.others || [])]
+      others[idx] = name
+      const othersLinked = { ...(report?.othersLinked || {}) }
+      othersLinked[name.toLowerCase()] = { source: person.source, id: person.id }
+      updateReport({ others, othersLinked })
     }
 
     recordPersonSundayAttendance({
@@ -1239,6 +1296,7 @@ export default function SundayReport({ embedded = false }) {
                       onRemove={(idx) => removeCellName(key, idx)}
                       linkDirectory={key === 'others' ? othersLinkDirectory : null}
                       onLink={key === 'others' ? linkOthersNameToCell : undefined}
+                      linkedNames={key === 'others' ? othersLinkedNames : undefined}
                       className="border-0 shadow-none bg-transparent p-0"
                     />
                   )}
