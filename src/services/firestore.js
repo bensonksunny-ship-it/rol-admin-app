@@ -689,11 +689,14 @@ export async function getDepartmentChildren(department) {
   return list
 }
 
-export async function addDepartmentChild(department, name, addedBy) {
-  if (!db || !department || !String(name || '').trim()) return null
+export async function addDepartmentChild(department, childData, addedBy) {
+  if (!db || !department || !String(childData?.name || '').trim()) return null
   const ref = await addDoc(collection(db, DEPARTMENT_CHILDREN_COLLECTION), {
     department,
-    name: String(name).trim(),
+    name: String(childData.name).trim(),
+    dob: childData.dob || '',
+    fatherName: (childData.fatherName || '').trim(),
+    motherName: (childData.motherName || '').trim(),
     active: true,
     addedBy: addedBy || 'unknown',
     createdAt: Timestamp.now(),
@@ -706,6 +709,9 @@ export async function updateDepartmentChild(id, data) {
   const payload = {}
   if (data.name !== undefined) payload.name = String(data.name || '').trim()
   if (data.active !== undefined) payload.active = data.active !== false
+  if (data.dob !== undefined) payload.dob = data.dob || ''
+  if (data.fatherName !== undefined) payload.fatherName = (data.fatherName || '').trim()
+  if (data.motherName !== undefined) payload.motherName = (data.motherName || '').trim()
   if (Object.keys(payload).length) await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), payload)
 }
 

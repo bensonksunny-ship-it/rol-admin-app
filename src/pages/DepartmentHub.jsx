@@ -68,6 +68,7 @@ import {
   addDepartmentChild,
   getDepartmentChildAttendance,
   setDepartmentChildAttendance,
+  getPCSLookup,
   getDepartmentEvents,
   addDepartmentEvent,
   updateDepartmentEvent,
@@ -130,6 +131,7 @@ import CellOperationsToggle from './cell/CellOperationsToggle'
 import SundayOperationsToggle from './sunday/SundayOperationsToggle'
 import MediaOperationsToggle from './media/MediaOperationsToggle'
 import RiverKidsOperationsToggle from './river-kids/RiverKidsOperationsToggle'
+import PersonSearchInput from '../components/PersonSearchInput'
 import AdministrationOperationsToggle from './administration/AdministrationOperationsToggle'
 import AccountsOperationsToggle from './accounts/AccountsOperationsToggle'
 import DLightOperationsToggle from './d-light/DLightOperationsToggle'
@@ -486,7 +488,10 @@ export default function DepartmentHub() {
   const [rkLoading, setRkLoading] = useState(false)
   const [rkDate, setRkDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [rkPresent, setRkPresent] = useState({})
-  const [rkChildName, setRkChildName] = useState('')
+  const [rkChildForm, setRkChildForm] = useState({ name: '', dob: '', fatherName: '', motherName: '' })
+  const [rkEditChild, setRkEditChild] = useState(null)
+  const [rkSavingEdit, setRkSavingEdit] = useState(false)
+  const [rkAllUsers, setRkAllUsers] = useState([])
   const [deptEvents, setDeptEvents] = useState([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [selectedEventId, setSelectedEventId] = useState(null)
@@ -736,13 +741,19 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (slug !== 'river-kids' || activeTab !== 'attendance' || !department) return
     setRkLoading(true)
-    Promise.all([getDepartmentChildren(department.name), getDepartmentChildAttendance(department.name, rkDate)])
-      .then(([children, att]) => {
+    Promise.all([
+      getDepartmentChildren(department.name),
+      getDepartmentChildAttendance(department.name, rkDate),
+      rkAllUsers.length === 0 ? getPCSLookup() : Promise.resolve(rkAllUsers),
+    ])
+      .then(([children, att, people]) => {
         setRkChildren(children.filter((c) => c.active !== false))
         setRkAttendanceId(att.id)
         setRkPresent(typeof att.present === 'object' && att.present ? { ...att.present } : {})
+        if (rkAllUsers.length === 0) setRkAllUsers(people.filter(p => p.name).sort((a, b) => (a.name || '').localeCompare(b.name || '')))
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('RK load error', err)
         setRkChildren([])
         setRkPresent({})
       })
@@ -6079,90 +6090,195 @@ export default function DepartmentHub() {
           )}
 
           {slug === 'river-kids' && activeTab === 'attendance' && department && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="font-semibold text-slate-800">Attendance</h2>
-                <label className="text-sm text-slate-700 flex items-center gap-2">
-                  Date
-                  <input
-                    type="date"
-                    value={rkDate}
-                    onChange={(e) => setRkDate(e.target.value)}
-                    className="px-2 py-1 border border-slate-300 rounded-lg"
-                  />
+            <div className="space-y-4">
+
+              {/* Header + date */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-slate-800">Kids Register</p>
+                  <p className="text-xs text-slate-400">{rkChildren.length} kid{rkChildren.length !== 1 ? 's' : ''} registered</p>
+                </div>
+                <label className="text-sm text-slate-600 flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-500">Date</span>
+                  <input type="date" value={rkDate} onChange={(e) => setRkDate(e.target.value)}
+                    className="px-2 py-1.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                 </label>
               </div>
+
+              {/* Add kid form */}
               {canEdit && (
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault()
-                    const n = rkChildName.trim()
-                    if (!n || !department) return
-                    try {
-                      await addDepartmentChild(department.name, n, userProfile?.email || userProfile?.displayName || 'unknown')
-                      setRkChildName('')
-                      const list = await getDepartmentChildren(department.name)
-                      setRkChildren(list.filter((c) => c.active !== false))
-                    } catch {
-                      alert('Failed to add child')
-                    }
-                  }}
-                  className="flex flex-wrap gap-2 items-end"
-                >
-                  <div>
-                    <label className="block text-xs text-slate-600 mb-1">Child name</label>
-                    <input
-                      value={rkChildName}
-                      onChange={(e) => setRkChildName(e.target.value)}
-                      className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm min-w-[200px]"
-                      placeholder="Add child"
-                    />
-                  </div>
-                  <button type="submit" className="px-3 py-1.5 min-h-[44px] bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">
-                    Add child
-                  </button>
-                </form>
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Add a Kid</p>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault()
+                      if (!rkChildForm.name.trim() || !department) return
+                      try {
+                        await addDepartmentChild(department.name, rkChildForm, userProfile?.email || userProfile?.displayName || 'unknown')
+                        setRkChildForm({ name: '', dob: '', fatherName: '', motherName: '' })
+                        const list = await getDepartmentChildren(department.name)
+                        setRkChildren(list.filter((c) => c.active !== false))
+                      } catch {
+                        alert('Failed to add kid')
+                      }
+                    }}
+                    className="space-y-3"
+                  >
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Name *</label>
+                        <input value={rkChildForm.name} onChange={e => setRkChildForm(p => ({ ...p, name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" placeholder="Child's name" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Date of Birth</label>
+                        <input type="date" value={rkChildForm.dob} onChange={e => setRkChildForm(p => ({ ...p, dob: e.target.value }))}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                      </div>
+                      <div>
+                        <PersonSearchInput
+                          label="Father's Name"
+                          value={rkChildForm.fatherName}
+                          onChange={v => setRkChildForm(p => ({ ...p, fatherName: v }))}
+                          people={rkAllUsers}
+                          placeholder="Search or type father's name"
+                        />
+                      </div>
+                      <div>
+                        <PersonSearchInput
+                          label="Mother's Name"
+                          value={rkChildForm.motherName}
+                          onChange={v => setRkChildForm(p => ({ ...p, motherName: v }))}
+                          people={rkAllUsers}
+                          placeholder="Search or type mother's name"
+                        />
+                      </div>
+                    </div>
+                    <button type="submit" disabled={!rkChildForm.name.trim()}
+                      className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 active:scale-[0.98] transition-all">
+                      Add Kid
+                    </button>
+                  </form>
+                </div>
               )}
+
+              {/* Kids list */}
               {rkLoading ? (
-                <p className="text-slate-500">Loading…</p>
+                <p className="text-center text-slate-400 text-sm py-8">Loading…</p>
               ) : rkChildren.length === 0 ? (
-                <p className="text-sm text-slate-500">No children yet. Add names above (directors / heads only).</p>
+                <p className="text-center text-slate-400 text-sm py-8">No kids registered yet.</p>
               ) : (
-                <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-                  {rkChildren.map((c) => (
-                    <li key={c.id} className="flex items-center justify-between px-4 py-3 bg-white">
-                      <span className="font-medium text-slate-800">{c.name}</span>
-                      <button
-                        type="button"
-                        disabled={!canEdit}
-                        onClick={async () => {
-                          if (!canEdit || !department) return
-                          const next = { ...rkPresent, [c.id]: !rkPresent[c.id] }
-                          setRkPresent(next)
-                          try {
-                            await setDepartmentChildAttendance(
-                              department.name,
-                              rkDate,
-                              next,
-                              userProfile?.email || userProfile?.displayName || 'unknown'
-                            )
-                          } catch {
-                            alert('Failed to save attendance')
-                          }
-                        }}
-                        className={`px-4 py-1.5 rounded-lg text-sm font-medium ${
-                          rkPresent[c.id] ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
-                        } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      >
-                        {rkPresent[c.id] ? 'Present' : 'Absent'}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                <div className="space-y-2">
+                  {rkChildren.map((c) => {
+                    const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
+                    return (
+                      <div key={c.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-slate-800 text-sm">{c.name}</p>
+                            {age !== null && (
+                              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full border border-indigo-100">{age}y</span>
+                            )}
+                          </div>
+                          {c.dob && <p className="text-xs text-slate-400 mt-0.5">DOB: {c.dob}</p>}
+                          {(c.fatherName || c.motherName) && (
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {c.fatherName && <span>Father: <span className="font-medium">{c.fatherName}</span></span>}
+                              {c.fatherName && c.motherName && <span className="mx-1">·</span>}
+                              {c.motherName && <span>Mother: <span className="font-medium">{c.motherName}</span></span>}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {canEdit && (
+                            <button type="button" onClick={() => setRkEditChild({ ...c })}
+                              className="text-xs text-slate-400 hover:text-indigo-600 transition-colors px-1">Edit</button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={async () => {
+                              if (!canEdit || !department) return
+                              const next = { ...rkPresent, [c.id]: !rkPresent[c.id] }
+                              setRkPresent(next)
+                              try {
+                                await setDepartmentChildAttendance(department.name, rkDate, next, userProfile?.email || userProfile?.displayName || 'unknown')
+                              } catch { alert('Failed to save') }
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${rkPresent[c.id] ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
+                          >
+                            {rkPresent[c.id] ? 'Present' : 'Absent'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
-              {canEdit && rkChildren.length > 0 && (
-                <p className="text-xs text-slate-500">Toggle present/absent; each change saves for the selected date.</p>
+
+              {/* Edit kid modal */}
+              {rkEditChild && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+                  <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-slate-800">Edit Kid</p>
+                      <button type="button" onClick={() => setRkEditChild(null)}
+                        className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-lg leading-none">×</button>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Name *</label>
+                        <input value={rkEditChild.name} onChange={e => setRkEditChild(p => ({ ...p, name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Date of Birth</label>
+                        <input type="date" value={rkEditChild.dob || ''} onChange={e => setRkEditChild(p => ({ ...p, dob: e.target.value }))}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                      </div>
+                      <div>
+                        <PersonSearchInput
+                          label="Father's Name"
+                          value={rkEditChild.fatherName || ''}
+                          onChange={v => setRkEditChild(p => ({ ...p, fatherName: v }))}
+                          people={rkAllUsers}
+                          placeholder="Search or type father's name"
+                        />
+                      </div>
+                      <div>
+                        <PersonSearchInput
+                          label="Mother's Name"
+                          value={rkEditChild.motherName || ''}
+                          onChange={v => setRkEditChild(p => ({ ...p, motherName: v }))}
+                          people={rkAllUsers}
+                          placeholder="Search or type mother's name"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={rkSavingEdit || !rkEditChild.name.trim()}
+                      onClick={async () => {
+                        setRkSavingEdit(true)
+                        try {
+                          await updateDepartmentChild(rkEditChild.id, {
+                            name: rkEditChild.name,
+                            dob: rkEditChild.dob || '',
+                            fatherName: rkEditChild.fatherName || '',
+                            motherName: rkEditChild.motherName || '',
+                          })
+                          const list = await getDepartmentChildren(department.name)
+                          setRkChildren(list.filter((c) => c.active !== false))
+                          setRkEditChild(null)
+                        } catch { alert('Failed to save') } finally { setRkSavingEdit(false) }
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 active:scale-[0.98] transition-all">
+                      {rkSavingEdit ? 'Saving…' : 'Save Changes'}
+                    </button>
+                  </div>
+                </div>
               )}
+
             </div>
           )}
 
