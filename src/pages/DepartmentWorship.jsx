@@ -43,6 +43,7 @@ import BudgetPage from './accounts/BudgetPage'
 import BoardPointsModal from '../components/BoardPointsModal'
 import UpcomingSunday from './UpcomingSunday'
 import SongDesigner from './worship/SongDesigner'
+import SongViewer from './worship/SongViewer'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -425,8 +426,10 @@ export default function DepartmentWorship() {
   const [loadingSongs, setLoadingSongs] = useState(false)
   const [songSearch, setSongSearch] = useState('')
   const [songSubPage, setSongSubPage] = useState('directory')
-  const [songModal, setSongModal] = useState(null) // null | 'add' | song object (edit)
-  const [songForm, setSongForm] = useState({ title: '', artist: '', key: '', tempo: '', tags: '', notes: '' })
+  const [editingSong, setEditingSong] = useState(null)
+  const [viewingSong, setViewingSong] = useState(null)
+  const [songModal, setSongModal] = useState(null) // null | 'add'
+  const [songForm, setSongForm] = useState({ title: '', artist: '', key: '', tempo: '', notes: '' })
   const [savingSong, setSavingSong] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
 
@@ -2994,7 +2997,7 @@ export default function DepartmentWorship() {
                 {canManageWorship && (
                   <button
                     type="button"
-                    onClick={() => { setSongForm({ title: '', artist: '', key: '', tempo: '', tags: '', notes: '' }); setSongModal('add') }}
+                    onClick={() => { setSongForm({ title: '', artist: '', key: '', tempo: '', notes: '' }); setSongModal('add') }}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:scale-95 transition-all"
                   >
                     <span className="text-base leading-none">+</span> Add Song
@@ -3015,29 +3018,31 @@ export default function DepartmentWorship() {
               ) : songs.length === 0 ? (
                 <div className="text-center py-10 text-slate-400 text-sm">No songs yet. Add your first song.</div>
               ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {(() => {
                     const filtered = songs.filter((s) => {
                       const q = songSearch.toLowerCase()
                       return !q || s.title?.toLowerCase().includes(q) || s.artist?.toLowerCase().includes(q)
                     })
-                    if (filtered.length === 0) return <p className="text-center text-slate-400 text-sm py-6">No songs match your search.</p>
+                    if (filtered.length === 0) return <p className="col-span-full text-center text-slate-400 text-sm py-6">No songs match your search.</p>
                     return filtered.map((song) => (
-                      <div key={song.id} className="bg-white rounded-2xl border border-slate-200 px-4 py-3 shadow-sm">
+                      <div
+                        key={song.id}
+                        className="bg-white rounded-2xl border border-slate-200 px-4 py-3 shadow-sm active:bg-slate-50 cursor-pointer transition-colors"
+                        onClick={() => setViewingSong(song)}
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="font-semibold text-slate-800 text-sm truncate">{song.title}</p>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
                               {song.artist && <span className="text-xs text-slate-500">{song.artist}</span>}
                               {song.key && <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{song.key}</span>}
-                              {song.tempo && <span className="text-xs text-slate-400">{song.tempo}</span>}
-                              {song.tags && <span className="text-xs text-slate-400 italic">{song.tags}</span>}
+                              {song.tempo && <span className="text-xs text-slate-400">{song.tempo} BPM</span>}
                             </div>
-                            {song.notes && <p className="text-xs text-slate-400 mt-1 line-clamp-2">{song.notes}</p>}
                           </div>
                           {canManageWorship && (
-                            <div className="flex gap-2 flex-shrink-0">
-                              <button type="button" onClick={() => { setSongForm({ title: song.title || '', artist: song.artist || '', key: song.key || '', tempo: song.tempo || '', tags: song.tags || '', notes: song.notes || '' }); setSongModal(song) }} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                            <div className="flex gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                              <button type="button" onClick={() => { setEditingSong(song); setSongSubPage('design') }} className="text-xs text-indigo-600 hover:underline">Edit</button>
                               <button type="button" disabled={deletingId === song.id} onClick={async () => {
                                 if (!window.confirm(`Delete "${song.title}"?`)) return
                                 setDeletingId(song.id)
@@ -3046,15 +3051,10 @@ export default function DepartmentWorship() {
                             </div>
                           )}
                         </div>
-                        {Array.isArray(song.sections) && song.sections.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
-                            {song.sections.map((sec, i) => (
-                              <div key={i}>
-                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{sec.type}</p>
-                                {sec.lyrics && <p className="text-xs text-slate-600 whitespace-pre-wrap mt-0.5">{sec.lyrics}</p>}
-                              </div>
-                            ))}
-                          </div>
+                        {Array.isArray(song.blocks) && song.blocks.length > 0 && (
+                          <p className="text-[10px] text-slate-400 mt-1.5">
+                            {song.blocks.map(b => b.sectionName).join(' · ')}
+                          </p>
                         )}
                       </div>
                     ))
@@ -3069,7 +3069,19 @@ export default function DepartmentWorship() {
             <SongDesigner
               canManageWorship={canManageWorship}
               userProfile={userProfile}
-              onSaved={loadSongs}
+              editingSong={editingSong}
+              onCancelEdit={() => { setEditingSong(null); setSongSubPage('directory') }}
+              onSaved={() => { loadSongs(); if (editingSong) { setEditingSong(null); setSongSubPage('directory') } }}
+            />
+          )}
+
+          {/* Song full-view overlay */}
+          {viewingSong && (
+            <SongViewer
+              song={viewingSong}
+              canManage={canManageWorship}
+              onClose={() => setViewingSong(null)}
+              onEdit={song => { setViewingSong(null); setEditingSong(song); setSongSubPage('design') }}
             />
           )}
 
@@ -3096,16 +3108,18 @@ export default function DepartmentWorship() {
                       </select>
                     </div>
                     <div className="flex-1">
-                      <label className="text-xs font-medium text-slate-600 block mb-1">Tempo</label>
-                      <select value={songForm.tempo} onChange={(e) => setSongForm((p) => ({ ...p, tempo: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
-                        <option value="">—</option>
-                        {['Slow','Medium','Fast','Upbeat'].map((t) => <option key={t} value={t}>{t}</option>)}
-                      </select>
+                      <label className="text-xs font-medium text-slate-600 block mb-1">Tempo (BPM)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="300"
+                        inputMode="numeric"
+                        value={songForm.tempo}
+                        onChange={(e) => setSongForm((p) => ({ ...p, tempo: e.target.value }))}
+                        placeholder="e.g. 120"
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
                     </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600 block mb-1">Tags</label>
-                    <input value={songForm.tags} onChange={(e) => setSongForm((p) => ({ ...p, tags: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" placeholder="e.g. Praise, Communion" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-slate-600 block mb-1">Notes</label>
@@ -3123,7 +3137,7 @@ export default function DepartmentWorship() {
                         if (songModal === 'add') {
                           await addWorshipSong(songForm, userProfile?.name || 'unknown')
                         } else {
-                          await updateWorshipSong(songModal.id, { title: songForm.title, artist: songForm.artist, key: songForm.key, tempo: songForm.tempo, tags: songForm.tags, notes: songForm.notes })
+                          await updateWorshipSong(songModal.id, { title: songForm.title, artist: songForm.artist, key: songForm.key, tempo: songForm.tempo ? Number(songForm.tempo) : null, notes: songForm.notes })
                         }
                         await loadSongs()
                         setSongModal(null)

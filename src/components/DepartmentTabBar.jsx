@@ -35,7 +35,7 @@ function getTabLabel(tab) {
     case 'entry':             return 'Entry'
     case 'insights':          return 'Insights'
     case 'visitorEntry':      return 'Visitors'
-    case 'attendance':        return 'Attendance'
+    case 'attendance':        return 'Kids Register'
     case 'pcs':               return 'PCS'
     case 'events':            return 'Events'
     case 'liveControl':       return 'Live Control'

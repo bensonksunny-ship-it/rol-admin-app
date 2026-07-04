@@ -62,7 +62,9 @@
       "Bash(firebase projects:list)",
       "Bash(firebase deploy *)",
       "Bash(npx playwright *)",
-      "Bash(gcloud --version)"
+      "Bash(gcloud --version)",
+      "Read(//tmp/**)",
+      "Bash(curl -s https://rol-admin.web.app/)"
     ]
   }
 }
