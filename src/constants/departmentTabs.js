@@ -18,7 +18,7 @@ export function getDepartmentHubTabs(slug) {
     case 'event-m':
       return ['summary', 'events', 'liveControl', 'operations']
     case 'river-kids':
-      return ['summary', 'attendance', 'operations']
+      return ['summary', 'register', 'attendance', 'operations']
     case 'accounts':
       return ['summary', 'entry', 'operations']
     case 'administration':

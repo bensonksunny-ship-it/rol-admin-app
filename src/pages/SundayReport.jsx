@@ -8,11 +8,13 @@ import {
   setSundayReport,
   getCellGroups,
   getCellGroupMembers,
+  getAllCellGroupMembers,
   addSundayProgramLog,
   getSundayProgramLogsByDate,
   updateSundayProgramLog,
   getDelightVisitors,
   getPeople,
+  recordPersonSundayAttendance,
 } from '../services/firestore'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
@@ -73,8 +75,10 @@ function migrateLegacyCellAttendance(report, cellGroups) {
   return sca
 }
 
-function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, className = '' }) {
+function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, className = '' }) {
   const [query, setQuery] = useState('')
+  const [linkingIdx, setLinkingIdx] = useState(null)
+  const [linkQuery, setLinkQuery] = useState('')
   const nameSet = useMemo(() => new Set((names || []).map(n => n.trim().toLowerCase())), [names])
   const unusedSuggestions = useMemo(
     () => suggestions.filter(s => !nameSet.has(s.trim().toLowerCase())),
@@ -87,6 +91,11 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
       .filter((p) => p.name && p.name.trim().toLowerCase().includes(q) && !nameSet.has(p.name.trim().toLowerCase()))
       .slice(0, 8)
   }, [query, people, nameSet])
+  const linkResults = useMemo(() => {
+    const q = linkQuery.trim().toLowerCase()
+    if (!q || !linkDirectory) return []
+    return linkDirectory.filter((m) => m.name && m.name.trim().toLowerCase().includes(q)).slice(0, 8)
+  }, [linkQuery, linkDirectory])
 
   return (
     <div className={`rounded-xl border p-4 shadow-sm ${className || 'bg-white border-slate-200'}`}>
@@ -150,21 +159,62 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
 
       <ul className="space-y-2">
         {(names || []).map((name, idx) => (
-          <li key={idx} className="flex items-center gap-2">
-            {canEdit ? (
-              <>
+          <li key={idx} className={linkDirectory ? 'relative' : undefined}>
+            <div className="flex items-center gap-2">
+              {canEdit ? (
+                <>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => onEdit(idx, e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded border border-slate-300 text-sm"
+                  />
+                  {linkDirectory && (
+                    <button
+                      type="button"
+                      onClick={() => { setLinkingIdx(linkingIdx === idx ? null : idx); setLinkQuery('') }}
+                      className="text-indigo-600 hover:underline text-sm font-medium whitespace-nowrap"
+                    >
+                      Link
+                    </button>
+                  )}
+                  <button type="button" onClick={() => onRemove(idx)} className="text-red-600 hover:underline text-sm">
+                    Remove
+                  </button>
+                </>
+              ) : (
+                <span className="text-slate-800">{name || '—'}</span>
+              )}
+            </div>
+            {linkDirectory && linkingIdx === idx && (
+              <div className="mt-1.5 relative">
                 <input
                   type="text"
-                  value={name}
-                  onChange={(e) => onEdit(idx, e.target.value)}
-                  className="flex-1 px-2 py-1.5 rounded border border-slate-300 text-sm"
+                  value={linkQuery}
+                  onChange={(e) => setLinkQuery(e.target.value)}
+                  placeholder="Search directory or visitors to link…"
+                  autoFocus
+                  className="w-full px-3 py-2 rounded-lg border border-indigo-300 text-sm"
                 />
-                <button type="button" onClick={() => onRemove(idx)} className="text-red-600 hover:underline text-sm">
-                  Remove
-                </button>
-              </>
-            ) : (
-              <span className="text-slate-800">{name || '—'}</span>
+                {linkResults.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                    {linkResults.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => { onLink?.(idx, m); setLinkingIdx(null); setLinkQuery('') }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col"
+                      >
+                        <span className="text-slate-800 font-medium">{m.name}</span>
+                        <span className="text-xs text-indigo-500">{m.source === 'visitor' ? 'D-Light Visitor' : 'People Directory'}{m.phone ? ` · ${m.phone}` : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {linkQuery.trim() && linkResults.length === 0 && (
+                  <p className="text-xs text-slate-400 mt-1">No match found for "{linkQuery.trim()}".</p>
+                )}
+              </div>
             )}
           </li>
         ))}
@@ -320,7 +370,9 @@ export default function SundayReport({ embedded = false }) {
   const [secondWeekSuggestions, setSecondWeekSuggestions] = useState([])
   const [loadingSecondWeekSuggestions, setLoadingSecondWeekSuggestions] = useState(false)
   const [peopleDirectory, setPeopleDirectory] = useState([])
+  const [delightVisitorsAll, setDelightVisitorsAll] = useState([])
   const [cellMemberNames, setCellMemberNames] = useState(new Set())
+  const [allCellMembers, setAllCellMembers] = useState([])
   const [editingLogIdx, setEditingLogIdx] = useState(null)
   const [editingLogTime, setEditingLogTime] = useState('')
   const [editingProgramIdx, setEditingProgramIdx] = useState(null)
@@ -423,24 +475,27 @@ export default function SundayReport({ embedded = false }) {
     getPeople().then(setPeopleDirectory).catch(() => setPeopleDirectory([]))
   }, [])
 
-  // Build the set of names already belonging to a cell — excluded from Non Cell search results
+  // Load all D-Light visitor records once — combined with the people directory as the
+  // "Link" search pool for Others, so a name can be tied to their actual profile/visitor
+  // record even if they aren't in a cell.
   useEffect(() => {
-    if (!cellGroups.length) {
-      setCellMemberNames(new Set())
-      return
-    }
-    Promise.all(cellGroups.map((g) => getCellGroupMembers(g.id)))
-      .then((lists) => {
-        const set = new Set()
-        lists.forEach((list) => {
-          (list || []).forEach((m) => {
-            if (m.status !== 'inactive' && m.name) set.add(String(m.name).trim().toLowerCase())
-          })
-        })
+    getDelightVisitors().then(setDelightVisitorsAll).catch(() => setDelightVisitorsAll([]))
+  }, [])
+
+  // Build the set of names already belonging to any cell — excluded from Non Cell search results.
+  // Single collection-group query across every cell's members subcollection, rather than one
+  // getCellGroupMembers() call per cell in a Promise.all — a single denied/failed cell in that
+  // approach would blank the whole exclusion set and let every cell member back into the search.
+  useEffect(() => {
+    getAllCellGroupMembers()
+      .then((list) => {
+        const active = (list || []).filter((m) => m.status !== 'inactive' && m.name)
+        const set = new Set(active.map((m) => String(m.name).trim().toLowerCase()))
         setCellMemberNames(set)
+        setAllCellMembers(active)
       })
-      .catch(() => setCellMemberNames(new Set()))
-  }, [cellGroups])
+      .catch(() => { setCellMemberNames(new Set()); setAllCellMembers([]) })
+  }, [])
 
   useEffect(() => {
     if (!expandedCellId) {
@@ -637,6 +692,37 @@ export default function SundayReport({ embedded = false }) {
   const addCellName = (key) => updateReport({ [key]: [...(report?.[key] || []), ''] })
   const addCellNameValue = (key, value) => updateReport({ [key]: [...(report?.[key] || []), value] })
   const removeCellName = (key, idx) => updateReport({ [key]: (report?.[key] || []).filter((_, i) => i !== idx) })
+
+  /**
+   * Link an "Others" entry to a real profile — either a People Directory record or a
+   * D-Light visitor record — so their own profile can show this Sunday's attendance.
+   * If that linked person also happens to be a cell member (matched by name), their
+   * name is additionally moved out of Others into that cell's attendance.
+   */
+  const linkOthersNameToCell = (idx, person) => {
+    const name = String(person?.name || '').trim()
+    if (!name) return
+
+    const matchedMember = allCellMembers.find(
+      (m) => String(m.name || '').trim().toLowerCase() === name.toLowerCase()
+    )
+    if (matchedMember) {
+      const others = (report?.others || []).filter((_, i) => i !== idx)
+      const sca = { ...(report?.sundayCellAttendance || {}) }
+      const list = [...(sca[matchedMember.cellId] || [])]
+      if (!list.some((n) => String(n).trim().toLowerCase() === name.toLowerCase())) list.push(name)
+      sca[matchedMember.cellId] = list
+      updateReport({ others, sundayCellAttendance: sca })
+    }
+
+    recordPersonSundayAttendance({
+      date: selectedDate,
+      personId: person.source === 'people' ? person.id : null,
+      visitorId: person.source === 'visitor' ? person.id : null,
+      name,
+      recordedBy: userProfile?.email || 'unknown',
+    }).catch(() => {})
+  }
 
   const updateSummary = (key, value) => updateReport({ summary: { ...(report?.summary || {}), [key]: value } })
 
@@ -1151,6 +1237,9 @@ export default function SundayReport({ embedded = false }) {
                       onAddValue={(value) => addCellNameValue(key, value)}
                       onEdit={(idx, value) => updateCellList(key, idx, value)}
                       onRemove={(idx) => removeCellName(key, idx)}
+                      linkDirectory={key === 'others' ? allCellMembers : null}
+                      cellNameById={cellNameById}
+                      onLink={key === 'others' ? linkOthersNameToCell : undefined}
                       className="border-0 shadow-none bg-transparent p-0"
                     />
                   )}

@@ -66,6 +66,8 @@ import {
   deleteDepartmentSubDepartment,
   getDepartmentChildren,
   addDepartmentChild,
+  updateDepartmentChild,
+  deleteDepartmentChild,
   getDepartmentChildAttendance,
   setDepartmentChildAttendance,
   getPCSLookup,
@@ -739,24 +741,35 @@ export default function DepartmentHub() {
   }, [slug, department])
 
   useEffect(() => {
-    if (slug !== 'river-kids' || activeTab !== 'attendance' || !department) return
+    if (slug !== 'river-kids' || (activeTab !== 'attendance' && activeTab !== 'register') || !department) return
     setRkLoading(true)
+    // Load children, attendance, and people for parent search all at once
     Promise.all([
       getDepartmentChildren(department.name),
       getDepartmentChildAttendance(department.name, rkDate),
-      rkAllUsers.length === 0 ? getPCSLookup() : Promise.resolve(rkAllUsers),
+      getPeople().catch(() => []),
+      getPCSLookup().catch(() => []),
     ])
-      .then(([children, att, people]) => {
-        setRkChildren(children.filter((c) => c.active !== false))
-        setRkAttendanceId(att.id)
+      .then(([children, att, fromPeople, fromLookup]) => {
+        const active = children.filter((c) => c.active !== false)
+        setRkChildren(active)
         setRkPresent(typeof att.present === 'object' && att.present ? { ...att.present } : {})
-        if (rkAllUsers.length === 0) setRkAllUsers(people.filter(p => p.name).sort((a, b) => (a.name || '').localeCompare(b.name || '')))
+        // Build parent name suggestions: people directory + pcs_lookup + names already saved in kids
+        const seen = new Set()
+        const merged = []
+        const add = (name, id) => {
+          const key = (name || '').trim().toLowerCase()
+          if (key && !seen.has(key)) { seen.add(key); merged.push({ id, name: name.trim() }) }
+        }
+        for (const x of [...fromPeople, ...fromLookup]) add(x.name, x.id)
+        for (const c of active) {
+          if (c.fatherName) add(c.fatherName, `f-${c.id}`)
+          if (c.motherName) add(c.motherName, `m-${c.id}`)
+        }
+        merged.sort((a, b) => a.name.localeCompare(b.name))
+        setRkAllUsers(merged)
       })
-      .catch((err) => {
-        console.error('RK load error', err)
-        setRkChildren([])
-        setRkPresent({})
-      })
+      .catch(() => { setRkChildren([]); setRkPresent({}) })
       .finally(() => setRkLoading(false))
   }, [slug, activeTab, department, rkDate])
 
@@ -6089,20 +6102,15 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {slug === 'river-kids' && activeTab === 'attendance' && department && (
+          {/* ── Kids Register tab ── */}
+          {slug === 'river-kids' && activeTab === 'register' && department && (
             <div className="space-y-4">
-
-              {/* Header + date */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              {/* Header */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between">
                 <div>
                   <p className="font-bold text-slate-800">Kids Register</p>
                   <p className="text-xs text-slate-400">{rkChildren.length} kid{rkChildren.length !== 1 ? 's' : ''} registered</p>
                 </div>
-                <label className="text-sm text-slate-600 flex items-center gap-2">
-                  <span className="text-xs font-medium text-slate-500">Date</span>
-                  <input type="date" value={rkDate} onChange={(e) => setRkDate(e.target.value)}
-                    className="px-2 py-1.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-                </label>
               </div>
 
               {/* Add kid form */}
@@ -6118,9 +6126,7 @@ export default function DepartmentHub() {
                         setRkChildForm({ name: '', dob: '', fatherName: '', motherName: '' })
                         const list = await getDepartmentChildren(department.name)
                         setRkChildren(list.filter((c) => c.active !== false))
-                      } catch {
-                        alert('Failed to add kid')
-                      }
+                      } catch { alert('Failed to add kid') }
                     }}
                     className="space-y-3"
                   >
@@ -6136,22 +6142,14 @@ export default function DepartmentHub() {
                           className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                       </div>
                       <div>
-                        <PersonSearchInput
-                          label="Father's Name"
-                          value={rkChildForm.fatherName}
+                        <PersonSearchInput label="Father's Name" value={rkChildForm.fatherName}
                           onChange={v => setRkChildForm(p => ({ ...p, fatherName: v }))}
-                          people={rkAllUsers}
-                          placeholder="Search or type father's name"
-                        />
+                          people={rkAllUsers} placeholder="Search or type father's name" />
                       </div>
                       <div>
-                        <PersonSearchInput
-                          label="Mother's Name"
-                          value={rkChildForm.motherName}
+                        <PersonSearchInput label="Mother's Name" value={rkChildForm.motherName}
                           onChange={v => setRkChildForm(p => ({ ...p, motherName: v }))}
-                          people={rkAllUsers}
-                          placeholder="Search or type mother's name"
-                        />
+                          people={rkAllUsers} placeholder="Search or type mother's name" />
                       </div>
                     </div>
                     <button type="submit" disabled={!rkChildForm.name.trim()}
@@ -6189,27 +6187,25 @@ export default function DepartmentHub() {
                             </p>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {canEdit && (
+                        {canEdit && (
+                          <div className="flex items-center gap-1 shrink-0">
                             <button type="button" onClick={() => setRkEditChild({ ...c })}
-                              className="text-xs text-slate-400 hover:text-indigo-600 transition-colors px-1">Edit</button>
-                          )}
-                          <button
-                            type="button"
-                            disabled={!canEdit}
-                            onClick={async () => {
-                              if (!canEdit || !department) return
-                              const next = { ...rkPresent, [c.id]: !rkPresent[c.id] }
-                              setRkPresent(next)
-                              try {
-                                await setDepartmentChildAttendance(department.name, rkDate, next, userProfile?.email || userProfile?.displayName || 'unknown')
-                              } catch { alert('Failed to save') }
-                            }}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${rkPresent[c.id] ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
-                          >
-                            {rkPresent[c.id] ? 'Present' : 'Absent'}
-                          </button>
-                        </div>
+                              className="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
+                              Edit
+                            </button>
+                            <button type="button"
+                              onClick={async () => {
+                                if (!window.confirm(`Remove ${c.name} from the register?`)) return
+                                try {
+                                  await deleteDepartmentChild(c.id)
+                                  setRkChildren(prev => prev.filter(x => x.id !== c.id))
+                                } catch { alert('Failed to remove kid') }
+                              }}
+                              className="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors">
+                              Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -6237,35 +6233,23 @@ export default function DepartmentHub() {
                           className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                       </div>
                       <div>
-                        <PersonSearchInput
-                          label="Father's Name"
-                          value={rkEditChild.fatherName || ''}
+                        <PersonSearchInput label="Father's Name" value={rkEditChild.fatherName || ''}
                           onChange={v => setRkEditChild(p => ({ ...p, fatherName: v }))}
-                          people={rkAllUsers}
-                          placeholder="Search or type father's name"
-                        />
+                          people={rkAllUsers} placeholder="Search or type father's name" />
                       </div>
                       <div>
-                        <PersonSearchInput
-                          label="Mother's Name"
-                          value={rkEditChild.motherName || ''}
+                        <PersonSearchInput label="Mother's Name" value={rkEditChild.motherName || ''}
                           onChange={v => setRkEditChild(p => ({ ...p, motherName: v }))}
-                          people={rkAllUsers}
-                          placeholder="Search or type mother's name"
-                        />
+                          people={rkAllUsers} placeholder="Search or type mother's name" />
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      disabled={rkSavingEdit || !rkEditChild.name.trim()}
+                    <button type="button" disabled={rkSavingEdit || !rkEditChild.name.trim()}
                       onClick={async () => {
                         setRkSavingEdit(true)
                         try {
                           await updateDepartmentChild(rkEditChild.id, {
-                            name: rkEditChild.name,
-                            dob: rkEditChild.dob || '',
-                            fatherName: rkEditChild.fatherName || '',
-                            motherName: rkEditChild.motherName || '',
+                            name: rkEditChild.name, dob: rkEditChild.dob || '',
+                            fatherName: rkEditChild.fatherName || '', motherName: rkEditChild.motherName || '',
                           })
                           const list = await getDepartmentChildren(department.name)
                           setRkChildren(list.filter((c) => c.active !== false))
@@ -6278,7 +6262,68 @@ export default function DepartmentHub() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
 
+          {/* ── Attendance tab ── */}
+          {slug === 'river-kids' && activeTab === 'attendance' && department && (
+            <div className="space-y-4">
+              {/* Header + date */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-slate-800">Attendance</p>
+                  <p className="text-xs text-slate-400">{rkChildren.length} kid{rkChildren.length !== 1 ? 's' : ''}</p>
+                </div>
+                <label className="text-sm text-slate-600 flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-500">Date</span>
+                  <input type="date" value={rkDate} onChange={(e) => setRkDate(e.target.value)}
+                    className="px-2 py-1.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                </label>
+              </div>
+
+              {rkLoading ? (
+                <p className="text-center text-slate-400 text-sm py-8">Loading…</p>
+              ) : rkChildren.length === 0 ? (
+                <p className="text-center text-slate-400 text-sm py-8">No kids registered yet. Add them in the Kids Register tab.</p>
+              ) : (
+                <div className="space-y-2">
+                  {rkChildren.map((c) => {
+                    const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
+                    return (
+                      <div key={c.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-slate-800 text-sm">{c.name}</p>
+                            {age !== null && (
+                              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full border border-indigo-100">{age}y</span>
+                            )}
+                          </div>
+                          {(c.fatherName || c.motherName) && (
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {[c.fatherName, c.motherName].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!canEdit}
+                          onClick={async () => {
+                            if (!canEdit || !department) return
+                            const next = { ...rkPresent, [c.id]: !rkPresent[c.id] }
+                            setRkPresent(next)
+                            try {
+                              await setDepartmentChildAttendance(department.name, rkDate, next, userProfile?.email || userProfile?.displayName || 'unknown')
+                            } catch { alert('Failed to save') }
+                          }}
+                          className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${rkPresent[c.id] ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
+                        >
+                          {rkPresent[c.id] ? 'Present' : 'Absent'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 

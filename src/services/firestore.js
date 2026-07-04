@@ -715,6 +715,11 @@ export async function updateDepartmentChild(id, data) {
   if (Object.keys(payload).length) await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), payload)
 }
 
+export async function deleteDepartmentChild(id) {
+  if (!db || !id) return
+  await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), { active: false })
+}
+
 // Daily attendance: present[childId] = true/false
 const DEPARTMENT_CHILD_ATTENDANCE_COLLECTION = 'department_child_attendance'
 
@@ -3412,6 +3417,31 @@ export async function setSundayServiceAttendance(dateStr, cellId, presentIds, up
     updatedBy: updatedBy || 'unknown',
     updatedAt: Timestamp.now(),
   }, { merge: true })
+}
+
+// Per-person Sunday attendance — for people linked from Live Control attendance
+// (e.g. "Others") to a People Directory record or a D-Light visitor record, so
+// their own profile shows the Sundays they were marked present, independent of
+// whether they belong to a cell.
+const PERSON_SUNDAY_ATTENDANCE_COLLECTION = 'person_sunday_attendance'
+
+export async function recordPersonSundayAttendance({ date, personId, visitorId, name, recordedBy }) {
+  if (!db || !date || (!personId && !visitorId)) return
+  const id = `${String(date).slice(0, 10)}_${personId || visitorId}`
+  await setDoc(doc(db, PERSON_SUNDAY_ATTENDANCE_COLLECTION, id), {
+    date: String(date).slice(0, 10),
+    personId: personId || null,
+    visitorId: visitorId || null,
+    name: name || '',
+    recordedBy: recordedBy || 'unknown',
+    recordedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+export async function getAllPersonSundayAttendance() {
+  if (!db) return []
+  const snap = await getDocs(collection(db, PERSON_SUNDAY_ATTENDANCE_COLLECTION))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
 /** Sync cell-level name list into sunday_reports.sundayCellAttendance so Reports History reflects it. */
