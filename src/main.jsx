@@ -78,6 +78,13 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     window.location.reload()
   })
+  // On mobile PWA the SW update check only fires on page load.
+  // Re-check whenever the user brings the app to the foreground.
+  navigator.serviceWorker.ready.then(reg => {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reg.update()
+    })
+  })
 }
 
 createRoot(document.getElementById('root')).render(

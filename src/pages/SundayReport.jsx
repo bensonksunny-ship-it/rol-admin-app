@@ -275,7 +275,7 @@ function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, o
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => { onAddValue(p.name.trim()); setQuery('') }}
+                  onClick={() => { onAddValue(p); setQuery('') }}
                   className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col"
                 >
                   <span className="text-slate-800 font-medium">{p.name}</span>
@@ -478,43 +478,28 @@ export default function SundayReport({ embedded = false }) {
     setCompletedSections((prev) => ({ ...prev, [sectionId]: false }))
   }, [])
 
-  // Load the search pool for the Non Cell section — People's Directory is tiny on its own,
-  // so merge in D-Light Visitors too (same pattern as the cell-leader picker) or there's
-  // barely anyone left to find once cell members are excluded.
-  const loadPeopleDirectory = useCallback(() => {
-    return Promise.all([getPeople().catch(() => []), getDelightVisitors().catch(() => [])])
-      .then(([people, visitors]) => {
-        const seen = new Set()
-        const merged = []
-        for (const p of [...people, ...visitors]) {
-          const key = (p.phone || '').replace(/\s+/g, '') || p.id
-          if (p.name && !seen.has(key)) { seen.add(key); merged.push(p) }
-        }
-        setPeopleDirectory(merged)
-      })
-      .catch(() => setPeopleDirectory([]))
+  // Load the People's Directory + all D-Light visitors once — together they're the base
+  // of both the Non Cell search pool and the Others-linking pool (othersLinkDirectory).
+  const loadDirectoryData = useCallback(() => {
+    return Promise.all([
+      getPeople().then(setPeopleDirectory).catch(() => setPeopleDirectory([])),
+      getDelightVisitors().then(setDelightVisitorsAll).catch(() => setDelightVisitorsAll([])),
+    ])
   }, [])
 
   useEffect(() => {
-    loadPeopleDirectory()
-  }, [loadPeopleDirectory])
+    loadDirectoryData()
+  }, [loadDirectoryData])
 
-  // On tab focus: also refresh the Non Cell search pool, so a visitor/person just added
-  // in another tab (e.g. D-Light Visitors) shows up without needing a full page reload.
+  // On tab focus: also refresh the directory data, so a visitor/person just added in
+  // another tab shows up in the Non Cell / Others-link search without a full page reload.
   useEffect(() => {
     const handleVisible = () => {
-      if (document.visibilityState === 'visible') loadPeopleDirectory()
+      if (document.visibilityState === 'visible') loadDirectoryData()
     }
     document.addEventListener('visibilitychange', handleVisible)
     return () => document.removeEventListener('visibilitychange', handleVisible)
-  }, [loadPeopleDirectory])
-
-  // Load all D-Light visitor records once — combined with the people directory as the
-  // "Link" search pool for Others, so a name can be tied to their actual profile/visitor
-  // record even if they aren't in a cell.
-  useEffect(() => {
-    getDelightVisitors().then(setDelightVisitorsAll).catch(() => setDelightVisitorsAll([]))
-  }, [])
+  }, [loadDirectoryData])
 
   // Build the set of names already belonging to any cell — excluded from Non Cell search results.
   // Single collection-group query across every cell's members subcollection, rather than one
@@ -735,6 +720,33 @@ export default function SundayReport({ embedded = false }) {
     ],
     [peopleDirectory, delightVisitorsAll]
   )
+
+  // Same two sources for Non Cell, but deduplicated by phone (fallback to id) — Non Cell
+  // shows a flat pick-a-name list rather than a "link an existing entry" flow, so the same
+  // physical person appearing in both People Directory and D-Light would otherwise show twice.
+  const nonCellSearchPool = useMemo(() => {
+    const seen = new Set()
+    const merged = []
+    for (const p of othersLinkDirectory) {
+      const key = (p.phone || '').replace(/\s+/g, '') || p.id
+      if (p.name && !seen.has(key)) { seen.add(key); merged.push(p) }
+    }
+    return merged
+  }, [othersLinkDirectory])
+
+  /** Add a Non Cell attendee and record it against their own profile/visitor record. */
+  const addNonCellPerson = (person) => {
+    const name = String(person?.name || '').trim()
+    if (!name) return
+    addCellNameValue('nonCell', name)
+    recordPersonSundayAttendance({
+      date: selectedDate,
+      personId: person.source === 'people' ? person.id : null,
+      visitorId: person.source === 'visitor' ? person.id : null,
+      name,
+      recordedBy: userProfile?.email || 'unknown',
+    }).catch(() => {})
+  }
 
   const othersLinkedNames = useMemo(
     () => new Set(Object.keys(report?.othersLinked || {})),
@@ -1278,9 +1290,9 @@ export default function SundayReport({ embedded = false }) {
                     <NonCellSection
                       names={report?.[key] || []}
                       canEdit={manualEdit}
-                      people={peopleDirectory}
+                      people={nonCellSearchPool}
                       cellMemberNames={cellMemberNames}
-                      onAddValue={(value) => addCellNameValue(key, value)}
+                      onAddValue={addNonCellPerson}
                       onEdit={(idx, value) => updateCellList(key, idx, value)}
                       onRemove={(idx) => removeCellName(key, idx)}
                       className="border-0 shadow-none bg-transparent p-0"
