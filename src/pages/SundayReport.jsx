@@ -1237,8 +1237,7 @@ export default function SundayReport({ embedded = false }) {
                       onAddValue={(value) => addCellNameValue(key, value)}
                       onEdit={(idx, value) => updateCellList(key, idx, value)}
                       onRemove={(idx) => removeCellName(key, idx)}
-                      linkDirectory={key === 'others' ? allCellMembers : null}
-                      cellNameById={cellNameById}
+                      linkDirectory={key === 'others' ? othersLinkDirectory : null}
                       onLink={key === 'others' ? linkOthersNameToCell : undefined}
                       className="border-0 shadow-none bg-transparent p-0"
                     />
