@@ -9,6 +9,7 @@ import DepartmentTabBar from '../../components/DepartmentTabBar'
 
 const FIXED_COLS = [
   { key: 'othersCount',         label: 'Others'       },
+  { key: 'nonCellCount',        label: 'Non Cell'     },
   { key: 'sundaySchool',        label: 'Sun. School'  },
   { key: 'secondWeekAttendees', label: '2nd Week'     },
   { key: 'newcomers',           label: 'New Comers'   },

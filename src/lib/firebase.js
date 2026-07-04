@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
 import { getStorage } from 'firebase/storage'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
@@ -27,7 +27,22 @@ if (hasEnvVars) {
   try {
     app = initializeApp(firebaseConfig)
     auth = getAuth(app)
-    db = getFirestore(app)
+    // Durable offline write queue: without this, a save made while offline (or on a flaky
+    // connection, e.g. the installed PWA on church wifi) sits only in memory — if the app
+    // is closed/killed before it syncs, the write is silently lost with no error ever shown.
+    // Persistent (IndexedDB-backed) cache survives app restarts and retries the write
+    // automatically once connectivity returns.
+    try {
+      db = initializeFirestore(app, {
+        // Multi-tab manager: staff commonly have this app open in more than one browser
+        // tab/window at once, and a single-tab manager would make Firestore unusable
+        // (throws failed-precondition) in every tab but the first.
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      })
+    } catch (persistErr) {
+      console.warn('Persistent Firestore cache unavailable, falling back to default:', persistErr)
+      db = getFirestore(app)
+    }
     storage = getStorage(app)
     // Explicit region to match deployed callable functions
     functions = getFunctions(app, 'us-central1')

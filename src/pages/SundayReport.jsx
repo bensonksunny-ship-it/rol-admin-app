@@ -636,6 +636,15 @@ export default function SundayReport({ embedded = false }) {
 
   const handleSave = async () => {
     if (!report || !canEdit) return
+    // Firestore queues writes locally when offline and resolves optimistically — the button
+    // would otherwise look like it worked with no error, while the write only reaches the
+    // server once connectivity returns. Warn up front instead of a silent false "success".
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      const proceed = window.confirm(
+        "You appear to be offline. This save will be queued on your device and sync automatically once you're back online — but if this device/app closes before that happens, the save will be lost. Continue?"
+      )
+      if (!proceed) return
+    }
     setSaving(true)
     try {
       const { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
