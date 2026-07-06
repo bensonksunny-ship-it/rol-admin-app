@@ -356,10 +356,12 @@ function AttendanceSectionShell({
 }
 
 const BULK_SECTIONS = [
-  { key: 'others',    label: 'Others'     },
-  { key: 'nonCell',   label: 'Non-Cell'   },
-  { key: 'riverKids', label: 'River Kids' },
-  { key: 'cell',      label: 'Cell Group' },
+  { key: 'pastoral',              label: 'Pastoral'        },
+  { key: 'others',                label: 'Others'          },
+  { key: 'nonCell',               label: 'Non-Cell'        },
+  { key: 'riverKids',             label: 'River Kids'      },
+  { key: 'newComers',             label: 'New Comers'      },
+  { key: 'secondWeek',            label: '2nd Week'        },
 ]
 
 function scorePerson(name, words) {
@@ -373,17 +375,44 @@ function scorePerson(name, words) {
   return score
 }
 
-function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, cellGroups, searchPool, userEmail }) {
+function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, cellGroups, searchPool, cellMemberMap, userEmail }) {
   const [step, setStep] = useState('setup')
-  const [section, setSection] = useState('others')
-  const [cellId, setCellId] = useState('')
   const [pastedText, setPastedText] = useState('')
   const [lines, setLines] = useState([])
   const [currentIdx, setCurrentIdx] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [saving, setSaving] = useState(false)
+  // Per-line section selection (chosen during review)
+  const [lineSection, setLineSection] = useState('others')
+  const [lineCellId, setLineCellId] = useState('')
+  // Tracks norms added this session (ref for synchronous access in advance())
+  const addedNormsRef = useRef(new Set())
 
   if (!isOpen) return null
+
+  // Norms across ALL sections — used for duplicate detection
+  const buildExistingNorms = () => {
+    const s = new Set()
+    const addArr = (arr) => (arr || []).forEach(n => { if (n) s.add(n.toLowerCase().trim()) })
+    addArr(report?.pastoralAttendees)
+    addArr(report?.others)
+    addArr(report?.nonCell)
+    addArr(report?.riverKids)
+    addArr(report?.newComers)
+    addArr(report?.secondWeekAttendeesNames)
+    Object.values(report?.sundayCellAttendance || {}).forEach(arr => addArr(arr))
+    for (const n of addedNormsRef.current) s.add(n)
+    return s
+  }
+
+  const topSuggestion = (raw) => {
+    if (!raw.trim()) return null
+    const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    return searchPool
+      .map(p => ({ ...p, score: scorePerson(p.name, words) }))
+      .filter(p => p.score > 0)
+      .sort((a, b) => b.score - a.score)[0] || null
+  }
 
   const autoSuggest = (raw) => {
     if (!raw.trim()) return []
@@ -401,84 +430,167 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     return searchPool.filter(p => (p.name || '').toLowerCase().includes(lower)).slice(0, 8)
   }
 
+  // Auto-detect section from cell membership map; default to 'others'
+  const detectSection = (personName) => {
+    const norm = personName.toLowerCase().trim()
+    const entry = cellMemberMap.get(norm)
+    if (entry) return { section: 'cell', cellId: entry.cellId }
+    return { section: 'others', cellId: '' }
+  }
+
+  const resolveAlreadyPresent = (currentLines, startIdx, existingNorms) => {
+    let updated = currentLines
+    for (let i = startIdx; i < updated.length; i++) {
+      if (updated[i].status !== 'pending') continue
+      const top = topSuggestion(updated[i].raw)
+      if (top && existingNorms.has(top.name.toLowerCase().trim())) {
+        updated = updated.map((l, idx) => idx === i ? { ...l, status: 'already', confirmedName: top.name } : l)
+      } else {
+        return { updated, nextIdx: i }
+      }
+    }
+    return { updated, nextIdx: -1 }
+  }
+
+  const gotoLine = (updatedLines, fromIdx) => {
+    const existingNorms = buildExistingNorms()
+    const { updated, nextIdx } = resolveAlreadyPresent(updatedLines, fromIdx + 1, existingNorms)
+    setLines(updated)
+    if (nextIdx === -1) { setStep('done') }
+    else {
+      setCurrentIdx(nextIdx)
+      setSearchQuery('')
+      // Auto-detect section for the new line
+      const top = topSuggestion(updated[nextIdx].raw)
+      if (top) {
+        const det = detectSection(top.name)
+        setLineSection(det.section)
+        setLineCellId(det.cellId)
+      } else {
+        setLineSection('others')
+        setLineCellId('')
+      }
+    }
+  }
+
   const handleParse = () => {
-    if (section === 'cell' && !cellId) { alert('Please select a cell group.'); return }
-    const parsed = pastedText.split('\n').map(l => l.trim()).filter(Boolean)
-      .map(raw => ({ raw, status: 'pending', confirmedName: null }))
-    if (!parsed.length) return
-    setLines(parsed)
-    setCurrentIdx(0)
+    addedNormsRef.current = new Set()
+    const existingNorms = buildExistingNorms()
+    const raw = pastedText.split('\n').map(l => l.trim()).filter(Boolean)
+      .map(r => ({ raw: r, status: 'pending', confirmedName: null }))
+    if (!raw.length) return
+    const { updated, nextIdx } = resolveAlreadyPresent(raw, 0, existingNorms)
+    setLines(updated)
     setSearchQuery('')
-    setStep('review')
+    if (nextIdx === -1) { setStep('done') }
+    else {
+      setCurrentIdx(nextIdx)
+      setStep('review')
+      const top = topSuggestion(updated[nextIdx].raw)
+      if (top) {
+        const det = detectSection(top.name)
+        setLineSection(det.section)
+        setLineCellId(det.cellId)
+      } else {
+        setLineSection('others')
+        setLineCellId('')
+      }
+    }
   }
 
-  const advance = (updated) => {
-    const next = updated.findIndex((l, i) => i > currentIdx && l.status === 'pending')
-    if (next === -1) setStep('done')
-    else { setCurrentIdx(next); setSearchQuery('') }
-  }
-
-  const handleConfirm = async (person) => {
+  // Called when user taps a suggestion — uses the currently selected section chips
+  const handleSuggestionPick = (person) => {
     if (saving) return
+    handleConfirmWithSection(person, lineSection, lineCellId)
+  }
+
+  const handleConfirmWithSection = async (person, sec, cid) => {
+    if (saving || (sec === 'cell' && !cid)) return
     setSaving(true)
     const name = person.name.trim()
     const norm = name.toLowerCase()
     try {
-      if (section === 'others') {
+      if (sec === 'pastoral') {
+        const existing = report?.pastoralAttendees || []
+        if (!existing.some(n => n.toLowerCase() === norm)) {
+          const next = [...existing, name]
+          updateReport({ pastoralAttendees: next })
+          await patchSundayReportNameField(selectedDate, 'pastoralAttendees', next, userEmail)
+        }
+      } else if (sec === 'others') {
         const existing = report?.others || []
         if (!existing.some(n => n.toLowerCase() === norm)) {
           const next = [...existing, name]
           updateReport({ others: next })
           await patchSundayReportNameField(selectedDate, 'others', next, userEmail)
         }
-      } else if (section === 'nonCell') {
+      } else if (sec === 'nonCell') {
         const existing = report?.nonCell || []
         if (!existing.some(n => n.toLowerCase() === norm)) {
           const next = [...existing, name]
           updateReport({ nonCell: next })
           await patchSundayReportNameField(selectedDate, 'nonCell', next, userEmail)
         }
-      } else if (section === 'riverKids') {
+      } else if (sec === 'riverKids') {
         const existing = report?.riverKids || []
         if (!existing.some(n => n.toLowerCase() === norm)) {
           const next = [...existing, name]
           updateReport({ riverKids: next })
           await patchSundayReportRiverKids(selectedDate, next, userEmail)
         }
-      } else if (section === 'cell' && cellId) {
+      } else if (sec === 'newComers') {
+        const existing = report?.newComers || []
+        if (!existing.some(n => n.toLowerCase() === norm)) {
+          const next = [...existing, name]
+          updateReport({ newComers: next })
+          await patchSundayReportNameField(selectedDate, 'newComers', next, userEmail)
+        }
+      } else if (sec === 'secondWeek') {
+        const existing = report?.secondWeekAttendeesNames || []
+        if (!existing.some(n => n.toLowerCase() === norm)) {
+          const next = [...existing, name]
+          updateReport({ secondWeekAttendeesNames: next })
+          await patchSundayReportNameField(selectedDate, 'secondWeekAttendeesNames', next, userEmail)
+        }
+      } else if (sec === 'cell' && cid) {
         const sca = { ...(report?.sundayCellAttendance || {}) }
-        const existing = sca[cellId] || []
+        const existing = sca[cid] || []
         if (!existing.some(n => String(n).toLowerCase() === norm)) {
-          sca[cellId] = [...existing, name]
+          sca[cid] = [...existing, name]
           updateReport({ sundayCellAttendance: sca })
-          await patchSundayReportCellAttendance(selectedDate, cellId, sca[cellId], userEmail)
+          await patchSundayReportCellAttendance(selectedDate, cid, sca[cid], userEmail)
         }
       }
-    } catch { /* silent — UI already updated optimistically */ }
+    } catch { /* optimistic update already applied */ }
+    addedNormsRef.current.add(norm)
     const updated = lines.map((l, i) => i === currentIdx ? { ...l, status: 'confirmed', confirmedName: name } : l)
-    setLines(updated)
     setSaving(false)
-    advance(updated)
+    gotoLine(updated, currentIdx)
   }
 
   const handleSkip = () => {
     const updated = lines.map((l, i) => i === currentIdx ? { ...l, status: 'skipped' } : l)
-    setLines(updated)
-    advance(updated)
+    gotoLine(updated, currentIdx)
   }
 
   const handleReset = () => {
     setStep('setup'); setPastedText(''); setLines([])
     setCurrentIdx(0); setSearchQuery(''); setSaving(false)
+    setLineSection('others'); setLineCellId('')
+    addedNormsRef.current = new Set()
   }
 
-  const confirmed = lines.filter(l => l.status === 'confirmed').length
-  const skipped   = lines.filter(l => l.status === 'skipped').length
-  const current   = lines[currentIdx]
-  const suggestions  = current ? autoSuggest(current.raw) : []
-  const manualResults = searchPeople(searchQuery)
-  const progress = lines.length ? ((confirmed + skipped) / lines.length) * 100 : 0
+  const confirmed  = lines.filter(l => l.status === 'confirmed').length
+  const already    = lines.filter(l => l.status === 'already').length
+  const skipped    = lines.filter(l => l.status === 'skipped').length
+  const done       = confirmed + already + skipped
+  const current    = lines[currentIdx]
+  const suggestions    = current ? autoSuggest(current.raw) : []
+  const manualResults  = searchPeople(searchQuery)
+  const existingNorms  = buildExistingNorms()
+  const progress   = lines.length ? (done / lines.length) * 100 : 0
 
+  // Name of the currently selected cell group (for display)
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex flex-col justify-end"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -504,25 +616,9 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
                 <span className="text-sm font-bold text-slate-800">{selectedDate}</span>
               </div>
 
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Target Section</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {BULK_SECTIONS.map(s => (
-                    <button key={s.key} type="button" onClick={() => setSection(s.key)}
-                      className={`py-2.5 px-3 rounded-xl text-sm font-semibold border transition-all ${section === s.key ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'}`}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-                {section === 'cell' && (
-                  <select value={cellId} onChange={e => setCellId(e.target.value)}
-                    className="mt-3 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
-                    <option value="">— Select Cell Group —</option>
-                    {cellGroups.map(cg => (
-                      <option key={cg.id} value={cg.id}>{cg.cellName}</option>
-                    ))}
-                  </select>
-                )}
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3">
+                <p className="text-xs font-semibold text-indigo-700 mb-1">Paste all names together</p>
+                <p className="text-xs text-indigo-500">Cell members, others, non-cell — mix them all. You'll assign each person to the right section one by one during review.</p>
               </div>
 
               <div>
@@ -531,7 +627,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
                   value={pastedText}
                   onChange={e => setPastedText(e.target.value)}
                   placeholder={"John Smith\nSarah Johnson\nMichael Brown\n..."}
-                  rows={9}
+                  rows={10}
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 font-mono resize-none"
                 />
                 <p className="text-xs text-slate-400 mt-1">
@@ -549,17 +645,14 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
           {/* ── STEP 2: REVIEW ── */}
           {step === 'review' && current && (
             <div className="space-y-4">
-              {/* Back + progress bar */}
+              {/* Back + progress */}
               <div className="flex items-center gap-3">
                 <button type="button" onClick={() => setStep('setup')}
                   className="text-indigo-600 text-sm font-semibold shrink-0">← Back</button>
                 <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${progress}%` }} />
+                  <div className="bg-indigo-500 h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
                 </div>
-                <span className="text-xs text-slate-500 font-semibold shrink-0">
-                  {confirmed + skipped + 1} / {lines.length}
-                </span>
+                <span className="text-xs text-slate-500 font-semibold shrink-0">{done + 1} / {lines.length}</span>
               </div>
 
               {/* Current raw name */}
@@ -568,26 +661,69 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
                 <p className="font-bold text-slate-800 text-base">"{current.raw}"</p>
               </div>
 
-              {/* Auto suggestions */}
-              {suggestions.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Suggestions</p>
-                  <div className="space-y-2">
-                    {suggestions.map(p => (
-                      <button key={p.id} type="button" onClick={() => handleConfirm(p)} disabled={saving}
-                        className="w-full flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 hover:border-indigo-300 hover:bg-indigo-50 active:scale-[.98] transition-all disabled:opacity-50">
-                        <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold flex items-center justify-center shrink-0">
-                          {(p.name || '?')[0].toUpperCase()}
-                        </span>
-                        <span className="flex-1 text-sm font-semibold text-slate-800 text-left">{p.name}</span>
-                        <span className="text-xs font-bold text-indigo-500 shrink-0">Pick →</span>
+              {/* Section picker for this name */}
+              <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Adding to</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {BULK_SECTIONS.map(s => (
+                    <button key={s.key} type="button"
+                      onClick={() => { setLineSection(s.key); setLineCellId('') }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${lineSection === s.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
+                      {s.label}
+                    </button>
+                  ))}
+                  {cellGroups.map(cg => {
+                    const isActive = lineSection === 'cell' && lineCellId === cg.id
+                    return (
+                      <button key={cg.id} type="button"
+                        onClick={() => { setLineSection('cell'); setLineCellId(cg.id) }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${isActive ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
+                        {cg.cellName}
                       </button>
-                    ))}
-                  </div>
+                    )
+                  })}
                 </div>
-              )}
+              </div>
 
-              {/* Manual search */}
+              {/* Suggestions — always visible */}
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Suggestions — tap to confirm</p>
+                {suggestions.length > 0 ? (
+                  <div className="space-y-2">
+                    {suggestions.map(p => {
+                      const isAlready = existingNorms.has(p.name.toLowerCase().trim())
+                      const det = detectSection(p.name)
+                      const cellLabel = det.section === 'cell' ? cellGroups.find(cg => cg.id === det.cellId)?.cellName : null
+                      return (
+                        <button key={p.id} type="button"
+                          onClick={() => { if (!isAlready) handleSuggestionPick(p) }}
+                          disabled={saving || isAlready}
+                          className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 border transition-all
+                            ${isAlready ? 'bg-slate-50 border-slate-100 cursor-default opacity-60'
+                              : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 active:scale-[.98] disabled:opacity-50'}`}>
+                          <span className={`w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center shrink-0
+                            ${isAlready ? 'bg-slate-100 text-slate-400' : 'bg-indigo-100 text-indigo-600'}`}>
+                            {(p.name || '?')[0].toUpperCase()}
+                          </span>
+                          <span className="flex-1 min-w-0 text-left">
+                            <span className="text-sm font-semibold text-slate-800 block">{p.name}</span>
+                            {cellLabel && !isAlready && (
+                              <span className="text-[10px] text-indigo-500 font-medium">{cellLabel}</span>
+                            )}
+                          </span>
+                          {isAlready
+                            ? <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">Already added</span>
+                            : <span className="text-xs font-bold text-indigo-500 shrink-0">Pick →</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 text-center py-2">No close matches — use search below</p>
+                )}
+              </div>
+
+              {/* Manual search — always visible */}
               <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Search Database</p>
                 <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
@@ -595,16 +731,26 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                 {manualResults.length > 0 && (
                   <div className="mt-2 space-y-1.5">
-                    {manualResults.map(p => (
-                      <button key={p.id} type="button" onClick={() => handleConfirm(p)} disabled={saving}
-                        className="w-full flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 hover:border-emerald-300 hover:bg-emerald-50 active:scale-[.98] transition-all disabled:opacity-50">
-                        <span className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 text-xs font-bold flex items-center justify-center shrink-0">
-                          {(p.name || '?')[0].toUpperCase()}
-                        </span>
-                        <span className="flex-1 text-sm font-semibold text-slate-800 text-left">{p.name}</span>
-                        <span className="text-xs font-bold text-emerald-500 shrink-0">Pick →</span>
-                      </button>
-                    ))}
+                    {manualResults.map(p => {
+                      const isAlready = existingNorms.has(p.name.toLowerCase().trim())
+                      return (
+                        <button key={p.id} type="button"
+                          onClick={() => { if (!isAlready) handleSuggestionPick(p) }}
+                          disabled={saving || isAlready}
+                          className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 border transition-all
+                            ${isAlready ? 'bg-slate-50 border-slate-100 cursor-default opacity-60'
+                              : 'bg-white border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 active:scale-[.98] disabled:opacity-50'}`}>
+                          <span className={`w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center shrink-0
+                            ${isAlready ? 'bg-slate-100 text-slate-400' : 'bg-emerald-100 text-emerald-600'}`}>
+                            {(p.name || '?')[0].toUpperCase()}
+                          </span>
+                          <span className="flex-1 text-sm font-semibold text-slate-800 text-left">{p.name}</span>
+                          {isAlready
+                            ? <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">Already added</span>
+                            : <span className="text-xs font-bold text-emerald-500 shrink-0">Pick →</span>}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
                 {searchQuery.trim() && manualResults.length === 0 && (
@@ -613,7 +759,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
               </div>
 
               <button type="button" onClick={handleSkip} disabled={saving}
-                className="w-full py-3 rounded-2xl border border-slate-200 text-slate-500 font-semibold text-sm hover:bg-slate-50 active:bg-slate-100 disabled:opacity-40 transition-colors">
+                className="w-full py-3 rounded-2xl border border-slate-200 text-slate-500 font-semibold text-sm hover:bg-slate-50 disabled:opacity-40 transition-colors">
                 Skip this name →
               </button>
             </div>
@@ -627,14 +773,18 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
                 <p className="font-bold text-slate-800 text-xl mb-1">Import Complete!</p>
                 <p className="text-sm text-slate-400">{selectedDate}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
-                  <p className="text-3xl font-bold text-emerald-600">{confirmed}</p>
-                  <p className="text-xs text-emerald-500 font-semibold mt-1">Confirmed</p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3">
+                  <p className="text-2xl font-bold text-emerald-600">{confirmed}</p>
+                  <p className="text-[10px] text-emerald-500 font-semibold mt-1">Added</p>
                 </div>
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                  <p className="text-3xl font-bold text-slate-400">{skipped}</p>
-                  <p className="text-xs text-slate-400 font-semibold mt-1">Skipped</p>
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3">
+                  <p className="text-2xl font-bold text-blue-500">{already}</p>
+                  <p className="text-[10px] text-blue-400 font-semibold mt-1">Already Present</p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                  <p className="text-2xl font-bold text-slate-400">{skipped}</p>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-1">Skipped</p>
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
@@ -1134,18 +1284,29 @@ export default function SundayReport({ embedded = false }) {
     return merged
   }, [othersLinkDirectory])
 
-  // Combined people pool for bulk import matching (people directory + all cell members, deduped by name)
+  // Combined people pool for bulk import matching: cell members + people directory + visitors, deduped by name
   const bulkImportSearchPool = useMemo(() => {
     const seen = new Set()
     const pool = []
     const add = (p) => {
       const key = (p.name || '').trim().toLowerCase()
-      if (key && !seen.has(key)) { seen.add(key); pool.push({ id: p.id, name: p.name.trim() }) }
+      if (key && !seen.has(key)) { seen.add(key); pool.push({ id: p.id || key, name: (p.name || '').trim() }) }
     }
-    for (const p of peopleDirectory) add(p)
     for (const m of allCellMembers) add(m)
+    for (const p of peopleDirectory) add(p)
+    for (const v of delightVisitorsAll) add(v)
     return pool
-  }, [peopleDirectory, allCellMembers])
+  }, [allCellMembers, peopleDirectory, delightVisitorsAll])
+
+  // Map from normalized name → { cellId } for auto-detecting section during bulk import
+  const cellMemberMap = useMemo(() => {
+    const m = new Map()
+    for (const member of allCellMembers) {
+      const key = (member.name || '').trim().toLowerCase()
+      if (key && member.cellId) m.set(key, { cellId: member.cellId })
+    }
+    return m
+  }, [allCellMembers])
 
   /** Add a Non Cell attendee and record it against their own profile/visitor record. */
   const addNonCellPerson = (person) => {
@@ -1400,6 +1561,7 @@ export default function SundayReport({ embedded = false }) {
         updateReport={updateReport}
         cellGroups={cellGroups}
         searchPool={bulkImportSearchPool}
+        cellMemberMap={cellMemberMap}
         userEmail={userProfile?.email || 'unknown'}
       />
       <div className="space-y-6 p-4">

@@ -445,5 +445,10 @@ service cloud.firestore {
         canAccessDept('Media') || canAccessDept('Worship') || canAccessDept('D Light') || canAccessDept('Administration'));
       allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
     }
+
+    // Collection-group query support: allows collectionGroup(db, 'members') used by getAllCellGroupMembers()
+    match /{path=**}/members/{memberId} {
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring'));
+    }
   }
 }
