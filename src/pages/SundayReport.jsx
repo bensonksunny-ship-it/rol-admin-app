@@ -390,10 +390,13 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
 
   if (!isOpen) return null
 
+  // Collapses ALL unicode whitespace (including non-breaking spaces from Excel) to a single space
+  const nn = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+
   // Norms across ALL sections — used for duplicate detection
   const buildExistingNorms = () => {
     const s = new Set()
-    const addArr = (arr) => (arr || []).forEach(n => { if (n) s.add(n.toLowerCase().trim()) })
+    const addArr = (arr) => (arr || []).forEach(n => { const k = nn(n); if (k) s.add(k) })
     addArr(report?.pastoralAttendees)
     addArr(report?.others)
     addArr(report?.nonCell)
@@ -406,8 +409,8 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
   }
 
   const topSuggestion = (raw) => {
-    if (!raw.trim()) return null
-    const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (!nn(raw)) return null
+    const words = nn(raw).split(' ').filter(Boolean)
     return searchPool
       .map(p => ({ ...p, score: scorePerson(p.name, words) }))
       .filter(p => p.score > 0)
@@ -415,8 +418,8 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
   }
 
   const autoSuggest = (raw) => {
-    if (!raw.trim()) return []
-    const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (!nn(raw)) return []
+    const words = nn(raw).split(' ').filter(Boolean)
     return searchPool
       .map(p => ({ ...p, score: scorePerson(p.name, words) }))
       .filter(p => p.score > 0)
@@ -425,15 +428,14 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
   }
 
   const searchPeople = (q) => {
-    if (!q.trim()) return []
-    const lower = q.trim().toLowerCase()
-    return searchPool.filter(p => (p.name || '').toLowerCase().includes(lower)).slice(0, 8)
+    if (!nn(q)) return []
+    const lower = nn(q)
+    return searchPool.filter(p => nn(p.name).includes(lower)).slice(0, 8)
   }
 
   // Auto-detect section from cell membership map; default to 'others'
   const detectSection = (personName) => {
-    const norm = personName.toLowerCase().trim()
-    const entry = cellMemberMap.get(norm)
+    const entry = cellMemberMap.get(nn(personName))
     if (entry) return { section: 'cell', cellId: entry.cellId }
     return { section: 'others', cellId: '' }
   }
@@ -442,9 +444,18 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     let updated = currentLines
     for (let i = startIdx; i < updated.length; i++) {
       if (updated[i].status !== 'pending') continue
+      const rawNorm = nn(updated[i].raw)
       const top = topSuggestion(updated[i].raw)
-      if (top && existingNorms.has(top.name.toLowerCase().trim())) {
-        updated = updated.map((l, idx) => idx === i ? { ...l, status: 'already', confirmedName: top.name } : l)
+      const topNorm = top ? nn(top.name) : null
+      const allSuggs = autoSuggest(updated[i].raw)
+      const allSuggsAlready = allSuggs.length > 0 && allSuggs.every(p => existingNorms.has(nn(p.name)))
+      const isAlready = existingNorms.has(rawNorm)
+        || (topNorm && existingNorms.has(topNorm))
+        || allSuggsAlready
+      if (isAlready) {
+        updated = updated.map((l, idx) => idx === i
+          ? { ...l, status: 'already', confirmedName: top?.name || updated[i].raw }
+          : l)
       } else {
         return { updated, nextIdx: i }
       }
@@ -498,56 +509,59 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     }
   }
 
-  // Called when user taps a suggestion — uses the currently selected section chips
+  // Called when user taps a suggestion — auto-detects section from the tapped person
   const handleSuggestionPick = (person) => {
     if (saving) return
-    handleConfirmWithSection(person, lineSection, lineCellId)
+    const det = detectSection(person.name)
+    setLineSection(det.section)
+    setLineCellId(det.cellId)
+    handleConfirmWithSection(person, det.section, det.cellId)
   }
 
   const handleConfirmWithSection = async (person, sec, cid) => {
     if (saving || (sec === 'cell' && !cid)) return
     setSaving(true)
     const name = person.name.trim()
-    const norm = name.toLowerCase()
+    const norm = nn(name)
     try {
       if (sec === 'pastoral') {
         const existing = report?.pastoralAttendees || []
-        if (!existing.some(n => n.toLowerCase() === norm)) {
+        if (!existing.some(n => nn(n) === norm)) {
           const next = [...existing, name]
           updateReport({ pastoralAttendees: next })
           await patchSundayReportNameField(selectedDate, 'pastoralAttendees', next, userEmail)
         }
       } else if (sec === 'others') {
         const existing = report?.others || []
-        if (!existing.some(n => n.toLowerCase() === norm)) {
+        if (!existing.some(n => nn(n) === norm)) {
           const next = [...existing, name]
           updateReport({ others: next })
           await patchSundayReportNameField(selectedDate, 'others', next, userEmail)
         }
       } else if (sec === 'nonCell') {
         const existing = report?.nonCell || []
-        if (!existing.some(n => n.toLowerCase() === norm)) {
+        if (!existing.some(n => nn(n) === norm)) {
           const next = [...existing, name]
           updateReport({ nonCell: next })
           await patchSundayReportNameField(selectedDate, 'nonCell', next, userEmail)
         }
       } else if (sec === 'riverKids') {
         const existing = report?.riverKids || []
-        if (!existing.some(n => n.toLowerCase() === norm)) {
+        if (!existing.some(n => nn(n) === norm)) {
           const next = [...existing, name]
           updateReport({ riverKids: next })
           await patchSundayReportRiverKids(selectedDate, next, userEmail)
         }
       } else if (sec === 'newComers') {
         const existing = report?.newComers || []
-        if (!existing.some(n => n.toLowerCase() === norm)) {
+        if (!existing.some(n => nn(n) === norm)) {
           const next = [...existing, name]
           updateReport({ newComers: next })
           await patchSundayReportNameField(selectedDate, 'newComers', next, userEmail)
         }
       } else if (sec === 'secondWeek') {
         const existing = report?.secondWeekAttendeesNames || []
-        if (!existing.some(n => n.toLowerCase() === norm)) {
+        if (!existing.some(n => nn(n) === norm)) {
           const next = [...existing, name]
           updateReport({ secondWeekAttendeesNames: next })
           await patchSundayReportNameField(selectedDate, 'secondWeekAttendeesNames', next, userEmail)
@@ -555,7 +569,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
       } else if (sec === 'cell' && cid) {
         const sca = { ...(report?.sundayCellAttendance || {}) }
         const existing = sca[cid] || []
-        if (!existing.some(n => String(n).toLowerCase() === norm)) {
+        if (!existing.some(n => nn(String(n)) === norm)) {
           sca[cid] = [...existing, name]
           updateReport({ sundayCellAttendance: sca })
           await patchSundayReportCellAttendance(selectedDate, cid, sca[cid], userEmail)
@@ -563,6 +577,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
       }
     } catch { /* optimistic update already applied */ }
     addedNormsRef.current.add(norm)
+    addedNormsRef.current.add(nn(lines[currentIdx]?.raw || ''))
     const updated = lines.map((l, i) => i === currentIdx ? { ...l, status: 'confirmed', confirmedName: name } : l)
     setSaving(false)
     gotoLine(updated, currentIdx)
@@ -585,9 +600,9 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
   const skipped    = lines.filter(l => l.status === 'skipped').length
   const done       = confirmed + already + skipped
   const current    = lines[currentIdx]
+  const existingNorms  = buildExistingNorms()
   const suggestions    = current ? autoSuggest(current.raw) : []
   const manualResults  = searchPeople(searchQuery)
-  const existingNorms  = buildExistingNorms()
   const progress   = lines.length ? (done / lines.length) * 100 : 0
 
   // Name of the currently selected cell group (for display)
@@ -691,29 +706,21 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
                 {suggestions.length > 0 ? (
                   <div className="space-y-2">
                     {suggestions.map(p => {
-                      const isAlready = existingNorms.has(p.name.toLowerCase().trim())
                       const det = detectSection(p.name)
                       const cellLabel = det.section === 'cell' ? cellGroups.find(cg => cg.id === det.cellId)?.cellName : null
                       return (
                         <button key={p.id} type="button"
-                          onClick={() => { if (!isAlready) handleSuggestionPick(p) }}
-                          disabled={saving || isAlready}
-                          className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 border transition-all
-                            ${isAlready ? 'bg-slate-50 border-slate-100 cursor-default opacity-60'
-                              : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 active:scale-[.98] disabled:opacity-50'}`}>
-                          <span className={`w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center shrink-0
-                            ${isAlready ? 'bg-slate-100 text-slate-400' : 'bg-indigo-100 text-indigo-600'}`}>
+                          onClick={() => handleSuggestionPick(p)}
+                          disabled={saving}
+                          className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 border transition-all bg-white border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 active:scale-[.98] disabled:opacity-50">
+                          <span className="w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center shrink-0 bg-indigo-100 text-indigo-600">
                             {(p.name || '?')[0].toUpperCase()}
                           </span>
                           <span className="flex-1 min-w-0 text-left">
                             <span className="text-sm font-semibold text-slate-800 block">{p.name}</span>
-                            {cellLabel && !isAlready && (
-                              <span className="text-[10px] text-indigo-500 font-medium">{cellLabel}</span>
-                            )}
+                            {cellLabel && <span className="text-[10px] text-indigo-500 font-medium">{cellLabel}</span>}
                           </span>
-                          {isAlready
-                            ? <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">Already added</span>
-                            : <span className="text-xs font-bold text-indigo-500 shrink-0">Pick →</span>}
+                          <span className="text-xs font-bold text-indigo-500 shrink-0">Pick →</span>
                         </button>
                       )
                     })}
@@ -757,6 +764,13 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
                   <p className="text-xs text-slate-400 mt-2 text-center">No match found in database</p>
                 )}
               </div>
+
+              <button type="button"
+                onClick={() => handleConfirmWithSection({ name: current.raw }, lineSection, lineCellId)}
+                disabled={saving || (lineSection === 'cell' && !lineCellId)}
+                className="w-full py-3 rounded-2xl bg-slate-700 text-white font-bold text-sm disabled:opacity-40 active:bg-slate-800 transition-colors">
+                Add "{current.raw}" as-is →
+              </button>
 
               <button type="button" onClick={handleSkip} disabled={saving}
                 className="w-full py-3 rounded-2xl border border-slate-200 text-slate-500 font-semibold text-sm hover:bg-slate-50 disabled:opacity-40 transition-colors">
@@ -896,6 +910,7 @@ export default function SundayReport({ embedded = false }) {
   const [editingProgramIdx, setEditingProgramIdx] = useState(null)
   const [editingProgramName, setEditingProgramName] = useState('')
   const [rkSchoolKids, setRkSchoolKids] = useState([])
+  const [allRkKids, setAllRkKids] = useState([])
   const [showBulkImport, setShowBulkImport] = useState(false)
   /** Local-only: which attendance sections are marked done (no Firestore) */
   const [completedSections, setCompletedSections] = useState({})
@@ -1144,10 +1159,12 @@ export default function SundayReport({ embedded = false }) {
     return () => document.removeEventListener('visibilitychange', handleVisible)
   }, [selectedDate])
 
-  // Load Sunday School kids from River Kids registry (one-time, no date dependency)
+  // Load River Kids registry (one-time, no date dependency)
   useEffect(() => {
     getDepartmentChildren('River Kids').then(kids => {
-      setRkSchoolKids(kids.filter(k => k.active !== false && k.group === 'sunday-school'))
+      const active = kids.filter(k => k.active !== false)
+      setAllRkKids(active)
+      setRkSchoolKids(active.filter(k => k.group === 'sunday-school'))
     }).catch(() => {})
   }, [])
 
@@ -1284,7 +1301,7 @@ export default function SundayReport({ embedded = false }) {
     return merged
   }, [othersLinkDirectory])
 
-  // Combined people pool for bulk import matching: cell members + people directory + visitors, deduped by name
+  // Combined people pool for bulk import matching: cell members + people directory + visitors + River Kids
   const bulkImportSearchPool = useMemo(() => {
     const seen = new Set()
     const pool = []
@@ -1295,14 +1312,15 @@ export default function SundayReport({ embedded = false }) {
     for (const m of allCellMembers) add(m)
     for (const p of peopleDirectory) add(p)
     for (const v of delightVisitorsAll) add(v)
+    for (const k of allRkKids) add(k)
     return pool
-  }, [allCellMembers, peopleDirectory, delightVisitorsAll])
+  }, [allCellMembers, peopleDirectory, delightVisitorsAll, allRkKids])
 
   // Map from normalized name → { cellId } for auto-detecting section during bulk import
   const cellMemberMap = useMemo(() => {
     const m = new Map()
     for (const member of allCellMembers) {
-      const key = (member.name || '').trim().toLowerCase()
+      const key = (member.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
       if (key && member.cellId) m.set(key, { cellId: member.cellId })
     }
     return m
@@ -1617,6 +1635,30 @@ export default function SundayReport({ embedded = false }) {
             </button>
           )}
         </div>
+
+        {/* Attendance total banner */}
+        {!loading && report && summaryComputed.total > 0 && (
+          <div className="flex items-center justify-between bg-indigo-600 text-white rounded-xl px-4 py-3 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-extrabold tabular-nums">{summaryComputed.total}</span>
+              <div className="flex flex-col leading-tight">
+                <span className="text-xs font-bold uppercase tracking-wide text-indigo-200">Total Attendance</span>
+                <span className="text-[11px] text-indigo-300">{summaryComputed.totalAdults} adults · {summaryComputed.riverKidsCount + summaryComputed.sundaySchool} kids</span>
+              </div>
+            </div>
+            <div className="flex gap-3 text-right">
+              <div>
+                <p className="text-lg font-bold tabular-nums">{summaryComputed.totalAdults}</p>
+                <p className="text-[10px] text-indigo-300 uppercase tracking-wide">Adults</p>
+              </div>
+              <div className="w-px bg-indigo-500" />
+              <div>
+                <p className="text-lg font-bold tabular-nums">{summaryComputed.riverKidsCount + summaryComputed.sundaySchool}</p>
+                <p className="text-[10px] text-indigo-300 uppercase tracking-wide">Kids</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="py-12 text-center text-slate-500">Loading report…</div>
