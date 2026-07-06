@@ -3095,7 +3095,7 @@ export async function getSundayReport(dateStr) {
   const id = String(dateStr).slice(0, 10)
   const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
   const snap = await getDoc(ref)
-  if (!snap.exists()) return { id, date: id, ...DEFAULT_SUNDAY_REPORT }
+  if (!snap.exists()) return { id, date: id, ...DEFAULT_SUNDAY_REPORT, riverKids: [] }
   const data = snap.data()
   return {
     id: snap.id,
@@ -3104,7 +3104,58 @@ export async function getSundayReport(dateStr) {
       createdAt: toDate(data.createdAt),
       updatedAt: toDate(data.updatedAt),
     }),
+    riverKids: Array.isArray(data.riverKids) ? data.riverKids.filter(Boolean) : [],
   }
+}
+
+/** Real-time subscription to just the riverKids field of a sunday_reports doc. */
+export function subscribeSundayReportRiverKids(dateStr, callback) {
+  if (!db || !dateStr) return () => {}
+  const id = String(dateStr).slice(0, 10)
+  const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+  return onSnapshot(ref, snap => {
+    const data = snap.data() || {}
+    callback(Array.isArray(data.riverKids) ? data.riverKids.filter(Boolean) : [])
+  })
+}
+
+/** Patch a single flat name-array field (e.g. 'others', 'nonCell') on a sunday_reports doc. */
+export async function patchSundayReportNameField(dateStr, fieldKey, names, updatedBy) {
+  if (!db || !dateStr || !fieldKey) return
+  const id = String(dateStr).slice(0, 10)
+  const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+  await setDoc(ref, {
+    date: id,
+    [fieldKey]: Array.isArray(names) ? names.filter(Boolean) : [],
+    updatedAt: Timestamp.now(),
+    updatedBy: updatedBy || 'unknown',
+  }, { merge: true })
+}
+
+/** Patch one cell's name list inside sundayCellAttendance on a sunday_reports doc. */
+export async function patchSundayReportCellAttendance(dateStr, cellId, names, updatedBy) {
+  if (!db || !dateStr || !cellId) return
+  const id = String(dateStr).slice(0, 10)
+  const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+  await setDoc(ref, { date: id }, { merge: true })
+  await updateDoc(ref, {
+    [`sundayCellAttendance.${cellId}`]: Array.isArray(names) ? names.filter(Boolean) : [],
+    updatedAt: Timestamp.now(),
+    updatedBy: updatedBy || 'unknown',
+  })
+}
+
+/** Write just the riverKids array — used by both Sunday Ministry and River Kids Sunday School. */
+export async function patchSundayReportRiverKids(dateStr, names, updatedBy) {
+  if (!db || !dateStr) return
+  const id = String(dateStr).slice(0, 10)
+  const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+  await setDoc(ref, {
+    date: id,
+    riverKids: Array.isArray(names) ? names.filter(Boolean) : [],
+    updatedAt: Timestamp.now(),
+    updatedBy: updatedBy || 'unknown',
+  }, { merge: true })
 }
 
 export async function getRecentSundayReports(numWeeks = 8) {

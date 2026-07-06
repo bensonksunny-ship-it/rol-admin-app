@@ -70,6 +70,8 @@ import {
   deleteDepartmentChild,
   getDepartmentChildAttendance,
   setDepartmentChildAttendance,
+  subscribeSundayReportRiverKids,
+  patchSundayReportRiverKids,
   getPCSLookup,
   getDepartmentEvents,
   addDepartmentEvent,
@@ -495,6 +497,7 @@ export default function DepartmentHub() {
   const [rkSavingEdit, setRkSavingEdit] = useState(false)
   const [rkAllUsers, setRkAllUsers] = useState([])
   const [rkAttendanceGroup, setRkAttendanceGroup] = useState('sunday-school')
+  const [rkSundaySchoolNames, setRkSundaySchoolNames] = useState([])
   const [deptEvents, setDeptEvents] = useState([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [selectedEventId, setSelectedEventId] = useState(null)
@@ -773,6 +776,16 @@ export default function DepartmentHub() {
       .catch(() => { setRkChildren([]); setRkPresent({}) })
       .finally(() => setRkLoading(false))
   }, [slug, activeTab, department, rkDate])
+
+  // Real-time subscription for Sunday School attendance (synced with Sunday Ministry)
+  useEffect(() => {
+    if (slug !== 'river-kids' || activeTab !== 'attendance' || rkAttendanceGroup !== 'sunday-school') {
+      return
+    }
+    const unsub = subscribeSundayReportRiverKids(rkDate, names => setRkSundaySchoolNames(names))
+    return unsub
+  }, [slug, activeTab, rkAttendanceGroup, rkDate])
+
 
   useEffect(() => {
     if (slug !== 'event-m' || (activeTab !== 'events' && activeTab !== 'liveControl' && activeTab !== 'financial') || !department) return
@@ -6299,8 +6312,12 @@ export default function DepartmentHub() {
               { key: 'river-kids-1',  label: 'River Kids-1'  },
               { key: 'river-kids-2',  label: 'River Kids-2'  },
             ]
+            const isSundaySchool = rkAttendanceGroup === 'sunday-school'
             const groupKids = rkChildren.filter(c => !c.group || c.group === rkAttendanceGroup)
-            const presentCount = groupKids.filter(c => rkPresent[c.id]).length
+            const isKidPresent = (c) => isSundaySchool
+              ? rkSundaySchoolNames.some(n => (n || '').trim().toLowerCase() === c.name.trim().toLowerCase())
+              : !!rkPresent[c.id]
+            const presentCount = groupKids.filter(isKidPresent).length
             return (
               <div className="space-y-3">
                 {/* Date row */}
@@ -6322,6 +6339,14 @@ export default function DepartmentHub() {
                     </button>
                   ))}
                 </div>
+
+                {/* Sunday School sync notice */}
+                {isSundaySchool && (
+                  <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2">
+                    <span className="text-indigo-500 text-sm">↔</span>
+                    <p className="text-xs text-indigo-600">Synced with Sunday Ministry Live Control</p>
+                  </div>
+                )}
 
                 {/* Stats row */}
                 {!rkLoading && groupKids.length > 0 && (
@@ -6352,6 +6377,7 @@ export default function DepartmentHub() {
                   <div className="space-y-2">
                     {groupKids.map((c) => {
                       const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
+                      const isPresent = isKidPresent(c)
                       return (
                         <div key={c.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
                           <div className="flex-1 min-w-0">
@@ -6368,15 +6394,28 @@ export default function DepartmentHub() {
                           <button type="button" disabled={!canEdit}
                             onClick={async () => {
                               if (!canEdit || !department) return
-                              const next = { ...rkPresent, [c.id]: !rkPresent[c.id] }
-                              setRkPresent(next)
-                              try {
-                                await setDepartmentChildAttendance(department.name, rkDate, next, userProfile?.email || userProfile?.displayName || 'unknown')
-                              } catch { alert('Failed to save') }
+                              if (isSundaySchool) {
+                                const trimmedName = c.name.trim()
+                                const norm = trimmedName.toLowerCase()
+                                const newNames = isPresent
+                                  ? rkSundaySchoolNames.filter(n => (n || '').trim().toLowerCase() !== norm)
+                                  : rkSundaySchoolNames.some(n => (n || '').trim().toLowerCase() === norm)
+                                    ? rkSundaySchoolNames
+                                    : [...rkSundaySchoolNames, trimmedName]
+                                try {
+                                  await patchSundayReportRiverKids(rkDate, newNames, userProfile?.email || userProfile?.displayName || 'unknown')
+                                } catch { alert('Failed to save') }
+                              } else {
+                                const next = { ...rkPresent, [c.id]: !isPresent }
+                                setRkPresent(next)
+                                try {
+                                  await setDepartmentChildAttendance(department.name, rkDate, next, userProfile?.email || userProfile?.displayName || 'unknown')
+                                } catch { alert('Failed to save') }
+                              }
                             }}
-                            className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${rkPresent[c.id] ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
+                            className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${isPresent ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
                           >
-                            {rkPresent[c.id] ? 'Present' : 'Absent'}
+                            {isPresent ? 'Present' : 'Absent'}
                           </button>
                         </div>
                       )

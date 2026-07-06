@@ -15,6 +15,11 @@ import {
   getDelightVisitors,
   getPeople,
   recordPersonSundayAttendance,
+  getDepartmentChildren,
+  subscribeSundayReportRiverKids,
+  patchSundayReportRiverKids,
+  patchSundayReportNameField,
+  patchSundayReportCellAttendance,
 } from '../services/firestore'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
@@ -350,6 +355,361 @@ function AttendanceSectionShell({
   )
 }
 
+const BULK_SECTIONS = [
+  { key: 'others',    label: 'Others'     },
+  { key: 'nonCell',   label: 'Non-Cell'   },
+  { key: 'riverKids', label: 'River Kids' },
+  { key: 'cell',      label: 'Cell Group' },
+]
+
+function scorePerson(name, words) {
+  const lower = name.toLowerCase()
+  const nameWords = lower.split(/\s+/)
+  let score = 0
+  for (const w of words) {
+    if (lower.includes(w)) score += 2
+    if (nameWords.some(nw => nw.startsWith(w))) score += 1
+  }
+  return score
+}
+
+function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, cellGroups, searchPool, userEmail }) {
+  const [step, setStep] = useState('setup')
+  const [section, setSection] = useState('others')
+  const [cellId, setCellId] = useState('')
+  const [pastedText, setPastedText] = useState('')
+  const [lines, setLines] = useState([])
+  const [currentIdx, setCurrentIdx] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  if (!isOpen) return null
+
+  const autoSuggest = (raw) => {
+    if (!raw.trim()) return []
+    const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    return searchPool
+      .map(p => ({ ...p, score: scorePerson(p.name, words) }))
+      .filter(p => p.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+  }
+
+  const searchPeople = (q) => {
+    if (!q.trim()) return []
+    const lower = q.trim().toLowerCase()
+    return searchPool.filter(p => (p.name || '').toLowerCase().includes(lower)).slice(0, 8)
+  }
+
+  const handleParse = () => {
+    if (section === 'cell' && !cellId) { alert('Please select a cell group.'); return }
+    const parsed = pastedText.split('\n').map(l => l.trim()).filter(Boolean)
+      .map(raw => ({ raw, status: 'pending', confirmedName: null }))
+    if (!parsed.length) return
+    setLines(parsed)
+    setCurrentIdx(0)
+    setSearchQuery('')
+    setStep('review')
+  }
+
+  const advance = (updated) => {
+    const next = updated.findIndex((l, i) => i > currentIdx && l.status === 'pending')
+    if (next === -1) setStep('done')
+    else { setCurrentIdx(next); setSearchQuery('') }
+  }
+
+  const handleConfirm = async (person) => {
+    if (saving) return
+    setSaving(true)
+    const name = person.name.trim()
+    const norm = name.toLowerCase()
+    try {
+      if (section === 'others') {
+        const existing = report?.others || []
+        if (!existing.some(n => n.toLowerCase() === norm)) {
+          const next = [...existing, name]
+          updateReport({ others: next })
+          await patchSundayReportNameField(selectedDate, 'others', next, userEmail)
+        }
+      } else if (section === 'nonCell') {
+        const existing = report?.nonCell || []
+        if (!existing.some(n => n.toLowerCase() === norm)) {
+          const next = [...existing, name]
+          updateReport({ nonCell: next })
+          await patchSundayReportNameField(selectedDate, 'nonCell', next, userEmail)
+        }
+      } else if (section === 'riverKids') {
+        const existing = report?.riverKids || []
+        if (!existing.some(n => n.toLowerCase() === norm)) {
+          const next = [...existing, name]
+          updateReport({ riverKids: next })
+          await patchSundayReportRiverKids(selectedDate, next, userEmail)
+        }
+      } else if (section === 'cell' && cellId) {
+        const sca = { ...(report?.sundayCellAttendance || {}) }
+        const existing = sca[cellId] || []
+        if (!existing.some(n => String(n).toLowerCase() === norm)) {
+          sca[cellId] = [...existing, name]
+          updateReport({ sundayCellAttendance: sca })
+          await patchSundayReportCellAttendance(selectedDate, cellId, sca[cellId], userEmail)
+        }
+      }
+    } catch { /* silent — UI already updated optimistically */ }
+    const updated = lines.map((l, i) => i === currentIdx ? { ...l, status: 'confirmed', confirmedName: name } : l)
+    setLines(updated)
+    setSaving(false)
+    advance(updated)
+  }
+
+  const handleSkip = () => {
+    const updated = lines.map((l, i) => i === currentIdx ? { ...l, status: 'skipped' } : l)
+    setLines(updated)
+    advance(updated)
+  }
+
+  const handleReset = () => {
+    setStep('setup'); setPastedText(''); setLines([])
+    setCurrentIdx(0); setSearchQuery(''); setSaving(false)
+  }
+
+  const confirmed = lines.filter(l => l.status === 'confirmed').length
+  const skipped   = lines.filter(l => l.status === 'skipped').length
+  const current   = lines[currentIdx]
+  const suggestions  = current ? autoSuggest(current.raw) : []
+  const manualResults = searchPeople(searchQuery)
+  const progress = lines.length ? ((confirmed + skipped) / lines.length) * 100 : 0
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex flex-col justify-end"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-t-3xl max-h-[94vh] flex flex-col shadow-2xl">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 shrink-0">
+          <div>
+            <h2 className="font-bold text-slate-800 text-lg">Bulk Import</h2>
+            <p className="text-[11px] text-amber-600 font-semibold tracking-wide">FOUNDER · HISTORICAL RECORDS</p>
+          </div>
+          <button type="button" onClick={onClose}
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-xl leading-none">×</button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-5 py-5">
+
+          {/* ── STEP 1: SETUP ── */}
+          {step === 'setup' && (
+            <div className="space-y-5">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 flex items-center gap-2">
+                <span className="text-xs text-slate-400 font-medium">Date</span>
+                <span className="text-sm font-bold text-slate-800">{selectedDate}</span>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Target Section</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {BULK_SECTIONS.map(s => (
+                    <button key={s.key} type="button" onClick={() => setSection(s.key)}
+                      className={`py-2.5 px-3 rounded-xl text-sm font-semibold border transition-all ${section === s.key ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'}`}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                {section === 'cell' && (
+                  <select value={cellId} onChange={e => setCellId(e.target.value)}
+                    className="mt-3 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                    <option value="">— Select Cell Group —</option>
+                    {cellGroups.map(cg => (
+                      <option key={cg.id} value={cg.id}>{cg.cellName}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Paste Names (one per line)</p>
+                <textarea
+                  value={pastedText}
+                  onChange={e => setPastedText(e.target.value)}
+                  placeholder={"John Smith\nSarah Johnson\nMichael Brown\n..."}
+                  rows={9}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 font-mono resize-none"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  {pastedText.split('\n').filter(l => l.trim()).length} names detected
+                </p>
+              </div>
+
+              <button type="button" onClick={handleParse} disabled={!pastedText.trim()}
+                className="w-full py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-40 active:bg-indigo-700 transition-colors">
+                Parse Names →
+              </button>
+            </div>
+          )}
+
+          {/* ── STEP 2: REVIEW ── */}
+          {step === 'review' && current && (
+            <div className="space-y-4">
+              {/* Back + progress bar */}
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setStep('setup')}
+                  className="text-indigo-600 text-sm font-semibold shrink-0">← Back</button>
+                <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${progress}%` }} />
+                </div>
+                <span className="text-xs text-slate-500 font-semibold shrink-0">
+                  {confirmed + skipped + 1} / {lines.length}
+                </span>
+              </div>
+
+              {/* Current raw name */}
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
+                <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-1">Pasted Name</p>
+                <p className="font-bold text-slate-800 text-base">"{current.raw}"</p>
+              </div>
+
+              {/* Auto suggestions */}
+              {suggestions.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Suggestions</p>
+                  <div className="space-y-2">
+                    {suggestions.map(p => (
+                      <button key={p.id} type="button" onClick={() => handleConfirm(p)} disabled={saving}
+                        className="w-full flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 hover:border-indigo-300 hover:bg-indigo-50 active:scale-[.98] transition-all disabled:opacity-50">
+                        <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold flex items-center justify-center shrink-0">
+                          {(p.name || '?')[0].toUpperCase()}
+                        </span>
+                        <span className="flex-1 text-sm font-semibold text-slate-800 text-left">{p.name}</span>
+                        <span className="text-xs font-bold text-indigo-500 shrink-0">Pick →</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Manual search */}
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Search Database</p>
+                <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Type any part of the name…"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                {manualResults.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {manualResults.map(p => (
+                      <button key={p.id} type="button" onClick={() => handleConfirm(p)} disabled={saving}
+                        className="w-full flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 hover:border-emerald-300 hover:bg-emerald-50 active:scale-[.98] transition-all disabled:opacity-50">
+                        <span className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 text-xs font-bold flex items-center justify-center shrink-0">
+                          {(p.name || '?')[0].toUpperCase()}
+                        </span>
+                        <span className="flex-1 text-sm font-semibold text-slate-800 text-left">{p.name}</span>
+                        <span className="text-xs font-bold text-emerald-500 shrink-0">Pick →</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {searchQuery.trim() && manualResults.length === 0 && (
+                  <p className="text-xs text-slate-400 mt-2 text-center">No match found in database</p>
+                )}
+              </div>
+
+              <button type="button" onClick={handleSkip} disabled={saving}
+                className="w-full py-3 rounded-2xl border border-slate-200 text-slate-500 font-semibold text-sm hover:bg-slate-50 active:bg-slate-100 disabled:opacity-40 transition-colors">
+                Skip this name →
+              </button>
+            </div>
+          )}
+
+          {/* ── STEP 3: DONE ── */}
+          {step === 'done' && (
+            <div className="py-8 text-center space-y-6">
+              <div className="text-6xl">✅</div>
+              <div>
+                <p className="font-bold text-slate-800 text-xl mb-1">Import Complete!</p>
+                <p className="text-sm text-slate-400">{selectedDate}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
+                  <p className="text-3xl font-bold text-emerald-600">{confirmed}</p>
+                  <p className="text-xs text-emerald-500 font-semibold mt-1">Confirmed</p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                  <p className="text-3xl font-bold text-slate-400">{skipped}</p>
+                  <p className="text-xs text-slate-400 font-semibold mt-1">Skipped</p>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={handleReset}
+                  className="flex-1 py-3 rounded-2xl border border-slate-200 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition-colors">
+                  Import More
+                </button>
+                <button type="button" onClick={onClose}
+                  className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition-colors">
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RiverKidsRegistrySection({ kids, markedNames, canEdit, onToggle }) {
+  const [search, setSearch] = useState('')
+  const q = search.trim().toLowerCase()
+  const filtered = q ? kids.filter(k => (k.name || '').toLowerCase().includes(q)) : kids
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-slate-800">River Kids</h3>
+        <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+          {markedNames.filter(Boolean).length} present
+        </span>
+      </div>
+      {canEdit && (
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search Sunday School kids…"
+          className="w-full mb-3 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+      )}
+      <ul className="space-y-1.5">
+        {filtered.map(kid => {
+          const norm = kid.name.trim().toLowerCase()
+          const isPresent = markedNames.some(n => (n || '').trim().toLowerCase() === norm)
+          return (
+            <li key={kid.id} className="flex items-center gap-3 py-1">
+              <span className="flex-1 text-sm text-slate-800">{kid.name}</span>
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => onToggle(kid.name, isPresent)}
+                  className={`px-3 min-h-[36px] py-1 rounded-xl text-xs font-semibold transition-all active:scale-95 shrink-0 ${isPresent ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'}`}
+                >
+                  {isPresent ? 'Present' : 'Absent'}
+                </button>
+              ) : (
+                <span className={`px-3 py-1 rounded-xl text-xs font-semibold shrink-0 ${isPresent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                  {isPresent ? 'Present' : 'Absent'}
+                </span>
+              )}
+            </li>
+          )
+        })}
+        {filtered.length === 0 && (
+          <li className="text-sm text-slate-400 py-2">
+            {search ? 'No kids match your search.' : 'No kids in Sunday School. Add them via River Kids → Kids Register.'}
+          </li>
+        )}
+      </ul>
+    </div>
+  )
+}
+
 function upcomingSunday() {
   const today = new Date()
   const daysUntil = today.getDay() === 0 ? 0 : 7 - today.getDay()
@@ -359,7 +719,7 @@ function upcomingSunday() {
 }
 
 export default function SundayReport({ embedded = false }) {
-  const { userProfile, canManageDepartment, isDepartmentHead, isSundayMinistryDirector } = useAuth()
+  const { userProfile, canManageDepartment, isDepartmentHead, isSundayMinistryDirector, isFounder } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const [selectedDate, setSelectedDate] = useState(() => searchParams.get('date') || upcomingSunday())
@@ -385,6 +745,8 @@ export default function SundayReport({ embedded = false }) {
   const [editingLogTime, setEditingLogTime] = useState('')
   const [editingProgramIdx, setEditingProgramIdx] = useState(null)
   const [editingProgramName, setEditingProgramName] = useState('')
+  const [rkSchoolKids, setRkSchoolKids] = useState([])
+  const [showBulkImport, setShowBulkImport] = useState(false)
   /** Local-only: which attendance sections are marked done (no Firestore) */
   const [completedSections, setCompletedSections] = useState({})
 
@@ -632,6 +994,21 @@ export default function SundayReport({ embedded = false }) {
     return () => document.removeEventListener('visibilitychange', handleVisible)
   }, [selectedDate])
 
+  // Load Sunday School kids from River Kids registry (one-time, no date dependency)
+  useEffect(() => {
+    getDepartmentChildren('River Kids').then(kids => {
+      setRkSchoolKids(kids.filter(k => k.active !== false && k.group === 'sunday-school'))
+    }).catch(() => {})
+  }, [])
+
+  // Real-time sync: keep report.riverKids up to date when River Kids director makes changes
+  useEffect(() => {
+    if (!selectedDate) return
+    return subscribeSundayReportRiverKids(selectedDate, (names) => {
+      setReport(prev => prev ? { ...prev, riverKids: names } : prev)
+    })
+  }, [selectedDate])
+
   const updateReport = (patch) => setReport((prev) => (prev ? { ...prev, ...patch } : { ...patch }))
 
   const handleSave = async () => {
@@ -721,6 +1098,20 @@ export default function SundayReport({ embedded = false }) {
   const addCellNameValue = (key, value) => updateReport({ [key]: [...(report?.[key] || []), value] })
   const removeCellName = (key, idx) => updateReport({ [key]: (report?.[key] || []).filter((_, i) => i !== idx) })
 
+  const handleRiverKidsToggle = async (kidName, isCurrentlyPresent) => {
+    if (!canEditEffective) return
+    const trimmed = kidName.trim()
+    const norm = trimmed.toLowerCase()
+    const currentNames = report?.riverKids || []
+    const newNames = isCurrentlyPresent
+      ? currentNames.filter(n => (n || '').trim().toLowerCase() !== norm)
+      : currentNames.some(n => (n || '').trim().toLowerCase() === norm) ? currentNames : [...currentNames, trimmed]
+    updateReport({ riverKids: newNames })
+    try {
+      await patchSundayReportRiverKids(selectedDate, newNames, userProfile?.email || 'unknown')
+    } catch { /* optimistic update already applied; subscription will resync */ }
+  }
+
   // Search pool for linking an "Others" name — People Directory + D-Light visitors, tagged by source.
   const othersLinkDirectory = useMemo(
     () => [
@@ -742,6 +1133,19 @@ export default function SundayReport({ embedded = false }) {
     }
     return merged
   }, [othersLinkDirectory])
+
+  // Combined people pool for bulk import matching (people directory + all cell members, deduped by name)
+  const bulkImportSearchPool = useMemo(() => {
+    const seen = new Set()
+    const pool = []
+    const add = (p) => {
+      const key = (p.name || '').trim().toLowerCase()
+      if (key && !seen.has(key)) { seen.add(key); pool.push({ id: p.id, name: p.name.trim() }) }
+    }
+    for (const p of peopleDirectory) add(p)
+    for (const m of allCellMembers) add(m)
+    return pool
+  }, [peopleDirectory, allCellMembers])
 
   /** Add a Non Cell attendee and record it against their own profile/visitor record. */
   const addNonCellPerson = (person) => {
@@ -988,6 +1392,16 @@ export default function SundayReport({ embedded = false }) {
   return (
     <div>
       {!embedded && <DepartmentTabBar slug="sunday-ministry" activeTab="sundayReport" />}
+      <BulkImportPanel
+        isOpen={showBulkImport}
+        onClose={() => setShowBulkImport(false)}
+        selectedDate={selectedDate}
+        report={report}
+        updateReport={updateReport}
+        cellGroups={cellGroups}
+        searchPool={bulkImportSearchPool}
+        userEmail={userProfile?.email || 'unknown'}
+      />
       <div className="space-y-6 p-4">
         {/* Date nav + actions */}
         <div className="flex items-center gap-2 flex-wrap">
@@ -1020,12 +1434,22 @@ export default function SundayReport({ embedded = false }) {
           >
             ↻
           </button>
+          {isFounder && (
+            <button
+              type="button"
+              onClick={() => setShowBulkImport(true)}
+              className="ml-auto px-3 min-h-[44px] py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 text-sm font-semibold hover:bg-amber-100 active:bg-amber-200 transition-colors"
+              title="Bulk import historical attendance (Founder only)"
+            >
+              ↑ Import
+            </button>
+          )}
           {canEdit && (
             <button
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="ml-auto px-5 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors"
+              className={`${isFounder ? '' : 'ml-auto'} px-5 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors`}
             >
               {saving ? 'Saving…' : 'Save'}
             </button>
@@ -1305,6 +1729,13 @@ export default function SundayReport({ embedded = false }) {
                       onEdit={(idx, value) => updateCellList(key, idx, value)}
                       onRemove={(idx) => removeCellName(key, idx)}
                       className="border-0 shadow-none bg-transparent p-0"
+                    />
+                  ) : key === 'riverKids' ? (
+                    <RiverKidsRegistrySection
+                      kids={rkSchoolKids}
+                      markedNames={report?.riverKids || []}
+                      canEdit={manualEdit}
+                      onToggle={handleRiverKidsToggle}
                     />
                   ) : (
                     <NameListSection
