@@ -6403,7 +6403,7 @@ export default function DepartmentHub() {
                   </div>
                 )}
 
-                {/* Kids list */}
+                {/* Kids — tap a name to mark present/absent */}
                 {rkLoading ? (
                   <p className="text-center text-slate-400 text-sm py-8">Loading…</p>
                 ) : groupKids.length === 0 ? (
@@ -6411,24 +6411,18 @@ export default function DepartmentHub() {
                     No kids in this group yet. Assign kids in the Kids Register tab.
                   </p>
                 ) : (
-                  <div className="space-y-2">
-                    {groupKids.map((c) => {
-                      const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
-                      const isPresent = isKidPresent(c)
-                      return (
-                        <div key={c.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold text-slate-800 text-sm">{c.name}</p>
-                              {age !== null && (
-                                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full border border-indigo-100">{age}y</span>
-                              )}
-                            </div>
-                            {(c.fatherName || c.motherName) && (
-                              <p className="text-xs text-slate-400 mt-0.5">{[c.fatherName, c.motherName].filter(Boolean).join(' · ')}</p>
-                            )}
-                          </div>
-                          <button type="button" disabled={!canEdit}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3">
+                    <div className="flex flex-wrap gap-2">
+                      {groupKids.map((c) => {
+                        const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
+                        const isPresent = isKidPresent(c)
+                        const parents = [c.fatherName, c.motherName].filter(Boolean).join(' · ')
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            disabled={!canEdit}
+                            title={parents || undefined}
                             onClick={async () => {
                               if (!canEdit || !department) return
                               // Every group's presence toggle merges the kid's name into/out of the
@@ -6453,13 +6447,18 @@ export default function DepartmentHub() {
                                 } catch { alert('Failed to save') }
                               }
                             }}
-                            className={`px-4 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${isPresent ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 ${
+                              isPresent
+                                ? 'bg-emerald-500 text-white border-emerald-600 shadow-sm'
+                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                            } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
                           >
-                            {isPresent ? 'Present' : 'Absent'}
+                            {c.name}
+                            {age !== null && <span className={`ml-1 ${isPresent ? 'text-emerald-100' : 'text-slate-400'}`}>· {age}y</span>}
                           </button>
-                        </div>
-                      )
-                    })}
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

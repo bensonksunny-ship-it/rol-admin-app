@@ -33,18 +33,21 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
   const pageRef = useRef(null)
   const [downloading, setDownloading] = useState(false)
 
+  // Every group is shown unconditionally (even when 0) so nothing silently
+  // disappears from the printed/PDF report — Others and Non Cell are two
+  // distinct lists and both always get their own row.
   const sca = row.sundayCellAttendance || {}
-  const cellStats = cellCols
-    .map((c) => ({ name: c.name, count: (sca[c.id] || []).filter(Boolean).length }))
-    .filter((c) => c.count > 0)
+  const cellStats = cellCols.map((c) => ({ name: c.name, count: (sca[c.id] || []).filter(Boolean).length }))
 
   const otherStats = [
+    { label: 'Pastoral Attendees', value: row.pastoralCount || 0 },
     { label: 'Others', value: row.othersCount || 0 },
     { label: 'Non Cell', value: row.nonCellCount || 0 },
     { label: 'Sunday School', value: row.sundaySchool || 0 },
     { label: '2nd Week Attendees', value: row.secondWeekAttendees || 0 },
     { label: 'New Comers', value: row.newcomers || 0 },
-  ].filter((s) => s.value > 0)
+    { label: 'River Kids', value: row.riverKidsCount || 0 },
+  ]
 
   const hasTimings = row.programTimings?.length > 0
 

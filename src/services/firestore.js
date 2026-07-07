@@ -3205,10 +3205,14 @@ export async function getSundayReportSummaries(numWeeks = 12) {
 
     const othersCount         = Array.isArray(data.others)                    ? data.others.filter(Boolean).length                    : Number(s.othersCount) || 0
     const nonCellCount        = Array.isArray(data.nonCell)                   ? data.nonCell.filter(Boolean).length                   : Number(s.nonCellCount) || 0
-    const newcomers           = Array.isArray(data.newComers)                 ? data.newComers.filter(Boolean).length                 : Number(s.newcomers) || 0
     const secondWeekAttendees = Array.isArray(data.secondWeekAttendeesNames)  ? data.secondWeekAttendeesNames.filter(Boolean).length  : Number(s.secondWeekAttendees) || 0
     const pastoralCount       = Array.isArray(data.pastoralAttendees)         ? data.pastoralAttendees.filter(Boolean).length         : 0
     const riverKidsCount      = Array.isArray(data.riverKids)                 ? data.riverKids.filter(Boolean).length                 : Number(s.riverKids) || 0
+    // "New Comers" is never saved as a real names array from Live Control (it's derived live from
+    // D-Light visitors each session, so normalizeReport always writes newComers as []) — only bulk
+    // Excel imports populate that array for real. Prefer whichever source is actually non-zero.
+    const newcomersFromArray  = Array.isArray(data.newComers) ? data.newComers.filter(Boolean).length : 0
+    const newcomers           = newcomersFromArray > 0 ? newcomersFromArray : (Number(s.newcomers) || 0)
     const sundaySchool        = Number(s.sundaySchool) || 0
     const cellAttendance      = Object.values(sca).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.filter(Boolean).length : 0), 0)
     const totalAdults         = cellAttendance + othersCount + nonCellCount + newcomers + secondWeekAttendees + pastoralCount
@@ -3222,6 +3226,7 @@ export async function getSundayReportSummaries(numWeeks = 12) {
       newcomers,
       secondWeekAttendees,
       sundaySchool,
+      pastoralCount,
       riverKidsCount,
       totalAdults,
       totalAttendance,

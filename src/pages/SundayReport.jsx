@@ -849,38 +849,43 @@ function RiverKidsRegistrySection({ kids, markedNames, canEdit, onToggle, duplic
           className="w-full mb-3 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
         />
       )}
-      <ul className="space-y-1.5">
+      <div className="flex flex-wrap gap-2">
         {filtered.map(kid => {
           const norm = kid.name.trim().toLowerCase()
           const isPresent = markedNames.some(n => (n || '').trim().toLowerCase() === norm)
           const isDupe = isPresent && duplicateNorms?.has(norm)
-          return (
-            <li key={kid.id} className="flex items-center gap-3 py-1">
-              <span className={`flex-1 text-sm ${isDupe ? 'text-red-600 font-semibold' : 'text-slate-800'}`}>
-                {kid.name}{isDupe && <span className="ml-1.5 text-xs font-bold text-red-500">Duplicate</span>}
-              </span>
-              {canEdit ? (
-                <button
-                  type="button"
-                  onClick={() => onToggle(kid.name, isPresent)}
-                  className={`px-3 min-h-[36px] py-1 rounded-xl text-xs font-semibold transition-all active:scale-95 shrink-0 ${isPresent ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'}`}
-                >
-                  {isPresent ? 'Present' : 'Absent'}
-                </button>
-              ) : (
-                <span className={`px-3 py-1 rounded-xl text-xs font-semibold shrink-0 ${isPresent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                  {isPresent ? 'Present' : 'Absent'}
-                </span>
-              )}
-            </li>
+          return canEdit ? (
+            <button
+              key={kid.id}
+              type="button"
+              onClick={() => onToggle(kid.name, isPresent)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 ${
+                isDupe
+                  ? 'bg-red-100 text-red-700 border-red-400'
+                  : isPresent
+                    ? 'bg-emerald-500 text-white border-emerald-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              {kid.name}{isDupe && <span className="ml-1 font-bold">· Duplicate</span>}
+            </button>
+          ) : (
+            <span
+              key={kid.id}
+              className={`px-3 py-1.5 rounded-xl text-xs font-medium border ${
+                isPresent ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'
+              }`}
+            >
+              {kid.name}
+            </span>
           )
         })}
         {filtered.length === 0 && (
-          <li className="text-sm text-slate-400 py-2">
+          <p className="text-sm text-slate-400 py-2">
             {search ? 'No kids match your search.' : 'No kids in Sunday School. Add them via River Kids → Kids Register.'}
-          </li>
+          </p>
         )}
-      </ul>
+      </div>
     </div>
   )
 }
