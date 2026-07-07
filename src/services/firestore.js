@@ -3003,6 +3003,9 @@ export async function setPastorRemarks(department, payload, updatedBy) {
 const SUNDAY_REPORTS_COLLECTION = 'sunday_reports'
 
 const DEFAULT_SUNDAY_REPORT = {
+  /** True once the report has been saved through the "Save" action — the page then shows
+   *  a read-only summary ("filed") instead of the edit form, until "Edit" is tapped. */
+  filed: false,
   sundayMinistryTeam: [],
   pastoralAttendees: [],
   /** Per–cell-group attendance: { [cellGroupDocId]: string[] (member names) } */
@@ -3042,6 +3045,7 @@ function normalizeReport(data) {
       : {}
   return {
     date: data.date || '',
+    filed: !!data.filed,
     sundayMinistryTeam: Array.isArray(data.sundayMinistryTeam) ? data.sundayMinistryTeam : [],
     pastoralAttendees: Array.isArray(data.pastoralAttendees) ? data.pastoralAttendees : [],
     sundayCellAttendance,
@@ -3218,6 +3222,7 @@ export async function getSundayReportSummaries(numWeeks = 12) {
       newcomers,
       secondWeekAttendees,
       sundaySchool,
+      riverKidsCount,
       totalAdults,
       totalAttendance,
       programTimings: Array.isArray(data.programTimings) ? data.programTimings : [],
@@ -3235,6 +3240,7 @@ export async function setSundayReport(dateStr, payload, updatedBy) {
   await setDoc(ref, {
     date: id,
     ...(snap.exists() ? {} : { createdAt: now }),
+    filed: data.filed,
     sundayMinistryTeam: data.sundayMinistryTeam,
     pastoralAttendees: data.pastoralAttendees,
     sundayCellAttendance: data.sundayCellAttendance || {},
@@ -4291,7 +4297,26 @@ export async function syncVisitorDataEverywhere(visitorId, { name, phone, dob } 
     updatePCSEntriesByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }) }),
     updateDeptTeamMembersByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }) }),
     updateWorshipTeamMembersByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }) }),
+    // People's Directory records aren't keyed by visitorId (they predate that model), so the
+    // only way to find a matching one from here is by phone — the same lookup the People's
+    // Directory page itself uses to merge a visitor into a person row.
+    name !== undefined && phone ? updatePeopleByPhone(phone, { name }) : Promise.resolve(),
   ])
+}
+
+/** Update the name on any People's Directory record sharing this phone number. Used when a
+ *  name is corrected from somewhere OTHER than People's Directory (e.g. editing a cell
+ *  member directly) — people/ docs have no visitorId field to look them up by otherwise. */
+export async function updatePeopleByPhone(phone, data) {
+  if (!db) return
+  const cleanPhone = String(phone || '').replace(/\s+/g, '')
+  if (!cleanPhone) return
+  const payload = {}
+  if (data.name !== undefined) payload.name = String(data.name)
+  if (!Object.keys(payload).length) return
+  const q = query(collection(db, PEOPLE_COLLECTION), where('phone', '==', cleanPhone))
+  const snap = await getDocs(q)
+  await Promise.all(snap.docs.map((d) => updateDoc(doc(db, PEOPLE_COLLECTION, d.id), payload)))
 }
 
 // ─── Member Profiles ─────────────────────────────────────────────────────────

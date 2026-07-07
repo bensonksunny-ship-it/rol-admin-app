@@ -111,6 +111,7 @@ import {
   completePCSFillInvitation,
   getFinanceIncome,
   getFinanceExpense,
+  subscribeFinanceExpenseByDept,
   subscribeCellVisitorProposals,
   completeCellVisitorProposal,
   dismissCellVisitorProposal,
@@ -430,6 +431,9 @@ export default function DepartmentHub() {
   const [cellVisitorProposalOpen, setCellVisitorProposalOpen] = useState(false)
   const [cellVisitorProposalAdding, setCellVisitorProposalAdding] = useState(new Set())
   const [cellVisitorProposalDismissing, setCellVisitorProposalDismissing] = useState(new Set())
+
+  const [monthlyExpenseTotal, setMonthlyExpenseTotal] = useState(0)
+  const [loadingMonthlyExpense, setLoadingMonthlyExpense] = useState(true)
   const [delightVisitorForm, setDelightVisitorForm] = useState({
     name: '',
     dob: '',
@@ -497,7 +501,7 @@ export default function DepartmentHub() {
   const [rkSavingEdit, setRkSavingEdit] = useState(false)
   const [rkAllUsers, setRkAllUsers] = useState([])
   const [rkAttendanceGroup, setRkAttendanceGroup] = useState('sunday-school')
-  const [rkSundaySchoolNames, setRkSundaySchoolNames] = useState([])
+  const [rkReportKidsNames, setRkReportKidsNames] = useState([])
   const [deptEvents, setDeptEvents] = useState([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [selectedEventId, setSelectedEventId] = useState(null)
@@ -777,14 +781,16 @@ export default function DepartmentHub() {
       .finally(() => setRkLoading(false))
   }, [slug, activeTab, department, rkDate])
 
-  // Real-time subscription for Sunday School attendance (synced with Sunday Ministry)
+  // Real-time subscription to the "River Kids" name list on the Sunday Ministry report —
+  // kept live across all three groups (not just Sunday School) so every group's presence
+  // toggle can merge into the same list Sunday Ministry reads its "River Kids" total from.
   useEffect(() => {
-    if (slug !== 'river-kids' || activeTab !== 'attendance' || rkAttendanceGroup !== 'sunday-school') {
+    if (slug !== 'river-kids' || activeTab !== 'attendance') {
       return
     }
-    const unsub = subscribeSundayReportRiverKids(rkDate, names => setRkSundaySchoolNames(names))
+    const unsub = subscribeSundayReportRiverKids(rkDate, names => setRkReportKidsNames(names))
     return unsub
-  }, [slug, activeTab, rkAttendanceGroup, rkDate])
+  }, [slug, activeTab, rkDate])
 
 
   useEffect(() => {
@@ -1129,6 +1135,26 @@ export default function DepartmentHub() {
     const unsub = subscribeCellVisitorProposals(setCellVisitorProposals)
     return unsub
   }, [slug])
+
+  // Live "Total Expense (This Month)" — shown on every department's dashboard.
+  useEffect(() => {
+    if (!department?.name) return
+    setLoadingMonthlyExpense(true)
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = now.getMonth()
+    const unsub = subscribeFinanceExpenseByDept(department.name, (entries) => {
+      const total = (entries || [])
+        .filter((e) => {
+          const d = e.date instanceof Date ? e.date : e.date?.toDate?.()
+          return d && d.getFullYear() === y && d.getMonth() === m
+        })
+        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+      setMonthlyExpenseTotal(total)
+      setLoadingMonthlyExpense(false)
+    })
+    return unsub
+  }, [department?.name])
 
   useEffect(() => {
     if (!expandedCellId) {
@@ -1494,6 +1520,17 @@ export default function DepartmentHub() {
         <>
           {activeTab === 'summary' && (
             <>
+              {/* ── Total Expense (This Month) — shown on every department's dashboard ── */}
+              <div className="bg-gradient-to-br from-rose-500 to-rose-600 rounded-2xl shadow-lg p-5 text-white flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-rose-100">Total Expense (This Month)</p>
+                  <p className="text-2xl font-bold leading-tight mt-1">
+                    {loadingMonthlyExpense ? '—' : `₹${monthlyExpenseTotal.toLocaleString('en-IN')}`}
+                  </p>
+                </div>
+                <span className="text-3xl opacity-80">💸</span>
+              </div>
+
               {/* ── Caring Hub ── */}
               {slug === 'caring' && (
                 <div className="space-y-4">
@@ -6315,7 +6352,7 @@ export default function DepartmentHub() {
             const isSundaySchool = rkAttendanceGroup === 'sunday-school'
             const groupKids = rkChildren.filter(c => !c.group || c.group === rkAttendanceGroup)
             const isKidPresent = (c) => isSundaySchool
-              ? rkSundaySchoolNames.some(n => (n || '').trim().toLowerCase() === c.name.trim().toLowerCase())
+              ? rkReportKidsNames.some(n => (n || '').trim().toLowerCase() === c.name.trim().toLowerCase())
               : !!rkPresent[c.id]
             const presentCount = groupKids.filter(isKidPresent).length
             return (
@@ -6394,18 +6431,21 @@ export default function DepartmentHub() {
                           <button type="button" disabled={!canEdit}
                             onClick={async () => {
                               if (!canEdit || !department) return
-                              if (isSundaySchool) {
-                                const trimmedName = c.name.trim()
-                                const norm = trimmedName.toLowerCase()
-                                const newNames = isPresent
-                                  ? rkSundaySchoolNames.filter(n => (n || '').trim().toLowerCase() !== norm)
-                                  : rkSundaySchoolNames.some(n => (n || '').trim().toLowerCase() === norm)
-                                    ? rkSundaySchoolNames
-                                    : [...rkSundaySchoolNames, trimmedName]
-                                try {
-                                  await patchSundayReportRiverKids(rkDate, newNames, userProfile?.email || userProfile?.displayName || 'unknown')
-                                } catch { alert('Failed to save') }
-                              } else {
+                              // Every group's presence toggle merges the kid's name into/out of the
+                              // Sunday Ministry report's "River Kids" list — that's the single total
+                              // Sunday Ministry shows, so it must reflect all three groups, not just
+                              // whichever group happens to be selected here.
+                              const trimmedName = c.name.trim()
+                              const norm = trimmedName.toLowerCase()
+                              const newReportNames = isPresent
+                                ? rkReportKidsNames.filter(n => (n || '').trim().toLowerCase() !== norm)
+                                : rkReportKidsNames.some(n => (n || '').trim().toLowerCase() === norm)
+                                  ? rkReportKidsNames
+                                  : [...rkReportKidsNames, trimmedName]
+                              try {
+                                await patchSundayReportRiverKids(rkDate, newReportNames, userProfile?.email || userProfile?.displayName || 'unknown')
+                              } catch { alert('Failed to save') }
+                              if (!isSundaySchool) {
                                 const next = { ...rkPresent, [c.id]: !isPresent }
                                 setRkPresent(next)
                                 try {

@@ -258,7 +258,7 @@ export default function CellHistory({ embedded = false }) {
   }, [])
 
   const renderGrid = (rows) => (
-    <div className="flex flex-wrap gap-1.5 items-start">
+    <div className="flex flex-wrap gap-1 items-start">
       {rows.map((row) => {
         const expanded = expandedId === row.id
         return (
@@ -437,21 +437,21 @@ function HistoryCard({ row, weekColor, expanded, onToggle, canEdit = false, isDi
       onClick={onToggle}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
       title={`${row.cellName || '—'} · ${duration}`}
-      className={`group relative w-[1in] h-[1in] flex-shrink-0 flex flex-col items-center justify-center text-center gap-0.5 px-1 py-1 rounded-lg border shadow-sm cursor-pointer transition-all ${
+      className={`group relative w-[0.65in] h-[0.65in] flex-shrink-0 flex flex-col items-center justify-center text-center gap-0 px-0.5 py-0.5 rounded-md border shadow-sm cursor-pointer transition-all ${
         expanded ? 'border-indigo-300 shadow-indigo-100 bg-indigo-50/40' : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md'
       }`}
     >
       {/* Week color dot */}
-      <span className={`absolute top-1 left-1 w-1.5 h-1.5 rounded-full ${colorCls?.bar || 'bg-slate-200'}`} title="Colored by meeting week" />
+      <span className={`absolute top-0.5 left-0.5 w-1 h-1 rounded-full ${colorCls?.bar || 'bg-slate-200'}`} title="Colored by meeting week" />
 
       {/* Action buttons — shown on hover/focus to keep the tile uncluttered at small size */}
       {(canEdit || isDirector) && (
-        <div className="absolute top-0.5 right-0.5 flex items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+        <div className="absolute top-0 right-0 flex items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           {canEdit && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onEdit() }}
-              className="p-0.5 rounded text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-all text-[10px] leading-none"
+              className="p-0.5 rounded text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-all text-[8px] leading-none"
               title="Edit report"
             >
               ✏️
@@ -461,7 +461,7 @@ function HistoryCard({ row, weekColor, expanded, onToggle, canEdit = false, isDi
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onDelete() }}
-              className="p-0.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all text-[10px] leading-none"
+              className="p-0.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all text-[8px] leading-none"
               title="Delete report"
             >
               🗑️
@@ -470,11 +470,11 @@ function HistoryCard({ row, weekColor, expanded, onToggle, canEdit = false, isDi
         </div>
       )}
 
-      <span className="font-bold text-slate-900 text-[11px] leading-tight truncate max-w-full">{row.cellName || '—'}</span>
+      <span className="font-bold text-slate-900 text-[8px] leading-tight truncate max-w-full">{row.cellName || '—'}</span>
       {row.meetingDateISO && (
-        <span className="text-[9px] text-slate-400 leading-tight">{formatDisplayDate(row.meetingDateISO)}</span>
+        <span className="text-[7px] text-slate-400 leading-tight">{formatDisplayDate(row.meetingDateISO)}</span>
       )}
-      <span className="text-[9px] text-slate-500 leading-tight">
+      <span className="text-[7px] text-slate-500 leading-tight">
         <span className="font-semibold text-slate-700">{members}</span>/<span className="font-semibold text-slate-700">{total}</span>
       </span>
     </div>

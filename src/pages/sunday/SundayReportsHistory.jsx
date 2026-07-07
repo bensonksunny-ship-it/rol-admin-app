@@ -6,11 +6,12 @@ import { getSundayReportSummaries, deleteSundayReport, getCellGroups, bulkImport
 import { formatDisplayDate } from '../../utils/date'
 import { useAuth } from '../../context/AuthContext'
 import DepartmentTabBar from '../../components/DepartmentTabBar'
+import SundayReportPrintView from './SundayReportPrintView'
 
 const FIXED_COLS = [
   { key: 'othersCount',         label: 'Others'       },
   { key: 'nonCellCount',        label: 'Non Cell'     },
-  { key: 'sundaySchool',        label: 'Sun. School'  },
+  { key: 'riverKidsCount',      label: 'River Kids'   },
   { key: 'secondWeekAttendees', label: '2nd Week'     },
   { key: 'newcomers',           label: 'New Comers'   },
   { key: 'totalAdults',         label: 'Total Adults' },
@@ -646,6 +647,7 @@ export default function SundayReportsHistory() {
   const [expandedDate, setExpanded] = useState(null)
   const [deletingDate, setDeleting] = useState(null)
   const [showImport, setShowImport] = useState(false)
+  const [printRow, setPrintRow] = useState(null)
 
   useEffect(() => {
     getCellGroups('Cell')
@@ -711,46 +713,85 @@ export default function SundayReportsHistory() {
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-            {rows.map((row) => {
-              const isExpanded = expandedDate === row.date
-              const hasTimings = row.programTimings.length > 0
-              const sca        = row.sundayCellAttendance || {}
+          <div className="space-y-3">
+            {/* Compact 5-per-row tiles */}
+            <div className="grid grid-cols-5 gap-1.5">
+              {rows.map((row) => {
+                const isSelected = expandedDate === row.date
+                const d = parseISO(row.date)
+                const mon = format(d, 'MMM')
+                const day = format(d, 'd')
+                return (
+                  <button
+                    key={row.date}
+                    type="button"
+                    onClick={() => setExpanded(isSelected ? null : row.date)}
+                    className={`rounded-xl border text-center py-2 px-0.5 transition-all active:scale-95 ${
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-50 shadow-sm'
+                        : 'border-slate-200 bg-white hover:border-indigo-300'
+                    }`}
+                  >
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none">{mon}</p>
+                    <p className="text-sm font-bold text-slate-700 leading-tight">{day}</p>
+                    <p className="text-base font-extrabold text-indigo-600 tabular-nums leading-tight">{row.totalAttendance || 0}</p>
+                    <p className="text-[8px] text-slate-400 leading-none">total</p>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Expanded detail panel */}
+            {expandedDate && (() => {
+              const row = rows.find((r) => r.date === expandedDate)
+              if (!row) return null
+              const sca = row.sundayCellAttendance || {}
+              const hasTimings = row.programTimings?.length > 0
               return (
-                <div
-                  key={row.date}
-                  className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"
-                >
-                  {/* Card header */}
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
-                    <span className="font-semibold text-slate-800 text-sm">{formatDisplayDate(row.date)}</span>
-                    <KebabMenu
-                      canEdit={canEdit}
-                      canDelete={canDelete}
-                      deleting={deletingDate === row.date}
-                      onEdit={() => navigate(`/department/sunday-ministry/sunday-report?date=${row.date}`)}
-                      onDelete={() => handleDelete(row.date)}
-                      onDownload={() => downloadSingleReport(row, cellCols)}
-                    />
+                <div className="bg-white rounded-xl border border-indigo-200 shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-indigo-50/60">
+                    <div>
+                      <span className="font-semibold text-slate-800 text-sm">{formatDisplayDate(row.date)}</span>
+                      <div className="flex items-baseline gap-1.5 mt-0.5">
+                        <span className="text-xl font-bold text-indigo-600 tabular-nums">{row.totalAttendance || 0}</span>
+                        <span className="text-xs text-slate-400">total attendance</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPrintRow(row)}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors whitespace-nowrap"
+                      >
+                        📄 View Report
+                      </button>
+                      <KebabMenu
+                        canEdit={canEdit}
+                        canDelete={canDelete}
+                        deleting={deletingDate === row.date}
+                        onEdit={() => navigate(`/department/sunday-ministry/sunday-report?date=${row.date}`)}
+                        onDelete={() => handleDelete(row.date)}
+                        onDownload={() => downloadSingleReport(row, cellCols)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setExpanded(null)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                          <path d="M2 2l10 10M12 2L2 12"/>
+                        </svg>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="px-4 py-3 space-y-3">
-                    {/* Total attendance highlight */}
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-2xl font-bold text-indigo-600 tabular-nums">
-                        {row.totalAttendance || 0}
-                      </span>
-                      <span className="text-xs text-slate-400 font-medium">total attendance</span>
-                    </div>
-
                     {/* Fixed stats grid */}
                     <div className="grid grid-cols-3 gap-2">
                       {FIXED_COLS.filter((c) => c.key !== 'totalAttendance').map((c) => (
                         <div key={c.key} className="bg-slate-50 rounded-lg px-2 py-1.5 text-center">
                           <p className="text-xs text-slate-400 leading-none mb-0.5 truncate">{c.label}</p>
-                          <p className="text-sm font-semibold text-slate-700 tabular-nums">
-                            {row[c.key] || 0}
-                          </p>
+                          <p className="text-sm font-semibold text-slate-700 tabular-nums">{row[c.key] || 0}</p>
                         </div>
                       ))}
                     </div>
@@ -773,46 +814,41 @@ export default function SundayReportsHistory() {
                       </div>
                     )}
 
-                    {/* Program timings toggle */}
+                    {/* Program timings */}
                     {hasTimings && (
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => setExpanded(isExpanded ? null : row.date)}
-                          className="text-xs text-indigo-600 hover:underline font-medium flex items-center gap-1"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
-                            <path d="M2 4l4 4 4-4" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                          {isExpanded ? 'Hide timings' : `${row.programTimings.length} program items`}
-                        </button>
-                        {isExpanded && (
-                          <div className="mt-2 border-t border-slate-100 pt-2 space-y-1">
-                            {row.programTimings.map((t, i) => {
-                              const duration = formatDuration(t.startTime, row.programTimings[i + 1]?.startTime)
-                              return (
-                                <div key={i} className="flex items-center gap-2 text-xs">
-                                  <span className="text-slate-700 font-medium flex-1 min-w-0 truncate">{t.programName}</span>
-                                  <span className="text-slate-400 tabular-nums flex-shrink-0">{formatTime(t.startTime)}</span>
-                                  {duration && (
-                                    <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 tabular-nums font-medium">
-                                      {duration}
-                                    </span>
-                                  )}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
+                      <div className="border-t border-slate-100 pt-2 space-y-1">
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Program</p>
+                        {row.programTimings.map((t, i) => {
+                          const duration = formatDuration(t.startTime, row.programTimings[i + 1]?.startTime)
+                          return (
+                            <div key={i} className="flex items-center gap-2 text-xs">
+                              <span className="text-slate-700 font-medium flex-1 min-w-0 truncate">{t.programName}</span>
+                              <span className="text-slate-400 tabular-nums flex-shrink-0">{formatTime(t.startTime)}</span>
+                              {duration && (
+                                <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 tabular-nums font-medium">
+                                  {duration}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
                 </div>
               )
-            })}
+            })()}
           </div>
         )}
       </div>
+
+      {printRow && (
+        <SundayReportPrintView
+          row={printRow}
+          cellCols={cellCols}
+          onClose={() => setPrintRow(null)}
+        />
+      )}
     </div>
   )
 }

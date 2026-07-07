@@ -56,11 +56,14 @@ const SHEPHERD_FIELDS = [
 ]
 
 // Status Glow — based on last 2 cell reports
-function getGlow(memberName, heatmapReports) {
+// originalName fallback handles old reports that stored the pre-enrichment short name
+function getGlow(memberName, heatmapReports, originalName = null) {
   if (!heatmapReports || heatmapReports.length === 0) return 'grey'
   const norm = String(memberName || '').trim().toLowerCase()
-  const inLatest   = heatmapReports[0]?.attendeeNames?.has(norm)
-  const inPrevious = heatmapReports[1]?.attendeeNames?.has(norm)
+  const origNorm = originalName && originalName !== memberName ? String(originalName).trim().toLowerCase() : null
+  const check = (set) => set?.has(norm) || (origNorm && set?.has(origNorm))
+  const inLatest   = check(heatmapReports[0]?.attendeeNames)
+  const inPrevious = check(heatmapReports[1]?.attendeeNames)
   if (inLatest) return 'green'
   if (inPrevious) return 'amber'
   return 'red'
@@ -304,7 +307,11 @@ function ShepherdHubDashboard({ cellName, leaderName, activeMembers, statusCount
   const lastCellPresent  = lastReport?.attendeeNames?.size || 0
   const lastSundayRecord = sundayNamesHistory?.[0]
   const lastSundayPresent = lastSundayRecord
-    ? activeMembers.filter(m => lastSundayRecord.presentNames.includes(String(m.name || '').trim().toLowerCase())).length
+    ? activeMembers.filter(m => {
+        const n = String(m.name || '').trim().toLowerCase()
+        const orig = m.originalName ? String(m.originalName).trim().toLowerCase() : null
+        return lastSundayRecord.presentNames.includes(n) || (orig && lastSundayRecord.presentNames.includes(orig))
+      }).length
     : null
   const total = activeMembers.length
 
@@ -449,6 +456,12 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   // Mark Inactive (cell leaders only)
   const [inactiveTarget, setInactiveTarget]   = useState(null)
   const [markingInactive, setMarkingInactive] = useState(false)
+
+  // People's directory map for canonical name enrichment
+  const [visitorMap, setVisitorMap] = useState(new Map())
+  useEffect(() => {
+    getDelightVisitors().then(vs => setVisitorMap(new Map(vs.map(v => [v.id, v.name])))).catch(() => {})
+  }, [])
 
   // Load cell groups
   useEffect(() => {
@@ -651,9 +664,18 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     }
   }
 
+  const enrichedMembers = useMemo(() =>
+    members.map(m => {
+      if (!m.visitorId) return m
+      const canonical = visitorMap.get(m.visitorId)
+      return canonical && canonical !== m.name ? { ...m, name: canonical, originalName: m.name } : m
+    }),
+    [members, visitorMap]
+  )
+
   const activeMembers = useMemo(
-    () => members.filter((m) => m.status !== 'inactive'),
-    [members]
+    () => enrichedMembers.filter((m) => m.status !== 'inactive'),
+    [enrichedMembers]
   )
 
   const filteredMembers = useMemo(() => {
@@ -661,7 +683,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       if (search && !m.name.toLowerCase().includes(search.toLowerCase())) return false
       if (glowFilter === 'not-pcs') return !pcsLoading && !isInPCS(m)
       if (glowFilter === 'all') return true
-      const glow = getGlow(m.name, heatmap)
+      const glow = getGlow(m.name, heatmap, m.originalName)
       return glow === glowFilter
     })
   }, [activeMembers, search, heatmap, glowFilter, pcsNames, pcsLoading])
@@ -672,7 +694,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const statusCounts = useMemo(() => {
     const counts = { green: 0, amber: 0, red: 0, grey: 0, notPcs: 0 }
     activeMembers.forEach((m) => {
-      counts[getGlow(m.name, heatmap)]++
+      counts[getGlow(m.name, heatmap, m.originalName)]++
       if (!isInPCS(m)) counts.notPcs++
     })
     return counts
@@ -791,7 +813,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
 
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
             {filteredMembers.map((member) => {
-              const glow       = getGlow(member.name, heatmap)
+              const glow       = getGlow(member.name, heatmap, member.originalName)
               const phone10    = normalisePhone(member.phone)
               // Primary: doc-ID match from sunday_service_attendance (SundayMinistry.jsx writes this).
               // Fallback: name match from sunday_reports.sundayCellAttendance when the older
@@ -1631,15 +1653,14 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
       .finally(() => setPcsLoading(false))
   }, [])
 
-  // Load People's Directory lazily when the Add Member form first opens
+  // Load People's Directory eagerly for name enrichment (and re-used by the add form)
   useEffect(() => {
-    if (!showAddForm || directoryList.length > 0) return
     setDirectoryLoading(true)
     getDelightVisitors()
       .then(setDirectoryList)
       .catch(() => setDirectoryList([]))
       .finally(() => setDirectoryLoading(false))
-  }, [showAddForm, directoryList.length])
+  }, [])
 
   // Subscribe to pending fill invitations for this cell leader.
   // Fall back to resolved selectedCellId for leaders matched by name.
@@ -1712,8 +1733,19 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
       .catch(() => setPendingDeactivationIds(new Set()))
   }, [selectedCellId])
 
-  const activeMembers   = useMemo(() => members.filter((m) => m.status !== 'inactive'), [members])
-  const inactiveMembers = useMemo(() => members.filter((m) => m.status === 'inactive'),  [members])
+  const fellowshipVisitorMap = useMemo(() => new Map(directoryList.map(v => [v.id, v.name])), [directoryList])
+
+  const enrichedMembers = useMemo(() =>
+    members.map(m => {
+      if (!m.visitorId) return m
+      const canonical = fellowshipVisitorMap.get(m.visitorId)
+      return canonical && canonical !== m.name ? { ...m, name: canonical, originalName: m.name } : m
+    }),
+    [members, fellowshipVisitorMap]
+  )
+
+  const activeMembers   = useMemo(() => enrichedMembers.filter((m) => m.status !== 'inactive'), [enrichedMembers])
+  const inactiveMembers = useMemo(() => enrichedMembers.filter((m) => m.status === 'inactive'),  [enrichedMembers])
   const canEdit = isDirector || isLeader
 
   // Map each pending fill invitation to members by visitorId or normalised name

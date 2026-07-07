@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
@@ -907,10 +906,10 @@ export default function SundayReport({ embedded = false }) {
   const [membersForCell, setMembersForCell] = useState([])
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [programLogs, setProgramLogs] = useState([])
-  const [showCompleteModal, setShowCompleteModal] = useState(false)
-  const [showSavedModal, setShowSavedModal] = useState(false)
-  const [savedSummary, setSavedSummary] = useState(null)
   const [showProgramConfirm, setShowProgramConfirm] = useState(false)
+  /** True once this report has been saved — shows a read-only "filed" summary instead of
+   *  the edit form, until "Edit" is tapped. Synced from report.filed when the date loads. */
+  const [filedView, setFiledView] = useState(false)
   const [dlightSuggestions, setDlightSuggestions] = useState([])
   const [loadingDlight, setLoadingDlight] = useState(false)
   const [secondWeekSuggestions, setSecondWeekSuggestions] = useState([])
@@ -972,14 +971,13 @@ export default function SundayReport({ embedded = false }) {
     const newcomersCount    = newcomersNames.length
     const pastoralCount     = pastoralNames.length
     const riverKidsCount    = riverKidsNames.length
-    const sundaySchool      = Number(report?.summary?.sundaySchool) || 0
     const cellTotal         = cellRows.reduce((s, r) => s + r.count, 0)
     const totalAdults       = cellTotal + othersCount + nonCellCount + secondWeekCount + newcomersCount + pastoralCount
-    const total             = totalAdults + sundaySchool + riverKidsCount
+    const total             = totalAdults + riverKidsCount
     return {
       cellRows, othersCount, othersNames, nonCellCount, nonCellNames, secondWeekCount, secondWeekNames,
       newcomersCount, newcomersNames, pastoralCount, pastoralNames, riverKidsCount, riverKidsNames,
-      sundaySchool, totalAdults, total,
+      totalAdults, total,
     }
   }, [cellGroups, report, dlightSuggestions])
 
@@ -1180,6 +1178,7 @@ export default function SundayReport({ embedded = false }) {
           }
         }
         setReport(next)
+        setFiledView(!!next?.filed)
         setProgramLogs(logs || [])
       })
       .catch(() => { setReport(null); setProgramLogs([]) })
@@ -1203,6 +1202,7 @@ export default function SundayReport({ embedded = false }) {
           next = { ...next, sundayCellAttendance: hasSca ? next.sundayCellAttendance : migrateLegacyCellAttendance(next, active), sundayMinistryTeam: [] }
         }
         setReport(next)
+        setFiledView(!!next?.filed)
         setProgramLogs(logs || [])
       })
       .catch(() => { setReport(null); setProgramLogs([]) })
@@ -1252,7 +1252,7 @@ export default function SundayReport({ embedded = false }) {
     }
     setSaving(true)
     try {
-      const { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
+      const { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, totalAdults, total } = summaryComputed
       const cellAttendanceCount = cellRows.reduce((s, r) => s + r.count, 0)
 
       const cellBreakdown = Object.fromEntries(cellRows.map((r) => [r.name, r.count]))
@@ -1265,7 +1265,10 @@ export default function SundayReport({ embedded = false }) {
         newcomers: newcomersCount,
         secondWeekAttendees: secondWeekCount,
         riverKids: riverKidsCount,
-        sundaySchool,
+        // Cleared on every live save: "Sunday School" as a bare count is a legacy bulk-import
+        // artifact. Once a report is touched here, River Kids (with real names) is the single
+        // source of truth for kids attendance, so any stale legacy number must not linger.
+        sundaySchool: 0,
         totalAdults,
         totalAttendance: total,
       }
@@ -1288,6 +1291,7 @@ export default function SundayReport({ embedded = false }) {
         selectedDate,
         {
           ...report,
+          filed: true,
           summary: computedSummary,
           cellBreakdown,
           programList: report?.programList || [],
@@ -1296,10 +1300,10 @@ export default function SundayReport({ embedded = false }) {
         },
         userProfile?.email || 'unknown'
       )
-      setReport((prev) => (prev ? { ...prev, summary: computedSummary } : prev))
+      setReport((prev) => (prev ? { ...prev, filed: true, summary: computedSummary } : prev))
       requestAnimationFrame(() => window.scrollTo(0, scrollY))
-      setSavedSummary({ ...summaryComputed, date: selectedDate })
-      setShowSavedModal(true)
+      // Save = closure: the page now shows a read-only filed summary until "Edit" is tapped.
+      setFiledView(true)
     } catch (err) {
       console.error(err)
       alert('Failed to save')
@@ -1466,8 +1470,6 @@ export default function SundayReport({ embedded = false }) {
     }).catch(() => {})
   }
 
-  const updateSummary = (key, value) => updateReport({ summary: { ...(report?.summary || {}), [key]: value } })
-
   const logByName = useMemo(() => {
     const map = {}
     for (const log of programLogs) {
@@ -1536,9 +1538,6 @@ export default function SundayReport({ embedded = false }) {
       })
       const logs = await getSundayProgramLogsByDate(selectedDate)
       setProgramLogs(logs)
-      if (logs.length >= sortedProgram.length) {
-        setShowCompleteModal(true)
-      }
     } catch (e) {
       console.error(e)
       alert(e?.message || 'Failed to record time')
@@ -1706,7 +1705,7 @@ export default function SundayReport({ embedded = false }) {
               ↑ Import
             </button>
           )}
-          {canEdit && (
+          {canEdit && !filedView && (
             <button
               type="button"
               onClick={handleSave}
@@ -1718,14 +1717,14 @@ export default function SundayReport({ embedded = false }) {
           )}
         </div>
 
-        {/* Attendance total banner */}
-        {!loading && report && summaryComputed.total > 0 && (
+        {/* Attendance total banner — hidden once filed, since FiledSummaryView shows its own totals */}
+        {!loading && !filedView && report && summaryComputed.total > 0 && (
           <div className="flex items-center justify-between bg-indigo-600 text-white rounded-xl px-4 py-3 shadow-sm">
             <div className="flex items-center gap-2">
               <span className="text-2xl font-extrabold tabular-nums">{summaryComputed.total}</span>
               <div className="flex flex-col leading-tight">
                 <span className="text-xs font-bold uppercase tracking-wide text-indigo-200">Total Attendance</span>
-                <span className="text-[11px] text-indigo-300">{summaryComputed.totalAdults} adults · {summaryComputed.riverKidsCount + summaryComputed.sundaySchool} kids</span>
+                <span className="text-[11px] text-indigo-300">{summaryComputed.totalAdults} adults · {summaryComputed.riverKidsCount} kids</span>
               </div>
             </div>
             <div className="flex gap-3 text-right">
@@ -1735,7 +1734,7 @@ export default function SundayReport({ embedded = false }) {
               </div>
               <div className="w-px bg-indigo-500" />
               <div>
-                <p className="text-lg font-bold tabular-nums">{summaryComputed.riverKidsCount + summaryComputed.sundaySchool}</p>
+                <p className="text-lg font-bold tabular-nums">{summaryComputed.riverKidsCount}</p>
                 <p className="text-[10px] text-indigo-300 uppercase tracking-wide">Kids</p>
               </div>
             </div>
@@ -1744,6 +1743,14 @@ export default function SundayReport({ embedded = false }) {
 
         {loading ? (
           <div className="py-12 text-center text-slate-500">Loading report…</div>
+        ) : filedView ? (
+          <FiledSummaryView
+            selectedDate={selectedDate}
+            sortedProgram={sortedProgram}
+            programLogs={programLogs}
+            summaryComputed={summaryComputed}
+            onEdit={() => setFiledView(false)}
+          />
         ) : (
           <>
             {(sortedProgram.length > 0 || canEditEffective) && (
@@ -1891,10 +1898,11 @@ export default function SundayReport({ embedded = false }) {
                     <p className="text-sm text-emerald-700 font-medium">All program start times recorded.</p>
                     <button
                       type="button"
-                      onClick={() => setShowCompleteModal(true)}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow transition"
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow transition disabled:opacity-60"
                     >
-                      View Service Summary →
+                      {saving ? 'Saving…' : 'Complete & Save Report →'}
                     </button>
                   </div>
                 )}
@@ -2108,142 +2116,29 @@ export default function SundayReport({ embedded = false }) {
         )}
       </div>
 
-      <AnimatePresence>
-        {showSavedModal && savedSummary && (
-          <SavedModal
-            summary={savedSummary}
-            onClose={() => setShowSavedModal(false)}
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showCompleteModal && (
-          <ServiceCompleteModal
-            sortedProgram={sortedProgram}
-            programLogs={programLogs}
-            summaryComputed={summaryComputed}
-            sundaySchoolValue={report?.summary?.sundaySchool ?? ''}
-            onSundaySchoolChange={(v) => updateSummary('sundaySchool', v)}
-            saving={saving}
-            onSave={async () => {
-              await handleSave()
-              setShowCompleteModal(false)
-              setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
-            }}
-            onClose={() => setShowCompleteModal(false)}
-          />
-        )}
-      </AnimatePresence>
     </div>
   )
 }
 
-// ─── Saved Confirmation Modal ─────────────────────────────────────────────────
+// ─── Filed Report Summary (view-only, shown once the report has been saved) ───
 
-function SavedModal({ summary, onClose }) {
+/** Fixed accent per category so the same section always reads the same color across reports. */
+const ACCENT_THEME = {
+  indigo:  { bg: 'bg-indigo-50/70',  border: 'border-indigo-100',  dot: 'bg-indigo-500',  badge: 'bg-indigo-600 text-white' },
+  violet:  { bg: 'bg-violet-50/70',  border: 'border-violet-100',  dot: 'bg-violet-500',  badge: 'bg-violet-600 text-white' },
+  sky:     { bg: 'bg-sky-50/70',     border: 'border-sky-100',     dot: 'bg-sky-500',     badge: 'bg-sky-600 text-white' },
+  amber:   { bg: 'bg-amber-50/70',   border: 'border-amber-100',   dot: 'bg-amber-500',   badge: 'bg-amber-600 text-white' },
+  emerald: { bg: 'bg-emerald-50/70', border: 'border-emerald-100', dot: 'bg-emerald-500', badge: 'bg-emerald-600 text-white' },
+  rose:    { bg: 'bg-rose-50/70',    border: 'border-rose-100',    dot: 'bg-rose-500',    badge: 'bg-rose-600 text-white' },
+  teal:    { bg: 'bg-teal-50/70',    border: 'border-teal-100',    dot: 'bg-teal-500',    badge: 'bg-teal-600 text-white' },
+}
+const CELL_ACCENT_CYCLE = ['indigo', 'sky', 'teal', 'violet']
+
+function FiledSummaryView({ selectedDate, sortedProgram, programLogs, summaryComputed, onEdit }) {
   const {
     cellRows, othersCount, othersNames, nonCellCount, nonCellNames, secondWeekCount, secondWeekNames,
     newcomersCount, newcomersNames, pastoralCount, pastoralNames, riverKidsCount, riverKidsNames,
-    sundaySchool, totalAdults, total, date,
-  } = summary
-  return (
-    <>
-      <motion.div
-        key="saved-backdrop"
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/60 z-50"
-        onClick={onClose}
-      />
-      <motion.div
-        key="saved-sheet"
-        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl shadow-2xl max-h-[90vh] flex flex-col"
-      >
-        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-          <div className="w-10 h-1 rounded-full bg-slate-200" />
-        </div>
-
-        {/* Hero */}
-        <div className="px-6 pt-3 pb-5 border-b border-slate-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="text-4xl">✅</span>
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">Report Saved!</h2>
-              <p className="text-slate-500 text-sm">{date}</p>
-            </div>
-          </div>
-          {/* Total hero numbers */}
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <div className="bg-indigo-600 text-white rounded-2xl p-3 text-center">
-              <p className="text-3xl font-extrabold tabular-nums">{total}</p>
-              <p className="text-[10px] text-indigo-200 font-bold uppercase tracking-wide mt-0.5">Total</p>
-            </div>
-            <div className="bg-indigo-50 rounded-2xl p-3 text-center">
-              <p className="text-3xl font-extrabold tabular-nums text-indigo-700">{totalAdults}</p>
-              <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mt-0.5">Adults</p>
-            </div>
-            <div className="bg-indigo-50 rounded-2xl p-3 text-center">
-              <p className="text-3xl font-extrabold tabular-nums text-indigo-700">{riverKidsCount + sundaySchool}</p>
-              <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mt-0.5">Kids</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Breakdown */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
-          {cellRows.map((r) => (
-            <AttendanceRow key={r.id} label={r.name} count={r.count} names={r.names} />
-          ))}
-          <AttendanceRow label="Pastoral" count={pastoralCount} names={pastoralNames} />
-          <AttendanceRow label="Non Cell" count={nonCellCount} names={nonCellNames} />
-          <AttendanceRow label="Others" count={othersCount} names={othersNames} />
-          <AttendanceRow label="New Comers" count={newcomersCount} names={newcomersNames} />
-          <AttendanceRow label="Second Week" count={secondWeekCount} names={secondWeekNames} />
-          <AttendanceRow label="River Kids" count={riverKidsCount} names={riverKidsNames} />
-          {sundaySchool > 0 && (
-            <div className="flex justify-between px-4 py-2.5 rounded-xl bg-slate-50 text-sm">
-              <span className="text-slate-600">Sunday School</span>
-              <span className="font-bold tabular-nums text-slate-800">{sundaySchool}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="px-6 py-5 border-t border-slate-100 flex-shrink-0">
-          <button type="button" onClick={onClose}
-            className="w-full py-3.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition-colors">
-            Done
-          </button>
-        </div>
-      </motion.div>
-    </>
-  )
-}
-
-/** One attendance category row — count + the actual names, so the summary isn't just a number. */
-function AttendanceRow({ label, count, names }) {
-  if (!count) return null
-  return (
-    <div className="px-4 py-2 rounded-xl bg-slate-50 text-sm">
-      <div className="flex justify-between">
-        <span className="text-slate-600">{label}</span>
-        <span className="font-semibold tabular-nums text-slate-800">{count}</span>
-      </div>
-      {names?.length > 0 && (
-        <p className="text-xs text-slate-400 mt-1 leading-relaxed">{names.join(', ')}</p>
-      )}
-    </div>
-  )
-}
-
-// ─── Service Complete Modal ───────────────────────────────────────────────────
-
-function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sundaySchoolValue, onSundaySchoolChange, saving, onSave, onClose }) {
-  const {
-    cellRows, othersCount, othersNames, nonCellCount, nonCellNames, secondWeekCount, secondWeekNames,
-    newcomersCount, newcomersNames, pastoralCount, pastoralNames, riverKidsCount, riverKidsNames,
-    sundaySchool, totalAdults, total,
+    totalAdults, total,
   } = summaryComputed
   const logByName = {}
   for (const log of programLogs) {
@@ -2253,47 +2148,55 @@ function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sun
   const logForItem = (item) => logByName[String(item?.programName || '').trim().toLowerCase()] || null
 
   return (
-    <>
-      <motion.div
-        key="sc-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/60 z-50"
-        onClick={onClose}
-      />
-      <motion.div
-        key="sc-sheet"
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl shadow-2xl max-h-[90vh] flex flex-col"
-      >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-          <div className="w-10 h-1 rounded-full bg-slate-200" />
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden font-sans">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-gradient-to-r from-emerald-50 to-white">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-emerald-600 flex items-center gap-1">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" /> Filed
+          </p>
+          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight mt-0.5">
+            {format(new Date(selectedDate + 'T00:00:00'), 'EEEE, d MMM yyyy')}
+          </h2>
+          <p className="text-slate-500 text-xs mt-1">This report has been saved. Tap Edit to make changes.</p>
         </div>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50 active:bg-slate-100 transition-colors flex-shrink-0"
+        >
+          ✎ Edit
+        </button>
+      </div>
 
-        {/* Header */}
-        <div className="px-6 pt-2 pb-4 border-b border-slate-100 flex-shrink-0">
-          <h2 className="text-xl font-bold text-slate-900">Service Complete</h2>
-          <p className="text-slate-500 text-sm mt-0.5">Review the service before saving the report.</p>
+      {/* Hero totals */}
+      <div className="px-5 pt-5 grid grid-cols-3 gap-2.5">
+        <div className="bg-indigo-600 text-white rounded-2xl p-3.5 text-center shadow-sm shadow-indigo-200">
+          <p className="text-3xl font-extrabold tabular-nums tracking-tight">{total}</p>
+          <p className="text-[10px] text-indigo-200 font-bold uppercase tracking-wider mt-0.5">Total</p>
         </div>
+        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3.5 text-center">
+          <p className="text-3xl font-extrabold tabular-nums tracking-tight text-slate-800">{totalAdults}</p>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Adults</p>
+        </div>
+        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3.5 text-center">
+          <p className="text-3xl font-extrabold tabular-nums tracking-tight text-slate-800">{riverKidsCount}</p>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Kids</p>
+        </div>
+      </div>
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-
-          {/* Program timings */}
-          <div className="space-y-2">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">⏱ Program Timings</p>
+      <div className="p-5 space-y-6">
+        {/* Program timings */}
+        {sortedProgram.length > 0 && (
+          <div className="space-y-2.5">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.15em]">⏱ Program Timings</p>
             <div className="space-y-1.5">
               {sortedProgram.map((item, idx) => {
                 const log = logForItem(item)
                 const t = log?.startTime instanceof Date ? log.startTime : (log?.startTime ? new Date(log.startTime) : null)
                 return (
-                  <div key={idx} className="flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50">
-                    <span className="font-semibold text-slate-800 text-sm">{item.programName}</span>
+                  <div key={idx} className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="font-semibold text-slate-700 text-sm">{item.programName}</span>
                     <span className="text-slate-500 text-sm font-medium tabular-nums">
                       {t ? format(t, 'h:mm a') : '—'}
                     </span>
@@ -2302,62 +2205,63 @@ function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sun
               })}
             </div>
           </div>
+        )}
 
-          {/* Attendance summary */}
+        {/* Attendance summary */}
+        <div className="space-y-2.5">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.15em]">👥 Attendance Summary</p>
           <div className="space-y-2">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">👥 Attendance Summary</p>
-            <div className="space-y-1.5">
-              {cellRows.map((r) => (
-                <AttendanceRow key={r.id} label={r.name} count={r.count} names={r.names} />
-              ))}
-              <AttendanceRow label="Others" count={othersCount} names={othersNames} />
-              <AttendanceRow label="Non Cell" count={nonCellCount} names={nonCellNames} />
-              <AttendanceRow label="Pastoral" count={pastoralCount} names={pastoralNames} />
-              <div className="flex justify-between items-center px-4 py-2 rounded-xl bg-slate-50 text-sm">
-                <span className="text-slate-600">Sunday School</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={sundaySchoolValue}
-                  onChange={(e) => onSundaySchoolChange(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="w-20 px-2 py-1 rounded border border-slate-300 text-right text-sm tabular-nums"
-                />
-              </div>
-              <AttendanceRow label="Second Week Comers" count={secondWeekCount} names={secondWeekNames} />
-              <AttendanceRow label="New Comers" count={newcomersCount} names={newcomersNames} />
-              <AttendanceRow label="River Kids" count={riverKidsCount} names={riverKidsNames} />
-              <div className="flex justify-between px-4 py-3 rounded-2xl bg-indigo-50 text-sm font-semibold">
-                <span className="text-indigo-900">Total Adults</span>
-                <span className="tabular-nums text-indigo-900">{totalAdults}</span>
-              </div>
-              <div className="flex justify-between px-4 py-3 rounded-2xl bg-indigo-100 text-sm font-bold">
-                <span className="text-indigo-900">Total</span>
-                <span className="tabular-nums text-indigo-900">{total}</span>
-              </div>
+            {cellRows.map((r, i) => (
+              <AttendanceRow key={r.id} label={r.name} count={r.count} names={r.names} accent={CELL_ACCENT_CYCLE[i % CELL_ACCENT_CYCLE.length]} />
+            ))}
+            <AttendanceRow label="Pastoral" count={pastoralCount} names={pastoralNames} accent="violet" />
+            <AttendanceRow label="Non Cell" count={nonCellCount} names={nonCellNames} accent="amber" />
+            <AttendanceRow label="Others" count={othersCount} names={othersNames} accent="sky" />
+            <AttendanceRow label="Second Week Comers" count={secondWeekCount} names={secondWeekNames} accent="rose" />
+            <AttendanceRow label="New Comers" count={newcomersCount} names={newcomersNames} accent="emerald" />
+            <AttendanceRow label="River Kids" count={riverKidsCount} names={riverKidsNames} accent="teal" />
+
+            <div className="flex justify-between px-4 py-3.5 rounded-xl bg-indigo-50 border border-indigo-100 text-sm font-bold mt-1">
+              <span className="text-indigo-900">Total Adults</span>
+              <span className="tabular-nums text-indigo-900">{totalAdults}</span>
+            </div>
+            <div className="flex justify-between px-4 py-3.5 rounded-xl bg-indigo-600 text-sm font-bold shadow-sm shadow-indigo-200">
+              <span className="text-white">Total Attendance</span>
+              <span className="tabular-nums text-white">{total}</span>
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
 
-        {/* Footer */}
-        <div className="px-6 py-5 border-t border-slate-100 flex-shrink-0 flex gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 py-3.5 rounded-2xl border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-all"
-          >
-            Go Back
-          </button>
-          <motion.button
-            type="button"
-            onClick={onSave}
-            disabled={saving}
-            whileTap={{ scale: 0.97 }}
-            className="flex-1 py-3.5 rounded-2xl bg-emerald-700 text-white text-sm font-bold hover:bg-emerald-800 transition-all shadow-lg shadow-emerald-200 disabled:opacity-60"
-          >
-            {saving ? 'Saving…' : '✅ Save Report'}
-          </motion.button>
+/** One attendance category row — count badge + the actual names as a proper chip list,
+ *  not a comma-joined sentence, so a large roster is still easy to scan at a glance. */
+function AttendanceRow({ label, count, names, accent = 'indigo' }) {
+  if (!count) return null
+  const theme = ACCENT_THEME[accent] || ACCENT_THEME.indigo
+  return (
+    <div className={`rounded-xl border ${theme.border} ${theme.bg} px-4 py-3`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${theme.dot}`} />
+          <span className="text-sm font-semibold text-slate-700 tracking-tight truncate">{label}</span>
         </div>
-      </motion.div>
-    </>
+        <span className={`text-xs font-bold tabular-nums px-2.5 py-1 rounded-full flex-shrink-0 ${theme.badge}`}>{count}</span>
+      </div>
+      {names?.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5 mt-2.5">
+          {names.map((n, i) => (
+            <li
+              key={i}
+              className="inline-flex items-center bg-white border border-slate-200 text-slate-600 text-xs font-medium px-2.5 py-1 rounded-full shadow-sm"
+            >
+              {n}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }

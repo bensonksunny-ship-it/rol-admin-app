@@ -29,6 +29,7 @@ import {
   getCellMemberPendingChanges,
   createCellVisitorProposal,
   getCellVisitorProposalsByReport,
+  getDelightVisitors,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole } from '../utils/access'
@@ -174,6 +175,7 @@ export default function CellReport() {
   const [leaderTab, setLeaderTab] = useState('attendance')
   const [cellMembers, setCellMembers] = useState([])
   const [loadingCellMembers, setLoadingCellMembers] = useState(false)
+  const [cellVisitorMap, setCellVisitorMap] = useState(new Map())
   const [backToBible, setBackToBible] = useState(null)
   const [leaderEditMember, setLeaderEditMember] = useState(null)
   const [leaderEditForm, setLeaderEditForm] = useState({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
@@ -285,6 +287,15 @@ export default function CellReport() {
   const meetingLocked = Boolean(report?.meetingFinalizedAt)
 
   const cell = useMemo(() => cellGroups.find((g) => g.id === effectiveCellId) || null, [cellGroups, effectiveCellId])
+
+  const enrichedCellMembers = useMemo(() =>
+    cellMembers.map(m => {
+      if (!m.visitorId) return m
+      const canonical = cellVisitorMap.get(m.visitorId)
+      return canonical && canonical !== m.name ? { ...m, name: canonical, originalName: m.name } : m
+    }),
+    [cellMembers, cellVisitorMap]
+  )
   const activeCellGroups = useMemo(() => cellGroups.filter((c) => c.status !== 'inactive'), [cellGroups])
   const visibleDirectorRows = useMemo(() => activeCellGroups.slice(0, MAX_VISIBLE_TILES), [activeCellGroups])
   const isLeaderView = !canViewAllCells && myCellId
@@ -408,10 +419,13 @@ export default function CellReport() {
       return
     }
     setLoadingCellMembers(true)
-    getCellGroupMembers(effectiveCellId)
-      .then(setCellMembers)
-      .catch(() => setCellMembers([]))
-      .finally(() => setLoadingCellMembers(false))
+    Promise.all([
+      getCellGroupMembers(effectiveCellId).catch(() => []),
+      getDelightVisitors().catch(() => []),
+    ]).then(([members, visitors]) => {
+      setCellVisitorMap(new Map(visitors.map(v => [v.id, v.name])))
+      setCellMembers(members)
+    }).finally(() => setLoadingCellMembers(false))
   }, [effectiveCellId])
 
   useEffect(() => {
@@ -951,7 +965,7 @@ export default function CellReport() {
                                             <h4 className="text-sm font-semibold text-slate-900 mb-2">Members</h4>
                                             <div className="max-h-56 overflow-auto pr-1">
                                               <ul className="space-y-1.5">
-                                                {(cellMembers || [])
+                                                {(enrichedCellMembers || [])
                                                   .filter((m) => m.status !== 'inactive')
                                                   .map((m) => {
                                                     const attended = attendees.some((a) => a.memberId === m.id)
@@ -1417,7 +1431,7 @@ export default function CellReport() {
                                       <div className="bg-white rounded-lg border border-slate-200 p-3">
                                         <h4 className="text-sm font-semibold text-slate-900 mb-2">Members</h4>
                                         <div className="max-h-56 overflow-auto pr-1 space-y-1">
-                                          {(cellMembers || [])
+                                          {(enrichedCellMembers || [])
                                             .filter((m) => m.status !== 'inactive')
                                             .map((m) => {
                                               const attended = attendees.some((a) => a.memberId === m.id)
@@ -1446,7 +1460,7 @@ export default function CellReport() {
                                                 </div>
                                               )
                                             })}
-                                          {(cellMembers || []).filter((m) => m.status !== 'inactive').length === 0 && (
+                                          {(enrichedCellMembers || []).filter((m) => m.status !== 'inactive').length === 0 && (
                                             <p className="text-sm text-slate-500">No active members.</p>
                                           )}
                                         </div>
@@ -2001,7 +2015,7 @@ export default function CellReport() {
             )}
 
             {leaderTab === 'editCell' && (() => {
-              const all = cellMembers || []
+              const all = enrichedCellMembers || []
               const q = (editCellSearch || '').toLowerCase().trim()
               const filtered = q ? all.filter((m) => (m.name || '').toLowerCase().includes(q) || (m.phone || '').includes(q) || (m.role || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q)) : all
               const sorted = [...filtered].sort((a, b) => {
