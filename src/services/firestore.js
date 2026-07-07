@@ -3056,6 +3056,7 @@ function normalizeReport(data) {
     others: Array.isArray(data.others) ? data.others : [],
     nonCell: Array.isArray(data.nonCell) ? data.nonCell : [],
     secondWeekAttendeesNames: Array.isArray(data.secondWeekAttendeesNames) ? data.secondWeekAttendeesNames : [],
+    riverKids: Array.isArray(data.riverKids) ? data.riverKids.filter(Boolean) : [],
     programList: Array.isArray(data.programList) ? data.programList : [],
     preservice: data.preservice && typeof data.preservice === 'object' ? { lead1: data.preservice.lead1 || '', lead2: data.preservice.lead2 || '' } : { lead1: '', lead2: '' },
     summary: data.summary && typeof data.summary === 'object'
@@ -3065,6 +3066,7 @@ function normalizeReport(data) {
           nonCellCount: data.summary.nonCellCount ?? '',
           newcomers: data.summary.newcomers ?? '',
           secondWeekAttendees: data.summary.secondWeekAttendees ?? '',
+          riverKids: data.summary.riverKids ?? '',
           sundaySchool: data.summary.sundaySchool ?? '',
           totalAdults: data.summary.totalAdults ?? '',
           totalAttendance: data.summary.totalAttendance ?? '',
@@ -3104,7 +3106,6 @@ export async function getSundayReport(dateStr) {
       createdAt: toDate(data.createdAt),
       updatedAt: toDate(data.updatedAt),
     }),
-    riverKids: Array.isArray(data.riverKids) ? data.riverKids.filter(Boolean) : [],
   }
 }
 
@@ -3248,6 +3249,7 @@ export async function setSundayReport(dateStr, payload, updatedBy) {
     others: data.others,
     nonCell: data.nonCell,
     secondWeekAttendeesNames: data.secondWeekAttendeesNames,
+    riverKids: data.riverKids,
     programList: data.programList,
     preservice: data.preservice,
     summary: data.summary,

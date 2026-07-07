@@ -80,7 +80,7 @@ function migrateLegacyCellAttendance(report, cellGroups) {
   return sca
 }
 
-function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, linkedNames = null, className = '' }) {
+function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, linkedNames = null, duplicateNorms = null, className = '' }) {
   const [query, setQuery] = useState('')
   const [linkingIdx, setLinkingIdx] = useState(null)
   const [linkQuery, setLinkQuery] = useState('')
@@ -165,6 +165,7 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
       <ul className="space-y-2">
         {(names || []).map((name, idx) => {
           const isLinked = linkedNames?.has(String(name).trim().toLowerCase())
+          const isDupe = duplicateNorms?.has(String(name).replace(/\s+/g, ' ').trim().toLowerCase())
           return (
           <li key={idx} className={linkDirectory ? 'relative' : undefined}>
             <div className="flex items-center gap-2">
@@ -174,9 +175,12 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
                     type="text"
                     value={name}
                     onChange={(e) => onEdit(idx, e.target.value)}
-                    className="flex-1 px-2 py-1.5 rounded border border-slate-300 text-sm"
+                    className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-300'}`}
                   />
-                  {isLinked && (
+                  {isDupe && (
+                    <span className="text-xs font-bold text-red-600 whitespace-nowrap">Duplicate</span>
+                  )}
+                  {!isDupe && isLinked && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold whitespace-nowrap">
                       ✓ Linked
                     </span>
@@ -195,7 +199,7 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
                   </button>
                 </>
               ) : (
-                <span className="text-slate-800">{name || '—'}</span>
+                <span className={isDupe ? 'text-red-600 font-semibold' : 'text-slate-800'}>{name || '—'}</span>
               )}
             </div>
             {linkDirectory && linkingIdx === idx && (
@@ -243,7 +247,7 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
   )
 }
 
-function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, onEdit, onRemove, className = '' }) {
+function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, onEdit, onRemove, duplicateNorms = null, className = '' }) {
   const [query, setQuery] = useState('')
   const nameSet = useMemo(() => new Set((names || []).map(n => n.trim().toLowerCase())), [names])
   const results = useMemo(() => {
@@ -293,7 +297,9 @@ function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, o
       )}
 
       <ul className="space-y-2">
-        {(names || []).map((name, idx) => (
+        {(names || []).map((name, idx) => {
+          const isDupe = duplicateNorms?.has((name || '').replace(/\s+/g, ' ').trim().toLowerCase())
+          return (
           <li key={idx} className="flex items-center gap-2">
             {canEdit ? (
               <>
@@ -301,17 +307,18 @@ function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, o
                   type="text"
                   value={name}
                   onChange={(e) => onEdit(idx, e.target.value)}
-                  className="flex-1 px-2 py-1.5 rounded border border-slate-300 text-sm"
+                  className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-300'}`}
                 />
+                {isDupe && <span className="text-xs font-bold text-red-600 whitespace-nowrap">Duplicate</span>}
                 <button type="button" onClick={() => onRemove(idx)} className="text-red-600 hover:underline text-sm">
                   Remove
                 </button>
               </>
             ) : (
-              <span className="text-slate-800">{name || '—'}</span>
+              <span className={isDupe ? 'text-red-600 font-semibold' : 'text-slate-800'}>{name || '—'}</span>
             )}
           </li>
-        ))}
+        )})}
         {(names || []).length === 0 && !canEdit && (
           <li className="text-sm text-slate-400">No names added.</li>
         )}
@@ -375,7 +382,7 @@ function scorePerson(name, words) {
   return score
 }
 
-function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, cellGroups, searchPool, cellMemberMap, userEmail }) {
+function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, cellGroups, searchPool, cellMemberMap, rkKidsNorms, userEmail }) {
   const [step, setStep] = useState('setup')
   const [pastedText, setPastedText] = useState('')
   const [lines, setLines] = useState([])
@@ -433,9 +440,11 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     return searchPool.filter(p => nn(p.name).includes(lower)).slice(0, 8)
   }
 
-  // Auto-detect section from cell membership map; default to 'others'
+  // Auto-detect section: River Kids registry → riverKids, cell member → cell, else → others
   const detectSection = (personName) => {
-    const entry = cellMemberMap.get(nn(personName))
+    const key = nn(personName)
+    if (rkKidsNorms?.has(key)) return { section: 'riverKids', cellId: '' }
+    const entry = cellMemberMap.get(key)
     if (entry) return { section: 'cell', cellId: entry.cellId }
     return { section: 'others', cellId: '' }
   }
@@ -820,7 +829,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
   )
 }
 
-function RiverKidsRegistrySection({ kids, markedNames, canEdit, onToggle }) {
+function RiverKidsRegistrySection({ kids, markedNames, canEdit, onToggle, duplicateNorms = null }) {
   const [search, setSearch] = useState('')
   const q = search.trim().toLowerCase()
   const filtered = q ? kids.filter(k => (k.name || '').toLowerCase().includes(q)) : kids
@@ -845,9 +854,12 @@ function RiverKidsRegistrySection({ kids, markedNames, canEdit, onToggle }) {
         {filtered.map(kid => {
           const norm = kid.name.trim().toLowerCase()
           const isPresent = markedNames.some(n => (n || '').trim().toLowerCase() === norm)
+          const isDupe = isPresent && duplicateNorms?.has(norm)
           return (
             <li key={kid.id} className="flex items-center gap-3 py-1">
-              <span className="flex-1 text-sm text-slate-800">{kid.name}</span>
+              <span className={`flex-1 text-sm ${isDupe ? 'text-red-600 font-semibold' : 'text-slate-800'}`}>
+                {kid.name}{isDupe && <span className="ml-1.5 text-xs font-bold text-red-500">Duplicate</span>}
+              </span>
               {canEdit ? (
                 <button
                   type="button"
@@ -896,6 +908,8 @@ export default function SundayReport({ embedded = false }) {
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [programLogs, setProgramLogs] = useState([])
   const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [showSavedModal, setShowSavedModal] = useState(false)
+  const [savedSummary, setSavedSummary] = useState(null)
   const [showProgramConfirm, setShowProgramConfirm] = useState(false)
   const [dlightSuggestions, setDlightSuggestions] = useState([])
   const [loadingDlight, setLoadingDlight] = useState(false)
@@ -941,24 +955,58 @@ export default function SundayReport({ embedded = false }) {
 
   const summaryComputed = useMemo(() => {
     const cellRows = (cellGroups || [])
-      .map((g) => ({
-        id: g.id,
-        name: g.cellName || 'Unnamed',
-        count: (report?.sundayCellAttendance?.[g.id] || []).filter(Boolean).length,
-      }))
+      .map((g) => {
+        const names = (report?.sundayCellAttendance?.[g.id] || []).filter(Boolean)
+        return { id: g.id, name: g.cellName || 'Unnamed', count: names.length, names }
+      })
       .filter((r) => r.count > 0)
-    const othersCount       = (report?.others || []).filter(Boolean).length
-    const nonCellCount      = (report?.nonCell || []).filter(Boolean).length
-    const secondWeekCount   = (report?.secondWeekAttendeesNames || []).filter(Boolean).length
-    const newcomersCount    = dlightSuggestions.filter(Boolean).length
-    const pastoralCount     = (report?.pastoralAttendees || []).filter(Boolean).length
-    const riverKidsCount    = (report?.riverKids || []).filter(Boolean).length
+    const othersNames       = (report?.others || []).filter(Boolean)
+    const nonCellNames      = (report?.nonCell || []).filter(Boolean)
+    const secondWeekNames   = (report?.secondWeekAttendeesNames || []).filter(Boolean)
+    const pastoralNames     = (report?.pastoralAttendees || []).filter(Boolean)
+    const riverKidsNames    = (report?.riverKids || []).filter(Boolean)
+    const newcomersNames    = dlightSuggestions.filter(Boolean)
+    const othersCount       = othersNames.length
+    const nonCellCount      = nonCellNames.length
+    const secondWeekCount   = secondWeekNames.length
+    const newcomersCount    = newcomersNames.length
+    const pastoralCount     = pastoralNames.length
+    const riverKidsCount    = riverKidsNames.length
     const sundaySchool      = Number(report?.summary?.sundaySchool) || 0
     const cellTotal         = cellRows.reduce((s, r) => s + r.count, 0)
     const totalAdults       = cellTotal + othersCount + nonCellCount + secondWeekCount + newcomersCount + pastoralCount
     const total             = totalAdults + sundaySchool + riverKidsCount
-    return { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total }
+    return {
+      cellRows, othersCount, othersNames, nonCellCount, nonCellNames, secondWeekCount, secondWeekNames,
+      newcomersCount, newcomersNames, pastoralCount, pastoralNames, riverKidsCount, riverKidsNames,
+      sundaySchool, totalAdults, total,
+    }
   }, [cellGroups, report, dlightSuggestions])
+
+  // Names that appear in 2+ different sections — used to show red duplicate warning
+  const duplicateNorms = useMemo(() => {
+    const sectionSets = new Map()
+    const add = (sectionKey, name) => {
+      const key = (name || '').replace(/\s+/g, ' ').trim().toLowerCase()
+      if (!key) return
+      if (!sectionSets.has(key)) sectionSets.set(key, new Set())
+      sectionSets.get(key).add(sectionKey)
+    }
+    for (const [cellId, names] of Object.entries(report?.sundayCellAttendance || {})) {
+      for (const n of (names || [])) add(`cell:${cellId}`, n)
+    }
+    for (const n of (report?.others || [])) add('others', n)
+    for (const n of (report?.nonCell || [])) add('nonCell', n)
+    for (const n of (report?.pastoralAttendees || [])) add('pastoral', n)
+    for (const n of (report?.riverKids || [])) add('riverKids', n)
+    for (const n of (report?.secondWeekAttendeesNames || [])) add('secondWeek', n)
+    for (const n of dlightSuggestions) add('newComers', n)
+    const dupes = new Set()
+    for (const [key, sections] of sectionSets) {
+      if (sections.size > 1) dupes.add(key)
+    }
+    return dupes
+  }, [report, dlightSuggestions])
 
   /** First incomplete attendance section = “active” highlight (editors only) */
   const activeSectionId = useMemo(() => {
@@ -1054,6 +1102,19 @@ export default function SundayReport({ embedded = false }) {
       .catch(() => setMembersForCell([]))
       .finally(() => setLoadingMembers(false))
   }, [expandedCellId])
+
+  // Enrich membersForCell: if a member has a visitorId, swap in the canonical name from
+  // visitors/people directory so attendance is stored under the full registered name.
+  const enrichedMembersForCell = useMemo(() => {
+    const visitorMap = new Map(delightVisitorsAll.map(v => [v.id, v.name]))
+    const peopleMap  = new Map(peopleDirectory.map(p => [p.id, p.name]))
+    return membersForCell.map(m => {
+      const canonical = m.visitorId
+        ? (visitorMap.get(m.visitorId) || peopleMap.get(m.visitorId) || m.name)
+        : m.name
+      return { ...m, name: canonical, originalName: m.name }
+    })
+  }, [membersForCell, delightVisitorsAll, peopleDirectory])
 
   // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days before the Sunday),
   // plus the 4 weeks before that (candidates for "Second Week Attendees")
@@ -1237,6 +1298,8 @@ export default function SundayReport({ embedded = false }) {
       )
       setReport((prev) => (prev ? { ...prev, summary: computedSummary } : prev))
       requestAnimationFrame(() => window.scrollTo(0, scrollY))
+      setSavedSummary({ ...summaryComputed, date: selectedDate })
+      setShowSavedModal(true)
     } catch (err) {
       console.error(err)
       alert('Failed to save')
@@ -1244,14 +1307,22 @@ export default function SundayReport({ embedded = false }) {
     setSaving(false)
   }
 
-  const toggleMemberAttendance = (cellId, memberName) => {
+  const toggleMemberAttendance = (cellId, memberName, originalName = null) => {
     const name = String(memberName || '').trim()
     if (!name || !canEditEffective || completedSections.cells) return
     const sca = { ...(report?.sundayCellAttendance || {}) }
     const list = [...(sca[cellId] || [])]
     const i = list.indexOf(name)
-    if (i >= 0) list.splice(i, 1)
-    else list.push(name)
+    const origStored = originalName && originalName !== name ? String(originalName).trim() : null
+    const origIdx = origStored ? list.indexOf(origStored) : -1
+    if (i >= 0) {
+      list.splice(i, 1)
+    } else if (origIdx >= 0) {
+      // Old short name in list — remove it (tap deselects; next tap will add canonical name)
+      list.splice(origIdx, 1)
+    } else {
+      list.push(name)
+    }
     sca[cellId] = list
     updateReport({ sundayCellAttendance: sca })
   }
@@ -1325,6 +1396,16 @@ export default function SundayReport({ embedded = false }) {
     }
     return m
   }, [allCellMembers])
+
+  // Set of normalized River Kids names for auto-detecting riverKids section in bulk import
+  const rkKidsNorms = useMemo(() => {
+    const s = new Set()
+    for (const k of allRkKids) {
+      const key = (k.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
+      if (key) s.add(key)
+    }
+    return s
+  }, [allRkKids])
 
   /** Add a Non Cell attendee and record it against their own profile/visitor record. */
   const addNonCellPerson = (person) => {
@@ -1580,6 +1661,7 @@ export default function SundayReport({ embedded = false }) {
         cellGroups={cellGroups}
         searchPool={bulkImportSearchPool}
         cellMemberMap={cellMemberMap}
+        rkKidsNorms={rkKidsNorms}
         userEmail={userProfile?.email || 'unknown'}
       />
       <div className="space-y-6 p-4">
@@ -1840,6 +1922,7 @@ export default function SundayReport({ embedded = false }) {
                 suggestions={PASTORAL_ATTENDEE_SUGGESTIONS}
                 suggestionsLabel="Pastors — tap to add"
                 showManualAdd={false}
+                duplicateNorms={duplicateNorms}
                 className="border-0 shadow-none bg-transparent p-0"
               />
             </AttendanceSectionShell>
@@ -1875,19 +1958,23 @@ export default function SundayReport({ embedded = false }) {
                             <p className="text-xs text-slate-500">No active members.</p>
                           ) : (
                             <div className="flex flex-wrap gap-2">
-                              {membersForCell.map((m) => {
+                              {enrichedMembersForCell.map((m) => {
                                 const nm = (m.name || '').trim()
-                                const sel = selectedForCell(g.id).has(nm)
+                                const cellSet = selectedForCell(g.id)
+                                const sel = cellSet.has(nm) || (m.originalName !== nm && cellSet.has(m.originalName))
+                                const isDupe = sel && duplicateNorms.has(nm.replace(/\s+/g, ' ').toLowerCase())
                                 return (
                                   <button
                                     key={m.id}
                                     type="button"
                                     disabled={!cellsEdit || !nm}
-                                    onClick={() => toggleMemberAttendance(g.id, nm)}
+                                    onClick={() => toggleMemberAttendance(g.id, nm, m.originalName)}
                                     className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition ${
-                                      sel
-                                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
-                                        : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
+                                      isDupe
+                                        ? 'bg-red-100 text-red-700 border-red-400'
+                                        : sel
+                                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                          : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
                                     } ${!cellsEdit ? 'opacity-70 cursor-default' : ''}`}
                                   >
                                     {nm || '—'}
@@ -1932,14 +2019,16 @@ export default function SundayReport({ embedded = false }) {
                       onAddValue={addNonCellPerson}
                       onEdit={(idx, value) => updateCellList(key, idx, value)}
                       onRemove={(idx) => removeCellName(key, idx)}
+                      duplicateNorms={duplicateNorms}
                       className="border-0 shadow-none bg-transparent p-0"
                     />
                   ) : key === 'riverKids' ? (
                     <RiverKidsRegistrySection
-                      kids={rkSchoolKids}
+                      kids={allRkKids}
                       markedNames={report?.riverKids || []}
                       canEdit={manualEdit}
                       onToggle={handleRiverKidsToggle}
+                      duplicateNorms={duplicateNorms}
                     />
                   ) : (
                     <NameListSection
@@ -1953,6 +2042,7 @@ export default function SundayReport({ embedded = false }) {
                       linkDirectory={key === 'others' ? othersLinkDirectory : null}
                       onLink={key === 'others' ? linkOthersNameToCell : undefined}
                       linkedNames={key === 'others' ? othersLinkedNames : undefined}
+                      duplicateNorms={duplicateNorms}
                       className="border-0 shadow-none bg-transparent p-0"
                     />
                   )}
@@ -2010,12 +2100,22 @@ export default function SundayReport({ embedded = false }) {
                 suggestions={secondWeekSuggestions}
                 loadingSuggestions={loadingSecondWeekSuggestions}
                 suggestionsLabel="New comers from the last 4 weeks — tap to add"
+                duplicateNorms={duplicateNorms}
                 className="border-0 shadow-none bg-transparent p-0"
               />
             </AttendanceSectionShell>
           </>
         )}
       </div>
+
+      <AnimatePresence>
+        {showSavedModal && savedSummary && (
+          <SavedModal
+            summary={savedSummary}
+            onClose={() => setShowSavedModal(false)}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showCompleteModal && (
@@ -2039,10 +2139,112 @@ export default function SundayReport({ embedded = false }) {
   )
 }
 
+// ─── Saved Confirmation Modal ─────────────────────────────────────────────────
+
+function SavedModal({ summary, onClose }) {
+  const {
+    cellRows, othersCount, othersNames, nonCellCount, nonCellNames, secondWeekCount, secondWeekNames,
+    newcomersCount, newcomersNames, pastoralCount, pastoralNames, riverKidsCount, riverKidsNames,
+    sundaySchool, totalAdults, total, date,
+  } = summary
+  return (
+    <>
+      <motion.div
+        key="saved-backdrop"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/60 z-50"
+        onClick={onClose}
+      />
+      <motion.div
+        key="saved-sheet"
+        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+        className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl shadow-2xl max-h-[90vh] flex flex-col"
+      >
+        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-200" />
+        </div>
+
+        {/* Hero */}
+        <div className="px-6 pt-3 pb-5 border-b border-slate-100 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-4xl">✅</span>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">Report Saved!</h2>
+              <p className="text-slate-500 text-sm">{date}</p>
+            </div>
+          </div>
+          {/* Total hero numbers */}
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="bg-indigo-600 text-white rounded-2xl p-3 text-center">
+              <p className="text-3xl font-extrabold tabular-nums">{total}</p>
+              <p className="text-[10px] text-indigo-200 font-bold uppercase tracking-wide mt-0.5">Total</p>
+            </div>
+            <div className="bg-indigo-50 rounded-2xl p-3 text-center">
+              <p className="text-3xl font-extrabold tabular-nums text-indigo-700">{totalAdults}</p>
+              <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mt-0.5">Adults</p>
+            </div>
+            <div className="bg-indigo-50 rounded-2xl p-3 text-center">
+              <p className="text-3xl font-extrabold tabular-nums text-indigo-700">{riverKidsCount + sundaySchool}</p>
+              <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mt-0.5">Kids</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Breakdown */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+          {cellRows.map((r) => (
+            <AttendanceRow key={r.id} label={r.name} count={r.count} names={r.names} />
+          ))}
+          <AttendanceRow label="Pastoral" count={pastoralCount} names={pastoralNames} />
+          <AttendanceRow label="Non Cell" count={nonCellCount} names={nonCellNames} />
+          <AttendanceRow label="Others" count={othersCount} names={othersNames} />
+          <AttendanceRow label="New Comers" count={newcomersCount} names={newcomersNames} />
+          <AttendanceRow label="Second Week" count={secondWeekCount} names={secondWeekNames} />
+          <AttendanceRow label="River Kids" count={riverKidsCount} names={riverKidsNames} />
+          {sundaySchool > 0 && (
+            <div className="flex justify-between px-4 py-2.5 rounded-xl bg-slate-50 text-sm">
+              <span className="text-slate-600">Sunday School</span>
+              <span className="font-bold tabular-nums text-slate-800">{sundaySchool}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-5 border-t border-slate-100 flex-shrink-0">
+          <button type="button" onClick={onClose}
+            className="w-full py-3.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition-colors">
+            Done
+          </button>
+        </div>
+      </motion.div>
+    </>
+  )
+}
+
+/** One attendance category row — count + the actual names, so the summary isn't just a number. */
+function AttendanceRow({ label, count, names }) {
+  if (!count) return null
+  return (
+    <div className="px-4 py-2 rounded-xl bg-slate-50 text-sm">
+      <div className="flex justify-between">
+        <span className="text-slate-600">{label}</span>
+        <span className="font-semibold tabular-nums text-slate-800">{count}</span>
+      </div>
+      {names?.length > 0 && (
+        <p className="text-xs text-slate-400 mt-1 leading-relaxed">{names.join(', ')}</p>
+      )}
+    </div>
+  )
+}
+
 // ─── Service Complete Modal ───────────────────────────────────────────────────
 
 function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sundaySchoolValue, onSundaySchoolChange, saving, onSave, onClose }) {
-  const { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, sundaySchool, totalAdults, total } = summaryComputed
+  const {
+    cellRows, othersCount, othersNames, nonCellCount, nonCellNames, secondWeekCount, secondWeekNames,
+    newcomersCount, newcomersNames, pastoralCount, pastoralNames, riverKidsCount, riverKidsNames,
+    sundaySchool, totalAdults, total,
+  } = summaryComputed
   const logByName = {}
   for (const log of programLogs) {
     const key = String(log.programName || '').trim().toLowerCase()
@@ -2106,19 +2308,11 @@ function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sun
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">👥 Attendance Summary</p>
             <div className="space-y-1.5">
               {cellRows.map((r) => (
-                <div key={r.id} className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
-                  <span className="text-slate-600">{r.name}</span>
-                  <span className="font-semibold tabular-nums text-slate-800">{r.count}</span>
-                </div>
+                <AttendanceRow key={r.id} label={r.name} count={r.count} names={r.names} />
               ))}
-              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
-                <span className="text-slate-600">Others</span>
-                <span className="tabular-nums text-slate-800">{othersCount}</span>
-              </div>
-              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
-                <span className="text-slate-600">Non Cell</span>
-                <span className="tabular-nums text-slate-800">{nonCellCount}</span>
-              </div>
+              <AttendanceRow label="Others" count={othersCount} names={othersNames} />
+              <AttendanceRow label="Non Cell" count={nonCellCount} names={nonCellNames} />
+              <AttendanceRow label="Pastoral" count={pastoralCount} names={pastoralNames} />
               <div className="flex justify-between items-center px-4 py-2 rounded-xl bg-slate-50 text-sm">
                 <span className="text-slate-600">Sunday School</span>
                 <input
@@ -2129,18 +2323,9 @@ function ServiceCompleteModal({ sortedProgram, programLogs, summaryComputed, sun
                   className="w-20 px-2 py-1 rounded border border-slate-300 text-right text-sm tabular-nums"
                 />
               </div>
-              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
-                <span className="text-slate-600">Second Week Comers</span>
-                <span className="tabular-nums text-slate-800">{secondWeekCount}</span>
-              </div>
-              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
-                <span className="text-slate-600">New Comers</span>
-                <span className="tabular-nums text-slate-800">{newcomersCount}</span>
-              </div>
-              <div className="flex justify-between px-4 py-2 rounded-xl bg-slate-50 text-sm">
-                <span className="text-slate-600">River Kids</span>
-                <span className="tabular-nums text-slate-800">{riverKidsCount}</span>
-              </div>
+              <AttendanceRow label="Second Week Comers" count={secondWeekCount} names={secondWeekNames} />
+              <AttendanceRow label="New Comers" count={newcomersCount} names={newcomersNames} />
+              <AttendanceRow label="River Kids" count={riverKidsCount} names={riverKidsNames} />
               <div className="flex justify-between px-4 py-3 rounded-2xl bg-indigo-50 text-sm font-semibold">
                 <span className="text-indigo-900">Total Adults</span>
                 <span className="tabular-nums text-indigo-900">{totalAdults}</span>
