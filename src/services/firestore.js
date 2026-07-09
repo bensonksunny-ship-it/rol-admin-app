@@ -686,6 +686,8 @@ export async function getDepartmentChildren(department) {
     fatherName: d.data().fatherName || '',
     motherName: d.data().motherName || '',
     group: d.data().group || '',
+    joinedDate: d.data().joinedDate || '',
+    joinedVia: d.data().joinedVia || '',
     active: d.data().active !== false,
     createdAt: toDate(d.data().createdAt),
   }))
@@ -702,6 +704,8 @@ export async function addDepartmentChild(department, childData, addedBy) {
     fatherName: (childData.fatherName || '').trim(),
     motherName: (childData.motherName || '').trim(),
     group: childData.group || '',
+    joinedDate: childData.joinedDate || '',
+    joinedVia: childData.joinedVia || '',
     active: true,
     addedBy: addedBy || 'unknown',
     createdAt: Timestamp.now(),
@@ -718,6 +722,8 @@ export async function updateDepartmentChild(id, data) {
   if (data.fatherName !== undefined) payload.fatherName = (data.fatherName || '').trim()
   if (data.motherName !== undefined) payload.motherName = (data.motherName || '').trim()
   if (data.group !== undefined) payload.group = data.group || ''
+  if (data.joinedDate !== undefined) payload.joinedDate = data.joinedDate || ''
+  if (data.joinedVia !== undefined) payload.joinedVia = data.joinedVia || ''
   if (Object.keys(payload).length) await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), payload)
 }
 
@@ -3163,6 +3169,27 @@ export async function patchSundayReportRiverKids(dateStr, names, updatedBy) {
   }, { merge: true })
 }
 
+export async function getRecentNonCellAttendees(numWeeks = 6) {
+  if (!db) return []
+  const q = query(collection(db, SUNDAY_REPORTS_COLLECTION), orderBy('date', 'desc'), limit(numWeeks))
+  const snap = await getDocs(q)
+  const nameMap = new Map() // normalised → { name, lastSeen, count }
+  snap.docs.forEach((d) => {
+    const nonCell = d.data().nonCell
+    if (!Array.isArray(nonCell)) return
+    nonCell.filter(Boolean).forEach((n) => {
+      const norm = String(n).trim().toLowerCase()
+      if (!norm) return
+      if (!nameMap.has(norm)) {
+        nameMap.set(norm, { name: String(n).trim(), norm, lastSeen: d.id, count: 1 })
+      } else {
+        nameMap.get(norm).count++
+      }
+    })
+  })
+  return Array.from(nameMap.values()).sort((a, b) => a.name.localeCompare(b.name))
+}
+
 export async function getRecentSundayReports(numWeeks = 8) {
   if (!db) return []
   const today = new Date()
@@ -3185,6 +3212,9 @@ export async function getRecentSundayReports(numWeeks = 8) {
         date: snap.id,
         secondWeekAttendeesNames: Array.isArray(data.secondWeekAttendeesNames)
           ? data.secondWeekAttendeesNames.map((n) => String(n).trim()).filter(Boolean)
+          : [],
+        nonCell: Array.isArray(data.nonCell)
+          ? data.nonCell.map((n) => String(n).trim()).filter(Boolean)
           : [],
       }
     })

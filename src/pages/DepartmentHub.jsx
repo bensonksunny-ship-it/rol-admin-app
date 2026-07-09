@@ -496,9 +496,17 @@ export default function DepartmentHub() {
   const [rkLoading, setRkLoading] = useState(false)
   const [rkDate, setRkDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [rkPresent, setRkPresent] = useState({})
-  const [rkChildForm, setRkChildForm] = useState({ name: '', dob: '', fatherName: '', motherName: '', group: '' })
+  const [rkChildForm, setRkChildForm] = useState({ name: '', dob: '', fatherName: '', motherName: '', group: '', joinedDate: '', joinedVia: '' })
   const [rkEditChild, setRkEditChild] = useState(null)
   const [rkSavingEdit, setRkSavingEdit] = useState(false)
+  // Full people + D-Light visitor records (name -> join date), kept separately from rkAllUsers
+  // (which only has {id, name}) so a parent's church-join date can be looked up by name.
+  const [rkJoinDateSources, setRkJoinDateSources] = useState([])
+  const resolveParentJoinDate = (name) => {
+    const norm = (name || '').trim().toLowerCase()
+    if (!norm) return ''
+    return rkJoinDateSources.find((s) => s.name.trim().toLowerCase() === norm)?.joinDate || ''
+  }
   const [rkAllUsers, setRkAllUsers] = useState([])
   const [rkAttendanceGroup, setRkAttendanceGroup] = useState('sunday-school')
   const [rkReportKidsNames, setRkReportKidsNames] = useState([])
@@ -757,8 +765,9 @@ export default function DepartmentHub() {
       getDepartmentChildAttendance(department.name, rkDate),
       getPeople().catch(() => []),
       getPCSLookup().catch(() => []),
+      getDelightVisitors().catch(() => []),
     ])
-      .then(([children, att, fromPeople, fromLookup]) => {
+      .then(([children, att, fromPeople, fromLookup, fromVisitors]) => {
         const active = children.filter((c) => c.active !== false)
         setRkChildren(active)
         setRkPresent(typeof att.present === 'object' && att.present ? { ...att.present } : {})
@@ -776,6 +785,11 @@ export default function DepartmentHub() {
         }
         merged.sort((a, b) => a.name.localeCompare(b.name))
         setRkAllUsers(merged)
+        // Name -> church-join date, so a parent's date can be suggested for their child.
+        setRkJoinDateSources([
+          ...fromPeople.filter((p) => p.firstVisitDate).map((p) => ({ name: p.name, joinDate: p.firstVisitDate })),
+          ...fromVisitors.filter((v) => v.attendedDate).map((v) => ({ name: v.name, joinDate: v.attendedDate })),
+        ])
       })
       .catch(() => { setRkChildren([]); setRkPresent({}) })
       .finally(() => setRkLoading(false))
@@ -975,6 +989,7 @@ export default function DepartmentHub() {
         .finally(() => setLoadingCellPending(false))
     }
   }, [slug, activeTab])
+
 
   useEffect(() => {
     const wantsCellPlanning = slug === 'cell' && (activeTab === 'planning' || (activeTab === 'operations' && opsSubTab === 'planning'))
@@ -6174,7 +6189,7 @@ export default function DepartmentHub() {
                       if (!rkChildForm.name.trim() || !department) return
                       try {
                         await addDepartmentChild(department.name, rkChildForm, userProfile?.email || userProfile?.displayName || 'unknown')
-                        setRkChildForm({ name: '', dob: '', fatherName: '', motherName: '', group: '' })
+                        setRkChildForm({ name: '', dob: '', fatherName: '', motherName: '', group: '', joinedDate: '', joinedVia: '' })
                         const list = await getDepartmentChildren(department.name)
                         setRkChildren(list.filter((c) => c.active !== false))
                       } catch { alert('Failed to add kid') }
@@ -6212,6 +6227,50 @@ export default function DepartmentHub() {
                           <option value="river-kids-2">River Kids-2</option>
                         </select>
                       </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-slate-600 mb-2">How They Joined</label>
+                        <div className="flex gap-2">
+                          {[{ key: 'born', label: 'Born to members' }, { key: 'outside', label: 'Joined from outside' }].map(opt => (
+                            <button key={opt.key} type="button"
+                              onClick={() => setRkChildForm(p => ({ ...p, joinedVia: p.joinedVia === opt.key ? '' : opt.key }))}
+                              className={`flex-1 py-2 px-2 rounded-xl border text-xs font-medium transition ${
+                                rkChildForm.joinedVia === opt.key
+                                  ? 'bg-indigo-600 text-white border-indigo-700'
+                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {rkChildForm.joinedVia === 'outside' && (() => {
+                        const fatherDate = resolveParentJoinDate(rkChildForm.fatherName)
+                        const motherDate = resolveParentJoinDate(rkChildForm.motherName)
+                        return (
+                          <div className="col-span-2">
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Joined Date</label>
+                            <input type="date" value={rkChildForm.joinedDate} onChange={e => setRkChildForm(p => ({ ...p, joinedDate: e.target.value }))}
+                              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                            {(fatherDate || motherDate) && (
+                              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                {fatherDate && (
+                                  <button type="button" onClick={() => setRkChildForm(p => ({ ...p, joinedDate: fatherDate }))}
+                                    className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-medium">
+                                    👨 Father joined {fatherDate}
+                                  </button>
+                                )}
+                                {motherDate && (
+                                  <button type="button" onClick={() => setRkChildForm(p => ({ ...p, joinedDate: motherDate }))}
+                                    className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-medium">
+                                    👩 Mother joined {motherDate}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                     <button type="submit" disabled={!rkChildForm.name.trim()}
                       className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 active:scale-[0.98] transition-all">
@@ -6247,11 +6306,28 @@ export default function DepartmentHub() {
                               {c.motherName && <span>Mother: <span className="font-medium">{c.motherName}</span></span>}
                             </p>
                           )}
-                          {c.group && (
-                            <span className="inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-100">
-                              {c.group === 'sunday-school' ? 'Sunday School' : c.group === 'river-kids-1' ? 'River Kids-1' : 'River Kids-2'}
-                            </span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            {c.group && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-100">
+                                {c.group === 'sunday-school' ? 'Sunday School' : c.group === 'river-kids-1' ? 'River Kids-1' : 'River Kids-2'}
+                              </span>
+                            )}
+                            {c.joinedVia && (
+                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                                c.joinedVia === 'born'
+                                  ? 'bg-pink-50 text-pink-600 border-pink-100'
+                                  : 'bg-sky-50 text-sky-600 border-sky-100'
+                              }`}>
+                                {c.joinedVia === 'born' ? 'Born to members' : 'Joined from outside'}
+                              </span>
+                            )}
+                            {(() => {
+                              const effectiveDate = c.joinedVia === 'born' ? c.dob : c.joinedDate
+                              return effectiveDate
+                                ? <span className="text-[10px] text-slate-400">Joined: {effectiveDate}</span>
+                                : null
+                            })()}
+                          </div>
                         </div>
                         {canEdit && (
                           <div className="flex items-center gap-1 shrink-0">
@@ -6318,6 +6394,50 @@ export default function DepartmentHub() {
                           <option value="river-kids-2">River Kids-2</option>
                         </select>
                       </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-2">How They Joined</label>
+                        <div className="flex gap-2">
+                          {[{ key: 'born', label: 'Born to members' }, { key: 'outside', label: 'Joined from outside' }].map(opt => (
+                            <button key={opt.key} type="button"
+                              onClick={() => setRkEditChild(p => ({ ...p, joinedVia: p.joinedVia === opt.key ? '' : opt.key }))}
+                              className={`flex-1 py-2 px-2 rounded-xl border text-xs font-medium transition ${
+                                rkEditChild.joinedVia === opt.key
+                                  ? 'bg-indigo-600 text-white border-indigo-700'
+                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {rkEditChild.joinedVia === 'outside' && (() => {
+                        const fatherDate = resolveParentJoinDate(rkEditChild.fatherName)
+                        const motherDate = resolveParentJoinDate(rkEditChild.motherName)
+                        return (
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Joined Date</label>
+                            <input type="date" value={rkEditChild.joinedDate || ''} onChange={e => setRkEditChild(p => ({ ...p, joinedDate: e.target.value }))}
+                              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                            {(fatherDate || motherDate) && (
+                              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                {fatherDate && (
+                                  <button type="button" onClick={() => setRkEditChild(p => ({ ...p, joinedDate: fatherDate }))}
+                                    className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-medium">
+                                    👨 Father joined {fatherDate}
+                                  </button>
+                                )}
+                                {motherDate && (
+                                  <button type="button" onClick={() => setRkEditChild(p => ({ ...p, joinedDate: motherDate }))}
+                                    className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-medium">
+                                    👩 Mother joined {motherDate}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                     <button type="button" disabled={rkSavingEdit || !rkEditChild.name.trim()}
                       onClick={async () => {
@@ -6327,6 +6447,8 @@ export default function DepartmentHub() {
                             name: rkEditChild.name, dob: rkEditChild.dob || '',
                             fatherName: rkEditChild.fatherName || '', motherName: rkEditChild.motherName || '',
                             group: rkEditChild.group || '',
+                            joinedDate: rkEditChild.joinedDate || '',
+                            joinedVia: rkEditChild.joinedVia || '',
                           })
                           const list = await getDepartmentChildren(department.name)
                           setRkChildren(list.filter((c) => c.active !== false))

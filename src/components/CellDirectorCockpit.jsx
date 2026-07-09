@@ -152,8 +152,14 @@ export function CellDirectorCockpit({
           for (const raw of report.secondWeekAttendeesNames) {
             const key = raw.trim().toLowerCase()
             if (!key) continue
-            if (!nameMap.has(key)) nameMap.set(key, { name: raw.trim(), weekCount: 0 })
+            if (!nameMap.has(key)) nameMap.set(key, { name: raw.trim(), weekCount: 0, nonCell: false })
             nameMap.get(key).weekCount++
+          }
+          for (const raw of (report.nonCell || [])) {
+            const key = raw.trim().toLowerCase()
+            if (!key) continue
+            if (!nameMap.has(key)) nameMap.set(key, { name: raw.trim(), weekCount: 1, nonCell: true })
+            else { nameMap.get(key).weekCount++; nameMap.get(key).nonCell = true }
           }
         }
         const unassigned = []
@@ -387,7 +393,7 @@ export function CellDirectorCockpit({
               <div>
                 <h3 className="font-bold text-slate-900">Unassigned</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Repeat Sunday visitors + Caring PCS referrals not yet in a cell
+                  Non-Cell Sunday attendees + repeat visitors + Caring PCS referrals not yet in a cell
                 </p>
               </div>
               <button
@@ -426,6 +432,11 @@ export function CellDirectorCockpit({
                             {isPCS && (
                               <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
                                 From Caring
+                              </span>
+                            )}
+                            {!isPCS && item.nonCell && (
+                              <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
+                                Non-Cell
                               </span>
                             )}
                           </div>

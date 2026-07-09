@@ -6,6 +6,18 @@ function formatTime(isoString) {
   try { return format(parseISO(isoString), 'h:mm a') } catch { return isoString }
 }
 
+function formatTimeHHMM(isoString) {
+  try { return format(parseISO(isoString), 'HH:mm') } catch { return null }
+}
+
+function plannedDeltaMinutes(plannedTime, actualHHMM) {
+  if (!plannedTime || !actualHHMM) return null
+  const [ph, pm] = plannedTime.split(':').map(Number)
+  const [ah, am] = actualHHMM.split(':').map(Number)
+  if ([ph, pm, ah, am].some((n) => Number.isNaN(n))) return null
+  return (ah * 60 + am) - (ph * 60 + pm)
+}
+
 function formatDuration(isoA, isoB) {
   try {
     const ms = parseISO(isoB) - parseISO(isoA)
@@ -33,18 +45,15 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
   const pageRef = useRef(null)
   const [downloading, setDownloading] = useState(false)
 
-  // Every group is shown unconditionally (even when 0) so nothing silently
-  // disappears from the printed/PDF report — Others and Non Cell are two
-  // distinct lists and both always get their own row.
   const sca = row.sundayCellAttendance || {}
   const cellStats = cellCols.map((c) => ({ name: c.name, count: (sca[c.id] || []).filter(Boolean).length }))
 
   const otherStats = [
-    { label: 'Pastoral Attendees', value: row.pastoralCount || 0 },
+    { label: 'Pastoral', value: row.pastoralCount || 0 },
     { label: 'Others', value: row.othersCount || 0 },
     { label: 'Non Cell', value: row.nonCellCount || 0 },
     { label: 'Sunday School', value: row.sundaySchool || 0 },
-    { label: '2nd Week Attendees', value: row.secondWeekAttendees || 0 },
+    { label: '2nd Week', value: row.secondWeekAttendees || 0 },
     { label: 'New Comers', value: row.newcomers || 0 },
     { label: 'River Kids', value: row.riverKidsCount || 0 },
   ]
@@ -66,8 +75,8 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
           x: 0,
           y: 0,
           width: 210,
-          windowWidth: pageRef.current.scrollWidth,
-          autoPaging: 'text',
+          windowWidth: 794,
+          autoPaging: false,
         })
       })
     } catch (e) {
@@ -98,64 +107,64 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
         </button>
       </div>
 
-      {/* A4 page */}
+      {/* A4 page — fixed to 297mm so jsPDF never creates a second page */}
       <div
         ref={pageRef}
-        className="mx-auto bg-white shadow-2xl"
-        style={{ width: '210mm', minHeight: '297mm', fontFamily: 'system-ui, -apple-system, sans-serif' }}
+        className="mx-auto bg-white shadow-2xl overflow-hidden"
+        style={{ width: '210mm', height: '297mm', fontFamily: 'system-ui, -apple-system, sans-serif' }}
       >
         {/* Header */}
         <div
           style={{
             background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)',
-            padding: '14mm 16mm 10mm',
+            padding: '7mm 14mm 5mm',
             color: 'white',
           }}
         >
-          <p style={{ fontSize: '10pt', letterSpacing: '0.15em', opacity: 0.85, textTransform: 'uppercase', margin: 0 }}>
+          <p style={{ fontSize: '8pt', letterSpacing: '0.15em', opacity: 0.85, textTransform: 'uppercase', margin: 0 }}>
             River Of Life Church
           </p>
-          <h1 style={{ fontSize: '22pt', fontWeight: 800, margin: '2mm 0 0' }}>Sunday Service Report</h1>
-          <p style={{ fontSize: '13pt', fontWeight: 600, margin: '2mm 0 0', opacity: 0.95 }}>
+          <h1 style={{ fontSize: '17pt', fontWeight: 800, margin: '1.5mm 0 0' }}>Sunday Service Report</h1>
+          <p style={{ fontSize: '11pt', fontWeight: 600, margin: '1.5mm 0 0', opacity: 0.95 }}>
             {formatDisplayDate(row.date)}
           </p>
         </div>
 
-        <div style={{ padding: '10mm 16mm 14mm' }}>
+        <div style={{ padding: '6mm 14mm 6mm' }}>
           {/* Hero total */}
           <div
             style={{
               background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-              borderRadius: '4mm',
-              padding: '6mm 8mm',
+              borderRadius: '3mm',
+              padding: '4mm 7mm',
               color: 'white',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              marginBottom: '8mm',
+              marginBottom: '5mm',
             }}
           >
             <div>
-              <p style={{ fontSize: '9pt', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.85, margin: 0 }}>
+              <p style={{ fontSize: '7.5pt', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.85, margin: 0 }}>
                 Total Attendance
               </p>
-              <p style={{ fontSize: '28pt', fontWeight: 800, margin: '1mm 0 0', lineHeight: 1 }}>
+              <p style={{ fontSize: '22pt', fontWeight: 800, margin: '1mm 0 0', lineHeight: 1 }}>
                 {row.totalAttendance || 0}
               </p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: '9pt', opacity: 0.85, margin: 0 }}>Adults</p>
-              <p style={{ fontSize: '14pt', fontWeight: 700, margin: '1mm 0 0' }}>{row.totalAdults || 0}</p>
+              <p style={{ fontSize: '7.5pt', opacity: 0.85, margin: 0 }}>Adults</p>
+              <p style={{ fontSize: '13pt', fontWeight: 700, margin: '0.5mm 0 0' }}>{row.totalAdults || 0}</p>
             </div>
           </div>
 
           {/* Cell groups */}
           {cellStats.length > 0 && (
-            <div style={{ marginBottom: '8mm' }}>
-              <p style={{ fontSize: '8pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '3mm' }}>
+            <div style={{ marginBottom: '5mm' }}>
+              <p style={{ fontSize: '7pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '2mm' }}>
                 Cell Groups
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '3mm' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '2mm' }}>
                 {cellStats.map((c, i) => {
                   const col = STAT_COLORS[i % STAT_COLORS.length]
                   return (
@@ -164,15 +173,15 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
                       style={{
                         background: col.bg,
                         border: `0.3mm solid ${col.border}`,
-                        borderRadius: '3mm',
-                        padding: '3mm',
+                        borderRadius: '2.5mm',
+                        padding: '2.5mm',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '1.5mm', marginBottom: '1mm' }}>
-                        <span style={{ width: '2mm', height: '2mm', borderRadius: '50%', background: col.dot, display: 'inline-block' }} />
-                        <span style={{ fontSize: '8.5pt', fontWeight: 700, color: '#334155' }}>{c.name}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1.5mm', marginBottom: '0.5mm' }}>
+                        <span style={{ width: '1.5mm', height: '1.5mm', borderRadius: '50%', background: col.dot, display: 'inline-block', flexShrink: 0 }} />
+                        <span style={{ fontSize: '7.5pt', fontWeight: 700, color: '#334155', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{c.name}</span>
                       </div>
-                      <p style={{ fontSize: '15pt', fontWeight: 800, color: col.text, margin: 0 }}>{c.count}</p>
+                      <p style={{ fontSize: '13pt', fontWeight: 800, color: col.text, margin: 0 }}>{c.count}</p>
                     </div>
                   )
                 })}
@@ -182,23 +191,23 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
 
           {/* Other categories */}
           {otherStats.length > 0 && (
-            <div style={{ marginBottom: '8mm' }}>
-              <p style={{ fontSize: '8pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '3mm' }}>
+            <div style={{ marginBottom: '5mm' }}>
+              <p style={{ fontSize: '7pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '2mm' }}>
                 Other Attendance
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '3mm' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '2mm' }}>
                 {otherStats.map((s) => (
                   <div
                     key={s.label}
                     style={{
                       background: '#f8fafc',
                       border: '0.3mm solid #e2e8f0',
-                      borderRadius: '3mm',
-                      padding: '3mm',
+                      borderRadius: '2.5mm',
+                      padding: '2.5mm',
                     }}
                   >
-                    <p style={{ fontSize: '8.5pt', fontWeight: 700, color: '#334155', margin: '0 0 1mm' }}>{s.label}</p>
-                    <p style={{ fontSize: '15pt', fontWeight: 800, color: '#475569', margin: 0 }}>{s.value}</p>
+                    <p style={{ fontSize: '7.5pt', fontWeight: 700, color: '#334155', margin: '0 0 0.5mm' }}>{s.label}</p>
+                    <p style={{ fontSize: '13pt', fontWeight: 800, color: '#475569', margin: 0 }}>{s.value}</p>
                   </div>
                 ))}
               </div>
@@ -208,13 +217,17 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
           {/* Program timeline */}
           {hasTimings && (
             <div>
-              <p style={{ fontSize: '8pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '3mm' }}>
+              <p style={{ fontSize: '7pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '2mm' }}>
                 Program Timeline
               </p>
-              <div style={{ border: '0.3mm solid #e2e8f0', borderRadius: '3mm', overflow: 'hidden' }}>
+              <div style={{ border: '0.3mm solid #e2e8f0', borderRadius: '2.5mm', overflow: 'hidden' }}>
                 {row.programTimings.map((t, i) => {
                   const duration = formatDuration(t.startTime, row.programTimings[i + 1]?.startTime)
                   const col = STAT_COLORS[i % STAT_COLORS.length]
+                  const delta = plannedDeltaMinutes(t.plannedTime, formatTimeHHMM(t.startTime))
+                  const deltaLabel = delta === null ? null : delta === 0 ? 'On time' : delta > 0 ? `+${delta}m` : `${-delta}m early`
+                  const deltaColor = delta === null ? null : delta === 0 ? '#059669' : delta > 0 ? '#dc2626' : '#0284c7'
+                  const deltaBg   = delta === null ? null : delta === 0 ? '#ecfdf5' : delta > 0 ? '#fef2f2' : '#f0f9ff'
                   return (
                     <div
                       key={i}
@@ -222,21 +235,41 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
                         display: 'flex',
                         alignItems: 'center',
                         gap: '3mm',
-                        padding: '3mm 4mm',
+                        padding: '2mm 3.5mm',
                         borderTop: i > 0 ? '0.2mm solid #f1f5f9' : 'none',
                       }}
                     >
-                      <span style={{ width: '2mm', height: '2mm', borderRadius: '50%', background: col.dot, flexShrink: 0 }} />
-                      <span style={{ fontSize: '9.5pt', fontWeight: 700, color: '#334155', flex: 1 }}>{t.programName}</span>
-                      <span style={{ fontSize: '9pt', color: '#64748b', fontWeight: 600 }}>{formatTime(t.startTime)}</span>
-                      {duration && (
+                      <span style={{ width: '1.5mm', height: '1.5mm', borderRadius: '50%', background: col.dot, flexShrink: 0 }} />
+                      <span style={{ fontSize: '8.5pt', fontWeight: 700, color: '#334155', flex: 1 }}>{t.programName}</span>
+                      {t.plannedTime && (
+                        <span style={{ fontSize: '7.5pt', color: '#6366f1', fontWeight: 600, tabularNums: true }}>
+                          {t.plannedTime}
+                        </span>
+                      )}
+                      <span style={{ fontSize: '8pt', color: '#64748b', fontWeight: 600 }}>{formatTime(t.startTime)}</span>
+                      {deltaLabel && (
                         <span
                           style={{
-                            fontSize: '7.5pt',
+                            fontSize: '7pt',
+                            fontWeight: 700,
+                            color: deltaColor,
+                            background: deltaBg,
+                            padding: '0.5mm 2mm',
+                            borderRadius: '10mm',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {deltaLabel}
+                        </span>
+                      )}
+                      {duration && !deltaLabel && (
+                        <span
+                          style={{
+                            fontSize: '7pt',
                             fontWeight: 700,
                             color: col.text,
                             background: col.bg,
-                            padding: '1mm 2.5mm',
+                            padding: '0.5mm 2mm',
                             borderRadius: '10mm',
                           }}
                         >
@@ -251,7 +284,7 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
           )}
 
           {/* Footer */}
-          <p style={{ fontSize: '7.5pt', color: '#cbd5e1', marginTop: '12mm', textAlign: 'center' }}>
+          <p style={{ fontSize: '7pt', color: '#cbd5e1', marginTop: '5mm', textAlign: 'center' }}>
             Generated from the ROL Admin App · {format(new Date(), 'dd MMM yyyy, h:mm a')}
           </p>
         </div>

@@ -60,6 +60,15 @@ function normalizeCellName(n) {
     .replace(/\s+/g, '')
 }
 
+/** Minutes the actual (logged) start time differs from the planned time — positive = late. */
+function plannedDeltaMinutes(plannedTime, logTime) {
+  if (!plannedTime || !logTime) return null
+  const [ph, pm] = plannedTime.split(':').map(Number)
+  const [lh, lm] = logTime.split(':').map(Number)
+  if ([ph, pm, lh, lm].some((n) => Number.isNaN(n))) return null
+  return (lh * 60 + lm) - (ph * 60 + pm)
+}
+
 function migrateLegacyCellAttendance(report, cellGroups) {
   const byNorm = {}
   for (const g of cellGroups) {
@@ -925,6 +934,8 @@ export default function SundayReport({ embedded = false }) {
   const [allCellMembers, setAllCellMembers] = useState([])
   const [editingLogIdx, setEditingLogIdx] = useState(null)
   const [editingLogTime, setEditingLogTime] = useState('')
+  const [editingPlannedIdx, setEditingPlannedIdx] = useState(null)
+  const [editingPlannedTime, setEditingPlannedTime] = useState('')
   const [editingProgramIdx, setEditingProgramIdx] = useState(null)
   const [editingProgramName, setEditingProgramName] = useState('')
   const [rkSchoolKids, setRkSchoolKids] = useState([])
@@ -1108,16 +1119,28 @@ export default function SundayReport({ embedded = false }) {
 
   // Enrich membersForCell: if a member has a visitorId, swap in the canonical name from
   // visitors/people directory so attendance is stored under the full registered name.
+  // Also resolve each member's church-join date (D-Light "attended date" / People's Directory
+  // "first visit date") so the list can be sorted by seniority, with the cell leader pinned first.
   const enrichedMembersForCell = useMemo(() => {
-    const visitorMap = new Map(delightVisitorsAll.map(v => [v.id, v.name]))
-    const peopleMap  = new Map(peopleDirectory.map(p => [p.id, p.name]))
-    return membersForCell.map(m => {
-      const canonical = m.visitorId
-        ? (visitorMap.get(m.visitorId) || peopleMap.get(m.visitorId) || m.name)
-        : m.name
-      return { ...m, name: canonical, originalName: m.name }
+    const visitorMap = new Map(delightVisitorsAll.map(v => [v.id, v]))
+    const peopleMap  = new Map(peopleDirectory.map(p => [p.id, p]))
+    const leaderName = (cellGroups.find(g => g.id === expandedCellId)?.leader || '').trim().toLowerCase()
+    const enriched = membersForCell.map(m => {
+      const linked = m.visitorId ? (peopleMap.get(m.visitorId) || visitorMap.get(m.visitorId)) : null
+      const canonical = linked?.name || m.name
+      const joinDate = linked?.firstVisitDate || linked?.attendedDate || ''
+      return { ...m, name: canonical, originalName: m.name, joinDate }
     })
-  }, [membersForCell, delightVisitorsAll, peopleDirectory])
+    return enriched.sort((a, b) => {
+      const aLeader = a.name.trim().toLowerCase() === leaderName
+      const bLeader = b.name.trim().toLowerCase() === leaderName
+      if (aLeader !== bLeader) return aLeader ? -1 : 1
+      if (a.joinDate && b.joinDate) return a.joinDate < b.joinDate ? -1 : a.joinDate > b.joinDate ? 1 : 0
+      if (a.joinDate) return -1
+      if (b.joinDate) return 1
+      return 0
+    })
+  }, [membersForCell, delightVisitorsAll, peopleDirectory, cellGroups, expandedCellId])
 
   // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days before the Sunday),
   // plus the 4 weeks before that (candidates for "Second Week Attendees")
@@ -1283,11 +1306,19 @@ export default function SundayReport({ embedded = false }) {
       const activeNames = new Set(
         (report?.programList || []).map((item) => String(item.programName || '').trim().toLowerCase())
       )
+      const programListByName = Object.fromEntries(
+        (report?.programList || []).map((item) => [String(item.programName || '').trim().toLowerCase(), item])
+      )
       const timings = programLogs
         .filter((log) => activeNames.has(String(log.programName || '').trim().toLowerCase()))
         .map((log) => {
           const t = log.startTime instanceof Date ? log.startTime : log.startTime?.toDate?.() ?? null
-          return { programName: log.programName, startTime: t ? t.toISOString() : null }
+          const listItem = programListByName[String(log.programName || '').trim().toLowerCase()]
+          return {
+            programName: log.programName,
+            startTime: t ? t.toISOString() : null,
+            plannedTime: listItem?.plannedTime || '',
+          }
         })
         .filter((x) => x.startTime)
 
@@ -1525,6 +1556,11 @@ export default function SundayReport({ embedded = false }) {
     updateReport({ programList: updated })
   }
 
+  const updateProgramItemPlannedTime = (idx, plannedTime) => {
+    const updated = sortedProgram.map((item, i) => i === idx ? { ...item, plannedTime } : item)
+    updateReport({ programList: updated })
+  }
+
   const removeProgramItem = (idx) => {
     const updated = sortedProgram
       .filter((_, i) => i !== idx)
@@ -1668,7 +1704,8 @@ export default function SundayReport({ embedded = false }) {
         rkKidsNorms={rkKidsNorms}
         userEmail={userProfile?.email || 'unknown'}
       />
-      <div className="space-y-6 p-4">
+      <div className="p-4">
+        <div className="max-w-5xl mx-auto space-y-4">
         {/* Date nav + actions */}
         <div className="flex items-center gap-2 flex-wrap">
           <button
@@ -1722,30 +1759,6 @@ export default function SundayReport({ embedded = false }) {
           )}
         </div>
 
-        {/* Attendance total banner — hidden once filed, since FiledSummaryView shows its own totals */}
-        {!loading && !filedView && report && summaryComputed.total > 0 && (
-          <div className="flex items-center justify-between bg-indigo-600 text-white rounded-xl px-4 py-3 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-extrabold tabular-nums">{summaryComputed.total}</span>
-              <div className="flex flex-col leading-tight">
-                <span className="text-xs font-bold uppercase tracking-wide text-indigo-200">Total Attendance</span>
-                <span className="text-[11px] text-indigo-300">{summaryComputed.totalAdults} adults · {summaryComputed.riverKidsCount} kids</span>
-              </div>
-            </div>
-            <div className="flex gap-3 text-right">
-              <div>
-                <p className="text-lg font-bold tabular-nums">{summaryComputed.totalAdults}</p>
-                <p className="text-[10px] text-indigo-300 uppercase tracking-wide">Adults</p>
-              </div>
-              <div className="w-px bg-indigo-500" />
-              <div>
-                <p className="text-lg font-bold tabular-nums">{summaryComputed.riverKidsCount}</p>
-                <p className="text-[10px] text-indigo-300 uppercase tracking-wide">Kids</p>
-              </div>
-            </div>
-          </div>
-        )}
-
         {loading ? (
           <div className="py-12 text-center text-slate-500">Loading report…</div>
         ) : filedView ? (
@@ -1757,368 +1770,447 @@ export default function SundayReport({ embedded = false }) {
             onEdit={() => setFiledView(false)}
           />
         ) : (
-          <>
-            {(sortedProgram.length > 0 || canEditEffective) && (
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-semibold text-slate-800">Program</h3>
-                  <Link to="/department/sunday-ministry/sunday?subtab=program" className="text-sm text-indigo-600 hover:underline">
-                    Manage program →
-                  </Link>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
+
+            {/* ── Left column: all attendance sections ── */}
+            <div className="space-y-4 min-w-0">
+              <h2 className="text-lg font-semibold text-slate-800">Attendance</h2>
+
+              <AttendanceSectionShell
+                sectionRef={pastoralSectionRef}
+                completed={completedSections.pastoral}
+                isActive={activeSectionId === 'pastoral'}
+                canManage={canEditEffective}
+                onDone={() => handleAttendanceDone('pastoral')}
+                onUndo={() => handleAttendanceUndo('pastoral')}
+              >
+                <NameListSection
+                  title={PASTORAL_KEY.title}
+                  names={report?.[PASTORAL_KEY.key] || []}
+                  canEdit={pastoralEdit}
+                  onAddValue={(value) => addCellNameValue(PASTORAL_KEY.key, value)}
+                  onEdit={(idx, value) => updateCellList(PASTORAL_KEY.key, idx, value)}
+                  onRemove={(idx) => removeCellName(PASTORAL_KEY.key, idx)}
+                  suggestions={PASTORAL_ATTENDEE_SUGGESTIONS}
+                  suggestionsLabel="Pastors — tap to add"
+                  showManualAdd={false}
+                  duplicateNorms={duplicateNorms}
+                  className="border-0 shadow-none bg-transparent p-0"
+                />
+              </AttendanceSectionShell>
+
+              <AttendanceSectionShell
+                sectionRef={cellsSectionRef}
+                completed={completedSections.cells}
+                isActive={activeSectionId === 'cells'}
+                canManage={canEditEffective}
+                onDone={() => handleAttendanceDone('cells')}
+                onUndo={() => handleAttendanceUndo('cells')}
+              >
+                <h3 className="font-semibold text-slate-800 mb-3">Cell Groups</h3>
+                {/* Compact group tiles — member picker expands below the grid */}
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {cellGroups.map((g) => {
+                    const isSelected = expandedCellId === g.id
+                    const count = (report?.sundayCellAttendance?.[g.id] || []).length
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => setExpandedCellId(isSelected ? null : g.id)}
+                        className={`rounded-xl border text-center px-2 py-2.5 transition active:scale-95 ${
+                          isSelected
+                            ? 'border-indigo-500 bg-indigo-50 shadow-sm'
+                            : 'border-slate-200 bg-white hover:border-indigo-300'
+                        }`}
+                      >
+                        <p className="text-xs font-semibold text-slate-700 leading-tight truncate">{g.cellName || 'Unnamed'}</p>
+                        <p className={`text-base font-extrabold tabular-nums mt-0.5 ${count > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{count}</p>
+                      </button>
+                    )
+                  })}
                 </div>
 
-                {sortedProgram.length === 0 ? (
-                  <p className="text-sm text-slate-400">No programs yet. Add one below or push from Sunday Program page.</p>
-                ) : (
-                  <ul className="text-sm divide-y divide-slate-100 border border-slate-100 rounded-lg">
-                    {sortedProgram.map((item, idx) => {
-                      const log = logForItem(item)
-                      const logTime = log?.startTime
-                        ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
-                        : null
-                      const nextLog = logForItem(sortedProgram[idx + 1])
-                      const durationMs = log?.startTime && nextLog?.startTime
-                        ? (nextLog.startTime instanceof Date ? nextLog.startTime : new Date(nextLog.startTime)) -
-                          (log.startTime instanceof Date ? log.startTime : new Date(log.startTime))
-                        : null
-                      const durationLabel = durationMs > 0
-                        ? (() => { const m = Math.round(durationMs / 60000); return m >= 60 ? `${Math.floor(m/60)}h${m%60?` ${m%60}m`:''}` : `${m}m` })()
-                        : null
-                      const isEditingTime = editingLogIdx === idx
-                      const isEditingName = editingProgramIdx === idx
-                      const canEditName = canEditEffective && !log
-                      return (
-                        <li key={`${item.programName}-${idx}`} className="flex items-center gap-2 px-3 py-2">
-                          {/* Program name */}
-                          {isEditingName ? (
-                            <>
-                              <input
-                                type="text"
-                                value={editingProgramName}
-                                onChange={(e) => setEditingProgramName(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') { updateProgramItemName(idx, editingProgramName); setEditingProgramIdx(null) } if (e.key === 'Escape') setEditingProgramIdx(null) }}
-                                className="flex-1 px-2 py-1 rounded border border-slate-300 text-sm font-medium"
-                                autoFocus
-                              />
-                              <button type="button" onClick={() => { updateProgramItemName(idx, editingProgramName); setEditingProgramIdx(null) }} className="text-emerald-600 font-bold text-base px-1">✓</button>
-                              <button type="button" onClick={() => setEditingProgramIdx(null)} className="text-red-500 font-bold text-base px-1">✕</button>
-                            </>
-                          ) : (
-                            <span className="flex items-center gap-1.5 flex-1 min-w-0">
-                              <span className="font-medium text-slate-800 truncate">{item.programName}</span>
-                              {canEditName && (
+                {/* Full-width member picker for the selected group */}
+                {expandedCellId && (() => {
+                  const g = cellGroups.find(x => x.id === expandedCellId)
+                  if (!g) return null
+                  return (
+                    <div className="mt-3 rounded-xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-50 border-b border-indigo-100">
+                        <span className="font-semibold text-indigo-800 text-sm">{g.cellName || 'Unnamed'}</span>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCellId(null)}
+                          className="text-indigo-400 hover:text-indigo-600 text-lg leading-none px-1"
+                        >✕</button>
+                      </div>
+                      <div className="p-3">
+                        {loadingMembers ? (
+                          <p className="text-xs text-slate-500 py-1">Loading members…</p>
+                        ) : membersForCell.length === 0 ? (
+                          <p className="text-xs text-slate-500 py-1">No active members.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {enrichedMembersForCell.map((m) => {
+                              const nm = (m.name || '').trim()
+                              const cellSet = selectedForCell(g.id)
+                              const sel = cellSet.has(nm) || (m.originalName !== nm && cellSet.has(m.originalName))
+                              const isDupe = sel && duplicateNorms.has(nm.replace(/\s+/g, ' ').toLowerCase())
+                              return (
                                 <button
+                                  key={m.id}
                                   type="button"
-                                  onClick={() => { setEditingProgramIdx(idx); setEditingProgramName(item.programName) }}
-                                  className="text-slate-300 hover:text-slate-500 text-xs flex-shrink-0"
-                                  title="Edit name"
-                                >✎</button>
-                              )}
-                            </span>
-                          )}
+                                  disabled={!cellsEdit || !nm}
+                                  onClick={() => toggleMemberAttendance(g.id, nm, m.originalName)}
+                                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${
+                                    isDupe
+                                      ? 'bg-red-100 text-red-700 border-red-400'
+                                      : sel
+                                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                        : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
+                                  } ${!cellsEdit ? 'opacity-70 cursor-default' : ''}`}
+                                >
+                                  {nm || '—'}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
 
-                          {/* Program time */}
-                          {!isEditingName && (
-                            isEditingTime ? (
-                              <span className="flex items-center gap-1 flex-shrink-0">
-                                <input
-                                  type="time"
-                                  value={editingLogTime}
-                                  onChange={(e) => setEditingLogTime(e.target.value)}
-                                  className="px-2 py-1 rounded border border-slate-300 text-sm tabular-nums"
-                                />
-                                <button type="button" onClick={() => handleUpdateLog(idx)} className="text-emerald-600 hover:text-emerald-700 font-bold text-base px-1">✓</button>
-                                <button type="button" onClick={() => setEditingLogIdx(null)} className="text-red-500 hover:text-red-600 font-bold text-base px-1">✕</button>
-                              </span>
-                            ) : canEditEffective ? (
-                              <button
-                                type="button"
-                                onClick={() => { setEditingLogIdx(idx); setEditingLogTime(logTime || format(new Date(), 'HH:mm')) }}
-                                className={`tabular-nums text-sm flex-shrink-0 min-w-[44px] text-right ${logTime ? 'text-slate-600 hover:text-indigo-600 hover:underline' : 'text-slate-300 hover:text-indigo-500'}`}
-                                title={logTime ? 'Edit time' : 'Set time'}
-                              >
-                                {logTime || '—'}
-                              </button>
-                            ) : (
-                              <span className="text-slate-600 tabular-nums text-sm flex-shrink-0">{logTime ?? '—'}</span>
-                            )
-                          )}
+                {cellGroups.length === 0 && <p className="text-sm text-slate-500 mt-2">No cell groups found. Add cells under Cell department.</p>}
+              </AttendanceSectionShell>
 
-                          {/* Duration badge */}
-                          {durationLabel && !isEditingTime && !isEditingName && (
-                            <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs tabular-nums font-medium">
-                              {durationLabel}
-                            </span>
-                          )}
+              {MANUAL_ONLY_KEYS.map(({ key, title }) => {
+                const refMap = {
+                  others: othersSectionRef,
+                  nonCell: nonCellSectionRef,
+                  riverKids: riverKidsSectionRef,
+                }
+                const sectionRef = refMap[key]
+                const manualEdit = canEditEffective && !completedSections[key]
+                return (
+                  <AttendanceSectionShell
+                    key={key}
+                    sectionRef={sectionRef}
+                    completed={completedSections[key]}
+                    isActive={activeSectionId === key}
+                    canManage={canEditEffective}
+                    onDone={() => handleAttendanceDone(key)}
+                    onUndo={() => handleAttendanceUndo(key)}
+                  >
+                    {key === 'nonCell' ? (
+                      <NonCellSection
+                        names={report?.[key] || []}
+                        canEdit={manualEdit}
+                        people={nonCellSearchPool}
+                        cellMemberNames={cellMemberNames}
+                        onAddValue={addNonCellPerson}
+                        onEdit={(idx, value) => updateCellList(key, idx, value)}
+                        onRemove={(idx) => removeCellName(key, idx)}
+                        duplicateNorms={duplicateNorms}
+                        className="border-0 shadow-none bg-transparent p-0"
+                      />
+                    ) : key === 'riverKids' ? (
+                      <RiverKidsRegistrySection
+                        kids={allRkKids}
+                        markedNames={report?.riverKids || []}
+                        canEdit={manualEdit}
+                        onToggle={handleRiverKidsToggle}
+                        duplicateNorms={duplicateNorms}
+                      />
+                    ) : (
+                      <NameListSection
+                        title={title}
+                        names={report?.[key] || []}
+                        canEdit={manualEdit}
+                        onAdd={() => addCellName(key)}
+                        onAddValue={(value) => addCellNameValue(key, value)}
+                        onEdit={(idx, value) => updateCellList(key, idx, value)}
+                        onRemove={(idx) => removeCellName(key, idx)}
+                        linkDirectory={key === 'others' ? othersLinkDirectory : null}
+                        onLink={key === 'others' ? linkOthersNameToCell : undefined}
+                        linkedNames={key === 'others' ? othersLinkedNames : undefined}
+                        duplicateNorms={duplicateNorms}
+                        className="border-0 shadow-none bg-transparent p-0"
+                      />
+                    )}
+                  </AttendanceSectionShell>
+                )
+              })}
 
-                          {/* Remove */}
-                          {canEditEffective && !isEditingName && !isEditingTime && (
-                            <button
-                              type="button"
-                              onClick={() => removeProgramItem(idx)}
-                              className="text-slate-200 hover:text-red-500 text-sm px-1 flex-shrink-0"
-                              title="Remove program"
-                            >✕</button>
-                          )}
-                        </li>
-                      )
-                    })}
+              {/* ── New Comers — auto-populated from D-Light Visitors ── */}
+              <div ref={newComersSectionRef} className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-slate-800">New Comers</h3>
+                  <span className="text-xs text-indigo-500 font-medium bg-indigo-100 px-2 py-0.5 rounded-full">
+                    From D-Light Visitors
+                  </span>
+                </div>
+
+                {loadingDlight ? (
+                  <p className="text-sm text-slate-400 py-2">Loading from D-Light visitors…</p>
+                ) : dlightSuggestions.length === 0 ? (
+                  <p className="text-sm text-slate-400 py-2">
+                    No visitors recorded for this Sunday in D-Light yet.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {dlightSuggestions.map((name, idx) => (
+                      <li key={idx} className="flex items-center gap-2 text-sm text-slate-800">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />
+                        {name}
+                      </li>
+                    ))}
                   </ul>
                 )}
 
-
-                {/* Program confirm sheet — shown before first tap */}
-                {showProgramConfirm && (
-                  <ProgramConfirmSheet
-                    title="Sunday Program"
-                    items={sortedProgram.map(item => ({ name: item.programName }))}
-                    onConfirm={() => { setShowProgramConfirm(false); handleProgramStart() }}
-                    onEdit={() => { setShowProgramConfirm(false); navigate('/department/sunday-ministry/sunday-program') }}
-                  />
-                )}
-
-                {runningStartMs && (
-                  <div className="flex flex-col items-center gap-1 pt-1">
-                    <p className="text-xs text-slate-500 font-medium">Now running: <strong>{runningProgramItem?.programName}</strong></p>
-                    <LiveElapsedTimer startedAtMs={runningStartMs} />
-                  </div>
-                )}
-
-                {canEditEffective && !allProgramsTimed && (
-                  <div className="flex flex-col items-center pt-2">
-                    <button
-                      type="button"
-                      onClick={() => programLogs.length === 0 ? setShowProgramConfirm(true) : handleProgramStart()}
-                      className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition px-8 py-6"
-                    >
-                      <span className="text-2xl font-bold tracking-wide">START</span>
-                      <span className="text-sm text-white/95 mt-2 font-medium">
-                        {currentProgramItem ? currentProgramItem.programName : 'Service'}
-                      </span>
-                    </button>
-                  </div>
-                )}
-                {canEditEffective && allProgramsTimed && (
-                  <div className="flex flex-col items-center gap-2 pt-1">
-                    <p className="text-sm text-emerald-700 font-medium">All program start times recorded.</p>
-                    <button
-                      type="button"
-                      onClick={handleSave}
-                      disabled={saving}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow transition disabled:opacity-60"
-                    >
-                      {saving ? 'Saving…' : 'Complete & Save Report →'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Attendance — all groups combined into one stacked layout, Pastoral first */}
-            <h2 className="text-lg font-semibold text-slate-800 mb-1">Attendance</h2>
-
-            <AttendanceSectionShell
-              sectionRef={pastoralSectionRef}
-              completed={completedSections.pastoral}
-              isActive={activeSectionId === 'pastoral'}
-              canManage={canEditEffective}
-              onDone={() => handleAttendanceDone('pastoral')}
-              onUndo={() => handleAttendanceUndo('pastoral')}
-            >
-              <NameListSection
-                title={PASTORAL_KEY.title}
-                names={report?.[PASTORAL_KEY.key] || []}
-                canEdit={pastoralEdit}
-                onAddValue={(value) => addCellNameValue(PASTORAL_KEY.key, value)}
-                onEdit={(idx, value) => updateCellList(PASTORAL_KEY.key, idx, value)}
-                onRemove={(idx) => removeCellName(PASTORAL_KEY.key, idx)}
-                suggestions={PASTORAL_ATTENDEE_SUGGESTIONS}
-                suggestionsLabel="Pastors — tap to add"
-                showManualAdd={false}
-                duplicateNorms={duplicateNorms}
-                className="border-0 shadow-none bg-transparent p-0"
-              />
-            </AttendanceSectionShell>
-
-            <AttendanceSectionShell
-              sectionRef={cellsSectionRef}
-              completed={completedSections.cells}
-              isActive={activeSectionId === 'cells'}
-              canManage={canEditEffective}
-              onDone={() => handleAttendanceDone('cells')}
-              onUndo={() => handleAttendanceUndo('cells')}
-            >
-              <h3 className="font-semibold text-slate-800 mb-3">Cell Groups</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {cellGroups.map((g) => {
-                  const expanded = expandedCellId === g.id
-                  const count = (report?.sundayCellAttendance?.[g.id] || []).length
-                  return (
-                    <div key={g.id} className="rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
-                      <button
-                        type="button"
-                        onClick={() => setExpandedCellId(expanded ? null : g.id)}
-                        className={`w-full text-left p-4 transition ${expanded ? 'bg-indigo-100 border-b border-indigo-200' : 'hover:bg-slate-100'}`}
-                      >
-                        <p className="font-semibold text-slate-800 text-sm leading-tight">{g.cellName || 'Unnamed'}</p>
-                        <p className="text-xs text-slate-500 mt-1">{count} selected</p>
-                      </button>
-                      {expanded && (
-                        <div className="p-3 bg-white max-h-64 overflow-y-auto">
-                          {loadingMembers ? (
-                            <p className="text-xs text-slate-500">Loading members…</p>
-                          ) : membersForCell.length === 0 ? (
-                            <p className="text-xs text-slate-500">No active members.</p>
-                          ) : (
-                            <div className="flex flex-wrap gap-2">
-                              {enrichedMembersForCell.map((m) => {
-                                const nm = (m.name || '').trim()
-                                const cellSet = selectedForCell(g.id)
-                                const sel = cellSet.has(nm) || (m.originalName !== nm && cellSet.has(m.originalName))
-                                const isDupe = sel && duplicateNorms.has(nm.replace(/\s+/g, ' ').toLowerCase())
-                                return (
-                                  <button
-                                    key={m.id}
-                                    type="button"
-                                    disabled={!cellsEdit || !nm}
-                                    onClick={() => toggleMemberAttendance(g.id, nm, m.originalName)}
-                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition ${
-                                      isDupe
-                                        ? 'bg-red-100 text-red-700 border-red-400'
-                                        : sel
-                                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
-                                          : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
-                                    } ${!cellsEdit ? 'opacity-70 cursor-default' : ''}`}
-                                  >
-                                    {nm || '—'}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-              {cellGroups.length === 0 && <p className="text-sm text-slate-500">No cell groups found. Add cells under Cell department.</p>}
-            </AttendanceSectionShell>
-
-            {MANUAL_ONLY_KEYS.map(({ key, title }) => {
-              const refMap = {
-                others: othersSectionRef,
-                nonCell: nonCellSectionRef,
-                riverKids: riverKidsSectionRef,
-              }
-              const sectionRef = refMap[key]
-              const manualEdit = canEditEffective && !completedSections[key]
-              return (
-                <AttendanceSectionShell
-                  key={key}
-                  sectionRef={sectionRef}
-                  completed={completedSections[key]}
-                  isActive={activeSectionId === key}
-                  canManage={canEditEffective}
-                  onDone={() => handleAttendanceDone(key)}
-                  onUndo={() => handleAttendanceUndo(key)}
-                >
-                  {key === 'nonCell' ? (
-                    <NonCellSection
-                      names={report?.[key] || []}
-                      canEdit={manualEdit}
-                      people={nonCellSearchPool}
-                      cellMemberNames={cellMemberNames}
-                      onAddValue={addNonCellPerson}
-                      onEdit={(idx, value) => updateCellList(key, idx, value)}
-                      onRemove={(idx) => removeCellName(key, idx)}
-                      duplicateNorms={duplicateNorms}
-                      className="border-0 shadow-none bg-transparent p-0"
-                    />
-                  ) : key === 'riverKids' ? (
-                    <RiverKidsRegistrySection
-                      kids={allRkKids}
-                      markedNames={report?.riverKids || []}
-                      canEdit={manualEdit}
-                      onToggle={handleRiverKidsToggle}
-                      duplicateNorms={duplicateNorms}
-                    />
-                  ) : (
-                    <NameListSection
-                      title={title}
-                      names={report?.[key] || []}
-                      canEdit={manualEdit}
-                      onAdd={() => addCellName(key)}
-                      onAddValue={(value) => addCellNameValue(key, value)}
-                      onEdit={(idx, value) => updateCellList(key, idx, value)}
-                      onRemove={(idx) => removeCellName(key, idx)}
-                      linkDirectory={key === 'others' ? othersLinkDirectory : null}
-                      onLink={key === 'others' ? linkOthersNameToCell : undefined}
-                      linkedNames={key === 'others' ? othersLinkedNames : undefined}
-                      duplicateNorms={duplicateNorms}
-                      className="border-0 shadow-none bg-transparent p-0"
-                    />
-                  )}
-                </AttendanceSectionShell>
-              )
-            })}
-
-            {/* ── New Comers — auto-populated from D-Light Visitors ── */}
-            <div ref={newComersSectionRef} className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-slate-800">New Comers</h3>
-                <span className="text-xs text-indigo-500 font-medium bg-indigo-100 px-2 py-0.5 rounded-full">
-                  From D-Light Visitors
-                </span>
-              </div>
-
-              {loadingDlight ? (
-                <p className="text-sm text-slate-400 py-2">Loading from D-Light visitors…</p>
-              ) : dlightSuggestions.length === 0 ? (
-                <p className="text-sm text-slate-400 py-2">
-                  No visitors recorded for this Sunday in D-Light yet.
+                <p className="text-xs text-slate-400 mt-3">
+                  Names are pulled automatically from D-Light visitor entries for this week.
                 </p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {dlightSuggestions.map((name, idx) => (
-                    <li key={idx} className="flex items-center gap-2 text-sm text-slate-800">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />
-                      {name}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              </div>
 
-              <p className="text-xs text-slate-400 mt-3">
-                Names are pulled automatically from D-Light visitor entries for this week.
-              </p>
+              <AttendanceSectionShell
+                sectionRef={secondWeekSectionRef}
+                completed={completedSections[SECOND_WEEK_KEY.key]}
+                isActive={activeSectionId === SECOND_WEEK_KEY.key}
+                canManage={canEditEffective}
+                onDone={() => handleAttendanceDone(SECOND_WEEK_KEY.key)}
+                onUndo={() => handleAttendanceUndo(SECOND_WEEK_KEY.key)}
+              >
+                <NameListSection
+                  title={SECOND_WEEK_KEY.title}
+                  names={report?.[SECOND_WEEK_KEY.key] || []}
+                  canEdit={canEditEffective && !completedSections[SECOND_WEEK_KEY.key]}
+                  onAdd={() => addCellName(SECOND_WEEK_KEY.key)}
+                  onAddValue={(value) => addCellNameValue(SECOND_WEEK_KEY.key, value)}
+                  onEdit={(idx, value) => updateCellList(SECOND_WEEK_KEY.key, idx, value)}
+                  onRemove={(idx) => removeCellName(SECOND_WEEK_KEY.key, idx)}
+                  suggestions={secondWeekSuggestions}
+                  loadingSuggestions={loadingSecondWeekSuggestions}
+                  suggestionsLabel="New comers from the last 4 weeks — tap to add"
+                  duplicateNorms={duplicateNorms}
+                  className="border-0 shadow-none bg-transparent p-0"
+                />
+              </AttendanceSectionShell>
             </div>
 
-            <AttendanceSectionShell
-              sectionRef={secondWeekSectionRef}
-              completed={completedSections[SECOND_WEEK_KEY.key]}
-              isActive={activeSectionId === SECOND_WEEK_KEY.key}
-              canManage={canEditEffective}
-              onDone={() => handleAttendanceDone(SECOND_WEEK_KEY.key)}
-              onUndo={() => handleAttendanceUndo(SECOND_WEEK_KEY.key)}
-            >
-              <NameListSection
-                title={SECOND_WEEK_KEY.title}
-                names={report?.[SECOND_WEEK_KEY.key] || []}
-                canEdit={canEditEffective && !completedSections[SECOND_WEEK_KEY.key]}
-                onAdd={() => addCellName(SECOND_WEEK_KEY.key)}
-                onAddValue={(value) => addCellNameValue(SECOND_WEEK_KEY.key, value)}
-                onEdit={(idx, value) => updateCellList(SECOND_WEEK_KEY.key, idx, value)}
-                onRemove={(idx) => removeCellName(SECOND_WEEK_KEY.key, idx)}
-                suggestions={secondWeekSuggestions}
-                loadingSuggestions={loadingSecondWeekSuggestions}
-                suggestionsLabel="New comers from the last 4 weeks — tap to add"
-                duplicateNorms={duplicateNorms}
-                className="border-0 shadow-none bg-transparent p-0"
-              />
-            </AttendanceSectionShell>
-          </>
+            {/* ── Right sidebar: Total banner + Program ── */}
+            <div className="space-y-4 lg:sticky lg:top-[calc(var(--sticky-top,0px)+16px)] min-w-0">
+
+              {/* Total Attendance banner */}
+              {report && summaryComputed.total > 0 && (
+                <div className="bg-indigo-600 text-white rounded-xl px-4 py-3 shadow-sm">
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="text-3xl font-extrabold tabular-nums">{summaryComputed.total}</span>
+                    <span className="text-xs font-bold uppercase tracking-wide text-indigo-200">Total</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-indigo-700/50 rounded-lg px-3 py-2 text-center">
+                      <p className="text-lg font-bold tabular-nums">{summaryComputed.totalAdults}</p>
+                      <p className="text-[10px] text-indigo-300 uppercase tracking-wide">Adults</p>
+                    </div>
+                    <div className="bg-indigo-700/50 rounded-lg px-3 py-2 text-center">
+                      <p className="text-lg font-bold tabular-nums">{summaryComputed.riverKidsCount}</p>
+                      <p className="text-[10px] text-indigo-300 uppercase tracking-wide">Kids</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Program */}
+              {(sortedProgram.length > 0 || canEditEffective) && (
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-semibold text-slate-800">Program</h3>
+                    <Link to="/department/sunday-ministry/sunday?subtab=program" className="text-xs text-indigo-600 hover:underline">
+                      Manage →
+                    </Link>
+                  </div>
+
+                  {sortedProgram.length === 0 ? (
+                    <p className="text-sm text-slate-400">No programs yet.</p>
+                  ) : (
+                    <ul className="text-sm divide-y divide-slate-100 border border-slate-100 rounded-lg">
+                      {sortedProgram.map((item, idx) => {
+                        const log = logForItem(item)
+                        const logTime = log?.startTime
+                          ? format(log.startTime instanceof Date ? log.startTime : new Date(log.startTime), 'HH:mm')
+                          : null
+                        const nextLog = logForItem(sortedProgram[idx + 1])
+                        const durationMs = log?.startTime && nextLog?.startTime
+                          ? (nextLog.startTime instanceof Date ? nextLog.startTime : new Date(nextLog.startTime)) -
+                            (log.startTime instanceof Date ? log.startTime : new Date(log.startTime))
+                          : null
+                        const durationLabel = durationMs > 0
+                          ? (() => { const m = Math.round(durationMs / 60000); return m >= 60 ? `${Math.floor(m/60)}h${m%60?` ${m%60}m`:''}` : `${m}m` })()
+                          : null
+                        const isEditingTime = editingLogIdx === idx
+                        const isEditingName = editingProgramIdx === idx
+                        const canEditName = canEditEffective && !log
+                        return (
+                          <li key={`${item.programName}-${idx}`} className="flex items-center gap-2 px-3 py-1.5">
+                            {/* Program name */}
+                            {isEditingName ? (
+                              <>
+                                <input
+                                  type="text"
+                                  value={editingProgramName}
+                                  onChange={(e) => setEditingProgramName(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') { updateProgramItemName(idx, editingProgramName); setEditingProgramIdx(null) } if (e.key === 'Escape') setEditingProgramIdx(null) }}
+                                  className="flex-1 px-2 py-1 rounded border border-slate-300 text-sm font-medium min-w-0"
+                                  autoFocus
+                                />
+                                <button type="button" onClick={() => { updateProgramItemName(idx, editingProgramName); setEditingProgramIdx(null) }} className="text-emerald-600 font-bold text-base px-1 flex-shrink-0">✓</button>
+                                <button type="button" onClick={() => setEditingProgramIdx(null)} className="text-red-500 font-bold text-base px-1 flex-shrink-0">✕</button>
+                              </>
+                            ) : (
+                              <span className="flex items-center gap-1 min-w-0 flex-1">
+                                <span className="font-medium text-slate-800 truncate text-sm">{item.programName}</span>
+                                {canEditName && (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setEditingProgramIdx(idx); setEditingProgramName(item.programName) }}
+                                    className="text-slate-300 hover:text-slate-500 text-xs flex-shrink-0"
+                                    title="Edit name"
+                                  >✎</button>
+                                )}
+                              </span>
+                            )}
+
+                            {/* Time + duration — compact cluster */}
+                            {!isEditingName && (
+                              <span className="flex items-center gap-1 flex-shrink-0">
+                                {/* Planned time */}
+                                {editingPlannedIdx === idx ? (
+                                  <>
+                                    <input
+                                      type="time"
+                                      value={editingPlannedTime}
+                                      onChange={(e) => setEditingPlannedTime(e.target.value)}
+                                      className="px-1.5 py-0.5 rounded border border-indigo-300 text-xs tabular-nums w-[80px]"
+                                    />
+                                    <button type="button" onClick={() => { updateProgramItemPlannedTime(idx, editingPlannedTime); setEditingPlannedIdx(null) }} className="text-emerald-600 font-bold text-sm px-0.5">✓</button>
+                                    <button type="button" onClick={() => setEditingPlannedIdx(null)} className="text-red-500 font-bold text-sm px-0.5">✕</button>
+                                  </>
+                                ) : canEditEffective && !isEditingTime ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setEditingPlannedIdx(idx); setEditingPlannedTime(item.plannedTime || '') }}
+                                    className={`tabular-nums text-[11px] font-medium px-1 py-0.5 rounded ${item.plannedTime ? 'text-indigo-500 hover:text-indigo-700 bg-indigo-50' : 'text-slate-300 hover:text-indigo-400'}`}
+                                    title={item.plannedTime ? 'Edit planned time' : 'Set planned time'}
+                                  >
+                                    📋{item.plannedTime || '—:—'}
+                                  </button>
+                                ) : item.plannedTime ? (
+                                  <span className="tabular-nums text-[11px] text-indigo-500 bg-indigo-50 px-1 py-0.5 rounded">📋{item.plannedTime}</span>
+                                ) : null}
+
+                                {isEditingTime ? (
+                                  <>
+                                    <input
+                                      type="time"
+                                      value={editingLogTime}
+                                      onChange={(e) => setEditingLogTime(e.target.value)}
+                                      className="px-1.5 py-0.5 rounded border border-slate-300 text-xs tabular-nums w-[80px]"
+                                    />
+                                    <button type="button" onClick={() => handleUpdateLog(idx)} className="text-emerald-600 font-bold text-sm px-0.5">✓</button>
+                                    <button type="button" onClick={() => setEditingLogIdx(null)} className="text-red-500 font-bold text-sm px-0.5">✕</button>
+                                  </>
+                                ) : canEditEffective ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setEditingLogIdx(idx); setEditingLogTime(logTime || format(new Date(), 'HH:mm')) }}
+                                    className={`tabular-nums text-xs font-medium ${logTime ? 'text-slate-600 hover:text-indigo-600' : 'text-slate-300 hover:text-indigo-400'}`}
+                                    title={logTime ? 'Edit actual time' : 'Set actual time'}
+                                  >
+                                    {logTime || '—:—'}
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-500 tabular-nums text-xs">{logTime ?? '—'}</span>
+                                )}
+                                {(() => {
+                                  const delta = plannedDeltaMinutes(item.plannedTime, logTime)
+                                  if (delta === null || isEditingTime || editingPlannedIdx === idx) return null
+                                  const label = delta === 0 ? 'On time' : delta > 0 ? `+${delta}m late` : `${-delta}m early`
+                                  const cls = delta === 0 ? 'bg-emerald-50 text-emerald-600' : delta > 0 ? 'bg-red-50 text-red-600' : 'bg-sky-50 text-sky-600'
+                                  return <span className={`px-1 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${cls}`}>{label}</span>
+                                })()}
+                                {durationLabel && !isEditingTime && (
+                                  <span className="px-1 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] tabular-nums font-medium">
+                                    {durationLabel}
+                                  </span>
+                                )}
+                                {canEditEffective && !isEditingTime && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeProgramItem(idx)}
+                                    className="text-slate-200 hover:text-red-500 text-xs px-0.5 ml-0.5"
+                                    title="Remove"
+                                  >✕</button>
+                                )}
+                              </span>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+
+                  {/* Program confirm sheet */}
+                  {showProgramConfirm && (
+                    <ProgramConfirmSheet
+                      title="Sunday Program"
+                      items={sortedProgram.map(item => ({ name: item.programName }))}
+                      onConfirm={() => { setShowProgramConfirm(false); handleProgramStart() }}
+                      onEdit={() => { setShowProgramConfirm(false); navigate('/department/sunday-ministry/sunday-program') }}
+                    />
+                  )}
+
+                  {runningStartMs && (
+                    <div className="flex flex-col items-center gap-1 pt-1">
+                      <p className="text-xs text-slate-500 font-medium">Now running: <strong>{runningProgramItem?.programName}</strong></p>
+                      <LiveElapsedTimer startedAtMs={runningStartMs} />
+                    </div>
+                  )}
+
+                  {canEditEffective && !allProgramsTimed && (
+                    <div className="flex flex-col items-center pt-1">
+                      <button
+                        type="button"
+                        onClick={() => programLogs.length === 0 ? setShowProgramConfirm(true) : handleProgramStart()}
+                        className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md border-2 border-indigo-700 flex flex-col items-center justify-center cursor-pointer active:scale-[0.98] transition px-6 py-4 w-full"
+                      >
+                        <span className="text-xl font-bold tracking-wide">START</span>
+                        <span className="text-xs text-white/90 mt-1 font-medium">
+                          {currentProgramItem ? currentProgramItem.programName : 'Service'}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                  {canEditEffective && allProgramsTimed && (
+                    <div className="flex flex-col items-center gap-2 pt-1">
+                      <p className="text-xs text-emerald-700 font-medium text-center">All times recorded.</p>
+                      <button
+                        type="button"
+                        onClick={handleSave}
+                        disabled={saving}
+                        className="w-full px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow transition disabled:opacity-60"
+                      >
+                        {saving ? 'Saving…' : 'Complete & Save →'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         )}
+        </div>
       </div>
 
     </div>
@@ -2199,12 +2291,26 @@ function FiledSummaryView({ selectedDate, sortedProgram, programLogs, summaryCom
               {sortedProgram.map((item, idx) => {
                 const log = logForItem(item)
                 const t = log?.startTime instanceof Date ? log.startTime : (log?.startTime ? new Date(log.startTime) : null)
+                const logTime = t ? format(t, 'HH:mm') : null
+                const delta = plannedDeltaMinutes(item.plannedTime, logTime)
+                const deltaLabel = delta === null ? null : delta === 0 ? 'On time' : delta > 0 ? `+${delta}m late` : `${-delta}m early`
+                const deltaCls = delta === 0 ? 'bg-emerald-100 text-emerald-700' : delta > 0 ? 'bg-red-100 text-red-700' : 'bg-sky-100 text-sky-700'
                 return (
                   <div key={idx} className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
                     <span className="font-semibold text-slate-700 text-sm">{item.programName}</span>
-                    <span className="text-slate-500 text-sm font-medium tabular-nums">
-                      {t ? format(t, 'h:mm a') : '—'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {item.plannedTime && (
+                        <span className="text-indigo-500 text-xs font-medium tabular-nums bg-indigo-50 px-1.5 py-0.5 rounded" title="Planned time">
+                          📋{item.plannedTime}
+                        </span>
+                      )}
+                      <span className="text-slate-500 text-sm font-medium tabular-nums" title="Actual time">
+                        {t ? format(t, 'h:mm a') : '—'}
+                      </span>
+                      {deltaLabel && (
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap ${deltaCls}`}>{deltaLabel}</span>
+                      )}
+                    </div>
                   </div>
                 )
               })}
