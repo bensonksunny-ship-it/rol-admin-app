@@ -92,7 +92,7 @@ export default function DepartmentTabBar({
 
   // Active tab: white text + white pill. Inactive: white/60 → white on hover
   const tabCls = (isActive) =>
-    `relative flex-shrink-0 flex items-center px-3.5 h-full text-sm whitespace-nowrap transition-colors rounded-md mx-0.5 ` +
+    `relative flex-shrink-0 flex items-center px-5 h-full text-base whitespace-nowrap transition-colors rounded-md mx-0.5 ` +
     (isActive
       ? 'bg-white/20 text-white font-semibold'
       : 'text-indigo-100 font-medium hover:bg-white/10 hover:text-white')
@@ -143,7 +143,7 @@ export default function DepartmentTabBar({
       </div>
 
       {/* ── Tab row ── */}
-      <div className="flex items-center h-11">
+      <div className="flex items-center h-14">
 
         {/* Scrollable tabs — left/centre */}
         <div className="flex items-center flex-1 overflow-x-auto scrollbar-hide px-2 gap-0 h-full min-w-0">
@@ -153,12 +153,12 @@ export default function DepartmentTabBar({
         {/* Board meeting shortcut */}
         {slug !== 'sec-core' && (
           <>
-            <div className="w-px h-6 bg-white/20 flex-shrink-0" />
+            <div className="w-px h-7 bg-white/20 flex-shrink-0" />
             <button
               type="button"
               onClick={onBoardPointsClick}
               title="Board Meeting Points"
-              className="relative flex-shrink-0 flex flex-col items-center justify-center gap-0.5 w-16 h-11 text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all duration-150 group"
+              className="relative flex-shrink-0 flex flex-col items-center justify-center gap-0.5 w-20 h-14 text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all duration-150 group"
             >
               {boardPointCount > 0 && (
                 <span className="absolute inset-2 rounded-xl bg-amber-300/15 animate-ping group-hover:hidden" />
@@ -167,25 +167,25 @@ export default function DepartmentTabBar({
                 <BoardMeetingIcon />
               </span>
               {boardPointCount > 0 && (
-                <span className="absolute top-1 right-2 min-w-[17px] h-[17px] bg-amber-400 text-indigo-900 text-[9px] font-bold rounded-full flex items-center justify-center px-1 leading-none shadow-sm animate-bounce">
+                <span className="absolute top-1 right-3 min-w-[18px] h-[18px] bg-amber-400 text-indigo-900 text-[10px] font-bold rounded-full flex items-center justify-center px-1 leading-none shadow-sm animate-bounce">
                   {boardPointCount > 9 ? '9+' : boardPointCount}
                 </span>
               )}
-              <span className="text-[9px] font-semibold tracking-wide text-white/50 group-hover:text-white/80 transition-colors leading-none">Board</span>
+              <span className="text-[10px] font-semibold tracking-wide text-white/50 group-hover:text-white/80 transition-colors leading-none">Board</span>
             </button>
           </>
         )}
 
         {/* ← Departments — extreme right */}
-        <div className="w-px h-6 bg-white/20 flex-shrink-0" />
+        <div className="w-px h-7 bg-white/20 flex-shrink-0" />
         <Link
           to="/departments"
-          className="flex-shrink-0 flex flex-col items-center justify-center gap-1 w-16 h-11 text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          className="flex-shrink-0 flex flex-col items-center justify-center gap-1 w-20 h-14 text-white/70 hover:text-white hover:bg-white/10 transition-colors"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path d="M15 5L9 12l6 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          <span className="text-[10px] font-bold tracking-wide leading-none">Depts</span>
+          <span className="text-xs font-bold tracking-wide leading-none">Depts</span>
         </Link>
 
       </div>

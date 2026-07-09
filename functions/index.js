@@ -529,7 +529,12 @@ exports.archiveCurrentWeekCellReportsToHistory = onSchedule(
         .limit(1)
         .get()
 
-      const reportData = reportSnap.docs[0]?.data() || {}
+      // No report doc at all for this cell/week — the leader never submitted
+      // one. Don't manufacture a 0/0 history entry that would look like a
+      // real (empty) submission; just skip archiving this cell for the week.
+      if (reportSnap.empty) return { archived: false, cellId }
+
+      const reportData = reportSnap.docs[0].data()
 
       const programSnap = await db
         .collection('cell_program_log')
@@ -566,65 +571,22 @@ exports.archiveCurrentWeekCellReportsToHistory = onSchedule(
         programList,
         archivedAt: admin.firestore.FieldValue.serverTimestamp(),
       })
+
+      return { archived: true, cellId }
     })
 
-    await Promise.all(historyWritePromises)
-    return { weekStartISO, weekEndISO, archivedCells: cellDocs.length }
+    const historyResults = await Promise.all(historyWritePromises)
+    const archivedCells = historyResults.filter((r) => r.archived).length
+    return { weekStartISO, weekEndISO, archivedCells, skippedCells: cellDocs.length - archivedCells }
   }
 )
 
-/**
- * Monday 12:00 AM IST: ensure a fresh empty report exists for each cell's meeting-day.
- * (Client UI already restricts to the current meeting date; this makes the edit flow predictable.)
- */
-exports.resetCurrentWeekCellReports = onSchedule(
-  { schedule: '0 0 * * 1', timeZone: 'Asia/Kolkata' },
-  async () => {
-    const db = admin.firestore()
-    const { weekStartISO, weekStartIST } = computeWeekRangeYYYYMMDD(new Date())
-
-    const cellsSnap = await db
-      .collection('cell_groups')
-      .where('department', '==', 'Cell')
-      .get()
-
-    const cellDocs = cellsSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
-
-    const resetPromises = cellDocs.map(async (cellDoc) => {
-      const cellId = cellDoc.id
-      const cellName = cellDoc.cellName || ''
-      const meetingDateISO = computeMeetingDateYYYYMMDD(cellDoc.meetingDay, weekStartIST)
-
-      const existingSnap = await db
-        .collection('cell_reports')
-        .where('cellId', '==', cellId)
-        .where('reportDate', '==', meetingDateISO)
-        .limit(1)
-        .get()
-
-      if (!existingSnap.empty) return { created: false, cellId }
-
-      await db.collection('cell_reports').add({
-        cellId,
-        cellName,
-        meetingDay: cellDoc.meetingDay || '',
-        reportDate: meetingDateISO,
-        membersAttended: 0,
-        visitors: 0,
-        children: 0,
-        visitorsList: [],
-        childrenList: [],
-        createdBy: 'system',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      })
-
-      return { created: true, cellId }
-    })
-
-    const results = await Promise.all(resetPromises)
-    const createdCount = results.filter((r) => r.created).length
-    return { weekStartISO, createdCount }
-  }
-)
+// resetCurrentWeekCellReports was removed — it auto-created a blank cell_reports
+// doc (createdBy: 'system') for every cell every Monday, which made unsubmitted
+// reports look "submitted" everywhere that checks doc existence (Cell Reports
+// history, the director's Missing Reports table, attendance charts). The client
+// already creates a report doc lazily the moment a leader with edit rights opens
+// their own entry page (see CellReport.jsx), so this was pure redundant
+// auto-generation with no upside.
 
 
