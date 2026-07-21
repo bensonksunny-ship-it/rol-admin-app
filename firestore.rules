@@ -104,7 +104,9 @@ service cloud.firestore {
     }
 
     match /department_children/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      // Sunday Ministry additionally reads River Kids' children for the Sunday School
+      // attendee search in Live Control (Non Cell / Others linking, River Kids registry).
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) || (resource.data.department == 'River Kids' && canAccessDept('Sunday Ministry')));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
