@@ -72,6 +72,16 @@ function plannedDeltaMinutes(plannedTime, logTime) {
   return (lh * 60 + lm) - (ph * 60 + pm)
 }
 
+// Oldest cell first, newest last, by launchDate — cells with no launchDate sort after all dated ones.
+function sortCellsByLaunchDate(cells) {
+  return [...cells].sort((a, b) => {
+    if (!a.launchDate && !b.launchDate) return 0
+    if (!a.launchDate) return 1
+    if (!b.launchDate) return -1
+    return a.launchDate < b.launchDate ? -1 : a.launchDate > b.launchDate ? 1 : 0
+  })
+}
+
 function migrateLegacyCellAttendance(report, cellGroups) {
   const byNorm = {}
   for (const g of cellGroups) {
@@ -1232,7 +1242,7 @@ export default function SundayReport({ embedded = false }) {
       getSundayProgramLogsByDate(selectedDate),
     ])
       .then(([r, groups, logs]) => {
-        const active = (groups || []).filter((g) => g.status !== 'inactive')
+        const active = sortCellsByLaunchDate((groups || []).filter((g) => g.status !== 'inactive'))
         setCellGroups(active)
         let next = r || null
         if (next) {
@@ -1263,7 +1273,7 @@ export default function SundayReport({ embedded = false }) {
       getSundayProgramLogsByDate(selectedDate),
     ])
       .then(([r, groups, logs]) => {
-        const active = (groups || []).filter((g) => g.status !== 'inactive')
+        const active = sortCellsByLaunchDate((groups || []).filter((g) => g.status !== 'inactive'))
         setCellGroups(active)
         let next = r || null
         if (next) {

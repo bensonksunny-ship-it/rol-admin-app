@@ -68,7 +68,9 @@
       "Bash(curl -s https://rol-admin.web.app/assets/index-CdBTirtI.js -o /tmp/live-bundle.js)",
       "Bash(curl -s https://rol-admin.web.app/ -o /tmp/index.html)",
       "Bash(curl -s https://rol-admin.web.app/assets/index-C4U1wSlH.js -o /tmp/live2.js)",
-      "Bash(netstat -ano)"
+      "Bash(netstat -ano)",
+      "Bash(firebase hosting:channel:list)",
+      "Bash(git push *)"
     ]
   }
 }
