@@ -13,6 +13,9 @@ import {
   updateSundayProgramLog,
   getDelightVisitors,
   getPeople,
+  getPCSEntries,
+  getAllDepartmentTeamMembers,
+  getAllWorshipTeamMembers,
   recordPersonSundayAttendance,
   getDepartmentChildren,
   subscribeSundayReportRiverKids,
@@ -88,6 +91,13 @@ function migrateLegacyCellAttendance(report, cellGroups) {
   return sca
 }
 
+function fmtFirstVisit(dateStr) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr + 'T00:00:00')
+  if (Number.isNaN(d.getTime())) return ''
+  return format(d, 'd MMM yyyy')
+}
+
 function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, linkedNames = null, duplicateNorms = null, className = '' }) {
   const [query, setQuery] = useState('')
   const [linkingIdx, setLinkingIdx] = useState(null)
@@ -134,7 +144,11 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
                   className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col"
                 >
                   <span className="text-slate-800 font-medium">{p.name}</span>
-                  {p.phone && <span className="text-xs text-slate-400">{p.phone}</span>}
+                  {(p.phone || p.date) && (
+                    <span className="text-xs text-slate-400">
+                      {p.phone}{p.phone && p.date ? ' · ' : ''}{p.date ? `First attended ${fmtFirstVisit(p.date)}` : ''}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -230,7 +244,9 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
                         className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col"
                       >
                         <span className="text-slate-800 font-medium">{m.name}</span>
-                        <span className="text-xs text-indigo-500">{m.source === 'visitor' ? 'D-Light Visitor' : 'People Directory'}{m.phone ? ` · ${m.phone}` : ''}</span>
+                        <span className="text-xs text-indigo-500">
+                          {{ visitor: 'D-Light Visitor', cell: 'Cell Member', pcs: 'PCS', team: 'Dept/Worship Team' }[m.source] || 'People Directory'}{m.phone ? ` · ${m.phone}` : ''}{m.date ? ` · First attended ${fmtFirstVisit(m.date)}` : ''}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -296,7 +312,11 @@ function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, o
                   className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col"
                 >
                   <span className="text-slate-800 font-medium">{p.name}</span>
-                  {p.phone && <span className="text-xs text-slate-400">{p.phone}</span>}
+                  {(p.phone || p.date) && (
+                    <span className="text-xs text-slate-400">
+                      {p.phone}{p.phone && p.date ? ' · ' : ''}{p.date ? `First attended ${fmtFirstVisit(p.date)}` : ''}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -932,6 +952,9 @@ export default function SundayReport({ embedded = false }) {
   const [delightVisitorsAll, setDelightVisitorsAll] = useState([])
   const [cellMemberNames, setCellMemberNames] = useState(new Set())
   const [allCellMembers, setAllCellMembers] = useState([])
+  const [pcsEntriesAll, setPcsEntriesAll] = useState([])
+  const [deptTeamMembersAll, setDeptTeamMembersAll] = useState([])
+  const [worshipTeamMembersAll, setWorshipTeamMembersAll] = useState([])
   const [editingLogIdx, setEditingLogIdx] = useState(null)
   const [editingLogTime, setEditingLogTime] = useState('')
   const [editingPlannedIdx, setEditingPlannedIdx] = useState(null)
@@ -1067,12 +1090,17 @@ export default function SundayReport({ embedded = false }) {
     setCompletedSections((prev) => ({ ...prev, [sectionId]: false }))
   }, [])
 
-  // Load the People's Directory + all D-Light visitors once — together they're the base
-  // of both the Non Cell search pool and the Others-linking pool (othersLinkDirectory).
+  // Load the People's Directory + all D-Light visitors + PCS + dept/worship team members once —
+  // together they're the full base of both the Non Cell search pool and the Others-linking pool
+  // (othersLinkDirectory), so anyone recorded anywhere in the church's records is searchable here,
+  // not just people explicitly added to the standalone People Directory.
   const loadDirectoryData = useCallback(() => {
     return Promise.all([
       getPeople().then(setPeopleDirectory).catch(() => setPeopleDirectory([])),
       getDelightVisitors().then(setDelightVisitorsAll).catch(() => setDelightVisitorsAll([])),
+      getPCSEntries().then(setPcsEntriesAll).catch(() => setPcsEntriesAll([])),
+      getAllDepartmentTeamMembers().then(setDeptTeamMembersAll).catch(() => setDeptTeamMembersAll([])),
+      getAllWorshipTeamMembers().then(setWorshipTeamMembersAll).catch(() => setWorshipTeamMembersAll([])),
     ])
   }, [])
 
@@ -1154,8 +1182,16 @@ export default function SundayReport({ embedded = false }) {
     priorWeeksEnd.setDate(weekAgo.getDate() - 1)
     const priorWeeksStart = new Date(weekAgo)
     priorWeeksStart.setDate(weekAgo.getDate() - 28)
-    getDelightVisitors()
-      .then(visitors => {
+
+    // Sunday-dated report docs spanning the suggestion window — used to drop anyone
+    // already recorded as a second-week attendee in a past report from the suggestions.
+    const weekDates = []
+    for (let d = new Date(sunday); d >= priorWeeksStart; d.setDate(d.getDate() - 7)) {
+      weekDates.push(format(d, 'yyyy-MM-dd'))
+    }
+
+    Promise.all([getDelightVisitors(), Promise.all(weekDates.map((d) => getSundayReport(d)))])
+      .then(([visitors, reports]) => {
         const thisWeek = visitors.filter(v => {
           if (!v.attendedDate) return false
           const d = new Date(v.attendedDate + 'T00:00:00')
@@ -1164,12 +1200,17 @@ export default function SundayReport({ embedded = false }) {
         const names = [...new Set(thisWeek.map(v => v.name).filter(Boolean))]
         setDlightSuggestions(names)
 
+        const alreadyRecorded = new Set(
+          reports.flatMap((r) => (r?.secondWeekAttendeesNames || []).map((n) => String(n).trim().toLowerCase()))
+        )
+
         const priorWeeks = visitors.filter(v => {
           if (!v.attendedDate) return false
           const d = new Date(v.attendedDate + 'T00:00:00')
           return d >= priorWeeksStart && d <= priorWeeksEnd
         })
         const priorNames = [...new Set(priorWeeks.map(v => v.name).filter(Boolean))]
+          .filter((n) => !alreadyRecorded.has(n.trim().toLowerCase()))
         setSecondWeekSuggestions(priorNames)
       })
       .catch(() => { setDlightSuggestions([]); setSecondWeekSuggestions([]) })
@@ -1390,14 +1431,29 @@ export default function SundayReport({ embedded = false }) {
     } catch { /* optimistic update already applied; subscription will resync */ }
   }
 
-  // Search pool for linking an "Others" name — People Directory + D-Light visitors, tagged by source.
-  const othersLinkDirectory = useMemo(
-    () => [
-      ...peopleDirectory.map((p) => ({ id: p.id, name: p.name, phone: p.phone, source: 'people' })),
-      ...delightVisitorsAll.map((v) => ({ id: v.id, name: v.name, phone: v.phone, source: 'visitor' })),
-    ],
-    [peopleDirectory, delightVisitorsAll]
-  )
+  // Search pool for linking an "Others" name — every known source of a person's name across the
+  // whole app (People Directory, D-Light visitors, cell members, PCS, dept/worship teams), so the
+  // search isn't limited to just the standalone People Directory + visitor records. Deduped by
+  // normalized name, first source wins (order below is the priority when the same person appears
+  // in multiple collections under the same name).
+  const othersLinkDirectory = useMemo(() => {
+    const seen = new Set()
+    const pool = []
+    const add = (p, source) => {
+      const name = (p.name || '').trim()
+      const key = name.toLowerCase()
+      if (!key || seen.has(key)) return
+      seen.add(key)
+      pool.push({ id: p.id, name, phone: p.phone || '', date: p.firstVisitDate || p.attendedDate || p.joinDate || '', source })
+    }
+    peopleDirectory.forEach((p) => add(p, 'people'))
+    delightVisitorsAll.forEach((v) => add(v, 'visitor'))
+    allCellMembers.forEach((m) => add(m, 'cell'))
+    pcsEntriesAll.forEach((p) => add(p, 'pcs'))
+    deptTeamMembersAll.forEach((t) => add(t, 'team'))
+    worshipTeamMembersAll.forEach((t) => add(t, 'team'))
+    return pool
+  }, [peopleDirectory, delightVisitorsAll, allCellMembers, pcsEntriesAll, deptTeamMembersAll, worshipTeamMembersAll])
 
   // Same two sources for Non Cell, but deduplicated by phone (fallback to id) — Non Cell
   // shows a flat pick-a-name list rather than a "link an existing entry" flow, so the same

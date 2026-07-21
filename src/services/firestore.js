@@ -3190,6 +3190,42 @@ export async function getRecentNonCellAttendees(numWeeks = 6) {
   return Array.from(nameMap.values()).sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/**
+ * Count how many distinct Sunday reports (weeks) each name appears in, across
+ * nonCell, others, newComers, secondWeekAttendeesNames, and every cell's
+ * sundayCellAttendance list. Name-based matching (lowercased, trimmed), same
+ * approach as the rest of the Sunday attendance code.
+ * Returns a Map<normalizedName, count>.
+ */
+export async function getSundayAttendanceCountsByName() {
+  const counts = new Map()
+  if (!db) return counts
+  const snap = await getDocs(collection(db, SUNDAY_REPORTS_COLLECTION))
+  snap.docs.forEach((d) => {
+    const data = d.data()
+    const namesThisWeek = new Set()
+    const addAll = (arr) => {
+      if (!Array.isArray(arr)) return
+      arr.forEach((n) => {
+        const norm = String(n).trim().toLowerCase()
+        if (norm) namesThisWeek.add(norm)
+      })
+    }
+    addAll(data.nonCell)
+    addAll(data.others)
+    addAll(data.newComers)
+    addAll(data.secondWeekAttendeesNames)
+    const sca = data.sundayCellAttendance
+    if (sca && typeof sca === 'object') {
+      Object.values(sca).forEach((arr) => addAll(arr))
+    }
+    namesThisWeek.forEach((norm) => {
+      counts.set(norm, (counts.get(norm) || 0) + 1)
+    })
+  })
+  return counts
+}
+
 export async function getRecentSundayReports(numWeeks = 8) {
   if (!db) return []
   const today = new Date()

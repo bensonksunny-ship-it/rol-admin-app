@@ -115,6 +115,7 @@ import {
   subscribeCellVisitorProposals,
   completeCellVisitorProposal,
   dismissCellVisitorProposal,
+  getSundayAttendanceCountsByName,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -332,6 +333,7 @@ export default function DepartmentHub() {
   const [boardAllottedNotifications, setBoardAllottedNotifications] = useState([])
   const [delightVisitors, setDelightVisitors] = useState([])
   const [loadingDelightVisitors, setLoadingDelightVisitors] = useState(false)
+  const [visitorSundayCounts, setVisitorSundayCounts] = useState(new Map())
   const [delightVisitorModalOpen, setDelightVisitorModalOpen] = useState(false)
   const [editingDelightVisitorId, setEditingDelightVisitorId] = useState(null)
   const [importingVisitors, setImportingVisitors] = useState(false)
@@ -1013,6 +1015,11 @@ export default function DepartmentHub() {
     })
     return unsub
   }, [slug])
+
+  useEffect(() => {
+    if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
+    getSundayAttendanceCountsByName().then(setVisitorSundayCounts).catch(() => setVisitorSundayCounts(new Map()))
+  }, [slug, activeTab])
 
   useEffect(() => {
     const isTeamSection = activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team')
@@ -2640,13 +2647,26 @@ export default function DepartmentHub() {
                         const d = v.attendedDate ? new Date(v.attendedDate) : null
                         const rowBg = d ? monthPalette[d.getMonth()] : ''
                         const monthLabel = d ? d.toLocaleDateString('en-US', { month: 'short' }) : '—'
+                        const sundayWeeks = visitorSundayCounts.get(String(v.name || '').trim().toLowerCase()) || 0
                         return (
                           <Fragment key={v.id}>
                             <tr
                               className={`cursor-pointer transition-colors border-b border-white/60 ${rowBg} ${open ? 'opacity-80' : 'hover:opacity-90'}`}
                               onClick={() => setVisitorMenuOpenId(open ? null : v.id)}
                             >
-                              <td className="px-6 py-3 font-semibold text-base text-slate-900">{v.name || '—'}</td>
+                              <td className="px-6 py-3 font-semibold text-base text-slate-900">
+                                <span className="inline-flex items-center gap-2">
+                                  {v.name || '—'}
+                                  {sundayWeeks > 4 && (
+                                    <span title={`Attended ${sundayWeeks} Sundays`} className="text-amber-500 text-base leading-none">★</span>
+                                  )}
+                                  {sundayWeeks >= 2 && sundayWeeks <= 4 && (
+                                    <span title={`Attended ${sundayWeeks} Sundays`} className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-600 border border-indigo-200">
+                                      {sundayWeeks}wk
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
                               <td className="px-6 py-3 text-sm text-slate-400">{monthLabel}</td>
                             </tr>
                             {open && (
