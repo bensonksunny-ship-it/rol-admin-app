@@ -80,7 +80,9 @@
       "Bash(ssh-keygen -t ed25519 -C \"rolccbangalore@gmail.com\" -f ~/.ssh/id_ed25519_rolsschoolofmusic-oss -N \"\" -q)",
       "Bash(chmod 600 ~/.ssh/config ~/.ssh/id_ed25519_bensonksunny-ship-it ~/.ssh/id_ed25519_rolsschoolofmusic-oss)",
       "Bash(chmod 644 ~/.ssh/id_ed25519_bensonksunny-ship-it.pub ~/.ssh/id_ed25519_rolsschoolofmusic-oss.pub)",
-      "Bash(git remote *)"
+      "Bash(git remote *)",
+      "Bash(ssh *)",
+      "Bash(npx vercel *)"
     ]
   }
 }

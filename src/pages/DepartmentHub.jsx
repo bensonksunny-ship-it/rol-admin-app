@@ -443,6 +443,13 @@ export default function DepartmentHub() {
   const [cellVisitorProposalAdding, setCellVisitorProposalAdding] = useState(new Set())
   const [cellVisitorProposalDismissing, setCellVisitorProposalDismissing] = useState(new Set())
 
+  // "Forwarded from PCS" — referral tasks Caring sends when a person needs D-Light
+  // registration before they can be added to PCS (department: 'D Light', pcsReferral: true
+  // on the shared `tasks` collection; see subscribeTasksByDepartment above).
+  const [pcsForwardOpen, setPcsForwardOpen] = useState(false)
+  const [pcsForwardAdding, setPcsForwardAdding] = useState(new Set())
+  const [pcsForwardDismissing, setPcsForwardDismissing] = useState(new Set())
+
   const [monthlyExpenseTotal, setMonthlyExpenseTotal] = useState(0)
   const [loadingMonthlyExpense, setLoadingMonthlyExpense] = useState(true)
   const [delightVisitorForm, setDelightVisitorForm] = useState({
@@ -1616,14 +1623,11 @@ export default function DepartmentHub() {
           {activeTab === 'summary' && (
             <>
               {/* ── Total Expense (This Month) — shown on every department's dashboard ── */}
-              <div className="bg-gradient-to-br from-rose-500 to-rose-600 rounded-2xl shadow-lg p-5 text-white flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-rose-100">Total Expense (This Month)</p>
-                  <p className="text-2xl font-bold leading-tight mt-1">
-                    {loadingMonthlyExpense ? '—' : `₹${monthlyExpenseTotal.toLocaleString('en-IN')}`}
-                  </p>
-                </div>
-                <span className="text-3xl opacity-80">💸</span>
+              <div className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-rose-300 shadow-sm px-4 py-2.5 flex items-center justify-between">
+                <p className="text-xs font-semibold text-slate-500">Total Expense (This Month)</p>
+                <p className="text-sm font-bold text-slate-700 bg-rose-50 px-2.5 py-1 rounded-lg tabular-nums">
+                  {loadingMonthlyExpense ? '—' : `₹${monthlyExpenseTotal.toLocaleString('en-IN')}`}
+                </p>
               </div>
 
               {/* ── Caring Hub ── */}
@@ -2348,6 +2352,101 @@ export default function DepartmentHub() {
               )}
             </div>
           )}
+
+          {/* ── Forwarded from PCS: Caring needs this person registered in D-Light ── */}
+          {activeTab === 'visitorEntry' && slug === 'd-light' && (() => {
+            const pcsForwardTasks = tasks.filter(t => t.pcsReferral === true && t.status !== 'Completed')
+            if (pcsForwardTasks.length === 0) return null
+            return (
+              <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setPcsForwardOpen(o => !o)}
+                  className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-amber-50 transition-colors"
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                  <p className="text-sm font-bold text-amber-800 flex-1">Forwarded from PCS</p>
+                  <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                    {pcsForwardTasks.length}
+                  </span>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-amber-400 transition-transform flex-shrink-0 ${pcsForwardOpen ? 'rotate-180' : ''}`}>
+                    <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+
+                {pcsForwardOpen && (
+                  <>
+                    <p className="px-4 pb-2 text-xs text-slate-400 border-t border-amber-100 pt-3">
+                      Caring needs these people registered in D-Light before they can be added to PCS.
+                    </p>
+                    <ul className="divide-y divide-amber-50">
+                      {pcsForwardTasks.map((t) => {
+                        const pName  = t.pcsPersonName || ''
+                        const pPhone = t.pcsPersonPhone || ''
+                        const adding = pcsForwardAdding.has(t.id)
+                        const dismissing = pcsForwardDismissing.has(t.id)
+                        return (
+                          <li key={t.id} className="px-4 py-3 flex flex-wrap items-start gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-slate-800 text-sm truncate">{pName || t.taskTitle}</p>
+                              {pPhone && <p className="text-xs text-slate-500">{pPhone}</p>}
+                              <p className="text-xs text-slate-400 mt-0.5">{t.notes}</p>
+                            </div>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button
+                                type="button"
+                                disabled={adding || dismissing}
+                                onClick={async () => {
+                                  setPcsForwardAdding(prev => new Set([...prev, t.id]))
+                                  try {
+                                    await addDelightVisitor({
+                                      name:      pName,
+                                      phone:     pPhone,
+                                      source:    'pcs',
+                                      year:      new Date().getFullYear(),
+                                      createdBy: userProfile?.email || 'unknown',
+                                    })
+                                    await updateTask(t.id, { status: 'Completed' })
+                                  } catch (e) {
+                                    console.error('Register PCS referral error', e)
+                                    alert('Failed to register visitor. Please try again.')
+                                  } finally {
+                                    setPcsForwardAdding(prev => { const s = new Set(prev); s.delete(t.id); return s })
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50"
+                              >
+                                {adding ? 'Registering…' : 'Register in D-Light'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={adding || dismissing}
+                                onClick={async () => {
+                                  if (!window.confirm(`Dismiss the PCS referral for ${pName || 'this person'}?`)) return
+                                  setPcsForwardDismissing(prev => new Set([...prev, t.id]))
+                                  try {
+                                    await updateTask(t.id, { status: 'Completed' })
+                                  } catch (e) {
+                                    console.error('Dismiss PCS referral error', e)
+                                    alert('Failed to dismiss. Please try again.')
+                                  } finally {
+                                    setPcsForwardDismissing(prev => { const s = new Set(prev); s.delete(t.id); return s })
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 text-xs hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                {dismissing ? 'Dismissing…' : 'Dismiss'}
+                              </button>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )
+          })()}
 
           {/* ── From Cell Reports: visitor proposals ── */}
           {activeTab === 'visitorEntry' && slug === 'd-light' && cellVisitorProposals.length > 0 && (
@@ -5587,6 +5686,13 @@ export default function DepartmentHub() {
                                       </p>
                                       <p className="text-xs text-red-400 font-medium mt-0.5">Inactive in cell</p>
                                     </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveFromPCS({ ...pe, name: m.name || pe.name })}
+                                      className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                                    >
+                                      Remove from PCS
+                                    </button>
                                   </div>
                                 )
                               })}
@@ -5634,6 +5740,10 @@ export default function DepartmentHub() {
                             const inVisitorList = visitorId
                               ? delightVisitors.some(v => v.id === visitorId)
                               : delightVisitors.some(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())
+                            // Note: this component's `tasks` state is scoped to the Caring department
+                            // (we're on the Caring hub), so it can't tell us whether a D-Light task
+                            // already exists — "forwarded" is tracked for this session only.
+                            const alreadyForwarded = pcsAddForwarded.has(notif.id)
 
                             return (
                               <div key={notif.id} className="flex items-center gap-3 px-4 py-3">
@@ -5696,7 +5806,7 @@ export default function DepartmentHub() {
                                     >
                                       {adding ? 'Adding…' : 'Add to PCS'}
                                     </button>
-                                  ) : pcsAddForwarded.has(notif.id) ? (
+                                  ) : alreadyForwarded ? (
                                     <span className="text-xs text-emerald-600 font-medium px-1">✓ Forwarded to D-Light</span>
                                   ) : (
                                     <button
@@ -5705,15 +5815,20 @@ export default function DepartmentHub() {
                                       onClick={async () => {
                                         setPcsAddForwarding(prev => new Set([...prev, notif.id]))
                                         try {
-                                          await createCellVisitorProposal({
-                                            visitorName: name,
-                                            phone,
-                                            cellId:      notif.cellId   || '',
-                                            cellName:    notif.cellName || '',
-                                            reportId:    '',
-                                            reportDate:  '',
-                                            sentBy:      userProfile?.email || '',
-                                            sentByName:  userProfile?.displayName || userProfile?.name || '',
+                                          const sentByName = userProfile?.displayName || userProfile?.name || userProfile?.email || 'Caring'
+                                          await createTask({
+                                            taskTitle: `Add ${name} to D-Light`,
+                                            department: 'D Light',
+                                            assignedPerson: '',
+                                            priority: 'Medium',
+                                            deadline: '',
+                                            status: 'Pending',
+                                            notes: `Forwarded from Caring PCS by ${sentByName}. ${name} needs D-Light registration before being added to PCS.${phone ? ` Phone: ${phone}` : ''}`,
+                                            createdBy: userProfile?.email || '',
+                                            pcsReferral: true,
+                                            pcsPersonName: name,
+                                            pcsPersonPhone: phone || '',
+                                            pcsPersonVisitorId: visitorId || '',
                                           })
                                           setPcsAddForwarded(prev => new Set([...prev, notif.id]))
                                         } catch (e) {

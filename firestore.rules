@@ -65,7 +65,11 @@ service cloud.firestore {
 
     match /tasks/{taskId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
-      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department) || request.resource.data.cellMemberReferral == true);
+      // Caring creates cross-department referral tasks (e.g. "Notify Cell" to add someone to a
+      // cell group, "Forward to D-Light" to register a visitor) targeting a department Caring
+      // itself doesn't have access to — pcsReferral flags those as a recognized referral, same
+      // carve-out shape as the existing cellMemberReferral one below.
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department) || request.resource.data.cellMemberReferral == true || (request.resource.data.pcsReferral == true && canAccessDept('Caring')));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
@@ -275,7 +279,7 @@ service cloud.firestore {
     // Central people registry — Caring is the primary gatekeeper; other depts read for search/linking
     match /people/{personId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('D Light'));
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('D Light') || isCellDirector());
     }
 
     // Lightweight PCS membership lookup — any signed-in user can read, Caring writes

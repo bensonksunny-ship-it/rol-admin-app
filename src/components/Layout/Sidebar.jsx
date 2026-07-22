@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { ROLES } from '../../constants/roles'
 import { getDepartmentRole } from '../../utils/access'
+import { isCellDirectorInPositions } from '../../utils/cellReportPermissions'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 import { subscribePCSFillInvitationsByCellId, subscribeCellVisitorProposals } from '../../services/firestore'
 import rolccLogo from '../../assets/rolcc_logo BW.JPG'
@@ -657,6 +658,9 @@ export default function Sidebar() {
     }
     if (hasCellHead) {
       scopedItems.push({ to: '/department/cell/cell-report', label: `Cell (${cellName})`, icon: '🍃' })
+    }
+    if (isCellDirectorInPositions(userProfile)) {
+      scopedItems.push({ to: '/people', label: 'People Directory', icon: '🗂️' })
     }
     if (canAccessWeeklyEntryOnly(userProfile)) {
       scopedItems.push({ to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, label: 'Weekly Entry', icon: '📝' })

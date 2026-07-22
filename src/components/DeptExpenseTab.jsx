@@ -88,16 +88,10 @@ export default function DeptExpenseTab({ department }) {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
 
           {/* Stat card */}
-          <div className="bg-gradient-to-br from-rose-500 to-rose-600 rounded-2xl shadow-lg p-5 text-white flex flex-col justify-between min-h-[120px]">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-rose-100">Total Expense</p>
-            <div>
-              <p className="text-2xl font-bold leading-tight mt-1">
-                {fmtAmt(totalAmt)}
-              </p>
-              <p className="text-xs text-rose-200 mt-1.5">
-                {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
-              </p>
-            </div>
+          <div className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-rose-300 shadow-sm px-4 py-3 flex flex-col justify-center gap-1">
+            <p className="text-xs font-semibold text-slate-500">Total Expense</p>
+            <p className="text-lg font-bold text-slate-700 tabular-nums">{fmtAmt(totalAmt)}</p>
+            <p className="text-[11px] text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
           </div>
 
           {/* Form */}
