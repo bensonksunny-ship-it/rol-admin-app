@@ -635,15 +635,15 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
       if (updated[i].status !== 'pending') continue
       const rawNorm = nn(updated[i].raw)
       const top = topSuggestion(updated[i].raw)
-      const topNorm = top ? nn(top.name) : null
       const allSuggs = autoSuggest(updated[i].raw)
-      const allSuggsAlready = allSuggs.length > 0 && allSuggs.every(p => existingNorms.has(nn(p.name)))
-      const isAlready = existingNorms.has(rawNorm)
-        || (topNorm && existingNorms.has(topNorm))
-        || allSuggsAlready
+      // Matches if the raw text itself, or ANY of its candidate suggestions (not just the
+      // single top-ranked one), is already recorded — the right person isn't always ranked
+      // #1, so requiring only the top suggestion to match let real duplicates slip through.
+      const matchedAlready = allSuggs.find(p => existingNorms.has(nn(p.name)))
+      const isAlready = existingNorms.has(rawNorm) || !!matchedAlready
       if (isAlready) {
         updated = updated.map((l, idx) => idx === i
-          ? { ...l, status: 'already', confirmedName: top?.name || updated[i].raw }
+          ? { ...l, status: 'already', confirmedName: matchedAlready?.name || top?.name || updated[i].raw }
           : l)
       } else {
         return { updated, nextIdx: i }
