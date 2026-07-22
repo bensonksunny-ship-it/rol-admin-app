@@ -3027,6 +3027,8 @@ const DEFAULT_SUNDAY_REPORT = {
   others: [],
   nonCell: [],
   secondWeekAttendeesNames: [],
+  thirdWeekAttendeesNames: [],
+  fourthWeekAttendeesNames: [],
   programList: [],
   preservice: { lead1: '', lead2: '' },
   summary: {
@@ -3066,6 +3068,8 @@ function normalizeReport(data) {
     others: Array.isArray(data.others) ? data.others : [],
     nonCell: Array.isArray(data.nonCell) ? data.nonCell : [],
     secondWeekAttendeesNames: Array.isArray(data.secondWeekAttendeesNames) ? data.secondWeekAttendeesNames : [],
+    thirdWeekAttendeesNames: Array.isArray(data.thirdWeekAttendeesNames) ? data.thirdWeekAttendeesNames : [],
+    fourthWeekAttendeesNames: Array.isArray(data.fourthWeekAttendeesNames) ? data.fourthWeekAttendeesNames : [],
     riverKids: Array.isArray(data.riverKids) ? data.riverKids.filter(Boolean) : [],
     programList: Array.isArray(data.programList) ? data.programList : [],
     preservice: data.preservice && typeof data.preservice === 'object' ? { lead1: data.preservice.lead1 || '', lead2: data.preservice.lead2 || '' } : { lead1: '', lead2: '' },
@@ -3127,6 +3131,19 @@ export function subscribeSundayReportRiverKids(dateStr, callback) {
   return onSnapshot(ref, snap => {
     const data = snap.data() || {}
     callback(Array.isArray(data.riverKids) ? data.riverKids.filter(Boolean) : [])
+  })
+}
+
+/** Real-time subscription to a single flat name-array field on a sunday_reports doc —
+ *  used for fields another department can write to concurrently (e.g. D-Light marking
+ *  second/third/fourth week comers while Sunday Ministry has the report open). */
+export function subscribeSundayReportNameField(dateStr, fieldKey, callback) {
+  if (!db || !dateStr || !fieldKey) return () => {}
+  const id = String(dateStr).slice(0, 10)
+  const ref = doc(db, SUNDAY_REPORTS_COLLECTION, id)
+  return onSnapshot(ref, (snap) => {
+    const data = snap.data() || {}
+    callback(Array.isArray(data[fieldKey]) ? data[fieldKey].filter(Boolean) : [])
   })
 }
 
@@ -3215,6 +3232,8 @@ export async function getSundayAttendanceCountsByName() {
     addAll(data.others)
     addAll(data.newComers)
     addAll(data.secondWeekAttendeesNames)
+    addAll(data.thirdWeekAttendeesNames)
+    addAll(data.fourthWeekAttendeesNames)
     const sca = data.sundayCellAttendance
     if (sca && typeof sca === 'object') {
       Object.values(sca).forEach((arr) => addAll(arr))

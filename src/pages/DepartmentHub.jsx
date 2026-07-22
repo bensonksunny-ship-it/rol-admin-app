@@ -72,6 +72,8 @@ import {
   setDepartmentChildAttendance,
   subscribeSundayReportRiverKids,
   patchSundayReportRiverKids,
+  getSundayReport,
+  patchSundayReportNameField,
   getPCSLookup,
   getDepartmentEvents,
   addDepartmentEvent,
@@ -334,6 +336,13 @@ export default function DepartmentHub() {
   const [delightVisitors, setDelightVisitors] = useState([])
   const [loadingDelightVisitors, setLoadingDelightVisitors] = useState(false)
   const [visitorSundayCounts, setVisitorSundayCounts] = useState(new Map())
+  // Week-comer follow-up: which Sunday's report to mark, and the candidate names for
+  // second/third/fourth week comers, sourced from D-Light attendedDate + last week's
+  // confirmed Sunday Ministry attendance (see the effect that populates these).
+  const [weekComerDate, setWeekComerDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+  const [weekComerCandidates, setWeekComerCandidates] = useState({ second: [], third: [], fourth: [] })
+  const [loadingWeekComerCandidates, setLoadingWeekComerCandidates] = useState(false)
+  const [markingWeekComerName, setMarkingWeekComerName] = useState(null)
   const [delightVisitorModalOpen, setDelightVisitorModalOpen] = useState(false)
   const [editingDelightVisitorId, setEditingDelightVisitorId] = useState(null)
   const [importingVisitors, setImportingVisitors] = useState(false)
@@ -1020,6 +1029,70 @@ export default function DepartmentHub() {
     if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
     getSundayAttendanceCountsByName().then(setVisitorSundayCounts).catch(() => setVisitorSundayCounts(new Map()))
   }, [slug, activeTab])
+
+  // Second/Third/Fourth week comer candidates for the Follow-Up panel:
+  // - Second week: D-Light visitors whose first attendedDate was exactly last week.
+  // - Third week: names Sunday Ministry already confirmed as second-week attendees last week.
+  // - Fourth week: names Sunday Ministry already confirmed as third-week attendees last week.
+  // Each list excludes names already marked on the target Sunday's report.
+  useEffect(() => {
+    if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
+    setLoadingWeekComerCandidates(true)
+    const target = new Date(weekComerDate + 'T00:00:00')
+    const lastWeek = new Date(target)
+    lastWeek.setDate(target.getDate() - 7)
+    const lastWeekWindowStart = new Date(lastWeek)
+    lastWeekWindowStart.setDate(lastWeek.getDate() - 6)
+    const lastWeekStr = format(lastWeek, 'yyyy-MM-dd')
+
+    Promise.all([getSundayReport(weekComerDate), getSundayReport(lastWeekStr)])
+      .then(([targetReport, lastWeekReport]) => {
+        const alreadyIn = (field) =>
+          new Set((targetReport?.[field] || []).map((n) => String(n).trim().toLowerCase()))
+        const alreadySecond = alreadyIn('secondWeekAttendeesNames')
+        const alreadyThird = alreadyIn('thirdWeekAttendeesNames')
+        const alreadyFourth = alreadyIn('fourthWeekAttendeesNames')
+
+        const secondCandidates = [...new Set(
+          delightVisitors
+            .filter((v) => {
+              if (!v.attendedDate) return false
+              const d = new Date(v.attendedDate + 'T00:00:00')
+              return d >= lastWeekWindowStart && d <= lastWeek
+            })
+            .map((v) => v.name)
+            .filter(Boolean)
+        )].filter((n) => !alreadySecond.has(n.trim().toLowerCase()))
+
+        const thirdCandidates = [...new Set((lastWeekReport?.secondWeekAttendeesNames || []).filter(Boolean))]
+          .filter((n) => !alreadyThird.has(n.trim().toLowerCase()))
+
+        const fourthCandidates = [...new Set((lastWeekReport?.thirdWeekAttendeesNames || []).filter(Boolean))]
+          .filter((n) => !alreadyFourth.has(n.trim().toLowerCase()))
+
+        setWeekComerCandidates({ second: secondCandidates, third: thirdCandidates, fourth: fourthCandidates })
+      })
+      .catch(() => setWeekComerCandidates({ second: [], third: [], fourth: [] }))
+      .finally(() => setLoadingWeekComerCandidates(false))
+  }, [slug, activeTab, weekComerDate, delightVisitors])
+
+  const WEEK_COMER_FIELDS = { second: 'secondWeekAttendeesNames', third: 'thirdWeekAttendeesNames', fourth: 'fourthWeekAttendeesNames' }
+
+  const markWeekComer = async (bucket, name) => {
+    const fieldKey = WEEK_COMER_FIELDS[bucket]
+    setMarkingWeekComerName(name)
+    try {
+      const current = await getSundayReport(weekComerDate)
+      const existing = current?.[fieldKey] || []
+      const norm = name.trim().toLowerCase()
+      const next = existing.some((n) => String(n).trim().toLowerCase() === norm) ? existing : [...existing, name.trim()]
+      await patchSundayReportNameField(weekComerDate, fieldKey, next, userProfile?.email || userProfile?.displayName || 'unknown')
+      setWeekComerCandidates((prev) => ({ ...prev, [bucket]: prev[bucket].filter((n) => n !== name) }))
+    } catch {
+      alert('Failed to add — please try again.')
+    }
+    setMarkingWeekComerName(null)
+  }
 
   useEffect(() => {
     const isTeamSection = activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team')
@@ -2538,6 +2611,61 @@ export default function DepartmentHub() {
                   </div>
                 )}
               </div>
+
+              {/* Follow-Up: mark returning visitors as 2nd/3rd/4th week comers — writes straight
+                  into that Sunday's report on Sunday Ministry's side. */}
+              {canEditDelightVisitors && (
+                <div className="px-5 py-4 border-b border-slate-100 bg-indigo-50/30">
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-800">Follow-Up: Week Comers</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Tap a name to mark it present — it reflects straight into that Sunday's attendance report.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <label className="text-xs text-slate-500">Sunday</label>
+                      <input
+                        type="date"
+                        value={weekComerDate}
+                        onChange={(e) => setWeekComerDate(e.target.value)}
+                        className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[
+                      { bucket: 'second', label: 'Second Week' },
+                      { bucket: 'third', label: 'Third Week' },
+                      { bucket: 'fourth', label: 'Fourth Week' },
+                    ].map(({ bucket, label }) => (
+                      <div key={bucket} className="bg-white rounded-xl border border-slate-200 p-3">
+                        <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">{label}</p>
+                        {loadingWeekComerCandidates ? (
+                          <p className="text-xs text-slate-400">Loading…</p>
+                        ) : weekComerCandidates[bucket].length === 0 ? (
+                          <p className="text-xs text-slate-400">No candidates.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {weekComerCandidates[bucket].map((name) => (
+                              <button
+                                key={name}
+                                type="button"
+                                disabled={markingWeekComerName === name}
+                                onClick={() => markWeekComer(bucket, name)}
+                                className="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                              >
+                                {markingWeekComerName === name ? 'Adding…' : `+ ${name}`}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Search bar — searches across all years */}
               <div className="px-5 py-3 border-b border-slate-100 relative">
                 <div className="relative max-w-sm">

@@ -374,7 +374,10 @@ service cloud.firestore {
 
     match /sunday_reports/{docId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector());
+      // D Light additionally writes second/third/fourth week comer names onto the report
+      // for a given Sunday (Follow-Up panel on the Visitors page) — same cross-department
+      // write pattern already used by River Kids for the riverKids field.
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() || canAccessDept('D Light'));
     }
 
     // Mid-week Ministry: prayer points per cell per date

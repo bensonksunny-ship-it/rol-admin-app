@@ -21,6 +21,7 @@ import {
   subscribeSundayReportRiverKids,
   patchSundayReportRiverKids,
   patchSundayReportNameField,
+  subscribeSundayReportNameField,
   patchSundayReportCellAttendance,
 } from '../services/firestore'
 import DepartmentTabBar from '../components/DepartmentTabBar'
@@ -34,6 +35,8 @@ const MANUAL_ONLY_KEYS = [
 ]
 
 const SECOND_WEEK_KEY = { key: 'secondWeekAttendeesNames', title: 'Second Week Attendees' }
+const THIRD_WEEK_KEY = { key: 'thirdWeekAttendeesNames', title: 'Third Week Attendees' }
+const FOURTH_WEEK_KEY = { key: 'fourthWeekAttendeesNames', title: 'Fourth Week Attendees' }
 
 const PASTORAL_KEY = { key: 'pastoralAttendees', title: 'Pastoral Attendees' }
 
@@ -41,7 +44,7 @@ const PASTORAL_KEY = { key: 'pastoralAttendees', title: 'Pastoral Attendees' }
 const PASTORAL_ATTENDEE_SUGGESTIONS = ['Pastor Benson K Sunny']
 
 /** Local-only UX: order for Done → scroll to next attendance section */
-const ATTENDANCE_SECTION_ORDER = ['pastoral', 'cells', 'nonCell', 'others', 'riverKids', 'newComers', 'secondWeekAttendeesNames']
+const ATTENDANCE_SECTION_ORDER = ['pastoral', 'cells', 'nonCell', 'others', 'riverKids', 'newComers', 'secondWeekAttendeesNames', 'thirdWeekAttendeesNames', 'fourthWeekAttendeesNames']
 
 
 /** Map legacy report field → normalized cell name (lowercase, no spaces) */
@@ -407,6 +410,8 @@ const BULK_SECTIONS = [
   { key: 'riverKids',             label: 'River Kids'      },
   { key: 'newComers',             label: 'New Comers'      },
   { key: 'secondWeek',            label: '2nd Week'        },
+  { key: 'thirdWeek',             label: '3rd Week'        },
+  { key: 'fourthWeek',            label: '4th Week'        },
 ]
 
 function scorePerson(name, words) {
@@ -418,6 +423,138 @@ function scorePerson(name, words) {
     if (nameWords.some(nw => nw.startsWith(w))) score += 1
   }
   return score
+}
+
+// ─── Excel grid paste support (Bulk Import) ────────────────────────────────
+
+/** Lowercase, punctuation → spaces (keeps parenthetical text as extra tokens
+ *  e.g. "New Cell- 1 (Olive)" → "new cell 1 olive"), collapsed whitespace. */
+function normalizeHeaderText(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** Known category-header keywords → BULK_SECTIONS key, checked before cell-name matching. */
+const HEADER_CATEGORY_PATTERNS = [
+  { key: 'riverKids',  patterns: ['children', 'river kids', 'sunday school'] },
+  { key: 'pastoral',   patterns: ['pastoral'] },
+  { key: 'nonCell',    patterns: ['non cell', 'noncell'] },
+  { key: 'newComers',  patterns: ['new comer', 'newcomer'] },
+  { key: 'fourthWeek', patterns: ['4th wk', '4th week', 'fourth wk', 'fourth week'] },
+  { key: 'thirdWeek',  patterns: ['3rd wk', '3rd week', 'third wk', 'third week'] },
+  { key: 'secondWeek', patterns: ['2nd wk', '2nd week', 'second wk', 'second week'] },
+  { key: 'others',     patterns: ['others', 'other'] },
+]
+
+/** Splits a raw paste into a grid of rows/columns. Prefers literal tabs (the standard
+ *  clipboard format when copying cells out of Excel/Sheets); if no line has a tab at all,
+ *  falls back to runs of 2+ spaces as the column boundary, since some paste paths
+ *  (clipboard managers, browser extensions, re-typed data) collapse tabs into spaces
+ *  while still preserving column alignment. */
+function splitGridRows(rawText) {
+  const rawLines = rawText.replace(/\r\n?/g, '\n').split('\n')
+  if (rawLines.some((l) => l.includes('\t'))) {
+    return rawLines.map((r) => r.split('\t'))
+  }
+  if (rawLines.some((l) => /\S\s{2,}\S/.test(l))) {
+    return rawLines.map((r) => r.split(/\s{2,}/))
+  }
+  return rawLines.map((r) => [r])
+}
+
+/** Strict header match — used only to find which row is the header row (a data row full
+ *  of ordinary names should score 0 here, or it'd be mistaken for the header). */
+function classifyBulkHeaderStrict(headerRaw, cellGroups) {
+  const norm = normalizeHeaderText(headerRaw)
+  if (!norm) return null
+  for (const { key, patterns } of HEADER_CATEGORY_PATTERNS) {
+    if (patterns.some((p) => norm.includes(p))) {
+      return { section: key, cellId: '', label: BULK_SECTIONS.find((s) => s.key === key)?.label || key }
+    }
+  }
+  let best = null
+  let bestScore = 0
+  for (const cg of (cellGroups || [])) {
+    const cgNorm = normalizeHeaderText(cg.cellName)
+    if (!cgNorm) continue
+    let score = 0
+    if (norm === cgNorm) score = 100
+    else if (norm.includes(cgNorm) || cgNorm.includes(norm)) score = 60 + Math.min(cgNorm.length, norm.length)
+    else {
+      const hTokens = new Set(norm.split(' ').filter(Boolean))
+      const overlap = cgNorm.split(' ').filter((t) => t && hTokens.has(t)).length
+      if (overlap > 0) score = overlap * 10
+    }
+    if (score > bestScore) { bestScore = score; best = cg }
+  }
+  return best ? { section: 'cell', cellId: best.id, label: best.cellName } : null
+}
+
+/** Same as the strict classifier, but a non-empty header that doesn't match any known
+ *  category or cell name still gets a column instead of being dropped — it's bucketed
+ *  as "Others" under its own original header text, correctable in review. This is what
+ *  actually assigns columns once the header row has been located, so a header we don't
+ *  recognize (a typo, an unlisted cell name, a column we've never seen) never silently
+ *  loses its names. */
+function classifyBulkHeaderLenient(headerRaw, cellGroups) {
+  const strict = classifyBulkHeaderStrict(headerRaw, cellGroups)
+  if (strict) return strict
+  const trimmed = String(headerRaw || '').trim()
+  if (!trimmed) return null
+  return { section: 'others', cellId: '', label: trimmed }
+}
+
+/** Parses a raw Excel-grid paste into pre-categorized line entries. Auto-detects which of
+ *  the first few rows is the header row (whichever has the most recognized headers), then
+ *  reads every non-empty cell beneath each header as a name assigned to that column —
+ *  falling back to "Others" for a header it doesn't otherwise recognize. Returns null if the
+ *  pasted text isn't actually a multi-column grid, so the caller falls back to the plain
+ *  one-name-per-line parser. If, after all that, not a single name came out (a genuinely
+ *  unparseable header row), every non-empty cell in the whole paste is captured anyway. */
+function parseBulkImportGrid(rawText, cellGroups) {
+  const allRows = splitGridRows(rawText).filter((row) => row.some((c) => c.trim()))
+  if (!allRows.some((row) => row.length > 1)) return null
+
+  const scanLimit = Math.min(3, allRows.length)
+  let headerRowIdx = 0
+  let bestMatches = -1
+  for (let i = 0; i < scanLimit; i++) {
+    const matches = allRows[i].filter((cell) => classifyBulkHeaderStrict(cell, cellGroups)).length
+    if (matches > bestMatches) { bestMatches = matches; headerRowIdx = i }
+  }
+  const columns = allRows[headerRowIdx].map((cell) => classifyBulkHeaderLenient(cell, cellGroups))
+
+  const lines = []
+  for (let r = headerRowIdx + 1; r < allRows.length; r++) {
+    const row = allRows[r]
+    for (let c = 0; c < row.length; c++) {
+      const col = columns[c]
+      if (!col) continue
+      const name = (row[c] || '').trim()
+      if (!name) continue
+      lines.push({
+        raw: name,
+        status: 'pending',
+        confirmedName: null,
+        presetSection: col.section,
+        presetCellId: col.cellId,
+        presetLabel: col.label,
+      })
+    }
+  }
+  if (lines.length > 0) return lines
+
+  // Last resort: nothing came out of header-based parsing (e.g. every column header was
+  // itself blank). Capture every non-empty cell in the entire grid — including what we
+  // guessed was the header row — as an unassigned "Others" name rather than reporting zero.
+  const fallback = []
+  for (const row of allRows) {
+    for (const cell of row) {
+      const name = (cell || '').trim()
+      if (!name) continue
+      fallback.push({ raw: name, status: 'pending', confirmedName: null, presetSection: 'others', presetCellId: '', presetLabel: 'Others' })
+    }
+  }
+  return fallback
 }
 
 function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, cellGroups, searchPool, cellMemberMap, rkKidsNorms, userEmail }) {
@@ -432,6 +569,9 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
   const [lineCellId, setLineCellId] = useState('')
   // Tracks norms added this session (ref for synchronous access in advance())
   const addedNormsRef = useRef(new Set())
+
+  // Live preview: is the current paste an Excel grid, and what would it parse into?
+  const gridPreview = useMemo(() => parseBulkImportGrid(pastedText, cellGroups), [pastedText, cellGroups])
 
   if (!isOpen) return null
 
@@ -448,6 +588,8 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     addArr(report?.riverKids)
     addArr(report?.newComers)
     addArr(report?.secondWeekAttendeesNames)
+    addArr(report?.thirdWeekAttendeesNames)
+    addArr(report?.fourthWeekAttendeesNames)
     Object.values(report?.sundayCellAttendance || {}).forEach(arr => addArr(arr))
     for (const n of addedNormsRef.current) s.add(n)
     return s
@@ -510,6 +652,25 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     return { updated, nextIdx: -1 }
   }
 
+  // Section for a line: use the grid column's pre-detected section if this line came from
+  // an Excel grid paste, otherwise fall back to fuzzy name-based auto-detection as before.
+  const applyLineSection = (line) => {
+    if (line.presetSection) {
+      setLineSection(line.presetSection)
+      setLineCellId(line.presetCellId || '')
+      return
+    }
+    const top = topSuggestion(line.raw)
+    if (top) {
+      const det = detectSection(top.name)
+      setLineSection(det.section)
+      setLineCellId(det.cellId)
+    } else {
+      setLineSection('others')
+      setLineCellId('')
+    }
+  }
+
   const gotoLine = (updatedLines, fromIdx) => {
     const existingNorms = buildExistingNorms()
     const { updated, nextIdx } = resolveAlreadyPresent(updatedLines, fromIdx + 1, existingNorms)
@@ -518,23 +679,15 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     else {
       setCurrentIdx(nextIdx)
       setSearchQuery('')
-      // Auto-detect section for the new line
-      const top = topSuggestion(updated[nextIdx].raw)
-      if (top) {
-        const det = detectSection(top.name)
-        setLineSection(det.section)
-        setLineCellId(det.cellId)
-      } else {
-        setLineSection('others')
-        setLineCellId('')
-      }
+      applyLineSection(updated[nextIdx])
     }
   }
 
   const handleParse = () => {
     addedNormsRef.current = new Set()
     const existingNorms = buildExistingNorms()
-    const raw = pastedText.split('\n').map(l => l.trim()).filter(Boolean)
+    const gridLines = parseBulkImportGrid(pastedText, cellGroups)
+    const raw = gridLines || pastedText.split('\n').map(l => l.trim()).filter(Boolean)
       .map(r => ({ raw: r, status: 'pending', confirmedName: null }))
     if (!raw.length) return
     const { updated, nextIdx } = resolveAlreadyPresent(raw, 0, existingNorms)
@@ -544,15 +697,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     else {
       setCurrentIdx(nextIdx)
       setStep('review')
-      const top = topSuggestion(updated[nextIdx].raw)
-      if (top) {
-        const det = detectSection(top.name)
-        setLineSection(det.section)
-        setLineCellId(det.cellId)
-      } else {
-        setLineSection('others')
-        setLineCellId('')
-      }
+      applyLineSection(updated[nextIdx])
     }
   }
 
@@ -612,6 +757,20 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
           const next = [...existing, name]
           updateReport({ secondWeekAttendeesNames: next })
           await patchSundayReportNameField(selectedDate, 'secondWeekAttendeesNames', next, userEmail)
+        }
+      } else if (sec === 'thirdWeek') {
+        const existing = report?.thirdWeekAttendeesNames || []
+        if (!existing.some(n => nn(n) === norm)) {
+          const next = [...existing, name]
+          updateReport({ thirdWeekAttendeesNames: next })
+          await patchSundayReportNameField(selectedDate, 'thirdWeekAttendeesNames', next, userEmail)
+        }
+      } else if (sec === 'fourthWeek') {
+        const existing = report?.fourthWeekAttendeesNames || []
+        if (!existing.some(n => nn(n) === norm)) {
+          const next = [...existing, name]
+          updateReport({ fourthWeekAttendeesNames: next })
+          await patchSundayReportNameField(selectedDate, 'fourthWeekAttendeesNames', next, userEmail)
         }
       } else if (sec === 'cell' && cid) {
         const sca = { ...(report?.sundayCellAttendance || {}) }
@@ -679,22 +838,35 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
               </div>
 
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3">
-                <p className="text-xs font-semibold text-indigo-700 mb-1">Paste all names together</p>
-                <p className="text-xs text-indigo-500">Cell members, others, non-cell — mix them all. You'll assign each person to the right section one by one during review.</p>
+                <p className="text-xs font-semibold text-indigo-700 mb-1">Paste all names together — or paste an Excel grid</p>
+                <p className="text-xs text-indigo-500">
+                  Either a plain list (one name per line, mixing cells/others/non-cell freely — you'll assign each
+                  to the right section during review), or select and copy a whole table straight out of Excel
+                  (header row with cell/category names like "Eden Stream", "Bethel", "Children", "Others",
+                  "New Comers", "Second wk att" — plus the name columns beneath) and paste it here as-is.
+                  Columns are auto-matched to their section so review is just a quick confirm.
+                </p>
               </div>
 
               <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Paste Names (one per line)</p>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Paste Names or Excel Grid</p>
                 <textarea
                   value={pastedText}
                   onChange={e => setPastedText(e.target.value)}
-                  placeholder={"John Smith\nSarah Johnson\nMichael Brown\n..."}
+                  placeholder={"John Smith\nSarah Johnson\nMichael Brown\n...\n\n— or paste a full Excel table (headers + columns) —"}
                   rows={10}
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 font-mono resize-none"
                 />
-                <p className="text-xs text-slate-400 mt-1">
-                  {pastedText.split('\n').filter(l => l.trim()).length} names detected
-                </p>
+                {gridPreview ? (
+                  <p className="text-xs text-emerald-600 font-medium mt-1">
+                    Excel grid detected — {gridPreview.length} name{gridPreview.length !== 1 ? 's' : ''} across{' '}
+                    {new Set(gridPreview.map((l) => l.presetLabel)).size} column{new Set(gridPreview.map((l) => l.presetLabel)).size !== 1 ? 's' : ''}
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-1">
+                    {pastedText.split('\n').filter(l => l.trim()).length} names detected
+                  </p>
+                )}
               </div>
 
               <button type="button" onClick={handleParse} disabled={!pastedText.trim()}
@@ -721,6 +893,11 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
               <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
                 <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-1">Pasted Name</p>
                 <p className="font-bold text-slate-800 text-base">"{current.raw}"</p>
+                {current.presetLabel && (
+                  <p className="text-[11px] text-emerald-600 font-semibold mt-1">
+                    ✓ Detected from "{current.presetLabel}" column — confirm below
+                  </p>
+                )}
               </div>
 
               {/* Section picker for this name */}
@@ -983,6 +1160,8 @@ export default function SundayReport({ embedded = false }) {
   const othersSectionRef = useRef(null)
   const nonCellSectionRef = useRef(null)
   const secondWeekSectionRef = useRef(null)
+  const thirdWeekSectionRef = useRef(null)
+  const fourthWeekSectionRef = useRef(null)
   const riverKidsSectionRef = useRef(null)
 
   const sectionRefById = useMemo(
@@ -993,6 +1172,8 @@ export default function SundayReport({ embedded = false }) {
       others: othersSectionRef,
       nonCell: nonCellSectionRef,
       secondWeekAttendeesNames: secondWeekSectionRef,
+      thirdWeekAttendeesNames: thirdWeekSectionRef,
+      fourthWeekAttendeesNames: fourthWeekSectionRef,
       riverKids: riverKidsSectionRef,
     }),
     []
@@ -1011,20 +1192,25 @@ export default function SundayReport({ embedded = false }) {
     const othersNames       = (report?.others || []).filter(Boolean)
     const nonCellNames      = (report?.nonCell || []).filter(Boolean)
     const secondWeekNames   = (report?.secondWeekAttendeesNames || []).filter(Boolean)
+    const thirdWeekNames    = (report?.thirdWeekAttendeesNames || []).filter(Boolean)
+    const fourthWeekNames   = (report?.fourthWeekAttendeesNames || []).filter(Boolean)
     const pastoralNames     = (report?.pastoralAttendees || []).filter(Boolean)
     const riverKidsNames    = (report?.riverKids || []).filter(Boolean)
     const newcomersNames    = dlightSuggestions.filter(Boolean)
     const othersCount       = othersNames.length
     const nonCellCount      = nonCellNames.length
     const secondWeekCount   = secondWeekNames.length
+    const thirdWeekCount    = thirdWeekNames.length
+    const fourthWeekCount   = fourthWeekNames.length
     const newcomersCount    = newcomersNames.length
     const pastoralCount     = pastoralNames.length
     const riverKidsCount    = riverKidsNames.length
     const cellTotal         = cellRows.reduce((s, r) => s + r.count, 0)
-    const totalAdults       = cellTotal + othersCount + nonCellCount + secondWeekCount + newcomersCount + pastoralCount
+    const totalAdults       = cellTotal + othersCount + nonCellCount + secondWeekCount + thirdWeekCount + fourthWeekCount + newcomersCount + pastoralCount
     const total             = totalAdults + riverKidsCount
     return {
       cellRows, othersCount, othersNames, nonCellCount, nonCellNames, secondWeekCount, secondWeekNames,
+      thirdWeekCount, thirdWeekNames, fourthWeekCount, fourthWeekNames,
       newcomersCount, newcomersNames, pastoralCount, pastoralNames, riverKidsCount, riverKidsNames,
       totalAdults, total,
     }
@@ -1047,6 +1233,8 @@ export default function SundayReport({ embedded = false }) {
     for (const n of (report?.pastoralAttendees || [])) add('pastoral', n)
     for (const n of (report?.riverKids || [])) add('riverKids', n)
     for (const n of (report?.secondWeekAttendeesNames || [])) add('secondWeek', n)
+    for (const n of (report?.thirdWeekAttendeesNames || [])) add('thirdWeek', n)
+    for (const n of (report?.fourthWeekAttendeesNames || [])) add('fourthWeek', n)
     for (const n of dlightSuggestions) add('newComers', n)
     const dupes = new Set()
     for (const [key, sections] of sectionSets) {
@@ -1316,6 +1504,36 @@ export default function SundayReport({ embedded = false }) {
     })
   }, [selectedDate])
 
+  // Real-time sync: D-Light marks second/third/fourth week comers directly on this report
+  // from the Visitors page, possibly while this report is open here at the same time. Unlike
+  // riverKids (whose local edits save immediately), edits to these fields here are local-only
+  // until "Save" — so an incoming snapshot is merged into local state rather than replacing it,
+  // to avoid discarding an unsaved manual add/remove made in this session.
+  useEffect(() => {
+    if (!selectedDate) return
+    const merge = (fieldKey) => (remoteNames) => {
+      setReport((prev) => {
+        if (!prev) return prev
+        const current = prev[fieldKey] || []
+        const seen = new Set(current.map((n) => String(n).trim().toLowerCase()))
+        const additions = remoteNames.filter((n) => {
+          const norm = String(n).trim().toLowerCase()
+          if (!norm || seen.has(norm)) return false
+          seen.add(norm)
+          return true
+        })
+        if (additions.length === 0) return prev
+        return { ...prev, [fieldKey]: [...current, ...additions] }
+      })
+    }
+    const unsubs = [
+      subscribeSundayReportNameField(selectedDate, 'secondWeekAttendeesNames', merge('secondWeekAttendeesNames')),
+      subscribeSundayReportNameField(selectedDate, 'thirdWeekAttendeesNames', merge('thirdWeekAttendeesNames')),
+      subscribeSundayReportNameField(selectedDate, 'fourthWeekAttendeesNames', merge('fourthWeekAttendeesNames')),
+    ]
+    return () => unsubs.forEach((unsub) => unsub())
+  }, [selectedDate])
+
   const updateReport = (patch) => setReport((prev) => (prev ? { ...prev, ...patch } : { ...patch }))
 
   const handleSave = async () => {
@@ -1331,7 +1549,7 @@ export default function SundayReport({ embedded = false }) {
     }
     setSaving(true)
     try {
-      const { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, totalAdults, total } = summaryComputed
+      const { cellRows, othersCount, nonCellCount, secondWeekCount, thirdWeekCount, fourthWeekCount, newcomersCount, riverKidsCount, totalAdults, total } = summaryComputed
       const cellAttendanceCount = cellRows.reduce((s, r) => s + r.count, 0)
 
       const cellBreakdown = Object.fromEntries(cellRows.map((r) => [r.name, r.count]))
@@ -1343,6 +1561,8 @@ export default function SundayReport({ embedded = false }) {
         nonCellCount,
         newcomers: newcomersCount,
         secondWeekAttendees: secondWeekCount,
+        thirdWeekAttendees: thirdWeekCount,
+        fourthWeekAttendees: fourthWeekCount,
         riverKids: riverKidsCount,
         // Cleared on every live save: "Sunday School" as a bare count is a legacy bulk-import
         // artifact. Once a report is touched here, River Kids (with real names) is the single
@@ -1670,13 +1890,15 @@ export default function SundayReport({ embedded = false }) {
       rows.push([])
     }
 
-    const { cellRows, othersCount, nonCellCount, secondWeekCount, newcomersCount, riverKidsCount, totalAdults, total } = summaryComputed
+    const { cellRows, othersCount, nonCellCount, secondWeekCount, thirdWeekCount, fourthWeekCount, newcomersCount, riverKidsCount, totalAdults, total } = summaryComputed
     rows.push(['Attendance', 'Count'])
     cellRows.forEach((r) => rows.push([r.name, r.count]))
     rows.push(['Others', othersCount])
     rows.push(['Non Cell', nonCellCount])
     rows.push(['New Comers', newcomersCount])
     rows.push(['Second Week Attendees', secondWeekCount])
+    rows.push(['Third Week Attendees', thirdWeekCount])
+    rows.push(['Fourth Week Attendees', fourthWeekCount])
     rows.push(['River Kids', riverKidsCount])
     rows.push(['Sunday School', Number(report?.summary?.sundaySchool) || 0])
     rows.push([])
@@ -1699,6 +1921,8 @@ export default function SundayReport({ embedded = false }) {
       { label: 'Others', key: 'others' },
       { label: 'Non Cell', key: 'nonCell' },
       { label: 'Second Week Attendees', key: 'secondWeekAttendeesNames' },
+      { label: 'Third Week Attendees', key: 'thirdWeekAttendeesNames' },
+      { label: 'Fourth Week Attendees', key: 'fourthWeekAttendeesNames' },
       { label: 'River Kids', key: 'riverKids' },
     ]
     listsToExport.forEach(({ label, key }) => {
@@ -2063,6 +2287,48 @@ export default function SundayReport({ embedded = false }) {
                   className="border-0 shadow-none bg-transparent p-0"
                 />
               </AttendanceSectionShell>
+
+              <AttendanceSectionShell
+                sectionRef={thirdWeekSectionRef}
+                completed={completedSections[THIRD_WEEK_KEY.key]}
+                isActive={activeSectionId === THIRD_WEEK_KEY.key}
+                canManage={canEditEffective}
+                onDone={() => handleAttendanceDone(THIRD_WEEK_KEY.key)}
+                onUndo={() => handleAttendanceUndo(THIRD_WEEK_KEY.key)}
+              >
+                <NameListSection
+                  title={THIRD_WEEK_KEY.title}
+                  names={report?.[THIRD_WEEK_KEY.key] || []}
+                  canEdit={canEditEffective && !completedSections[THIRD_WEEK_KEY.key]}
+                  onAdd={() => addCellName(THIRD_WEEK_KEY.key)}
+                  onAddValue={(value) => addCellNameValue(THIRD_WEEK_KEY.key, value)}
+                  onEdit={(idx, value) => updateCellList(THIRD_WEEK_KEY.key, idx, value)}
+                  onRemove={(idx) => removeCellName(THIRD_WEEK_KEY.key, idx)}
+                  duplicateNorms={duplicateNorms}
+                  className="border-0 shadow-none bg-transparent p-0"
+                />
+              </AttendanceSectionShell>
+
+              <AttendanceSectionShell
+                sectionRef={fourthWeekSectionRef}
+                completed={completedSections[FOURTH_WEEK_KEY.key]}
+                isActive={activeSectionId === FOURTH_WEEK_KEY.key}
+                canManage={canEditEffective}
+                onDone={() => handleAttendanceDone(FOURTH_WEEK_KEY.key)}
+                onUndo={() => handleAttendanceUndo(FOURTH_WEEK_KEY.key)}
+              >
+                <NameListSection
+                  title={FOURTH_WEEK_KEY.title}
+                  names={report?.[FOURTH_WEEK_KEY.key] || []}
+                  canEdit={canEditEffective && !completedSections[FOURTH_WEEK_KEY.key]}
+                  onAdd={() => addCellName(FOURTH_WEEK_KEY.key)}
+                  onAddValue={(value) => addCellNameValue(FOURTH_WEEK_KEY.key, value)}
+                  onEdit={(idx, value) => updateCellList(FOURTH_WEEK_KEY.key, idx, value)}
+                  onRemove={(idx) => removeCellName(FOURTH_WEEK_KEY.key, idx)}
+                  duplicateNorms={duplicateNorms}
+                  className="border-0 shadow-none bg-transparent p-0"
+                />
+              </AttendanceSectionShell>
             </div>
 
             {/* ── Right sidebar: Total banner + Program ── */}
@@ -2300,6 +2566,7 @@ const CELL_ACCENT_CYCLE = ['indigo', 'sky', 'teal', 'violet']
 function FiledSummaryView({ selectedDate, sortedProgram, programLogs, summaryComputed, onEdit }) {
   const {
     cellRows, othersCount, othersNames, nonCellCount, nonCellNames, secondWeekCount, secondWeekNames,
+    thirdWeekCount, thirdWeekNames, fourthWeekCount, fourthWeekNames,
     newcomersCount, newcomersNames, pastoralCount, pastoralNames, riverKidsCount, riverKidsNames,
     totalAdults, total,
   } = summaryComputed
@@ -2395,6 +2662,8 @@ function FiledSummaryView({ selectedDate, sortedProgram, programLogs, summaryCom
             <AttendanceRow label="Non Cell" count={nonCellCount} names={nonCellNames} accent="amber" />
             <AttendanceRow label="Others" count={othersCount} names={othersNames} accent="sky" />
             <AttendanceRow label="Second Week Comers" count={secondWeekCount} names={secondWeekNames} accent="rose" />
+            <AttendanceRow label="Third Week Comers" count={thirdWeekCount} names={thirdWeekNames} accent="violet" />
+            <AttendanceRow label="Fourth Week Comers" count={fourthWeekCount} names={fourthWeekNames} accent="sky" />
             <AttendanceRow label="New Comers" count={newcomersCount} names={newcomersNames} accent="emerald" />
             <AttendanceRow label="River Kids" count={riverKidsCount} names={riverKidsNames} accent="teal" />
 

@@ -70,7 +70,17 @@
       "Bash(curl -s https://rol-admin.web.app/assets/index-C4U1wSlH.js -o /tmp/live2.js)",
       "Bash(netstat -ano)",
       "Bash(firebase hosting:channel:list)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git config *)",
+      "Read(//c/Users/User/**)",
+      "Read(//c/Users/User/.ssh/**)",
+      "Bash(mkdir -p ~/.ssh)",
+      "Bash(chmod 700 ~/.ssh)",
+      "Bash(ssh-keygen -t ed25519 -C \"rolccbangalore@gmail.com\" -f ~/.ssh/id_ed25519_bensonksunny-ship-it -N \"\" -q)",
+      "Bash(ssh-keygen -t ed25519 -C \"rolccbangalore@gmail.com\" -f ~/.ssh/id_ed25519_rolsschoolofmusic-oss -N \"\" -q)",
+      "Bash(chmod 600 ~/.ssh/config ~/.ssh/id_ed25519_bensonksunny-ship-it ~/.ssh/id_ed25519_rolsschoolofmusic-oss)",
+      "Bash(chmod 644 ~/.ssh/id_ed25519_bensonksunny-ship-it.pub ~/.ssh/id_ed25519_rolsschoolofmusic-oss.pub)",
+      "Bash(git remote *)"
     ]
   }
 }
