@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { format, startOfWeek, subWeeks } from 'date-fns'
-import { getCellGroups, getLatestCellReports } from '../services/firestore'
+import { getCellGroups, getLatestCellReports, createCellReportReminder } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole, isFounder as isFounderUser } from '../utils/access'
 import { computeMeetingDateISO, totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
@@ -110,7 +110,7 @@ export function AlertPanelCellReports({ missingCount, onOpenDetails }) {
   )
 }
 
-export function MissingCellReportsTable({ rows, loading, remindLeader, dismissedIds = new Set(), onDismiss, onUndismiss }) {
+export function MissingCellReportsTable({ rows, loading, remindLeader, remindingIds = new Set(), remindedIds = new Set(), dismissedIds = new Set(), onDismiss, onUndismiss }) {
   const submitted = rows.filter((r) => r.submitted).length
   const missing   = rows.filter((r) => r.isDue && !dismissedIds.has(r.cellId)).length
   const dismissed = rows.filter((r) => r.isDue && dismissedIds.has(r.cellId)).length
@@ -191,13 +191,18 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, dismissed
                       <div className="flex gap-2 justify-end">
                         {row.isDue && !isDismissed && (
                           <>
-                            <button
-                              type="button"
-                              onClick={() => remindLeader(row)}
-                              className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors font-medium"
-                            >
-                              Remind
-                            </button>
+                            {remindedIds.has(row.cellId) ? (
+                              <span className="text-xs px-2.5 py-1 rounded-lg text-emerald-600 font-semibold">✓ Reminded</span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={remindingIds.has(row.cellId)}
+                                onClick={() => remindLeader(row)}
+                                className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors font-medium disabled:opacity-50"
+                              >
+                                {remindingIds.has(row.cellId) ? 'Sending…' : 'Remind'}
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => onDismiss?.(row.cellId)}
@@ -271,6 +276,9 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   const [latestReports, setLatestCellReports] = useState([])
   const [loading, setLoading] = useState(true)
   const [scrollToTable, setScrollToTable] = useState(false)
+  const [remindingIds, setRemindingIds] = useState(new Set())
+  const [remindedIds, setRemindedIds] = useState(new Set())
+  const [reminderToast, setReminderToast] = useState(null)
 
   const weekStartDate = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), [])
   const storageKey = `cell_alerts_dismissed_${format(weekStartDate, 'yyyy-MM-dd')}`
@@ -370,10 +378,28 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
     })
   }, [reportsByCellWeek, visibleGroups])
 
-  const remindLeader = useCallback((row) => {
-    const name = row?.cellName || 'this cell'
-    alert(`Reminder for "${name}" will be available when messaging is connected.`)
-  }, [])
+  const remindLeader = useCallback(async (row) => {
+    if (!row?.cellId || remindingIds.has(row.cellId)) return
+    setRemindingIds((prev) => new Set([...prev, row.cellId]))
+    try {
+      await createCellReportReminder({
+        cellId:       row.cellId,
+        cellName:     row.cellName,
+        expectedDate: row.expectedDate,
+        leaderName:   row.leaderName,
+        sentBy:       userProfile?.email || '',
+        sentByName:   userProfile?.displayName || userProfile?.name || userProfile?.email || 'A Director',
+      })
+      setRemindedIds((prev) => new Set([...prev, row.cellId]))
+      setReminderToast({ type: 'success', msg: `Reminder sent to ${row.leaderName || row.cellName}` })
+    } catch (e) {
+      console.error('Send cell report reminder error', e)
+      setReminderToast({ type: 'error', msg: `Failed to send reminder to ${row.leaderName || row.cellName}. Please try again.` })
+    } finally {
+      setRemindingIds((prev) => { const s = new Set(prev); s.delete(row.cellId); return s })
+      setTimeout(() => setReminderToast(null), 3500)
+    }
+  }, [remindingIds, userProfile])
 
   const onOpenDetails = useCallback(() => {
     setScrollToTable(true)
@@ -394,12 +420,21 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
 
   return (
     <div className="space-y-4">
+      {reminderToast && (
+        <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
+          reminderToast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
+        }`}>
+          {reminderToast.msg}
+        </div>
+      )}
       <AlertPanelCellReports missingCount={missingCount} onOpenDetails={onOpenDetails} />
       <div id="missing-cell-reports-table">
         <MissingCellReportsTable
           rows={rows}
           loading={loading}
           remindLeader={remindLeader}
+          remindingIds={remindingIds}
+          remindedIds={remindedIds}
           dismissedIds={dismissedIds}
           onDismiss={dismissAlert}
           onUndismiss={undismissAlert}

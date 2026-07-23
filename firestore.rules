@@ -64,13 +64,26 @@ service cloud.firestore {
     }
 
     match /tasks/{taskId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      // Cell also needs read access to its own cellAssignConsult requests once they've moved
+      // to department: 'D Light' — otherwise the Unassigned row status badge can't tell
+      // "pending" from "consulted" (see subscribeCellDlightConsultTasks).
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) || (resource.data.cellAssignConsult == true && canAccessDept('Cell')));
       // Caring creates cross-department referral tasks (e.g. "Notify Cell" to add someone to a
       // cell group, "Forward to D-Light" to register a visitor) targeting a department Caring
       // itself doesn't have access to — pcsReferral flags those as a recognized referral, same
       // carve-out shape as the existing cellMemberReferral one below.
-      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department) || request.resource.data.cellMemberReferral == true || (request.resource.data.pcsReferral == true && canAccessDept('Caring')));
-      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department) || request.resource.data.cellMemberReferral == true || (request.resource.data.pcsReferral == true && canAccessDept('Caring')) || (request.resource.data.cellAssignConsult == true && canAccessDept('Cell')));
+      // Cell Director consult requests (department: 'D Light', cellAssignConsult: true) are owned by
+      // D Light once created, same handoff shape as pcsReferral above — except the original Cell
+      // requester may also close their own request out (status -> 'Completed' only, nothing else)
+      // once they've assigned the person, without needing D Light to act first.
+      allow update: if isSignedIn() && (
+        isFullAccess() ||
+        canAccessDept(resource.data.department) ||
+        (resource.data.cellAssignConsult == true && canAccessDept('Cell') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']))
+      );
+      allow delete: if isSignedIn() && isFullAccess();
     }
 
     match /department_team_members/{docId} {
@@ -310,6 +323,22 @@ service cloud.firestore {
       allow read:   if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
       allow update: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
       allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+    }
+
+    // In-app "Remind" notifications: Cell/Caring director sends → Cell Leader sees it on
+    // their own MyFellowship view and dismisses it (marks status 'read').
+    match /cell_report_reminders/{docId} {
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Caring'));
+      allow read, update: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Caring'));
+      allow delete: if isSignedIn() && isFullAccess();
+    }
+
+    // Cell Leader sends a note about a member → Cell Director sees it in Shepherd's Hub
+    // and marks it read once addressed.
+    match /cell_leader_director_notes/{docId} {
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow read, update: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow delete: if isSignedIn() && isFullAccess();
     }
 
     match /cell_attendance/{docId} {

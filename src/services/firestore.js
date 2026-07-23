@@ -20,6 +20,7 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
 import { deriveRoleFromPositions } from '../constants/roles'
+import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
 
 function normalizeGlobalRole(v) {
   const s = v == null ? '' : String(v).trim()
@@ -234,6 +235,18 @@ export function subscribePCSReferralTasks(onChange) {
       t.status !== 'Completed' &&
       (t.pcsReferral === true || (t.notes && t.notes.includes('Referred from Caring PCS')))
     ))
+  }, () => {})
+}
+
+// Real-time listener for "consult D Light Director" requests raised from the Cell
+// Director's Unassigned drawer — read by both Cell (for the row status badge) and
+// D Light (to respond with a recommendation).
+export function subscribeCellDlightConsultTasks(onChange) {
+  if (!db) return () => {}
+  const q = query(collection(db, 'tasks'), where('department', '==', 'D Light'))
+  return onSnapshot(q, (snap) => {
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    onChange(all.filter(t => t.cellAssignConsult === true && t.status !== 'Completed'))
   }, () => {})
 }
 
@@ -1771,6 +1784,8 @@ export async function getCellGroupMembers(cellId) {
       since: data.since || '',
       leftDate: data.leftDate || '',
       status: data.status === 'inactive' ? 'inactive' : 'active',
+      memberCategory: data.memberCategory || '',
+      attendanceCountAtExit: Number.isFinite(data.attendanceCountAtExit) ? data.attendanceCountAtExit : null,
       visitorId: data.visitorId || '',
       createdAt: toDate(data.createdAt),
     }
@@ -1787,7 +1802,10 @@ export async function getAllCellGroupMembers() {
     phone: d.data().phone || '',
     visitorId: d.data().visitorId || '',
     since: d.data().since || '',
+    leftDate: d.data().leftDate || '',
     status: d.data().status === 'inactive' ? 'inactive' : 'active',
+    memberCategory: d.data().memberCategory || '',
+    attendanceCountAtExit: Number.isFinite(d.data().attendanceCountAtExit) ? d.data().attendanceCountAtExit : null,
   }))
 }
 
@@ -1833,6 +1851,12 @@ export async function updateCellGroupMember(cellId, memberId, data) {
     leftDate:    data.leftDate    !== undefined ? String(data.leftDate).slice(0, 10)
                  : data.status === 'inactive'   ? new Date().toISOString().slice(0, 10)
                  : undefined,
+    // Reactivating (status -> 'active') without an explicit category clears the
+    // stale Former/Inactive categorization from the previous departure.
+    memberCategory:        data.memberCategory        !== undefined ? String(data.memberCategory)
+                            : data.status === 'active' ? ''
+                            : undefined,
+    attendanceCountAtExit: data.attendanceCountAtExit  !== undefined ? Number(data.attendanceCountAtExit) : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId), clean)
@@ -1843,6 +1867,42 @@ export async function deleteCellGroupMember(cellId, memberId) {
   await deleteDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId))
   const members = await getCellGroupMembers(cellId)
   await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId), { memberCount: members.length })
+}
+
+/**
+ * Total historical cell-meeting attendance for one member, scanned across
+ * that cell's reports (matched by memberId, falling back to trimmed/lowercased
+ * name for older attendee docs that predate memberId linking).
+ * Capped to the same last-100-reports window as getCellReportsByCell.
+ */
+export async function getCellMemberAttendanceCount(cellId, memberId, memberName) {
+  if (!db || !cellId) return 0
+  const reports = await getCellReportsByCell(cellId)
+  if (!reports.length) return 0
+  const targetName = String(memberName || '').trim().toLowerCase()
+  const attendeeLists = await Promise.all(reports.map((r) => getCellReportAttendees(r.id)))
+  let count = 0
+  for (const attendees of attendeeLists) {
+    const attended = attendees.some((a) =>
+      (memberId && a.memberId === memberId) ||
+      (targetName && String(a.name || '').trim().toLowerCase() === targetName)
+    )
+    if (attended) count++
+  }
+  return count
+}
+
+/**
+ * Marks a cell member inactive, first tallying their attendance history to
+ * categorize them as a Former Member (>= FORMER_MEMBER_ATTENDANCE_THRESHOLD
+ * meetings) vs an Inactive/Not Attending Member.
+ */
+export async function deactivateCellGroupMember(cellId, memberId, memberName) {
+  if (!db || !cellId || !memberId) return null
+  const attendanceCount = await getCellMemberAttendanceCount(cellId, memberId, memberName)
+  const memberCategory = categorizeMemberByAttendance(attendanceCount)
+  await updateCellGroupMember(cellId, memberId, { status: 'inactive', memberCategory, attendanceCountAtExit: attendanceCount })
+  return { memberCategory, attendanceCount }
 }
 
 // Default program list per cell (cell_groups/{cellId}/program_items)
@@ -2541,6 +2601,7 @@ function mapPCSDoc(d) {
     status: data.status || 'active',
     removedAt: toDate(data.removedAt),
     removedBy: data.removedBy || '',
+    inactiveCellAlertDismissed: !!data.inactiveCellAlertDismissed,
   }
 }
 
@@ -2588,6 +2649,13 @@ export async function getInactivePCSEntries() {
   const q = query(collection(db, CARING_PCS_COLLECTION), orderBy('addedAt', 'desc'))
   const snap = await getDocs(q)
   return snap.docs.map(mapPCSDoc).filter(e => e.status === 'inactive')
+}
+
+// Silence the "Removed from Cell — still in PCS" alert for one entry without removing
+// them from PCS — used by the "Dismiss / Keep in PCS" action on that notification.
+export async function dismissInactiveCellAlert(id) {
+  if (!db || !id) return
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, id), { inactiveCellAlertDismissed: true })
 }
 
 export async function deactivatePCSEntry(id, removedBy = '') {
@@ -3205,6 +3273,42 @@ export async function getRecentNonCellAttendees(numWeeks = 6) {
     })
   })
   return Array.from(nameMap.values()).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Most recent Sunday reports, each reduced to the full set of lowercased names
+ * present that week (pastoral, cells, non-cell, others, new comers, river kids,
+ * 2nd/3rd/4th week attendees) — used to work out how many consecutive Sundays
+ * a given name has been absent. Sorted most-recent-first.
+ */
+export async function getRecentSundayAttendanceWeeks(numWeeks = 20) {
+  if (!db) return []
+  const q = query(collection(db, SUNDAY_REPORTS_COLLECTION), orderBy('date', 'desc'), limit(numWeeks))
+  const snap = await getDocs(q)
+  return snap.docs
+    .map((d) => {
+      const data = d.data()
+      const names = new Set()
+      const addAll = (arr) => {
+        if (!Array.isArray(arr)) return
+        arr.forEach((n) => {
+          const norm = String(n).trim().toLowerCase()
+          if (norm) names.add(norm)
+        })
+      }
+      addAll(data.nonCell)
+      addAll(data.others)
+      addAll(data.newComers)
+      addAll(data.pastoralAttendees)
+      addAll(data.riverKids)
+      addAll(data.secondWeekAttendeesNames)
+      addAll(data.thirdWeekAttendeesNames)
+      addAll(data.fourthWeekAttendeesNames)
+      const sca = data.sundayCellAttendance
+      if (sca && typeof sca === 'object') Object.values(sca).forEach((arr) => addAll(arr))
+      return { date: d.id, names }
+    })
+    .sort((a, b) => b.date.localeCompare(a.date))
 }
 
 /**
@@ -4430,6 +4534,10 @@ export async function getMemberProfile(visitorId) {
     marriageDate:     d.marriageDate     || '',
     spouseName:       d.spouseName       || '',
     spouseVisitorId:  d.spouseVisitorId  || '',
+    hasKids:          d.hasKids          || '',
+    children:         Array.isArray(d.children) ? d.children : [],
+    previousChurchName:  d.previousChurchName  || '',
+    previousChurchPlace: d.previousChurchPlace || '',
     isDirector:       d.isDirector       || false,
     directorOf:       d.directorOf       || '',
     directorSince:    d.directorSince    || '',
@@ -4453,6 +4561,7 @@ export async function upsertMemberProfile(visitorId, data, updatedBy = '') {
     'baptised','baptismDate','baptismPlace','baptismChurch','maritalStatus','marriageDate','spouseName','spouseVisitorId',
     'isDirector','directorOf','directorSince','leaderSince','leaderUntil','ministryNotes',
     'ministryHistory','membershipStatus','membershipDocs','permanentAddress','photoUrl',
+    'hasKids','children','previousChurchName','previousChurchPlace',
   ]
   for (const k of allowed) {
     if (data[k] !== undefined) payload[k] = data[k]
@@ -4647,6 +4756,44 @@ export async function completePCSFillInvitation(id, filledBy = '', visitorId = '
   }
 }
 
+// ─── Cell Report Reminders (Director → Cell Leader, in-app) ───────────────────
+const CELL_REPORT_REMINDERS = 'cell_report_reminders'
+
+export async function createCellReportReminder({ cellId, cellName, expectedDate, leaderName, sentBy, sentByName }) {
+  if (!db || !cellId) return null
+  const ref = await addDoc(collection(db, CELL_REPORT_REMINDERS), {
+    cellId,
+    cellName:     cellName     || '',
+    expectedDate: expectedDate || '',
+    leaderName:   leaderName   || '',
+    sentBy:       sentBy       || '',
+    sentByName:   sentByName   || '',
+    sentAt:       Timestamp.now(),
+    status:       'unread',
+  })
+  return ref.id
+}
+
+export function subscribeCellReportRemindersByCellId(cellId, onChange) {
+  if (!db || !cellId) return () => {}
+  const q = query(
+    collection(db, CELL_REPORT_REMINDERS),
+    where('cellId', '==', cellId),
+    where('status', '==', 'unread')
+  )
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map(d => {
+      const data = d.data()
+      return { id: d.id, ...data, sentAt: toDate(data.sentAt) }
+    }))
+  }, () => {})
+}
+
+export async function dismissCellReportReminder(id) {
+  if (!db || !id) return
+  await updateDoc(doc(db, CELL_REPORT_REMINDERS, id), { status: 'read', readAt: Timestamp.now() })
+}
+
 // ─── PCS Add Notifications (Cell → Caring) ────────────────────────────────────
 const PCS_ADD_NOTIFICATIONS = 'pcs_add_notifications'
 
@@ -4679,6 +4826,43 @@ export async function completePCSAddNotification(id) {
 export async function dismissPCSAddNotification(id) {
   if (!db || !id) return
   await updateDoc(doc(db, PCS_ADD_NOTIFICATIONS, id), { status: 'dismissed' })
+}
+
+// ─── Cell Leader Notes to Director (Cell Leader → Cell Director, per-member) ──
+const CELL_LEADER_DIRECTOR_NOTES = 'cell_leader_director_notes'
+
+export async function createCellLeaderDirectorNote({ cellId, cellName, memberId, memberName, memberPhone, tags, message, sentBy, sentByName }) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, CELL_LEADER_DIRECTOR_NOTES), {
+    cellId:      cellId      || '',
+    cellName:    cellName    || '',
+    memberId:    memberId    || '',
+    memberName:  memberName  || '',
+    memberPhone: memberPhone || '',
+    tags:        Array.isArray(tags) ? tags : [],
+    message:     String(message || '').trim(),
+    sentBy:      sentBy      || '',
+    sentByName:  sentByName  || '',
+    sentAt:      Timestamp.now(),
+    status:      'unread',
+  })
+  return ref.id
+}
+
+export function subscribeCellLeaderDirectorNotes(onChange) {
+  if (!db) return () => {}
+  const q = query(collection(db, CELL_LEADER_DIRECTOR_NOTES), where('status', '==', 'unread'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, sentAt: toDate(data.sentAt) }
+    }))
+  }, () => {})
+}
+
+export async function markCellLeaderDirectorNoteRead(id) {
+  if (!db || !id) return
+  await updateDoc(doc(db, CELL_LEADER_DIRECTOR_NOTES, id), { status: 'read', readAt: Timestamp.now() })
 }
 
 // ─── Cell Visitor Proposals (Cell → D-Light) ──────────────────────────────────

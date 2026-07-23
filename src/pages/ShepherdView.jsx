@@ -10,6 +10,7 @@ import {
   getRecentSundayAttendanceForCell,
   addCellGroupMember,
   updateCellGroupMember,
+  deactivateCellGroupMember,
   getMidweekPrayerPoints,
   saveMidweekPrayerPoints,
   addCellMemberPendingChange,
@@ -21,11 +22,17 @@ import {
   upsertMemberProfile,
   subscribePCSFillInvitationsByCellId,
   completePCSFillInvitation,
+  subscribeCellReportRemindersByCellId,
+  dismissCellReportReminder,
   createPCSAddNotification,
   getRecentSundayAttendanceNamesByCell,
   getDelightVisitors,
+  createCellLeaderDirectorNote,
+  subscribeCellLeaderDirectorNotes,
+  markCellLeaderDirectorNoteRead,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
+import { calcTenureLabel, memberCategoryLabel } from '../utils/cellMemberCategory'
 import { ROLES } from '../constants/roles'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useViewAs } from '../context/ViewAsContext'
@@ -46,6 +53,8 @@ function miniDur(from, to) {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+const NOTE_QUICK_TAGS = ['Transfer Member', 'Needs Follow-up', 'Inactivity Note']
 
 const SHEPHERD_FIELDS = [
   { key: 'worship_song',  label: '🎵 Worship Song',   placeholder: 'e.g. Great Are You Lord — C major' },
@@ -132,6 +141,54 @@ function isUpcomingSoon(dateStr, days = 7) {
   if (upcoming < today) upcoming.setFullYear(today.getFullYear() + 1)
   const diffDays = (upcoming - today) / (1000 * 60 * 60 * 24)
   return diffDays >= 0 && diffDays <= days
+}
+
+// Collapsible list of Former / Not-Attending members, shared by the cell leader
+// and director views. `members` must already be filtered to the right category.
+function InactiveCategoryList({ title, members, expanded, onToggle, showTenure, onReactivate, reactivatingId }) {
+  return (
+    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left"
+      >
+        <span className="font-semibold text-slate-800 text-sm">{title} <span className="text-slate-400 font-normal">({members.length})</span></span>
+        <span className="text-slate-400 text-xs">{expanded ? '▲ Hide' : '▼ Show'}</span>
+      </button>
+      {expanded && (
+        <div className="divide-y divide-slate-100 border-t border-slate-100">
+          {members.length === 0 && (
+            <p className="px-5 py-4 text-sm text-slate-400">None.</p>
+          )}
+          {members.map((m) => {
+            const tenure = showTenure ? calcTenureLabel(m.since, m.leftDate) : null
+            return (
+              <div key={m.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-slate-800 text-sm truncate">{m.name || '—'}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {m.locality && <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">📍 {m.locality}</span>}
+                    {tenure && <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">Member for {tenure}</span>}
+                  </div>
+                </div>
+                {onReactivate && (
+                  <button
+                    type="button"
+                    disabled={reactivatingId === m.id}
+                    onClick={() => onReactivate(m)}
+                    className="flex-shrink-0 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition disabled:opacity-50"
+                  >
+                    {reactivatingId === m.id ? 'Reactivating…' : 'Reactivate'}
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Root Component ───────────────────────────────────────────────────────────
@@ -428,11 +485,23 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [transferring, setTransferring]     = useState(false)
   const [toast, setToast]                   = useState(null)
   const [glowFilter, setGlowFilter]         = useState('all')
+  const [showFormer, setShowFormer]         = useState(false)
+  const [showNotAttending, setShowNotAttending] = useState(false)
 
   // Prayer state
   const [prayerMember, setPrayerMember]   = useState(null) // member object
   const [prayerSubject, setPrayerSubject] = useState('')
   const [savingPrayer, setSavingPrayer]   = useState(false)
+
+  // Message Cell Director state (Cell Leader → Cell Director note about a member)
+  const [noteTarget, setNoteTarget]   = useState(null) // member object
+  const [noteTags, setNoteTags]       = useState([])
+  const [noteMessage, setNoteMessage] = useState('')
+  const [sendingNote, setSendingNote] = useState(false)
+
+  // Director inbox — unread leader notes
+  const [leaderNotes, setLeaderNotes]                 = useState([])
+  const [markingNoteReadId, setMarkingNoteReadId]     = useState(null)
 
   // Member detail sheet
   const [detailMember, setDetailMember]           = useState(null)
@@ -550,6 +619,13 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       .finally(() => setPcsLoading(false))
   }, [])
 
+  // Director inbox — subscribe to unread leader notes about members
+  useEffect(() => {
+    if (!isDirector) return
+    const unsub = subscribeCellLeaderDirectorNotes(setLeaderNotes)
+    return unsub
+  }, [isDirector])
+
   // Subscribe to pending fill invitations for hub badge count.
   // Fall back to the resolved selectedCellId for leaders matched by name whose
   // profile doesn't yet have cellGroupId/cellId set.
@@ -598,6 +674,50 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     }
   }
 
+  const toggleNoteTag = (tag) => {
+    setNoteTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
+  }
+
+  const handleSendNoteToDirector = async () => {
+    if (!noteTarget || !selectedCellId) return
+    if (noteTags.length === 0 && !noteMessage.trim()) {
+      showToast('Add a tag or a message first.', 'error')
+      return
+    }
+    setSendingNote(true)
+    try {
+      const cellName = cellGroups.find(g => g.id === selectedCellId)?.cellName || ''
+      await createCellLeaderDirectorNote({
+        cellId:      selectedCellId,
+        cellName,
+        memberId:    noteTarget.id,
+        memberName:  noteTarget.name,
+        memberPhone: noteTarget.phone || '',
+        tags:        noteTags,
+        message:     noteMessage.trim(),
+        sentBy:      userProfile?.email || '',
+        sentByName:  userProfile?.name  || userProfile?.email || 'Cell Leader',
+      })
+      showToast('Message sent to Cell Director.')
+      setNoteTarget(null)
+      setNoteTags([])
+      setNoteMessage('')
+    } catch (err) {
+      console.error('Message Cell Director error:', err)
+      showToast('Failed to send message. Please try again.', 'error')
+    } finally {
+      setSendingNote(false)
+    }
+  }
+
+  const handleMarkNoteRead = async (id) => {
+    setMarkingNoteReadId(id)
+    try {
+      await markCellLeaderDirectorNoteRead(id)
+    } catch { /* subscription will retry on next snapshot */ }
+    finally { setMarkingNoteReadId(null) }
+  }
+
   const handleTransfer = async () => {
     if (!transferTarget || !transferState) return
     setTransferring(true)
@@ -619,13 +739,28 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     if (!inactiveTarget || !selectedCellId) return
     setMarkingInactive(true)
     try {
-      await updateCellGroupMember(selectedCellId, inactiveTarget.id, { status: 'inactive' })
-      showToast(`${inactiveTarget.name} moved to Inactive.`)
-      setMembers(prev => prev.map(m => m.id === inactiveTarget.id ? { ...m, status: 'inactive' } : m))
+      const result = await deactivateCellGroupMember(selectedCellId, inactiveTarget.id, inactiveTarget.name)
+      const category = result?.memberCategory || 'not_attending'
+      showToast(`${inactiveTarget.name} moved to ${memberCategoryLabel(category)}.`)
+      setMembers(prev => prev.map(m => m.id === inactiveTarget.id
+        ? { ...m, status: 'inactive', memberCategory: category, leftDate: new Date().toISOString().slice(0, 10) }
+        : m))
       setInactiveTarget(null)
       setDetailMember(null)
     } catch { showToast('Failed to mark inactive.', 'error') }
     finally { setMarkingInactive(false) }
+  }
+
+  const [reactivatingId, setReactivatingId] = useState(null)
+  const handleReactivateShepherd = async (member) => {
+    if (!selectedCellId) return
+    setReactivatingId(member.id)
+    try {
+      await updateCellGroupMember(selectedCellId, member.id, { status: 'active' })
+      showToast(`${member.name} reactivated.`)
+      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, status: 'active', memberCategory: '' } : m))
+    } catch { showToast('Failed to reactivate.', 'error') }
+    finally { setReactivatingId(null) }
   }
 
   // Transfer only for Directors/Founders (effectiveIsDirector covers both)
@@ -678,6 +813,16 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     [enrichedMembers]
   )
 
+  const formerMembers = useMemo(
+    () => enrichedMembers.filter((m) => m.status === 'inactive' && m.memberCategory === 'former'),
+    [enrichedMembers]
+  )
+  const notAttendingMembers = useMemo(
+    () => enrichedMembers.filter((m) => m.status === 'inactive' && m.memberCategory !== 'former'),
+    [enrichedMembers]
+  )
+  const canEditMembers = isDirector || isLeader
+
   const filteredMembers = useMemo(() => {
     return activeMembers.filter((m) => {
       if (search && !m.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -712,6 +857,39 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
           toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'
         }`}>
           {toast.msg}
+        </div>
+      )}
+
+      {/* Director inbox — notes leaders have sent about members */}
+      {isDirector && leaderNotes.length > 0 && (
+        <div className="bg-amber-50 rounded-3xl border border-amber-200 p-4 shadow-sm space-y-3">
+          <h3 className="font-semibold text-amber-800 text-sm">Leader Notes ({leaderNotes.length})</h3>
+          <div className="space-y-2">
+            {leaderNotes.map((n) => (
+              <div key={n.id} className="bg-white rounded-2xl border border-amber-100 p-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800">{n.memberName || 'Member'} <span className="text-xs font-normal text-slate-400">· {n.cellName || 'Cell'}</span></p>
+                  {n.tags?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {n.tags.map((tag) => (
+                        <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                  {n.message && <p className="text-xs text-slate-600 mt-1.5">{n.message}</p>}
+                  <p className="text-[10px] text-slate-400 mt-1.5">From {n.sentByName || 'Cell Leader'}{n.sentAt ? ` · ${fmt(n.sentAt)}` : ''}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={markingNoteReadId === n.id}
+                  onClick={() => handleMarkNoteRead(n.id)}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200 transition disabled:opacity-50"
+                >
+                  {markingNoteReadId === n.id ? '…' : 'Mark Read'}
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -833,60 +1011,62 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
 
               const pcsStatus = pcsLoading ? 'checking' : inPCS ? 'in' : 'out'
 
+              const openMemberDetail = () => {
+                setDetailMember(member)
+                setDetailProfile(null)
+                setDetailVisitor(null)
+                setDetailAttendance([])
+                setDetailSundayHistory([])
+                setDetailMinistries([])
+                setDetailLoading(true)
+                const memberNameLower = String(member.name || '').trim().toLowerCase()
+                Promise.all([
+                  member.visitorId ? getMemberProfileWithContext(member.visitorId, member.phone, null, member.name).catch(() => null) : Promise.resolve(null),
+                  member.visitorId ? getDelightVisitorById(member.visitorId).catch(() => null) : Promise.resolve(null),
+                  selectedCellId ? getRecentCellReportsForHeatmap(selectedCellId, 5).catch(() => []) : Promise.resolve([]),
+                  selectedCellId ? getRecentSundayAttendanceNamesByCell(selectedCellId, 5).catch(() => []) : Promise.resolve([]),
+                ]).then(([ctx, visitor, reports, sundayRecords]) => {
+                  setDetailProfile(ctx?.profile || null)
+                  setDetailVisitor(visitor)
+                  const deptTeams = ctx?.deptTeams || []
+                  const worshipTeams = ctx?.worshipTeams || []
+                  setDetailMinistries([
+                    ...deptTeams.map(t => ({ ministry: t.department, role: t.rolePosition || t.role || '', from: t.since || '' })),
+                    ...worshipTeams.map(t => ({ ministry: 'Worship', role: (t.positions || [])[0] || '', from: t.since || '' })),
+                  ])
+                  const todayStr = new Date().toISOString().slice(0, 10)
+                  setDetailAttendance(
+                    reports
+                      .filter(r => r.reportDate && r.reportDate < todayStr)
+                      .map(r => ({
+                        date: r.reportDate,
+                        present: r.attendeeNames.has(memberNameLower),
+                      }))
+                  )
+                  setDetailSundayHistory(sundayRecords)
+                }).finally(() => setDetailLoading(false))
+              }
+
               return (
                 <div
                   key={member.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={openMemberDetail}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMemberDetail() } }}
                   style={pcsStatus === 'out' ? { borderLeft: '4px solid #f97316' } : { borderLeft: '4px solid #e2e8f0' }}
-                  className={`bg-white rounded-3xl shadow-sm transition-all overflow-hidden ${GLOW_RING[glow]}`}
+                  className={`bg-white rounded-3xl shadow-sm transition-all overflow-hidden cursor-pointer ${GLOW_RING[glow]}`}
                 >
                   <div className="p-3 sm:p-5">
                   {/* ── Header row ── */}
                   <div className="flex items-start justify-between gap-2 mb-3">
-                    <button
-                      type="button"
-                      className="flex items-center gap-2 min-w-0 text-left"
-                      onClick={() => {
-                        setDetailMember(member)
-                        setDetailProfile(null)
-                        setDetailVisitor(null)
-                        setDetailAttendance([])
-                        setDetailSundayHistory([])
-                        setDetailMinistries([])
-                        setDetailLoading(true)
-                        const memberNameLower = String(member.name || '').trim().toLowerCase()
-                        Promise.all([
-                          member.visitorId ? getMemberProfileWithContext(member.visitorId, member.phone, null, member.name).catch(() => null) : Promise.resolve(null),
-                          member.visitorId ? getDelightVisitorById(member.visitorId).catch(() => null) : Promise.resolve(null),
-                          selectedCellId ? getRecentCellReportsForHeatmap(selectedCellId, 5).catch(() => []) : Promise.resolve([]),
-                          selectedCellId ? getRecentSundayAttendanceNamesByCell(selectedCellId, 5).catch(() => []) : Promise.resolve([]),
-                        ]).then(([ctx, visitor, reports, sundayRecords]) => {
-                          setDetailProfile(ctx?.profile || null)
-                          setDetailVisitor(visitor)
-                          const deptTeams = ctx?.deptTeams || []
-                          const worshipTeams = ctx?.worshipTeams || []
-                          setDetailMinistries([
-                            ...deptTeams.map(t => ({ ministry: t.department, role: t.rolePosition || t.role || '', from: t.since || '' })),
-                            ...worshipTeams.map(t => ({ ministry: 'Worship', role: (t.positions || [])[0] || '', from: t.since || '' })),
-                          ])
-                          const todayStr = new Date().toISOString().slice(0, 10)
-                          setDetailAttendance(
-                            reports
-                              .filter(r => r.reportDate && r.reportDate < todayStr)
-                              .map(r => ({
-                                date: r.reportDate,
-                                present: r.attendeeNames.has(memberNameLower),
-                              }))
-                          )
-                          setDetailSundayHistory(sundayRecords)
-                        }).finally(() => setDetailLoading(false))
-                      }}
-                    >
+                    <div className="flex items-center gap-2 min-w-0">
                       <span className={`w-3 h-3 rounded-full flex-shrink-0 mt-0.5 ${GLOW_DOT[glow]}`} />
                       <div className="min-w-0">
-                        <p className="font-bold text-slate-900 text-sm truncate underline-offset-2 hover:underline">{member.name}</p>
+                        <p className="font-bold text-slate-900 text-sm truncate">{member.name}</p>
                         <p className={`text-xs font-medium ${GLOW_TEXT[glow]}`}>{GLOW_LABEL[glow]}</p>
                       </div>
-                    </button>
+                    </div>
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0 ml-1">
                       {/* Sunday Pulse */}
                       <div className="flex items-center gap-1.5">
@@ -985,12 +1165,23 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                     {(phone10 || member.email) && <div className="w-px h-7 bg-slate-200 flex-shrink-0" />}
                     <button
                       type="button"
-                      onClick={() => { setPrayerMember(member); setPrayerSubject('') }}
+                      onClick={(e) => { e.stopPropagation(); setPrayerMember(member); setPrayerSubject('') }}
                       className="flex flex-col items-center gap-0.5 group flex-shrink-0"
                       title="Add Prayer"
                     >
                       <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center group-hover:bg-violet-100 transition text-sm sm:text-base">🙏</span>
                       <span className="text-[9px] text-slate-400 font-medium">Prayer</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setNoteTarget(member); setNoteTags([]); setNoteMessage('') }}
+                      className="flex flex-col items-center gap-0.5 group flex-shrink-0"
+                      title="Message Cell Director"
+                    >
+                      <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center group-hover:bg-amber-100 transition">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-medium">Notify</span>
                     </button>
                   </div>
 
@@ -1000,7 +1191,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                       {canTransfer() && otherCells.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => { setTransferState({ memberId: member.id, memberName: member.name }); setTransferTarget('') }}
+                          onClick={(e) => { e.stopPropagation(); setTransferState({ memberId: member.id, memberName: member.name }); setTransferTarget('') }}
                           className="flex-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200 transition"
                         >
                           Transfer
@@ -1015,7 +1206,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                           <button
                             type="button"
                             disabled={notifying}
-                            onClick={() => handleNotifyCaring(member)}
+                            onClick={(e) => { e.stopPropagation(); handleNotifyCaring(member) }}
                             className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition disabled:opacity-50"
                           >
                             <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
@@ -1036,6 +1227,24 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               No members found{search ? ` matching "${search}"` : ''}{glowFilter !== 'all' ? ` with "${GLOW_LABEL[glowFilter]}" status` : ''}.
             </div>
           )}
+
+          <InactiveCategoryList
+            title="Former Members"
+            members={formerMembers}
+            expanded={showFormer}
+            onToggle={() => setShowFormer((v) => !v)}
+            showTenure
+            onReactivate={canEditMembers ? handleReactivateShepherd : null}
+            reactivatingId={reactivatingId}
+          />
+          <InactiveCategoryList
+            title="Inactive Members (Not Attending)"
+            members={notAttendingMembers}
+            expanded={showNotAttending}
+            onToggle={() => setShowNotAttending((v) => !v)}
+            onReactivate={canEditMembers ? handleReactivateShepherd : null}
+            reactivatingId={reactivatingId}
+          />
         </>
       )}
 
@@ -1069,6 +1278,58 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               <button
                 type="button"
                 onClick={() => setPrayerMember(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 text-sm hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Message Cell Director Modal */}
+      {noteTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <div>
+              <h3 className="font-bold text-slate-900">Message Cell Director regarding {noteTarget.name}</h3>
+              <p className="text-sm text-slate-500 mt-0.5">Sent as an in-app note — visible in the Director's Shepherd's Hub.</p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {NOTE_QUICK_TAGS.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => toggleNoteTag(tag)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition ${
+                    noteTags.includes(tag)
+                      ? 'bg-amber-500 text-white border-amber-500'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={noteMessage}
+              onChange={(e) => setNoteMessage(e.target.value)}
+              placeholder="Optional details…"
+              rows={3}
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 resize-none"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSendNoteToDirector}
+                disabled={sendingNote || (noteTags.length === 0 && !noteMessage.trim())}
+                className="flex-1 px-4 py-2 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-50"
+              >
+                {sendingNote ? 'Sending…' : 'Send to Director'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setNoteTarget(null); setNoteTags([]); setNoteMessage('') }}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 text-sm hover:bg-slate-50"
               >
                 Cancel
@@ -1166,6 +1427,19 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                 <p className="font-bold text-slate-900 text-base truncate">{detailMember.name}</p>
                 <p className={`text-xs font-medium ${GLOW_TEXT[getGlow(detailMember.name, heatmap)]}`}>{GLOW_LABEL[getGlow(detailMember.name, heatmap)]}</p>
               </div>
+              {isLeader && !isDirector && (
+                <button
+                  type="button"
+                  onClick={() => setInactiveTarget(detailMember)}
+                  title="Mark Inactive"
+                  aria-label="Mark Inactive"
+                  className="w-9 h-9 flex items-center justify-center rounded-full text-red-500 hover:bg-red-50 flex-shrink-0"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>
+                  </svg>
+                </button>
+              )}
               <button type="button" onClick={() => setDetailMember(null)} className="w-9 h-9 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
             </div>
 
@@ -1507,26 +1781,6 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               )}
 
             </div>
-
-            {/* Footer actions */}
-            <div className="px-5 py-4 border-t border-slate-100 flex-shrink-0 space-y-2">
-              <button
-                type="button"
-                onClick={() => { setPrayerMember(detailMember); setPrayerSubject(''); setDetailMember(null) }}
-                className="w-full px-4 py-2.5 rounded-2xl bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition"
-              >
-                🙏 Add Prayer
-              </button>
-              {isLeader && !isDirector && (
-                <button
-                  type="button"
-                  onClick={() => setInactiveTarget(detailMember)}
-                  className="w-full px-4 py-2.5 rounded-2xl bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100 transition"
-                >
-                  Mark Inactive
-                </button>
-              )}
-            </div>
           </div>
         </div>
       )}
@@ -1607,6 +1861,10 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
   const [fillInviteForm, setFillInviteForm]         = useState({})
   const [fillInviteSaving, setFillInviteSaving]     = useState(false)
 
+  // "Remind" notifications sent by a Director when this cell's weekly report is overdue
+  const [reportReminders, setReportReminders]         = useState([])
+  const [dismissingReminderId, setDismissingReminderId] = useState(null)
+
   const openDetail = (member) => {
     setDetailMember(member)
     setDetailProfile(null)
@@ -1668,6 +1926,14 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
     const cellId = userProfile?.cellGroupId || userProfile?.cellId || selectedCellId
     if (!cellId) return
     const unsub = subscribePCSFillInvitationsByCellId(cellId, setPendingInvitations)
+    return unsub
+  }, [userProfile?.cellGroupId, userProfile?.cellId, selectedCellId])
+
+  // Subscribe to "Remind" notifications a Director sent for this cell's overdue report.
+  useEffect(() => {
+    const cellId = userProfile?.cellGroupId || userProfile?.cellId || selectedCellId
+    if (!cellId) return
+    const unsub = subscribeCellReportRemindersByCellId(cellId, setReportReminders)
     return unsub
   }, [userProfile?.cellGroupId, userProfile?.cellId, selectedCellId])
 
@@ -1893,6 +2159,39 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
         <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl text-white shadow-lg text-sm font-medium ${
           toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'
         }`}>{toast.msg}</div>
+      )}
+
+      {/* Reminders from a Director: this cell's weekly report is overdue */}
+      {reportReminders.length > 0 && (
+        <div className="space-y-2">
+          {reportReminders.map((r) => (
+            <div key={r.id} className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-start gap-3">
+              <span className="text-lg flex-shrink-0">🔔</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-900">
+                  Cell report reminder{r.expectedDate ? ` — due ${r.expectedDate}` : ''}
+                </p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  {r.sentByName ? `From ${r.sentByName}: ` : ''}Your cell's weekly report hasn't been submitted yet. Please file it as soon as possible.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={dismissingReminderId === r.id}
+                onClick={async () => {
+                  setDismissingReminderId(r.id)
+                  try {
+                    await dismissCellReportReminder(r.id)
+                  } catch { /* ignore */ }
+                  setDismissingReminderId(null)
+                }}
+                className="text-xs font-semibold text-amber-700 hover:bg-amber-100 px-2.5 py-1 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50"
+              >
+                {dismissingReminderId === r.id ? '…' : 'Dismiss'}
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       {deactivateTarget && (

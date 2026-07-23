@@ -33,6 +33,7 @@ import {
   updateCellGroup,
   addCellGroupMember,
   updateCellGroupMember,
+  deactivateCellGroupMember,
   deleteCellGroupMember,
   getCellMemberPendingChanges,
   addCellMemberPendingChange,
@@ -85,6 +86,7 @@ import {
   updatePCSEntry,
   deletePCSEntry,
   deactivatePCSEntry,
+  dismissInactiveCellAlert,
   getInactivePCSEntries,
   getDelightVisitorById,
   migrateSundayServiceToEnglish,
@@ -118,6 +120,7 @@ import {
   completeCellVisitorProposal,
   dismissCellVisitorProposal,
   getSundayAttendanceCountsByName,
+  getRecentSundayAttendanceWeeks,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -133,6 +136,7 @@ import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
 import DLightDirectorDashboard from '../components/DLightDirectorDashboard'
 import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
 import { defaultCellTab, visibleCellTabs } from '../utils/cellTabVisibility'
+import { calcTenureLabel } from '../utils/cellMemberCategory'
 import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import CellOperationsToggle from './cell/CellOperationsToggle'
@@ -283,6 +287,8 @@ export default function DepartmentHub() {
   const [cellMemberVisitors, setCellMemberVisitors] = useState([])
   const [cellMemberVisitorSearch, setCellMemberVisitorSearch] = useState('')
   const [cellMemberLinking, setCellMemberLinking] = useState(null)
+  const [cellMemberActionMenuId, setCellMemberActionMenuId] = useState(null)
+  const [cellMemberActionMenuPos, setCellMemberActionMenuPos] = useState({ top: 0, right: 0 })
   const [teamMemberLinking, setTeamMemberLinking] = useState(null)
   const [cellMemberLinkedVisitor, setCellMemberLinkedVisitor] = useState(null)
   const [cellMemberLinkedVisitorForm, setCellMemberLinkedVisitorForm] = useState({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
@@ -339,7 +345,10 @@ export default function DepartmentHub() {
   // Week-comer follow-up: which Sunday's report to mark, and the candidate names for
   // second/third/fourth week comers, sourced from D-Light attendedDate + last week's
   // confirmed Sunday Ministry attendance (see the effect that populates these).
-  const [weekComerDate, setWeekComerDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+  // Must always be a Sunday — this date is the doc ID of the sunday_reports report being
+  // written into, and Sunday Ministry attendance only exists per-Sunday.
+  const [weekComerDate, setWeekComerDate] = useState(() => upcomingSunday())
+  const [weekComerDateWarning, setWeekComerDateWarning] = useState(false)
   const [weekComerCandidates, setWeekComerCandidates] = useState({ second: [], third: [], fourth: [] })
   const [loadingWeekComerCandidates, setLoadingWeekComerCandidates] = useState(false)
   const [markingWeekComerName, setMarkingWeekComerName] = useState(null)
@@ -376,6 +385,10 @@ export default function DepartmentHub() {
   const [pcsPhotoPreview, setPcsPhotoPreview] = useState(null)
   const [pcsNotifiedIds, setPcsNotifiedIds] = useState(new Set())
   const [pcsNotifyingId, setPcsNotifyingId] = useState(null)
+  const [pcsToast, setPcsToast] = useState(null)
+  const [sundayAttendanceWeeks, setSundayAttendanceWeeks] = useState([])
+  const [rkChildrenForPCS, setRkChildrenForPCS] = useState([])
+  const [pcsChildSearchOpenId, setPcsChildSearchOpenId] = useState(null)
   const [pcsSpouseFocused, setPcsSpouseFocused] = useState(false)
   const [pcsShowFormer, setPcsShowFormer] = useState(false)
   const [pcsInactiveEntries, setPcsInactiveEntries] = useState([])
@@ -449,6 +462,14 @@ export default function DepartmentHub() {
   const [pcsForwardOpen, setPcsForwardOpen] = useState(false)
   const [pcsForwardAdding, setPcsForwardAdding] = useState(new Set())
   const [pcsForwardDismissing, setPcsForwardDismissing] = useState(new Set())
+
+  // "Cell Assignment Consults" — Cell Director requests for D-Light input on where to
+  // place an unassigned person (department: 'D Light', cellAssignConsult: true on the
+  // shared `tasks` collection; see subscribeTasksByDepartment above).
+  const [dlightConsultOpen, setDlightConsultOpen] = useState(false)
+  const [dlightConsultTarget, setDlightConsultTarget] = useState(null) // task being responded to
+  const [dlightConsultReply, setDlightConsultReply] = useState('')
+  const [sendingDlightReply, setSendingDlightReply] = useState(false)
 
   const [monthlyExpenseTotal, setMonthlyExpenseTotal] = useState(0)
   const [loadingMonthlyExpense, setLoadingMonthlyExpense] = useState(true)
@@ -1188,6 +1209,8 @@ export default function DepartmentHub() {
           getCellGroupMembers(g.id).then(members => members.map(m => ({ ...m, cellId: g.id })))
         )).then(results => setAllCellMembers(results.flat())).catch(() => {})
       }).catch(() => {})
+      getRecentSundayAttendanceWeeks(20).then(setSundayAttendanceWeeks).catch(() => setSundayAttendanceWeeks([]))
+      getDepartmentChildren('River Kids').then(kids => setRkChildrenForPCS(kids.filter(k => k.active !== false))).catch(() => setRkChildrenForPCS([]))
     }
   }, [slug, activeTab])
 
@@ -2448,6 +2471,130 @@ export default function DepartmentHub() {
             )
           })()}
 
+          {/* ── Cell Assignment Consults: Cell Director asking for D-Light input ── */}
+          {activeTab === 'visitorEntry' && slug === 'd-light' && (() => {
+            const consultTasks = tasks.filter(t => t.cellAssignConsult === true && t.status !== 'Completed')
+            if (consultTasks.length === 0) return null
+            return (
+              <div className="bg-white rounded-2xl border border-orange-200 shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setDlightConsultOpen(o => !o)}
+                  className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-orange-50 transition-colors"
+                >
+                  <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
+                  <p className="text-sm font-bold text-orange-800 flex-1">Cell Assignment Consults</p>
+                  <span className="bg-orange-100 text-orange-700 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                    {consultTasks.length}
+                  </span>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-orange-400 transition-transform flex-shrink-0 ${dlightConsultOpen ? 'rotate-180' : ''}`}>
+                    <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+
+                {dlightConsultOpen && (
+                  <>
+                    <p className="px-4 pb-2 text-xs text-slate-400 border-t border-orange-100 pt-3">
+                      The Cell Director is asking for your input on where to place these people.
+                    </p>
+                    <ul className="divide-y divide-orange-50">
+                      {consultTasks.map((t) => {
+                        const responded = t.status === 'Responded'
+                        return (
+                          <li key={t.id} className="px-4 py-3 flex flex-wrap items-start gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-slate-800 text-sm truncate">{t.consultPersonName || t.taskTitle}</p>
+                              {t.consultPersonPhone && <p className="text-xs text-slate-500">{t.consultPersonPhone}</p>}
+                              <p className="text-xs text-slate-400 mt-0.5">{t.consultNote}</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5">Requested by {t.requestedBy || 'Cell Director'}</p>
+                              {responded && t.recommendation && (
+                                <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5 italic">
+                                  Your reply: "{t.recommendation}"
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => { setDlightConsultTarget(t); setDlightConsultReply(t.recommendation || '') }}
+                                className="px-3 py-1.5 rounded-lg bg-orange-500 text-white text-xs font-medium hover:bg-orange-600"
+                              >
+                                {responded ? 'Edit Reply' : 'Respond'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try { await updateTask(t.id, { status: 'Completed' }) } catch { /* ignore */ }
+                                }}
+                                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 text-xs hover:bg-slate-50"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Respond to Cell Assignment Consult modal */}
+          {dlightConsultTarget && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setDlightConsultTarget(null)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+                <div>
+                  <h3 className="font-bold text-slate-900">Recommendation for {dlightConsultTarget.consultPersonName}</h3>
+                  <p className="text-sm text-slate-500 mt-0.5">Sent back to the Cell Director in their Unassigned list.</p>
+                </div>
+                <textarea
+                  value={dlightConsultReply}
+                  onChange={(e) => setDlightConsultReply(e.target.value)}
+                  placeholder="e.g. Best-fit cell, background context, or next steps…"
+                  rows={4}
+                  autoFocus
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 resize-none"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={!dlightConsultReply.trim() || sendingDlightReply}
+                    onClick={async () => {
+                      setSendingDlightReply(true)
+                      try {
+                        await updateTask(dlightConsultTarget.id, {
+                          status: 'Responded',
+                          recommendation: dlightConsultReply.trim(),
+                          respondedBy: userProfile?.email || '',
+                          respondedAt: new Date().toISOString(),
+                        })
+                        setDlightConsultTarget(null)
+                        setDlightConsultReply('')
+                      } catch (err) {
+                        console.error('Respond to consult error', err)
+                        alert('Failed to send recommendation. Please try again.')
+                      } finally {
+                        setSendingDlightReply(false)
+                      }
+                    }}
+                    className="flex-1 px-4 py-2 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 disabled:opacity-50"
+                  >
+                    {sendingDlightReply ? 'Sending…' : 'Send to Cell Director'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDlightConsultTarget(null)}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 text-sm hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── From Cell Reports: visitor proposals ── */}
           {activeTab === 'visitorEntry' && slug === 'd-light' && cellVisitorProposals.length > 0 && (
             <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm overflow-hidden">
@@ -2700,7 +2847,7 @@ export default function DepartmentHub() {
                       type="button"
                       onClick={() => {
                         setEditingDelightVisitorId(null)
-                        setDelightVisitorForm({ name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '', source: '', year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear })
+                        setDelightVisitorForm({ name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: upcomingSunday(), howKnown: '', source: '', year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear })
                         setDelightVisitorModalOpen(true)
                       }}
                       className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
@@ -2727,11 +2874,32 @@ export default function DepartmentHub() {
                       <input
                         type="date"
                         value={weekComerDate}
-                        onChange={(e) => setWeekComerDate(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          if (!val) return
+                          const d = new Date(val + 'T00:00:00')
+                          if (d.getDay() === 0) {
+                            setWeekComerDate(val)
+                            setWeekComerDateWarning(false)
+                          } else {
+                            // Not a Sunday — snap to whichever Sunday (before or after) is closer,
+                            // since this date picks which sunday_reports doc gets written to.
+                            const dow = d.getDay()
+                            const snapped = new Date(d)
+                            snapped.setDate(d.getDate() + (dow <= 3 ? -dow : 7 - dow))
+                            setWeekComerDate(format(snapped, 'yyyy-MM-dd'))
+                            setWeekComerDateWarning(true)
+                          }
+                        }}
                         className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200"
                       />
                     </div>
                   </div>
+                  {weekComerDateWarning && (
+                    <p className="text-xs text-amber-600 font-medium mb-3 -mt-1">
+                      ⚠ Sunday Ministry attendance only exists per-Sunday — snapped to the nearest Sunday ({weekComerDate}).
+                    </p>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {[
                       { bucket: 'second', label: 'Second Week' },
@@ -3308,6 +3476,7 @@ export default function DepartmentHub() {
                         }}
                         minYear={VISITOR_START_YEAR}
                         maxYear={VISITOR_CURRENT_YEAR}
+                        sundaysOnly
                       />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -4251,6 +4420,15 @@ export default function DepartmentHub() {
               setPcsExpandedId(entry.id)
               setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null)
               setPcsPhotoFile(null); setPcsPhotoPreview(null)
+              // Auto-link: any River Kids child whose father/mother name matches this person
+              // becomes a pre-populated child entry, so the Caring Director doesn't have to
+              // re-enter kids that are already registered in River Kids.
+              const autoKids = rkChildrenForPCS
+                .filter(k => {
+                  const norm = (entry.name || '').trim().toLowerCase()
+                  return norm && ((k.fatherName || '').trim().toLowerCase() === norm || (k.motherName || '').trim().toLowerCase() === norm)
+                })
+                .map(k => ({ id: `rk_${k.id}`, name: k.name, inRiverKids: 'yes', riverKidsChildId: k.id }))
               setPcsExpandedForm({
                 personId: entry.personId || '',
                 name: entry.name || '', phone: entry.phone || '', attendedDate: entry.attendedDate || '',
@@ -4260,6 +4438,8 @@ export default function DepartmentHub() {
                 ministries: entry.ministries || [],
                 baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
                 maritalStatus: '', marriageDate: '', spouseName: '', spouseVisitorId: '',
+                hasKids: autoKids.length ? 'yes' : '', children: autoKids,
+                previousChurchName: '', previousChurchPlace: '',
                 membershipStatus: '', membershipDocs: [], permanentAddress: '', photoUrl: '',
               })
               // Load full personal data from people collection if linked
@@ -4311,6 +4491,9 @@ export default function DepartmentHub() {
                     setPcsExpandedProfile(ctx.profile)
                     setPcsExpandedContext(ctx)
                     const p = ctx.profile || {}
+                    const savedChildren = Array.isArray(p.children) ? p.children : []
+                    const savedLinkedIds = new Set(savedChildren.filter(c => c.riverKidsChildId).map(c => c.riverKidsChildId))
+                    const mergedChildren = [...savedChildren, ...autoKids.filter(k => !savedLinkedIds.has(k.riverKidsChildId))]
                     setPcsExpandedForm(f => ({
                       ...f,
                       baptised: p.baptised || '',
@@ -4319,6 +4502,10 @@ export default function DepartmentHub() {
                       baptismChurchIsOther: !!p.baptismChurch && p.baptismChurch !== 'River Of Life Christian Church',
                       maritalStatus: p.maritalStatus || '',
                       marriageDate: p.marriageDate || '', spouseName: p.spouseName || '', spouseVisitorId: p.spouseVisitorId || '',
+                      hasKids: p.hasKids || (mergedChildren.length ? 'yes' : ''),
+                      children: mergedChildren,
+                      previousChurchName: p.previousChurchName || '',
+                      previousChurchPlace: p.previousChurchPlace || '',
                       membershipStatus: p.membershipStatus || '',
                       membershipDocs: p.membershipDocs || [],
                       permanentAddress: p.permanentAddress || '',
@@ -4331,6 +4518,12 @@ export default function DepartmentHub() {
             }
 
             const cellVisitorIds = new Set(allCellMembers.filter(m => m.status !== 'inactive' && m.visitorId).map(m => m.visitorId))
+            const cellNameByVisitorId = new Map()
+            allCellMembers.filter(m => m.status !== 'inactive' && m.visitorId).forEach(m => {
+              if (!cellNameByVisitorId.has(m.visitorId)) {
+                cellNameByVisitorId.set(m.visitorId, cellGroups.find(g => g.id === m.cellId)?.cellName || '')
+              }
+            })
 
             const handleRemoveFromPCS = async (entry) => {
               if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
@@ -4341,6 +4534,27 @@ export default function DepartmentHub() {
                 if (pcsExpandedId === entry.id) setPcsExpandedId(null)
               } catch { alert('Failed to remove. Please try again.') }
               setPcsMenuOpenId(null)
+            }
+
+            const handleDismissInactiveCellAlert = async (entry) => {
+              try {
+                await dismissInactiveCellAlert(entry.id)
+                setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, inactiveCellAlertDismissed: true } : e))
+              } catch { alert('Failed to dismiss. Please try again.') }
+            }
+
+            // Consecutive Sundays absent, counting back from the most recent report —
+            // stops at the first week the name shows up in any attendance list.
+            // Weeks with no filed report are skipped rather than counted as absent.
+            const getConsecutiveAbsentSundays = (name) => {
+              const norm = String(name || '').trim().toLowerCase()
+              if (!norm || sundayAttendanceWeeks.length === 0) return 0
+              let count = 0
+              for (const wk of sundayAttendanceWeeks) {
+                if (wk.names.has(norm)) break
+                count++
+              }
+              return count
             }
 
             const Chip = ({ entry }) => {
@@ -4402,7 +4616,9 @@ export default function DepartmentHub() {
                       </div>
                       {hasMember
                         ? <p className={`text-xs font-medium leading-tight ${isExpanded ? 'text-indigo-200' : isPastor ? 'text-amber-700' : 'text-amber-600'}`}>#{entry.membershipNumber}</p>
-                        : <p className={`text-xs leading-tight ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>No member #</p>
+                        : isInCell
+                          ? <p className={`text-xs font-medium leading-tight truncate max-w-[110px] ${isExpanded ? 'text-indigo-200' : 'text-emerald-600'}`}>{cellNameByVisitorId.get(entry.visitorId) || 'Cell member'}</p>
+                          : <p className={`text-xs leading-tight ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>Not a member</p>
                       }
                     </div>
                     {/* Three-dots menu button */}
@@ -4489,6 +4705,12 @@ export default function DepartmentHub() {
               const updateDocRow = (id, field, val) => setF(p => ({ ...p, membershipDocs: (p.membershipDocs || []).map(r => r.id === id ? { ...r, [field]: val } : r) }))
               const removeDocRow = (id) => setF(p => ({ ...p, membershipDocs: (p.membershipDocs || []).filter(r => r.id !== id) }))
 
+              // Children rows (Personal Data section)
+              const children = f.children || []
+              const addChildRow = () => setF(p => ({ ...p, children: [...(p.children || []), { id: Date.now().toString(), name: '', inRiverKids: '', riverKidsChildId: '' }] }))
+              const updateChildRow = (id, patch) => setF(p => ({ ...p, children: (p.children || []).map(c => c.id === id ? { ...c, ...patch } : c) }))
+              const removeChildRow = (id) => setF(p => ({ ...p, children: (p.children || []).filter(c => c.id !== id) }))
+
               const sectionHead = (label, color = 'text-slate-600') => (
                 <p className={`text-sm font-bold tracking-tight ${color}`}>{label}</p>
               )
@@ -4504,17 +4726,21 @@ export default function DepartmentHub() {
               const s2Checks = [autoMinistry.length > 0]
               const s2Fill = s2Checks.filter(Boolean).length / s2Checks.length
 
-              const s3BaseKeys = ['baptised', 'maritalStatus']
+              const sPersonalBaseKeys = ['maritalStatus', 'hasKids']
+              const sPersonalMarriageKeys = f.maritalStatus === 'Married' ? ['marriageDate','spouseName'] : []
+              const sPersonalAllKeys = [...sPersonalBaseKeys, ...sPersonalMarriageKeys]
+              const sPersonalFill = countFilled(sPersonalAllKeys) / sPersonalAllKeys.length
+
+              const s3BaseKeys = ['baptised']
               const s3BaptismKeys = f.baptised === 'yes' ? ['baptismDate','baptismPlace','baptismChurch'] : []
-              const s3MarriageKeys = f.maritalStatus === 'Married' ? ['marriageDate','spouseName'] : []
-              const s3AllKeys = [...s3BaseKeys, ...s3BaptismKeys, ...s3MarriageKeys]
+              const s3AllKeys = [...s3BaseKeys, ...s3BaptismKeys]
               const s3Fill = countFilled(s3AllKeys) / s3AllKeys.length
 
               const s4Checks = f.membershipStatus ? [!!f.membershipNumber, !!f.permanentAddress, membershipDocs.length > 0] : []
               const s4Fill = s4Checks.length > 0 ? s4Checks.filter(Boolean).length / s4Checks.length : 0
 
-              // Overall = average of all 4 sections
-              const overallFill = (s1Fill + s3Fill) / 2
+              // Overall = average of Visitor Data, Personal Data, and Spiritual Data
+              const overallFill = (s1Fill + sPersonalFill + s3Fill) / 3
 
               // Colour scale: 0=slate, 1-49=red, 50-99=amber, 100=emerald
               const dotCls = (p) => p === 0 ? 'bg-slate-300' : p < 0.5 ? 'bg-red-400' : p < 1 ? 'bg-amber-400' : 'bg-emerald-500'
@@ -4635,24 +4861,19 @@ export default function DepartmentHub() {
                             {field('PCS Year', f.year ? String(f.year) : null)}
                           </div>
                           {(() => {
-                            // Merge manually-entered PCS ministries + auto-detected from dept/worship teams
-                            const manual = (entry.ministries || []).map(r => ({ ...r, isAuto: false }))
-                            const manualNames = new Set(manual.map(r => r.ministry?.toLowerCase()))
-                            const auto = autoMinistry.filter(a => !manualNames.has(a.ministry?.toLowerCase()))
-                            const allM = [...manual, ...auto]
-                            if (!allM.length) return null
+                            // Read-only — synced from duty rosters/assignments made by Ministry Leaders
+                            if (!autoMinistry.length) return null
                             return (
                               <div>
                                 <p className="text-[8px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Ministry & Leadership</p>
                                 <div className="space-y-1.5">
-                                  {allM.map((r, i) => {
+                                  {autoMinistry.map((r) => {
                                     const dur = miniDur(r.from, r.to)
                                     return (
-                                      <div key={i} className="flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                                      <div key={r.id} className="flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
                                         <div className="min-w-0">
                                           <p className="text-[10px] font-bold text-slate-700 leading-tight">
                                             {r.ministry}{r.role ? <span className="font-normal text-slate-400"> · {r.role}</span> : ''}
-                                            {r.isAuto && <span className="ml-1 text-[8px] text-slate-300">(auto)</span>}
                                           </p>
                                           {r.from && <p className="text-[8px] text-slate-400 mt-0.5">since {new Date(r.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</p>}
                                         </div>
@@ -4666,15 +4887,47 @@ export default function DepartmentHub() {
                           })()}
                         </div>
 
+                        {/* Personal */}
+                        {(f.maritalStatus || (f.hasKids === 'yes' && (f.children || []).length > 0)) && (
+                          <div className="px-4 py-3.5">
+                            <SH dot="bg-teal-500" label="Personal" />
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                              {field('Marital Status', f.maritalStatus)}
+                              {f.maritalStatus === 'Married' && <>{field('Marriage Date', fmtD(f.marriageDate))}{field('Spouse', f.spouseName)}</>}
+                            </div>
+                            {f.hasKids === 'yes' && (f.children || []).filter(c => c.name).length > 0 && (() => {
+                              const kids = (f.children || []).filter(c => c.name)
+                              return (
+                                <div className="mt-3">
+                                  <p className="text-[8px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Kids</p>
+                                  {kids.length <= 3 ? (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {kids.map(c => (
+                                        <span key={c.id} className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5">
+                                          {c.name}{c.riverKidsChildId ? ' (River Kids)' : ''}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] font-black text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-2.5 py-0.5">
+                                      {kids.length} kids registered
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        )}
+
                         {/* Spiritual */}
-                        {(f.baptised || f.maritalStatus) && (
+                        {(f.baptised || f.previousChurchName || f.previousChurchPlace) && (
                           <div className="px-4 py-3.5">
                             <SH dot="bg-violet-500" label="Spiritual" />
                             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                               {field('Baptised', f.baptised === 'yes' ? 'Yes' : f.baptised === 'no' ? 'No' : null)}
                               {f.baptised === 'yes' && <>{field('Baptism Date', fmtD(f.baptismDate))}{field('Baptism Place', f.baptismPlace)}{field('Baptism Church', f.baptismChurch)}</>}
-                              {field('Marital Status', f.maritalStatus)}
-                              {f.maritalStatus === 'Married' && <>{field('Marriage Date', fmtD(f.marriageDate))}{field('Spouse', f.spouseName)}</>}
+                              {field('Previous Church', f.previousChurchName)}
+                              {field('Previous Church Location', f.previousChurchPlace)}
                             </div>
                           </div>
                         )}
@@ -4840,6 +5093,161 @@ export default function DepartmentHub() {
                       </div>
                     </div>
 
+                    {/* ═══ SECTION 1.5 · Personal Data ═══ */}
+                    <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-teal-300">
+                      <SecHeader label="Personal Data" fill={sPersonalFill} labelColor="text-teal-700" headerBg="bg-teal-50 border-b border-teal-100" />
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {/* Marital status */}
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Marital Status</p>
+                          <select
+                            value={f.maritalStatus}
+                            onChange={e => setF(p => ({ ...p, maritalStatus: e.target.value }))}
+                            className={inp}>
+                            <option value="">— Select —</option>
+                            {['Single','Married','Widowed','Divorced'].map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Marriage details — only when Married */}
+                        {f.maritalStatus === 'Married' && (<>
+                          {fld('Marriage Date', 'marriageDate', 'date')}
+                          <div className="space-y-0.5 relative">
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Spouse Name</p>
+                            <input
+                              type="text"
+                              placeholder="Search or type name…"
+                              value={f.spouseName}
+                              onChange={e => {
+                                setF(p => ({ ...p, spouseName: e.target.value, spouseVisitorId: '' }))
+                                setPcsSpouseFocused(true)
+                              }}
+                              onFocus={() => setPcsSpouseFocused(true)}
+                              onBlur={() => setTimeout(() => setPcsSpouseFocused(false), 150)}
+                              className={inp}
+                            />
+                            {/* Linked badge */}
+                            {f.spouseVisitorId && (
+                              <span className="absolute right-2 top-7 text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">linked</span>
+                            )}
+                            {/* Typeahead dropdown */}
+                            {pcsSpouseFocused && f.spouseName.trim().length >= 2 && (() => {
+                              const q = f.spouseName.trim().toLowerCase()
+                              const matches = pcsEntries
+                                .filter(e => e.id !== entry.id && e.name && e.name.toLowerCase().includes(q))
+                                .slice(0, 6)
+                              if (!matches.length) return null
+                              return (
+                                <div className="absolute z-20 top-full left-0 right-0 mt-0.5 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                                  {matches.map(m => (
+                                    <button key={m.id} type="button"
+                                      onMouseDown={() => {
+                                        setF(p => ({ ...p, spouseName: m.name, spouseVisitorId: m.visitorId || m.id }))
+                                        setPcsSpouseFocused(false)
+                                      }}
+                                      className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 flex items-center gap-2">
+                                      <span className="font-semibold text-slate-800 flex-1">{m.name}</span>
+                                      {m.phone && <span className="text-slate-400">{m.phone}</span>}
+                                      <span className="text-[9px] font-bold text-teal-500 bg-teal-50 border border-teal-200 rounded-full px-1.5 py-0.5 flex-shrink-0">ROL</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        </>)}
+
+                        {/* Do they have kids? */}
+                        <div className="space-y-1 sm:col-span-3">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Do they have kids?</p>
+                          <select
+                            value={f.hasKids || ''}
+                            onChange={e => setF(p => ({ ...p, hasKids: e.target.value }))}
+                            className={inp}>
+                            <option value="">— Select —</option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Children list */}
+                      {f.hasKids === 'yes' && (
+                        <div className="mt-3 space-y-2">
+                          {children.map(child => (
+                            <div key={child.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-start bg-slate-50 border border-slate-200 rounded-xl p-2">
+                              <div className="space-y-0.5">
+                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Attending Sunday School (River Kids)?</p>
+                                <select
+                                  value={child.inRiverKids || ''}
+                                  onChange={e => updateChildRow(child.id, { inRiverKids: e.target.value, ...(e.target.value !== 'yes' ? { riverKidsChildId: '' } : {}) })}
+                                  className={`${inp} text-xs`}>
+                                  <option value="">— Select —</option>
+                                  <option value="yes">Yes</option>
+                                  <option value="no">No</option>
+                                </select>
+                              </div>
+                              <div className="space-y-0.5 relative">
+                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">
+                                  {child.inRiverKids === 'yes' ? 'Search River Kids Registry' : "Child's Name"}
+                                </p>
+                                {child.inRiverKids === 'yes' ? (
+                                  <>
+                                    <input
+                                      type="text"
+                                      placeholder="Search by name…"
+                                      value={child.name}
+                                      onChange={e => updateChildRow(child.id, { name: e.target.value, riverKidsChildId: '' })}
+                                      onFocus={() => setPcsChildSearchOpenId(child.id)}
+                                      onBlur={() => setTimeout(() => setPcsChildSearchOpenId(prev => prev === child.id ? null : prev), 150)}
+                                      className={`${inp} text-xs`}
+                                    />
+                                    {child.riverKidsChildId && (
+                                      <p className="text-[9px] text-emerald-600 font-semibold mt-0.5">✓ Linked to River Kids</p>
+                                    )}
+                                    {pcsChildSearchOpenId === child.id && child.name.trim().length >= 1 && (() => {
+                                      const q = child.name.trim().toLowerCase()
+                                      const matches = rkChildrenForPCS.filter(k => (k.name || '').toLowerCase().includes(q)).slice(0, 6)
+                                      if (!matches.length) return null
+                                      return (
+                                        <div className="absolute z-20 top-full left-0 right-0 mt-0.5 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                                          {matches.map(k => (
+                                            <button key={k.id} type="button"
+                                              onMouseDown={() => { updateChildRow(child.id, { name: k.name, riverKidsChildId: k.id }); setPcsChildSearchOpenId(null) }}
+                                              className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 flex items-center gap-2">
+                                              <span className="font-semibold text-slate-800 flex-1">{k.name}</span>
+                                              <span className="text-[9px] font-bold text-teal-500 bg-teal-50 border border-teal-200 rounded-full px-1.5 py-0.5 flex-shrink-0">
+                                                {k.group === 'sunday-school' ? 'Sunday School' : k.group || 'River Kids'}
+                                              </span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )
+                                    })()}
+                                  </>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    placeholder="Child's name"
+                                    value={child.name}
+                                    onChange={e => updateChildRow(child.id, { name: e.target.value })}
+                                    className={`${inp} text-xs`}
+                                  />
+                                )}
+                              </div>
+                              <button type="button" onClick={() => removeChildRow(child.id)} className="mt-4 w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors">×</button>
+                            </div>
+                          ))}
+                          <button type="button" onClick={addChildRow} className="text-xs text-teal-600 hover:text-teal-800 flex items-center gap-1 py-1 transition-colors">
+                            <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                            Add Child
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                     {/* ═══ SECTION 2 · Church Journey ═══ */}
                     <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-emerald-300">
                       <div className="-mx-4 -mt-3 mb-4 px-4 py-3 flex items-center gap-3 bg-emerald-50 border-b border-emerald-100">
@@ -4847,6 +5255,17 @@ export default function DepartmentHub() {
                         <p className="text-sm font-bold tracking-tight text-emerald-700">Church Journey</p>
                         {churchDuration && <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">{churchDuration}</span>}
                       </div>
+
+                      {/* Missed-Sundays alert — helps the Caring Director judge whether to push for cell assignment */}
+                      {(() => {
+                        const absentWeeks = getConsecutiveAbsentSundays(entry.name)
+                        if (absentWeeks < 3) return null
+                        return (
+                          <div className="mb-3 inline-flex items-center gap-1.5 text-xs font-bold text-red-700 bg-red-50 border border-red-300 px-3 py-1.5 rounded-full">
+                            ⚠️ Absent for {absentWeeks} consecutive Sundays
+                          </div>
+                        )
+                      })()}
 
                       {/* Cell connection */}
                       {(() => {
@@ -4870,21 +5289,23 @@ export default function DepartmentHub() {
                           <div className="mb-3">
                             <div className="flex items-center justify-between gap-2 mb-1.5">
                               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Cell Group</p>
-                              {!cg && entry.visitorId && canEdit && (
+                              {!cg && canEdit && (
                                 notified
                                   ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>Notified
+                                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>Requested
                                     </span>
                                   : <button type="button" disabled={notifying} onClick={async () => {
                                       setPcsNotifyingId(entry.id)
                                       try {
                                         await createTask({ taskTitle: `Add ${entry.name} to a cell group`, department: 'Cell', assignedPerson: '', priority: 'Medium', deadline: '', status: 'Pending', notes: `Referred from PCS by ${userProfile?.name || userProfile?.email || 'Caring Director'}. ${entry.name} is under personal care but has no cell group.${entry.phone ? ` Phone: ${entry.phone}` : ''}`, createdBy: userProfile?.email || '', pcsReferral: true, pcsPersonName: entry.name, pcsPersonPhone: entry.phone || '', pcsPersonVisitorId: entry.visitorId || '' })
                                         setPcsNotifiedIds(prev => new Set([...prev, entry.id]))
+                                        setPcsToast(`Notification sent to Cell Director to assign ${entry.name}`)
+                                        setTimeout(() => setPcsToast(null), 3500)
                                       } catch { alert('Failed to send notification') }
                                       setPcsNotifyingId(null)
                                     }} className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-100 transition-colors disabled:opacity-50">
                                       <svg width="9" height="9" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                                      {notifying ? 'Sending…' : 'Notify Cell'}
+                                      {notifying ? 'Sending…' : 'Notify Cell Director to Assign Cell'}
                                     </button>
                               )}
                             </div>
@@ -4977,55 +5398,29 @@ export default function DepartmentHub() {
                         )
                       })()}
 
-                      {/* Ministry — editable list */}
+                      {/* Ministry — read-only, synced from duty rosters/assignments made by Ministry Leaders */}
                       <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Ministry</p>
-                          <button type="button"
-                            onClick={() => setF(p => ({ ...p, ministries: [...(p.ministries || []), { ministry: '', role: '', from: '', to: '' }] }))}
-                            className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full hover:bg-emerald-100 transition-colors">
-                            + Add Ministry
-                          </button>
-                        </div>
-                        {(f.ministries || []).length === 0 && (
-                          <p className="text-xs text-slate-400 py-1">No ministry added yet. Use "+ Add Ministry" to record.</p>
+                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Ministry</p>
+                        {autoMinistry.length === 0 ? (
+                          <p className="text-xs text-slate-400 py-1">No active ministry assignments recorded by Ministry Leaders.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {autoMinistry.map((r) => {
+                              const dur = r.from ? miniDur(r.from, r.to) : null
+                              return (
+                                <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5">
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-slate-700 leading-tight">
+                                      {r.ministry}{r.role ? <span className="font-normal text-slate-400"> · {r.role}</span> : ''}
+                                    </p>
+                                    {r.from && <p className="text-[10px] text-slate-400 mt-0.5">since {new Date(r.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</p>}
+                                  </div>
+                                  {dur && <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
+                                </div>
+                              )
+                            })}
+                          </div>
                         )}
-                        <div className="space-y-2">
-                          {(f.ministries || []).map((r, i) => {
-                            const dur = r.from ? miniDur(r.from, r.to) : null
-                            const upd = (k, v) => setF(p => ({ ...p, ministries: p.ministries.map((m, j) => j === i ? { ...m, [k]: v } : m) }))
-                            return (
-                              <div key={i} className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 space-y-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  {dur && <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap">{dur}</span>}
-                                  <button type="button"
-                                    onClick={() => setF(p => ({ ...p, ministries: p.ministries.filter((_, j) => j !== i) }))}
-                                    className="ml-auto text-[10px] font-bold text-red-400 hover:text-red-600 transition-colors">
-                                    Remove
-                                  </button>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <div className="space-y-1">
-                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Ministry</p>
-                                    <input type="text" placeholder="e.g. Worship" value={r.ministry} onChange={e => upd('ministry', e.target.value)} className={inp} />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Role</p>
-                                    <input type="text" placeholder="e.g. Vocalist" value={r.role} onChange={e => upd('role', e.target.value)} className={inp} />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">From</p>
-                                    <input type="date" value={r.from} onChange={e => upd('from', e.target.value)} className={inp} />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">To (blank = ongoing)</p>
-                                    <input type="date" value={r.to} onChange={e => upd('to', e.target.value)} className={inp} />
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
                       </div>
 
                     </div>
@@ -5083,67 +5478,10 @@ export default function DepartmentHub() {
                             )}
                           </div>
                         </>)}
-                        {/* Marital status */}
-                        <div className="space-y-1">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Marital Status</p>
-                          <select
-                            value={f.maritalStatus}
-                            onChange={e => setF(p => ({ ...p, maritalStatus: e.target.value }))}
-                            className={inp}>
-                            <option value="">— Select —</option>
-                            {['Single','Married','Widowed','Divorced'].map(opt => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                          </select>
-                        </div>
 
-                        {/* Marriage details — only when Married */}
-                        {f.maritalStatus === 'Married' && (<>
-                          {fld('Marriage Date', 'marriageDate', 'date')}
-                          <div className="space-y-0.5 relative">
-                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Spouse Name</p>
-                            <input
-                              type="text"
-                              placeholder="Search or type name…"
-                              value={f.spouseName}
-                              onChange={e => {
-                                setF(p => ({ ...p, spouseName: e.target.value, spouseVisitorId: '' }))
-                                setPcsSpouseFocused(true)
-                              }}
-                              onFocus={() => setPcsSpouseFocused(true)}
-                              onBlur={() => setTimeout(() => setPcsSpouseFocused(false), 150)}
-                              className={inp}
-                            />
-                            {/* Linked badge */}
-                            {f.spouseVisitorId && (
-                              <span className="absolute right-2 top-7 text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">linked</span>
-                            )}
-                            {/* Typeahead dropdown */}
-                            {pcsSpouseFocused && f.spouseName.trim().length >= 2 && (() => {
-                              const q = f.spouseName.trim().toLowerCase()
-                              const matches = pcsEntries
-                                .filter(e => e.id !== entry.id && e.name && e.name.toLowerCase().includes(q))
-                                .slice(0, 6)
-                              if (!matches.length) return null
-                              return (
-                                <div className="absolute z-20 top-full left-0 right-0 mt-0.5 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-                                  {matches.map(m => (
-                                    <button key={m.id} type="button"
-                                      onMouseDown={() => {
-                                        setF(p => ({ ...p, spouseName: m.name, spouseVisitorId: m.visitorId || m.id }))
-                                        setPcsSpouseFocused(false)
-                                      }}
-                                      className="w-full text-left px-3 py-2 text-xs hover:bg-violet-50 flex items-center gap-2">
-                                      <span className="font-semibold text-slate-800 flex-1">{m.name}</span>
-                                      {m.phone && <span className="text-slate-400">{m.phone}</span>}
-                                      <span className="text-[9px] font-bold text-violet-500 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5 flex-shrink-0">ROL</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              )
-                            })()}
-                          </div>
-                        </>)}
+                        {/* Previous church */}
+                        {fld('Previous Church Name', 'previousChurchName')}
+                        {fld('Previous Church Place / Location', 'previousChurchPlace')}
 
                       </div>
                     </div>
@@ -5230,6 +5568,7 @@ export default function DepartmentHub() {
                             const { personId, name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown,
                               ministries,
                               baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
+                              hasKids, children, previousChurchName, previousChurchPlace,
                               membershipStatus, membershipDocs, permanentAddress } = f
                             const resolvedYear = year || (attendedDate ? new Date(attendedDate).getFullYear() : null)
 
@@ -5268,6 +5607,9 @@ export default function DepartmentHub() {
                               updateWorshipTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
                               upsertMemberProfile(entry.visitorId, {
                                 baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
+                                hasKids: hasKids || '',
+                                children: hasKids === 'yes' ? (children || []) : [],
+                                previousChurchName, previousChurchPlace,
                                 membershipStatus,
                                 membershipDocs: membershipDocs || [],
                                 permanentAddress,
@@ -5428,21 +5770,34 @@ export default function DepartmentHub() {
               if (win) { win.document.write(html); win.document.close() }
             }
 
-            // Inactive cell members who still appear in PCS
+            // Inactive cell members who still appear in PCS.
+            // Matches by visitorId first, falling back to phone — many PCS entries
+            // (anything added via the manual "+ Add" modal) never get a visitorId,
+            // so a visitorId-only match would silently never flag them.
+            const normPhoneKey = (p) => String(p || '').replace(/\s+/g, '')
             const pcsVisitorIdMap = new Map(pcsEntries.filter(e => e.visitorId).map(e => [e.visitorId, e]))
+            const pcsPhoneMap = new Map(pcsEntries.filter(e => !e.visitorId && e.phone).map(e => [normPhoneKey(e.phone), e]))
             const removedFromCellInPCS = []
             const _seenVids = new Set()
             allCellMembers
-              .filter(m => m.status === 'inactive' && m.visitorId && pcsVisitorIdMap.has(m.visitorId))
+              .filter(m => m.status === 'inactive')
               .forEach(m => {
-                if (!_seenVids.has(m.visitorId)) {
-                  _seenVids.add(m.visitorId)
-                  removedFromCellInPCS.push({ ...m, pcsEntry: pcsVisitorIdMap.get(m.visitorId) })
-                }
+                const pe = (m.visitorId && pcsVisitorIdMap.get(m.visitorId)) || (m.phone && pcsPhoneMap.get(normPhoneKey(m.phone)))
+                if (!pe || pe.inactiveCellAlertDismissed) return
+                const key = pe.visitorId || pe.id
+                if (_seenVids.has(key)) return
+                _seenVids.add(key)
+                removedFromCellInPCS.push({ ...m, pcsEntry: pe })
               })
 
             return (
               <div className="space-y-4">
+                {/* Toast */}
+                {pcsToast && (
+                  <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg">
+                    {pcsToast}
+                  </div>
+                )}
                 {/* Top bar */}
                 <div className="flex items-center justify-end gap-2">
                   <button
@@ -5686,13 +6041,23 @@ export default function DepartmentHub() {
                                       </p>
                                       <p className="text-xs text-red-400 font-medium mt-0.5">Inactive in cell</p>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveFromPCS({ ...pe, name: m.name || pe.name })}
-                                      className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
-                                    >
-                                      Remove from PCS
-                                    </button>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDismissInactiveCellAlert(pe)}
+                                        title="Keep them active in PCS and stop showing this alert"
+                                        className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                      >
+                                        Keep in PCS
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveFromPCS({ ...pe, name: m.name || pe.name })}
+                                        className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+                                      >
+                                        Remove from PCS
+                                      </button>
+                                    </div>
                                   </div>
                                 )
                               })}
@@ -7811,7 +8176,7 @@ export default function DepartmentHub() {
                                       } else if (p.changeType === 'activate' && p.memberId) {
                                         await updateCellGroupMember(p.cellId, p.memberId, { status: 'active' })
                                       } else if (p.changeType === 'deactivate' && p.memberId) {
-                                        await updateCellGroupMember(p.cellId, p.memberId, { status: 'inactive' })
+                                        await deactivateCellGroupMember(p.cellId, p.memberId, p.memberData?.name)
                                       }
                                       await deleteCellMemberPendingChange(p.id)
                                       setCellPendingChanges((prev) => prev.filter((x) => x.id !== p.id))
@@ -8098,142 +8463,243 @@ export default function DepartmentHub() {
                             ) : (
                               <>
                                 <h4 className="font-medium text-slate-700 mt-2 mb-1">Active Members</h4>
-                                <div className="overflow-x-auto rounded-lg border border-slate-200">
-                                  <table className="min-w-full text-sm">
-                                    <thead className="bg-slate-100">
-                                      <tr>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600 w-10">SL</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Name</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Birthday</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Anniversary</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Phone</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Locality</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Duration</th>
-                                        {canEdit && <th className="text-left px-3 py-2 font-medium text-slate-600">Actions</th>}
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 bg-white">
-                                      {cellMembers.filter((m) => m.status !== 'inactive').map((m, idx) => {
-                                        const isDuplicate = duplicateCellMemberKeys.has(m.visitorId || ('name:' + (m.name || '').toLowerCase().trim()))
-                                        return (
-                                        <tr key={m.id} className={isDuplicate ? 'bg-red-50 border-l-4 border-red-400 hover:bg-red-100' : 'hover:bg-slate-50'}>
-                                          <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
-                                          <td className="px-3 py-2">
-                                            <div className="flex items-center gap-1.5">
-                                              {isDuplicate && (
-                                                <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="This person is in multiple cell groups" />
-                                              )}
-                                              <span className={isDuplicate ? 'text-red-800 font-semibold' : 'text-slate-800'}>{m.name || '—'}</span>
-                                              {m.visitorId
-                                                ? <span title="Linked to visitor entry" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                                                : <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                                              }
-                                            </div>
-                                          </td>
-                                          <td className="px-3 py-2 text-slate-600">{m.birthday ? formatDMY(m.birthday) : '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.anniversary ? formatDMY(m.anniversary) : '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.phone || '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.locality || '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.since ? `${differenceInDays(new Date(), new Date(m.since))} days` : '—'}</td>
-                                          {canEdit && (
-                                            <td className="px-3 py-2 space-x-2 whitespace-nowrap">
-                                              <button type="button" onClick={() => {
-                                                setEditingCellMemberId(m.id)
-                                                setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: m.status || 'active', visitorId: m.visitorId || '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
-                                                setCellMemberLinkedVisitor(null)
-                                                setCellMemberLinkedVisitorForm({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
-                                                if (m.visitorId) {
-                                                  getDelightVisitorById(m.visitorId).then(v => {
-                                                    if (v) {
-                                                      setCellMemberLinkedVisitor(v)
-                                                      setCellMemberLinkedVisitorForm({ email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate || '', howKnown: v.howKnown || '' })
-                                                    }
-                                                  }).catch(() => {})
-                                                  getMemberProfile(m.visitorId).then(p => {
-                                                    if (p) setCellMemberForm(f => ({ ...f, baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '', marriageDate: p.marriageDate || '', spouseName: p.spouseName || '' }))
-                                                  }).catch(() => {})
+                                {cellMembers.filter((m) => m.status !== 'inactive').length === 0 ? (
+                                  <p className="px-1 py-4 text-center text-slate-500 text-sm">No active members.</p>
+                                ) : (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {cellMembers.filter((m) => m.status !== 'inactive').map((m) => {
+                                      const isDuplicate = duplicateCellMemberKeys.has(m.visitorId || ('name:' + (m.name || '').toLowerCase().trim()))
+                                      return (
+                                        <div key={m.id} className={`relative rounded-2xl border p-4 shadow-sm ${isDuplicate ? 'bg-red-50 border-red-300' : 'bg-white border-slate-200'}`}>
+                                          <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                {isDuplicate && (
+                                                  <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="This person is in multiple cell groups" />
+                                                )}
+                                                <p className={`font-bold text-sm truncate ${isDuplicate ? 'text-red-800' : 'text-slate-900'}`}>{m.name || '—'}</p>
+                                              </div>
+                                              <div className="mt-1">
+                                                {m.visitorId
+                                                  ? <span title="Linked to visitor entry" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                                                  : <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
                                                 }
-                                                setCellMemberModalOpen(true)
-                                              }} className="text-blue-600 hover:underline">Edit</button>
-                                              <button type="button" onClick={() => setCellMemberLinking({ member: m, cellId: cell.id })} className="text-indigo-600 hover:underline">{m.visitorId ? 'Relink' : 'Link'}</button>
-                                              <button type="button" onClick={async () => { if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="text-red-600 hover:underline">Delete</button>
-                                              <button type="button" onClick={async () => { await updateCellGroupMember(cell.id, m.id, { status: 'inactive' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() }} className="text-amber-600 hover:underline">Make Inactive</button>
-                                            </td>
-                                          )}
-                                        </tr>
-                                        )
-                                      })}
-                                      {cellMembers.filter((m) => m.status !== 'inactive').length === 0 && (
-                                        <tr><td colSpan={canEdit ? 8 : 7} className="px-3 py-4 text-center text-slate-500">No active members.</td></tr>
-                                      )}
-                                    </tbody>
-                                  </table>
-                                </div>
-                                <h4 className="font-medium text-slate-700 mt-4 mb-1">Inactive Members</h4>
-                                <div className="overflow-x-auto rounded-lg border border-slate-200">
-                                  <table className="min-w-full text-sm">
-                                    <thead className="bg-slate-100">
-                                      <tr>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600 w-10">SL</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Name</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Birthday</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Anniversary</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Phone</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Locality</th>
-                                        <th className="text-left px-3 py-2 font-medium text-slate-600">Duration</th>
-                                        {canEdit && <th className="text-left px-3 py-2 font-medium text-slate-600">Actions</th>}
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 bg-white">
-                                      {cellMembers.filter((m) => m.status === 'inactive').map((m, idx) => (
-                                        <tr key={m.id} className="hover:bg-slate-50 opacity-90">
-                                          <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
-                                          <td className="px-3 py-2">
-                                            <div className="flex items-center gap-1.5">
-                                              <span className="text-slate-800">{m.name || '—'}</span>
-                                              {m.visitorId
-                                                ? <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                                                : <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                                              }
+                                              </div>
                                             </div>
-                                          </td>
-                                          <td className="px-3 py-2 text-slate-600">{m.birthday ? formatDMY(m.birthday) : '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.anniversary ? formatDMY(m.anniversary) : '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.phone || '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.locality || '—'}</td>
-                                          <td className="px-3 py-2 text-slate-600">{m.since ? `${differenceInDays(new Date(), new Date(m.since))} days` : '—'}</td>
-                                          {canEdit && (
-                                            <td className="px-3 py-2 space-x-2 whitespace-nowrap">
-                                              <button type="button" onClick={() => {
-                                                setEditingCellMemberId(m.id)
-                                                setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: 'inactive', visitorId: m.visitorId || '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
-                                                setCellMemberLinkedVisitor(null)
-                                                setCellMemberLinkedVisitorForm({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
-                                                if (m.visitorId) {
-                                                  getDelightVisitorById(m.visitorId).then(v => {
-                                                    if (v) {
-                                                      setCellMemberLinkedVisitor(v)
-                                                      setCellMemberLinkedVisitorForm({ email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate || '', howKnown: v.howKnown || '' })
+                                            {canEdit && (
+                                              <div className="relative flex-shrink-0">
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    if (cellMemberActionMenuId === m.id) {
+                                                      setCellMemberActionMenuId(null)
+                                                      return
                                                     }
-                                                  }).catch(() => {})
-                                                  getMemberProfile(m.visitorId).then(p => {
-                                                    if (p) setCellMemberForm(f => ({ ...f, baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '', marriageDate: p.marriageDate || '', spouseName: p.spouseName || '' }))
-                                                  }).catch(() => {})
+                                                    const rect = e.currentTarget.getBoundingClientRect()
+                                                    setCellMemberActionMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                                                    setCellMemberActionMenuId(m.id)
+                                                  }}
+                                                  className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 transition-colors"
+                                                  title="More options"
+                                                >
+                                                  <svg width="14" height="14" viewBox="0 0 4 16" fill="currentColor">
+                                                    <circle cx="2" cy="2" r="1.5"/>
+                                                    <circle cx="2" cy="8" r="1.5"/>
+                                                    <circle cx="2" cy="14" r="1.5"/>
+                                                  </svg>
+                                                </button>
+                                                {cellMemberActionMenuId === m.id && (
+                                                  <>
+                                                    <div className="fixed inset-0 z-40" onClick={() => setCellMemberActionMenuId(null)} />
+                                                    <div
+                                                      style={{ position: 'fixed', top: cellMemberActionMenuPos.top, right: cellMemberActionMenuPos.right }}
+                                                      className="z-50 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[168px] text-left overflow-hidden"
+                                                    >
+                                                      <button type="button" onClick={() => {
+                                                        setCellMemberActionMenuId(null)
+                                                        setEditingCellMemberId(m.id)
+                                                        setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: m.status || 'active', visitorId: m.visitorId || '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
+                                                        setCellMemberLinkedVisitor(null)
+                                                        setCellMemberLinkedVisitorForm({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
+                                                        if (m.visitorId) {
+                                                          getDelightVisitorById(m.visitorId).then(v => {
+                                                            if (v) {
+                                                              setCellMemberLinkedVisitor(v)
+                                                              setCellMemberLinkedVisitorForm({ email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate || '', howKnown: v.howKnown || '' })
+                                                            }
+                                                          }).catch(() => {})
+                                                          getMemberProfile(m.visitorId).then(p => {
+                                                            if (p) setCellMemberForm(f => ({ ...f, baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '', marriageDate: p.marriageDate || '', spouseName: p.spouseName || '' }))
+                                                          }).catch(() => {})
+                                                        }
+                                                        setCellMemberModalOpen(true)
+                                                      }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 flex-shrink-0">
+                                                          <path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                                                        </svg>
+                                                        Edit
+                                                      </button>
+                                                      <button type="button" onClick={() => { setCellMemberActionMenuId(null); setCellMemberLinking({ member: m, cellId: cell.id }) }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 flex-shrink-0">
+                                                          <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                                                          <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+                                                        </svg>
+                                                        {m.visitorId ? 'Relink' : 'Link'}
+                                                      </button>
+                                                      <button type="button" onClick={async () => { setCellMemberActionMenuId(null); await deactivateCellGroupMember(cell.id, m.id, m.name); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                                                          <circle cx="12" cy="12" r="9"/><path d="M9 12h6"/>
+                                                        </svg>
+                                                        Mark Inactive
+                                                      </button>
+                                                      <div className="my-1 border-t border-slate-100" />
+                                                      <button type="button" onClick={async () => { setCellMemberActionMenuId(null); if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                                                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                                                        </svg>
+                                                        Delete
+                                                      </button>
+                                                    </div>
+                                                  </>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="flex flex-wrap gap-1.5 mt-2.5">
+                                            {m.phone && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📞 {m.phone}</span>}
+                                            {m.locality && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📍 {m.locality}</span>}
+                                            {m.birthday && <span className="text-xs text-pink-600 bg-pink-50 px-2 py-0.5 rounded-full">🎂 {formatDMY(m.birthday)}</span>}
+                                            {m.anniversary && <span className="text-xs text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">💍 {formatDMY(m.anniversary)}</span>}
+                                            {m.since && <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">⏳ {differenceInDays(new Date(), new Date(m.since))}d</span>}
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                                {[
+                                  { key: 'former', title: 'Former Members', emptyLabel: 'No former members.', match: (m) => m.memberCategory === 'former' },
+                                  { key: 'not_attending', title: 'Inactive Members (Not Attending)', emptyLabel: 'No inactive members.', match: (m) => m.memberCategory !== 'former' },
+                                ].map(({ key, title, emptyLabel, match }) => {
+                                  const rows = cellMembers.filter((m) => m.status === 'inactive' && match(m))
+                                  return (
+                                  <div key={key}>
+                                  <h4 className="font-medium text-slate-700 mt-4 mb-1">{title}</h4>
+                                  {rows.length === 0 ? (
+                                    <p className="px-1 py-4 text-center text-slate-500 text-sm">{emptyLabel}</p>
+                                  ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                      {rows.map((m) => (
+                                        <div key={m.id} className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm opacity-90">
+                                          <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <p className="font-bold text-sm text-slate-800 truncate">{m.name || '—'}</p>
+                                              </div>
+                                              <div className="mt-1">
+                                                {m.visitorId
+                                                  ? <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                                                  : <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
                                                 }
-                                                setCellMemberModalOpen(true)
-                                              }} className="text-blue-600 hover:underline">Edit</button>
-                                              <button type="button" onClick={() => setCellMemberLinking({ member: m, cellId: cell.id })} className="text-indigo-600 hover:underline">{m.visitorId ? 'Relink' : 'Link'}</button>
-                                              <button type="button" onClick={async () => { await updateCellGroupMember(cell.id, m.id, { status: 'active' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); }} className="text-emerald-600 hover:underline">Make Active</button>
-                                            </td>
-                                          )}
-                                        </tr>
+                                              </div>
+                                            </div>
+                                            {canEdit && (
+                                              <div className="relative flex-shrink-0">
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    if (cellMemberActionMenuId === m.id) {
+                                                      setCellMemberActionMenuId(null)
+                                                      return
+                                                    }
+                                                    const rect = e.currentTarget.getBoundingClientRect()
+                                                    setCellMemberActionMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                                                    setCellMemberActionMenuId(m.id)
+                                                  }}
+                                                  className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 transition-colors"
+                                                  title="More options"
+                                                >
+                                                  <svg width="14" height="14" viewBox="0 0 4 16" fill="currentColor">
+                                                    <circle cx="2" cy="2" r="1.5"/>
+                                                    <circle cx="2" cy="8" r="1.5"/>
+                                                    <circle cx="2" cy="14" r="1.5"/>
+                                                  </svg>
+                                                </button>
+                                                {cellMemberActionMenuId === m.id && (
+                                                  <>
+                                                    <div className="fixed inset-0 z-40" onClick={() => setCellMemberActionMenuId(null)} />
+                                                    <div
+                                                      style={{ position: 'fixed', top: cellMemberActionMenuPos.top, right: cellMemberActionMenuPos.right }}
+                                                      className="z-50 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[168px] text-left overflow-hidden"
+                                                    >
+                                                      <button type="button" onClick={() => {
+                                                        setCellMemberActionMenuId(null)
+                                                        setEditingCellMemberId(m.id)
+                                                        setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: 'inactive', visitorId: m.visitorId || '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
+                                                        setCellMemberLinkedVisitor(null)
+                                                        setCellMemberLinkedVisitorForm({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
+                                                        if (m.visitorId) {
+                                                          getDelightVisitorById(m.visitorId).then(v => {
+                                                            if (v) {
+                                                              setCellMemberLinkedVisitor(v)
+                                                              setCellMemberLinkedVisitorForm({ email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate || '', howKnown: v.howKnown || '' })
+                                                            }
+                                                          }).catch(() => {})
+                                                          getMemberProfile(m.visitorId).then(p => {
+                                                            if (p) setCellMemberForm(f => ({ ...f, baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '', marriageDate: p.marriageDate || '', spouseName: p.spouseName || '' }))
+                                                          }).catch(() => {})
+                                                        }
+                                                        setCellMemberModalOpen(true)
+                                                      }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 flex-shrink-0">
+                                                          <path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                                                        </svg>
+                                                        Edit
+                                                      </button>
+                                                      <button type="button" onClick={() => { setCellMemberActionMenuId(null); setCellMemberLinking({ member: m, cellId: cell.id }) }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 flex-shrink-0">
+                                                          <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                                                          <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+                                                        </svg>
+                                                        {m.visitorId ? 'Relink' : 'Link'}
+                                                      </button>
+                                                      <button type="button" onClick={async () => { setCellMemberActionMenuId(null); await updateCellGroupMember(cell.id, m.id, { status: 'active' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                                                          <circle cx="12" cy="12" r="9"/><path d="M8 12l2.5 2.5L16 9"/>
+                                                        </svg>
+                                                        Make Active
+                                                      </button>
+                                                      <div className="my-1 border-t border-slate-100" />
+                                                      <button type="button" onClick={async () => { setCellMemberActionMenuId(null); if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                                                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                                                        </svg>
+                                                        Delete
+                                                      </button>
+                                                    </div>
+                                                  </>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="flex flex-wrap gap-1.5 mt-2.5">
+                                            {m.phone && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📞 {m.phone}</span>}
+                                            {m.locality && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📍 {m.locality}</span>}
+                                            {m.birthday && <span className="text-xs text-pink-600 bg-pink-50 px-2 py-0.5 rounded-full">🎂 {formatDMY(m.birthday)}</span>}
+                                            {m.anniversary && <span className="text-xs text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">💍 {formatDMY(m.anniversary)}</span>}
+                                            <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">
+                                              {key === 'former'
+                                                ? (calcTenureLabel(m.since, m.leftDate) ? `Member for ${calcTenureLabel(m.since, m.leftDate)}` : '—')
+                                                : (m.since ? `⏳ ${differenceInDays(new Date(), new Date(m.since))}d` : '—')}
+                                            </span>
+                                          </div>
+                                        </div>
                                       ))}
-                                      {cellMembers.filter((m) => m.status === 'inactive').length === 0 && (
-                                        <tr><td colSpan={canEdit ? 8 : 7} className="px-3 py-4 text-center text-slate-500">No inactive members.</td></tr>
-                                      )}
-                                    </tbody>
-                                  </table>
-                                </div>
+                                    </div>
+                                  )}
+                                  </div>
+                                  )
+                                })}
                               </>
                             )}
                           </div>
@@ -9615,8 +10081,30 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
   )
 }
 
+/** Upcoming (or today, if today is one) Sunday, as a yyyy-MM-dd string. */
+function upcomingSunday() {
+  const today = new Date()
+  const d = new Date(today)
+  d.setDate(today.getDate() + (today.getDay() === 0 ? 0 : 7 - today.getDay()))
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Every day-of-month (1-based) that falls on a Sunday for the given year/month (1-12). */
+function sundaysInMonth(year, month) {
+  if (!year || !month) return []
+  const days = []
+  const daysInMonth = new Date(Number(year), Number(month), 0).getDate()
+  for (let d = 1; d <= daysInMonth; d++) {
+    if (new Date(Number(year), Number(month) - 1, d).getDay() === 0) days.push(d)
+  }
+  return days
+}
+
 // ─── Convenience date picker (day / month / year selects) ────────────────────
-function DateSelect({ value, onChange, minYear, maxYear }) {
+/** Pass sundaysOnly to restrict the Day dropdown to that month's Sundays — used for
+ *  visitor "Date of Attending" fields, since D-Light visitors are only ever recorded
+ *  on a Sunday service date. */
+function DateSelect({ value, onChange, minYear, maxYear, sundaysOnly = false }) {
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const parseDate = (val) => {
     const parts = (val || '').split('-')
@@ -9632,6 +10120,12 @@ function DateSelect({ value, onChange, minYear, maxYear }) {
     }
   }, [value])
   const update = (ny, nm, nd) => {
+    // If switching month/year drops the previously-picked day off the Sunday list,
+    // snap forward to that month's first Sunday instead of leaving an invalid pick.
+    if (sundaysOnly && ny && nm) {
+      const validDays = sundaysInMonth(ny, nm)
+      if (nd && !validDays.includes(Number(nd))) nd = validDays[0] ? String(validDays[0]) : ''
+    }
     setSel({ y: ny, m: nm, d: nd })
     if (ny && nm && nd) {
       const full = `${ny}-${String(nm).padStart(2,'0')}-${String(nd).padStart(2,'0')}`
@@ -9644,22 +10138,33 @@ function DateSelect({ value, onChange, minYear, maxYear }) {
     // Partial selection: keep parent value unchanged; local state shows the choice
   }
   const cls = 'flex-1 px-2 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 text-sm transition-colors'
+  const dayOptions = sundaysOnly && sel.y && sel.m
+    ? sundaysInMonth(sel.y, sel.m)
+    : Array.from({length: 31}, (_, i) => i + 1)
+  const isNonSunday = sundaysOnly && sel.y && sel.m && sel.d && new Date(Number(sel.y), Number(sel.m) - 1, Number(sel.d)).getDay() !== 0
   return (
-    <div className="flex gap-1.5">
-      <select value={sel.d} onChange={e => update(sel.y, sel.m, e.target.value)} className={cls}>
-        <option value="">Day</option>
-        {Array.from({length: 31}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
-      </select>
-      <select value={sel.m} onChange={e => update(sel.y, e.target.value, sel.d)} className={cls}>
-        <option value="">Month</option>
-        {MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
-      </select>
-      <select value={sel.y} onChange={e => update(e.target.value, sel.m, sel.d)} className={cls}>
-        <option value="">Year</option>
-        {Array.from({length: maxYear - minYear + 1}, (_, i) => maxYear - i).map(yr => (
-          <option key={yr} value={yr}>{yr}</option>
-        ))}
-      </select>
+    <div>
+      <div className="flex gap-1.5">
+        <select value={sel.d} onChange={e => update(sel.y, sel.m, e.target.value)} className={cls}>
+          <option value="">Day</option>
+          {dayOptions.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <select value={sel.m} onChange={e => update(sel.y, e.target.value, sel.d)} className={cls}>
+          <option value="">Month</option>
+          {MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
+        </select>
+        <select value={sel.y} onChange={e => update(e.target.value, sel.m, sel.d)} className={cls}>
+          <option value="">Year</option>
+          {Array.from({length: maxYear - minYear + 1}, (_, i) => maxYear - i).map(yr => (
+            <option key={yr} value={yr}>{yr}</option>
+          ))}
+        </select>
+      </div>
+      {isNonSunday && (
+        <p className="text-xs text-amber-600 font-medium mt-1">
+          ⚠ This date isn't a Sunday — visitor dates are normally recorded on a Sunday service date.
+        </p>
+      )}
     </div>
   )
 }

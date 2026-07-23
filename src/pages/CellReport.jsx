@@ -34,6 +34,7 @@ import {
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole } from '../utils/access'
 import { canEditCellReport } from '../utils/cellReportPermissions'
+import { calcTenureLabel } from '../utils/cellMemberCategory'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 
 const CELL_DEPARTMENT = 'Cell'
@@ -727,7 +728,8 @@ export default function CellReport() {
     if (loading) return <div className="py-8 text-slate-500">Loading report…</div>
     if (!report) return <div className="py-6 text-slate-500">No report for this date.</div>
     const activeMembers = (cellMembers || []).filter((m) => m.status !== 'inactive')
-    const inactiveMembers = (cellMembers || []).filter((m) => m.status === 'inactive')
+    const formerMembers = (cellMembers || []).filter((m) => m.status === 'inactive' && m.memberCategory === 'former')
+    const notAttendingMembers = (cellMembers || []).filter((m) => m.status === 'inactive' && m.memberCategory !== 'former')
     const isAttended = (memberId) => attendees.some((a) => a.memberId === memberId)
     return (
       <div className="space-y-4">
@@ -852,10 +854,25 @@ export default function CellReport() {
           </ul>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-          <h3 className="font-semibold text-slate-800 mb-2">Inactive Members</h3>
+          <h3 className="font-semibold text-slate-800 mb-2">Former Members</h3>
+          <p className="text-xs text-slate-500 mb-2">Attended 10+ cell meetings before leaving. Visible but not selectable for attendance.</p>
+          <ul className="text-sm text-slate-500 divide-y divide-slate-100">
+            {formerMembers.length === 0 ? <li className="py-2">No former members.</li> : formerMembers.map((m) => {
+              const tenure = calcTenureLabel(m.since, m.leftDate)
+              return (
+                <li key={m.id} className="py-1.5 flex items-center gap-2 flex-wrap">
+                  <span>{m.name || '—'}</span>
+                  {tenure && <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">Member for {tenure}</span>}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <h3 className="font-semibold text-slate-800 mb-2">Inactive Members (Not Attending)</h3>
           <p className="text-xs text-slate-500 mb-2">Visible but not selectable for attendance.</p>
           <ul className="text-sm text-slate-500 divide-y divide-slate-100">
-            {inactiveMembers.length === 0 ? <li className="py-2">No inactive members.</li> : inactiveMembers.map((m) => <li key={m.id} className="py-1">{m.name || '—'}</li>)}
+            {notAttendingMembers.length === 0 ? <li className="py-2">No inactive members.</li> : notAttendingMembers.map((m) => <li key={m.id} className="py-1">{m.name || '—'}</li>)}
           </ul>
         </div>
       </div>
@@ -2024,7 +2041,8 @@ export default function CellReport() {
                 return editCellSortAsc ? na.localeCompare(nb) : nb.localeCompare(na)
               })
               const active = sorted.filter((m) => m.status !== 'inactive')
-              const inactive = sorted.filter((m) => m.status === 'inactive')
+              const former = sorted.filter((m) => m.status === 'inactive' && m.memberCategory === 'former')
+              const notAttending = sorted.filter((m) => m.status === 'inactive' && m.memberCategory !== 'former')
               return (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center gap-2">
@@ -2086,8 +2104,12 @@ export default function CellReport() {
                     </div>
                     {active.length === 0 && <p className="text-slate-500 text-sm py-2">No active members.</p>}
                   </div>
-                  <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                    <h3 className="font-semibold text-slate-800 mb-2">Inactive Members</h3>
+                  {[
+                    { key: 'former', title: 'Former Members', rows: former, emptyLabel: 'No former members.', showTenure: true },
+                    { key: 'not_attending', title: 'Inactive Members (Not Attending)', rows: notAttending, emptyLabel: 'No inactive members.', showTenure: false },
+                  ].map(({ key, title, rows, emptyLabel, showTenure }) => (
+                  <div key={key} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                    <h3 className="font-semibold text-slate-800 mb-2">{title}</h3>
                     <div className="overflow-x-auto">
                       <table className="min-w-full text-sm">
                         <thead className="bg-slate-50">
@@ -2095,15 +2117,19 @@ export default function CellReport() {
                             <th className="text-left px-3 py-2 font-medium text-slate-600">Name</th>
                             <th className="text-left px-3 py-2 font-medium text-slate-600">Phone</th>
                             <th className="text-left px-3 py-2 font-medium text-slate-600">Role</th>
+                            {showTenure && <th className="text-left px-3 py-2 font-medium text-slate-600">Tenure</th>}
                             <th className="text-left px-3 py-2 font-medium text-slate-600">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {inactive.map((m) => (
+                          {rows.map((m) => (
                             <tr key={m.id}>
                               <td className="px-3 py-2 font-medium text-slate-800">{m.name || '—'}</td>
                               <td className="px-3 py-2 text-slate-600">{m.phone || '—'}</td>
                               <td className="px-3 py-2 text-slate-600">{m.role || '—'}</td>
+                              {showTenure && (
+                                <td className="px-3 py-2 text-slate-600">{calcTenureLabel(m.since, m.leftDate) || '—'}</td>
+                              )}
                               <td className="px-3 py-2">
                                 <button type="button" onClick={async () => { try { await addCellMemberPendingChange({ changeType: 'activate', cellId: effectiveCellId, cellName: cell?.cellName || '', memberId: m.id, memberData: null, requestedBy: userProfile?.email || userProfile?.displayName || 'Leader' }); const list = await getCellGroupMembers(effectiveCellId); setCellMembers(list); alert('Reactivate submitted for approval.'); } catch (e) { alert(e?.message || 'Failed'); } }} className="text-emerald-600 hover:underline">Reactivate</button>
                               </td>
@@ -2112,8 +2138,9 @@ export default function CellReport() {
                         </tbody>
                       </table>
                     </div>
-                    {inactive.length === 0 && <p className="text-slate-500 text-sm py-2">No inactive members.</p>}
+                    {rows.length === 0 && <p className="text-slate-500 text-sm py-2">{emptyLabel}</p>}
                   </div>
+                  ))}
                   {editCellEditModal && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                       <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">

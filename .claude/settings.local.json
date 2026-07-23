@@ -82,7 +82,10 @@
       "Bash(chmod 644 ~/.ssh/id_ed25519_bensonksunny-ship-it.pub ~/.ssh/id_ed25519_rolsschoolofmusic-oss.pub)",
       "Bash(git remote *)",
       "Bash(ssh *)",
-      "Bash(npx vercel *)"
+      "Bash(npx vercel *)",
+      "Bash(powershell -Command \"Stop-Process -Id 27772 -Force -ErrorAction SilentlyContinue\")",
+      "PowerShell(cmdkey *)",
+      "Bash(env)"
     ]
   }
 }

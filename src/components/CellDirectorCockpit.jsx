@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { format, startOfWeek } from 'date-fns'
 import {
   getCellGroupMembers,
@@ -6,9 +7,14 @@ import {
   getLatestCellReports,
   addCellGroupMember,
   updateCellGroupMember,
+  deactivateCellGroupMember,
   deleteCellMemberPendingChange,
   updateTask,
+  createTask,
   subscribePCSReferralTasks,
+  subscribeCellDlightConsultTasks,
+  subscribeCellLeaderDirectorNotes,
+  markCellLeaderDirectorNoteRead,
 } from '../services/firestore'
 import { totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
@@ -57,6 +63,36 @@ export function CellDirectorCockpit({
     const unsub = subscribePCSReferralTasks(setLivePcsTasks)
     return unsub
   }, [])
+
+  // Live "consult D Light Director" tasks — drives the row status badge
+  const [dlightConsultTasks, setDlightConsultTasks] = useState([])
+  useEffect(() => {
+    const unsub = subscribeCellDlightConsultTasks(setDlightConsultTasks)
+    return unsub
+  }, [])
+
+  // Live leader notes sent via "Message Cell Director" (the ! icon in MyFellowship) —
+  // surfaced in Pending Member Changes alongside actual member-change requests, since
+  // that's the one place directors already check for anything needing their attention.
+  const [leaderNotes, setLeaderNotes] = useState([])
+  const [resolvingNoteId, setResolvingNoteId] = useState(null)
+  useEffect(() => {
+    const unsub = subscribeCellLeaderDirectorNotes(setLeaderNotes)
+    return unsub
+  }, [])
+
+  const dlightConsultByName = useMemo(() => {
+    const m = new Map()
+    for (const t of dlightConsultTasks) {
+      const key = String(t.consultPersonName || '').trim().toLowerCase()
+      if (key) m.set(key, t)
+    }
+    return m
+  }, [dlightConsultTasks])
+
+  const [consultOpenName, setConsultOpenName] = useState(null)
+  const [consultNote, setConsultNote]         = useState('')
+  const [sendingConsult, setSendingConsult]   = useState(false)
 
   const [toast, setToast] = useState(null)
   const showToast = useCallback((msg, type = 'success') => {
@@ -203,7 +239,7 @@ export function CellDirectorCockpit({
     async (change) => {
       try {
         if (change.changeType === 'deactivate' && change.memberId) {
-          await updateCellGroupMember(change.cellId, change.memberId, { status: 'inactive' })
+          await deactivateCellGroupMember(change.cellId, change.memberId, change.memberData?.name)
         } else if (change.changeType === 'activate' && change.memberId) {
           await updateCellGroupMember(change.cellId, change.memberId, { status: 'active' })
         } else if (change.changeType === 'edit' && change.memberId && change.memberData) {
@@ -234,6 +270,21 @@ export function CellDirectorCockpit({
     [onChangeResolved, showToast]
   )
 
+  const handleResolveNote = useCallback(
+    async (note) => {
+      setResolvingNoteId(note.id)
+      try {
+        await markCellLeaderDirectorNoteRead(note.id)
+        showToast(`Note about ${note.memberName || 'member'} resolved.`)
+      } catch {
+        showToast('Failed to resolve note. Please try again.', 'error')
+      } finally {
+        setResolvingNoteId(null)
+      }
+    },
+    [showToast]
+  )
+
   const handleAssign = useCallback(
     async (item) => {
       if (!assignSelectedCellId) return
@@ -250,7 +301,22 @@ export function CellDirectorCockpit({
           await updateTask(item.taskId, { status: 'Completed' })
           onTaskUpdated?.(item.taskId, { status: 'Completed' })
         }
+        // Close out any open D Light consult now that the member has a cell —
+        // best-effort: the assignment above already succeeded, so a failure here
+        // (e.g. offline) shouldn't surface as a failed assignment.
+        const consultTask = dlightConsultByName.get(item.name.toLowerCase())
+        if (consultTask) {
+          try { await updateTask(consultTask.id, { status: 'Completed' }) } catch { /* non-fatal */ }
+        }
         setAssignedNames((prev) => new Set([...prev, item.name.toLowerCase()]))
+        // Patch the cell's roster locally so Total Members / growth chart / the
+        // Sunday-visitor recompute all reflect the new member immediately —
+        // without this they stay stale until the component remounts.
+        setCellMemberData((prev) => prev.map((c) =>
+          c.cellId === assignSelectedCellId
+            ? { ...c, memberCount: c.memberCount + 1, names: [...c.names, item.name.toLowerCase()] }
+            : c
+        ))
         const cellName = activeCells.find((c) => c.id === assignSelectedCellId)?.cellName || 'cell'
         showToast(`${item.name} added to ${cellName}.`)
         setAssignOpenName(null)
@@ -261,7 +327,42 @@ export function CellDirectorCockpit({
         setAssigning(false)
       }
     },
-    [assignSelectedCellId, activeCells, onTaskUpdated, showToast]
+    [assignSelectedCellId, activeCells, onTaskUpdated, showToast, dlightConsultByName]
+  )
+
+  const handleSendConsult = useCallback(
+    async (item) => {
+      if (!consultNote.trim()) return
+      setSendingConsult(true)
+      try {
+        const requestedByName = userProfile?.displayName || userProfile?.name || userProfile?.email || 'Cell Director'
+        await createTask({
+          taskTitle: `Cell assignment input needed: ${item.name}`,
+          department: 'D Light',
+          assignedPerson: '',
+          priority: 'Medium',
+          deadline: '',
+          status: 'Pending',
+          notes: `${requestedByName} (Cell Director) is requesting D-Light input on where to place ${item.name}. ${consultNote.trim()}`,
+          createdBy: userProfile?.email || '',
+          cellAssignConsult: true,
+          consultPersonName: item.name,
+          consultPersonPhone: item.phone || '',
+          consultPersonVisitorId: item.visitorId || '',
+          consultNote: consultNote.trim(),
+          requestedBy: requestedByName,
+        })
+        showToast(`Requested D Light input for ${item.name}.`)
+        setConsultOpenName(null)
+        setConsultNote('')
+      } catch (err) {
+        console.error('Consult D Light error', err)
+        showToast('Failed to send request. Please try again.', 'error')
+      } finally {
+        setSendingConsult(false)
+      }
+    },
+    [consultNote, userProfile, showToast]
   )
 
   return (
@@ -311,21 +412,76 @@ export function CellDirectorCockpit({
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
           <p className="text-sm font-bold text-slate-800">Pending Member Changes</p>
-          {!loadingCellPending && cellPendingChanges.length > 0 && (
+          {!loadingCellPending && (cellPendingChanges.length + leaderNotes.length) > 0 && (
             <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-              {cellPendingChanges.length}
+              {cellPendingChanges.length + leaderNotes.length}
             </span>
           )}
         </div>
 
         {loadingCellPending ? (
           <div className="px-5 py-10 text-sm text-slate-400 text-center">Loading…</div>
-        ) : cellPendingChanges.length === 0 ? (
+        ) : (cellPendingChanges.length + leaderNotes.length) === 0 ? (
           <div className="px-5 py-10 text-sm text-slate-400 text-center">
             All caught up — no pending changes.
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
+            {leaderNotes.map((note) => (
+              <div key={`note-${note.id}`} className="p-5 space-y-3 bg-amber-50/40">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                      {(note.memberName || '?')[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 text-sm">{note.memberName || 'Member'}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        From {note.sentByName || 'Cell Leader'} · {note.cellName || '—'}
+                        {note.sentAt ? ` · ${format(note.sentAt, 'd MMM, h:mm a')}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0 uppercase tracking-wide bg-amber-100 text-amber-700">
+                    Note
+                  </span>
+                </div>
+
+                {note.tags?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {note.tags.map((tag) => (
+                      <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">{tag}</span>
+                    ))}
+                  </div>
+                )}
+
+                {note.message && (
+                  <div className="bg-amber-50 border-l-4 border-amber-300 rounded-r-lg px-3 py-2 text-xs text-amber-800 italic">
+                    "{note.message}"
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={resolvingNoteId === note.id}
+                    onClick={() => handleResolveNote(note)}
+                    className="flex-1 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                  >
+                    {resolvingNoteId === note.id ? 'Resolving…' : 'Resolve'}
+                  </button>
+                  {note.tags?.includes('Transfer') && note.cellId && (
+                    <Link
+                      to="/department/cell?tab=cellGroups"
+                      className="flex-1 py-2 rounded-xl border border-indigo-200 text-indigo-600 text-xs font-bold hover:bg-indigo-50 transition-colors text-center"
+                    >
+                      Reassign →
+                    </Link>
+                  )}
+                </div>
+              </div>
+            ))}
+
             {cellPendingChanges.map((change) => (
               <div key={change.id} className="p-5 space-y-3">
                 <div className="flex items-start justify-between gap-3">
@@ -416,6 +572,7 @@ export function CellDirectorCockpit({
               ) : (
                 visibleUnassigned.map((item) => {
                   const isPCS = item.source === 'pcs'
+                  const consultTask = dlightConsultByName.get(item.name.toLowerCase())
                   return (
                     <div key={`${item.source}-${item.name}`} className="relative">
                       <div className={`flex items-center gap-3 bg-white border rounded-2xl px-4 py-3 shadow-sm ${
@@ -429,14 +586,29 @@ export function CellDirectorCockpit({
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <p className="font-semibold text-slate-900 text-sm">{item.name}</p>
-                            {isPCS && (
-                              <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
-                                From Caring
-                              </span>
-                            )}
+                            <span
+                              title="Where this notification originated"
+                              className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                                isPCS ? 'bg-indigo-100 text-indigo-700' : 'bg-violet-100 text-violet-700'
+                              }`}
+                            >
+                              {isPCS ? 'From Caring (PCS)' : 'From Sunday Visitor Log'}
+                            </span>
                             {!isPCS && item.nonCell && (
                               <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
                                 Non-Cell
+                              </span>
+                            )}
+                            {consultTask && (
+                              <span
+                                title={consultTask.status === 'Responded' ? consultTask.recommendation || 'D Light responded' : 'Awaiting D Light Director input'}
+                                className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                                  consultTask.status === 'Responded'
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : 'bg-orange-100 text-orange-700'
+                                }`}
+                              >
+                                {consultTask.status === 'Responded' ? 'Consulted D Light' : 'Pending D Light Input'}
                               </span>
                             )}
                           </div>
@@ -445,12 +617,19 @@ export function CellDirectorCockpit({
                               ? item.phone || 'PCS referral'
                               : `${item.weekCount} Sunday${item.weekCount !== 1 ? 's' : ''} attended`}
                           </p>
+                          {consultTask?.status === 'Responded' && consultTask.recommendation && (
+                            <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5 italic">
+                              "{consultTask.recommendation}"
+                            </p>
+                          )}
                         </div>
                         <button
                           type="button"
                           onClick={() => {
                             setAssignOpenName(assignOpenName === item.name ? null : item.name)
                             setAssignSelectedCellId('')
+                            setConsultOpenName(null)
+                            setConsultNote('')
                           }}
                           className={`px-3 py-1.5 text-white text-xs font-semibold rounded-xl flex-shrink-0 transition-colors ${
                             isPCS
@@ -522,6 +701,50 @@ export function CellDirectorCockpit({
                                 ? `Add to ${activeCells.find((c) => c.id === assignSelectedCellId)?.cellName || 'Cell'}`
                                 : 'Select a cell first'}
                             </button>
+                          </div>
+
+                          <div className="p-3 border-t border-slate-100">
+                            {consultTask ? (
+                              <p className="text-xs text-slate-500 text-center">
+                                {consultTask.status === 'Responded' ? '✓ D Light has responded — see note above.' : '⏳ Awaiting D Light Director input.'}
+                              </p>
+                            ) : consultOpenName === item.name ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  value={consultNote}
+                                  onChange={(e) => setConsultNote(e.target.value)}
+                                  placeholder="What input do you need from D Light? (e.g. best-fit cell, background context…)"
+                                  rows={3}
+                                  autoFocus
+                                  className="w-full px-2.5 py-2 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-amber-300 resize-none"
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSendConsult(item)}
+                                    disabled={!consultNote.trim() || sendingConsult}
+                                    className="flex-1 py-2 text-white text-xs font-bold rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 transition-colors"
+                                  >
+                                    {sendingConsult ? 'Sending…' : 'Send Request'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setConsultOpenName(null); setConsultNote('') }}
+                                    className="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => { setConsultOpenName(item.name); setConsultNote('') }}
+                                className="w-full py-2 text-xs font-bold rounded-xl border border-amber-300 text-amber-700 hover:bg-amber-50 transition-colors"
+                              >
+                                Consult D Light Director
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}
