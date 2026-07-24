@@ -1,26 +1,27 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Crown, Building2, CalendarCheck,
   UserCog, FolderOpen, Leaf, PenLine, LogOut, Bell, Users,
-  MessageCircle, ChevronLeft, SquarePen, Send,
+  MessageCircle, ChevronLeft, SquarePen, Send, Home,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { ROLES } from '../../constants/roles'
 import { getDepartmentRole } from '../../utils/access'
-import { isCellDirectorInPositions } from '../../utils/cellReportPermissions'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 import {
-  subscribePCSFillInvitationsByCellId, subscribeCellVisitorProposals, subscribeCellDlightConsultTasks,
   subscribeUserConversations, subscribeUserDirectory, subscribeConversationMessages,
   getOrCreateDirectConversation, sendDirectMessage, markConversationRead, syncAllUsersToDirectory,
 } from '../../services/firestore'
+import useActionNotifications from '../../hooks/useActionNotifications'
 import SundayPlanBubble from '../SundayPlanBubble'
 import rolccLogo from '../../assets/rolcc_logo BW.JPG'
 
+const WORKSPACE_ITEM = { to: '/', label: 'My Workspace', icon: '🏠' }
+
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: '📊', permission: 'dashboard', founderOnly: true },
+  { to: '/analytics', label: 'Analytics', icon: '📊', permission: 'dashboard', founderOnly: true },
   { to: '/senior-pastor', label: 'Senior Pastor Office', icon: '👤', permission: 'pastorHub', orFounder: true },
   { to: '/departments', label: 'Departments', icon: '🏢', permission: 'departments' },
   { to: '/sunday-planning', label: 'Sunday Plan', icon: '📋', permission: 'attendance' },
@@ -29,6 +30,7 @@ const navItems = [
 ]
 
 const ICON_MAP = {
+  '🏠': Home,
   '📊': LayoutDashboard,
   '👤': Crown,
   '🏢': Building2,
@@ -42,7 +44,7 @@ const ICON_MAP = {
 
 function shortLabel(label) {
   const map = {
-    'Dashboard': 'Home',
+    'My Workspace': 'Home',
     'Sunday Plan': 'Sunday',
     'Departments': 'Depts',
     'Senior Pastor Office': 'Pastor',
@@ -514,6 +516,7 @@ export default function Sidebar() {
   const { user, userProfile, signOut, hasPermission, isFounder, isDepartmentHead } = useAuth()
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
+  const isWorkspaceRoute = pathname === '/'
 
   useEffect(() => {
     setOpen(false)
@@ -539,117 +542,25 @@ export default function Sidebar() {
   )
 
   // ── Notifications ───────────────────────────────────────────────────────────
-  const navigate = useNavigate()
   const [notifOpen, setNotifOpen] = useState(false)
-  const [fillNotifications, setFillNotifications] = useState([])
-  const [visitorProposalNotifications, setVisitorProposalNotifications] = useState([])
-  const [dlightConsultNotifications, setDlightConsultNotifications] = useState([])
-  const [consultResponseNotifications, setConsultResponseNotifications] = useState([])
-  const notifications = useMemo(
-    () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications],
-    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications]
-  )
+  const { notifications, dlightConsultCount, consultResponseCount, handleNotifAction: navigateForNotif } =
+    useActionNotifications(userProfile, isFounder)
   const notifDesktopRef = useRef(null)
   const notifMobileRef = useRef(null)
+  const notifRailRef = useRef(null)
 
   const handleNotifAction = (n) => {
     setNotifOpen(false)
-    if (n.type === 'pcs_fill') {
-      navigate('/department/cell?tab=leaderEntry&openFillInvite=' + (n.inviteId || ''))
-    } else if (n.type === 'visitor_proposal') {
-      navigate('/department/d-light?tab=visitorEntry')
-    } else if (n.type === 'dlight_consult') {
-      // Deep-link straight into the Respond modal: DepartmentHub reads
-      // ?openConsultId= once the D-Light Hub's tasks have loaded (works whether
-      // the user is already on the Hub or navigating there fresh).
-      navigate(`/department/d-light?tab=summary&openConsultId=${encodeURIComponent(n.id || '')}`)
-    } else if (n.type === 'consult_response') {
-      // Land on the Cell Hub's summary tab, where the Unassigned drawer (and the
-      // recommendation shown against that person's row) live.
-      navigate('/department/cell?tab=summary')
-    }
+    navigateForNotif(n)
   }
-
-  useEffect(() => {
-    const cellId = userProfile?.cellGroupId || userProfile?.cellId
-    if (!cellId) return
-    return subscribePCSFillInvitationsByCellId(cellId, (invites) => {
-      setFillNotifications(invites.map((inv) => ({
-        id: inv.id,
-        inviteId: inv.id,
-        type: 'pcs_fill',
-        title: 'Profile Fill Request',
-        body: `Fill profile for ${inv.personName || 'a member'}`,
-        cellName: inv.cellName || '',
-        sentAt: inv.sentAt,
-      })))
-    })
-  }, [userProfile?.cellGroupId, userProfile?.cellId])
-
-  // D-Light: visitor proposals forwarded by Cell/Caring — surfaced on the bell so a
-  // D-Light user doesn't have to be on the Visitor Entry tab to know one arrived.
-  useEffect(() => {
-    const canSeeDLight = isFounder || !!getDepartmentRole(userProfile, 'D Light')
-    if (!canSeeDLight) return
-    return subscribeCellVisitorProposals((proposals) => {
-      setVisitorProposalNotifications(proposals.map((p) => ({
-        id: p.id,
-        type: 'visitor_proposal',
-        title: 'New Visitor to Register',
-        body: `${p.visitorName || 'Someone'} was flagged for D-Light registration`,
-        cellName: p.cellName || p.sentByName || '',
-        sentAt: typeof p.createdAt?.toDate === 'function' ? p.createdAt.toDate() : p.createdAt,
-      })))
-    })
-  }, [userProfile, isFounder])
-
-  // D-Light: Cell Director consult requests ("Consult D Light Director") — surfaced
-  // on the bell (and the D-Light sidebar link badge below) so a D-Light Director sees
-  // a pending request without already being on the Hub's summary/visitorEntry/assign tab.
-  useEffect(() => {
-    const canSeeDLight = isFounder || !!getDepartmentRole(userProfile, 'D Light')
-    if (!canSeeDLight) return
-    return subscribeCellDlightConsultTasks((consults) => {
-      setDlightConsultNotifications(consults.map((t) => ({
-        id: t.id,
-        type: 'dlight_consult',
-        title: 'Pending Consultation',
-        body: `${t.consultPersonName || 'Someone'} needs a cell placement recommendation`,
-        cellName: t.requestedBy || '',
-        sentAt: typeof t.createdAt?.toDate === 'function' ? t.createdAt.toDate() : t.createdAt,
-      })))
-    })
-  }, [userProfile, isFounder])
-
-  // Cell: D-Light's responses to consult requests this Director sent — the reverse
-  // direction of the subscription above. Reads the same tasks (the security rules'
-  // cellAssignConsult carve-out lets Cell read them), just filtered to 'Responded'
-  // so the bell only fires once there's an actual recommendation to review.
-  useEffect(() => {
-    const canSeeCell = isFounder || isCellDirectorInPositions(userProfile)
-    if (!canSeeCell) return
-    return subscribeCellDlightConsultTasks((consults) => {
-      setConsultResponseNotifications(
-        consults
-          .filter((t) => t.status === 'Responded')
-          .map((t) => ({
-            id: t.id,
-            type: 'consult_response',
-            title: 'D-Light Recommendation',
-            body: `${t.consultPersonName || 'Someone'}: ${t.recommendation || 'D-Light responded to your request'}`,
-            cellName: '',
-            sentAt: typeof t.respondedAt === 'string' ? new Date(t.respondedAt) : t.respondedAt,
-          }))
-      )
-    })
-  }, [userProfile, isFounder])
 
   useEffect(() => {
     if (!notifOpen) return
     const close = (e) => {
       const d = notifDesktopRef.current
       const m = notifMobileRef.current
-      if ((!d || !d.contains(e.target)) && (!m || !m.contains(e.target))) setNotifOpen(false)
+      const r = notifRailRef.current
+      if ((!d || !d.contains(e.target)) && (!m || !m.contains(e.target)) && (!r || !r.contains(e.target))) setNotifOpen(false)
     }
     document.addEventListener('mousedown', close)
     document.addEventListener('touchstart', close)
@@ -668,6 +579,7 @@ export default function Sidebar() {
   const [messageDraft, setMessageDraft] = useState('')
   const msgDesktopRef = useRef(null)
   const msgMobileRef = useRef(null)
+  const msgRailRef = useRef(null)
 
   const unreadMessagesCount = useMemo(
     () => conversations.reduce((sum, c) => sum + (c.unreadCounts?.[user?.uid] || 0), 0),
@@ -753,7 +665,8 @@ export default function Sidebar() {
     const close = (e) => {
       const d = msgDesktopRef.current
       const m = msgMobileRef.current
-      if ((!d || !d.contains(e.target)) && (!m || !m.contains(e.target))) closeMessages()
+      const r = msgRailRef.current
+      if ((!d || !d.contains(e.target)) && (!m || !m.contains(e.target)) && (!r || !r.contains(e.target))) closeMessages()
     }
     document.addEventListener('mousedown', close)
     document.addEventListener('touchstart', close)
@@ -1011,6 +924,125 @@ export default function Sidebar() {
     </div>
   )
 
+  // ── Icon-only rail (desktop, My Workspace route) ────────────────────────────
+  // Replaces the full labeled sidebar at lg+ while on '/' so the workspace page gets
+  // full breathing room. Reuses the exact same notification/message state, panels, and
+  // handlers as the full sidebar — just a slimmer presentation of the same nav items.
+  const IconRail = ({ items }) => (
+    <aside
+      className="hidden lg:flex w-16 min-h-screen flex-col items-center fixed left-0 top-0 py-3 gap-1"
+      style={{ ...sidebarStyle, zIndex: 45 }}
+    >
+      <NavLink to="/" className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mb-1" style={{
+        background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
+        boxShadow: '0 4px 14px rgba(99,102,241,0.45)',
+      }}>
+        <span className="text-white font-black text-base leading-none select-none" style={{ fontFamily: "'Montserrat', Inter, system-ui, sans-serif" }}>R</span>
+      </NavLink>
+
+      <div className="relative flex-shrink-0" ref={notifRailRef}>
+        <button
+          type="button"
+          onClick={() => { setMessagesOpen(false); setNotifOpen((v) => !v) }}
+          className="relative p-2 rounded-lg transition-colors hover:bg-white/10"
+          style={{ color: isDay ? '#cbd5e1' : '#94a3b8' }}
+          aria-label="Notifications"
+        >
+          <Bell size={18} strokeWidth={1.5} />
+          {notifications.length > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+              {notifications.length > 9 ? '9+' : notifications.length}
+            </span>
+          )}
+        </button>
+        {notifOpen && (() => {
+          const r = notifRailRef.current?.getBoundingClientRect()
+          return <NotifPanel isDay={isDay} notifications={notifications} onAction={handleNotifAction}
+            posStyle={{ top: r?.top ?? 60, left: (r?.right ?? 64) + 8 }} />
+        })()}
+      </div>
+
+      <div className="relative flex-shrink-0" ref={msgRailRef}>
+        <button
+          type="button"
+          onClick={toggleMessages}
+          className="relative p-2 rounded-lg transition-colors hover:bg-white/10"
+          style={{ color: isDay ? '#cbd5e1' : '#94a3b8' }}
+          aria-label="Messages"
+        >
+          <MessageCircle size={18} strokeWidth={1.5} />
+          {unreadMessagesCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+              {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
+            </span>
+          )}
+        </button>
+        {messagesOpen && (() => {
+          const r = msgRailRef.current?.getBoundingClientRect()
+          return <MessagesPanel
+            isDay={isDay} currentUid={user?.uid}
+            conversations={conversations} directory={combinedDirectory}
+            directorySearch={directorySearch} setDirectorySearch={setDirectorySearch}
+            showNewMessage={showNewMessage} setShowNewMessage={setShowNewMessage}
+            activeConversation={activeConversation} threadMessages={threadMessages}
+            messageDraft={messageDraft} setMessageDraft={setMessageDraft}
+            onOpenConversation={openConversation} onStartConversation={startConversationWith}
+            onSend={handleSendMessage} onBack={() => setActiveConversation(null)}
+            posStyle={{ top: r?.top ?? 60, left: (r?.right ?? 64) + 8 }}
+          />
+        })()}
+      </div>
+
+      <div className="w-8 border-t border-white/10 my-1 flex-shrink-0" />
+
+      <nav className="flex-1 flex flex-col items-center gap-1 overflow-y-auto w-full px-1.5">
+        {items.map((item) => (
+          <NavLink
+            key={(item.to || '/') + (item.label || '')}
+            to={item.to || '/'}
+            title={item.label}
+            className={({ isActive }) =>
+              `relative w-11 h-11 rounded-xl flex items-center justify-center text-lg flex-shrink-0 transition-all ${
+                isActive ? navLinkActive : navLinkInactive
+              }`
+            }
+          >
+            <span aria-hidden>{item.icon}</span>
+            {item.to === getDepartmentPath('D Light') && dlightConsultCount > 0 && (
+              <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                {dlightConsultCount > 9 ? '9+' : dlightConsultCount}
+              </span>
+            )}
+            {(item.to === getDepartmentPath('Cell') || item.to === '/department/cell/cell-report') && consultResponseCount > 0 && (
+              <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                {consultResponseCount > 9 ? '9+' : consultResponseCount}
+              </span>
+            )}
+          </NavLink>
+        ))}
+      </nav>
+
+      <button
+        type="button"
+        onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
+        aria-label={themeToggleLabel}
+        title={themeToggleLabel}
+        className="w-10 h-10 rounded-lg flex items-center justify-center text-base flex-shrink-0 hover:bg-white/10 transition-colors"
+      >
+        {theme === 'night' ? '🌙' : '☀️'}
+      </button>
+      <button
+        type="button"
+        onClick={signOut}
+        title="Sign out"
+        aria-label="Sign out"
+        className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 text-rose-400 hover:bg-rose-500/10 transition-colors"
+      >
+        <LogOut size={16} strokeWidth={2} />
+      </button>
+    </aside>
+  )
+
   // ── Scoped sidebar (non-Founder/Admin users) ────────────────────────────────
   if (userProfile && !isFounder && userProfile?.role !== ROLES.ADMIN) {
     const positions = Array.isArray(userProfile?.positions) ? userProfile.positions : []
@@ -1073,6 +1105,7 @@ export default function Sidebar() {
     if (canAccessWeeklyEntryOnly(userProfile)) {
       scopedItems.push({ to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, label: 'Weekly Entry', icon: '📝' })
     }
+    scopedItems.unshift(WORKSPACE_ITEM)
 
     return (
       <>
@@ -1081,7 +1114,7 @@ export default function Sidebar() {
           <div className="lg:hidden fixed inset-0 bg-black/50 backdrop-blur-sm" style={{ zIndex: 41 }} onClick={() => setOpen(false)} aria-hidden />
         )}
         <aside
-          className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+          className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'} ${isWorkspaceRoute ? 'lg:hidden' : ''}`}
           style={{ ...sidebarStyle, zIndex: 45, paddingTop: 'env(safe-area-inset-top, 0px)' }}
         >
           <BrandHeader />
@@ -1099,14 +1132,14 @@ export default function Sidebar() {
               >
                 <span className="text-base">{item.icon}</span>
                 {item.label}
-                {item.to === getDepartmentPath('D Light') && dlightConsultNotifications.length > 0 && (
+                {item.to === getDepartmentPath('D Light') && dlightConsultCount > 0 && (
                   <span className="ml-auto min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
-                    {dlightConsultNotifications.length > 9 ? '9+' : dlightConsultNotifications.length}
+                    {dlightConsultCount > 9 ? '9+' : dlightConsultCount}
                   </span>
                 )}
-                {item.to === '/department/cell/cell-report' && consultResponseNotifications.length > 0 && (
+                {item.to === '/department/cell/cell-report' && consultResponseCount > 0 && (
                   <span className="ml-auto min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
-                    {consultResponseNotifications.length > 9 ? '9+' : consultResponseNotifications.length}
+                    {consultResponseCount > 9 ? '9+' : consultResponseCount}
                   </span>
                 )}
               </NavLink>
@@ -1125,6 +1158,7 @@ export default function Sidebar() {
             <button onClick={signOut} className={actionBtnClass}>Sign out</button>
           </div>
         </aside>
+        {isWorkspaceRoute && <IconRail items={scopedItems} />}
         <BottomTabBar items={scopedItems} theme={theme} signOut={signOut} userProfile={userProfile} user={user} sidebarOpen={open} />
       </>
     )
@@ -1159,12 +1193,12 @@ export default function Sidebar() {
       icon: '📁',
     }))
   const mergedNav = myDeptItems.length ? [...myDeptItems, ...visible] : visible
-  const seenTo = new Set()
-  const visibleWithMyDept = mergedNav.filter((item) => {
+  const seenTo = new Set(['/'])
+  const visibleWithMyDept = [WORKSPACE_ITEM, ...mergedNav.filter((item) => {
     if (seenTo.has(item.to)) return false
     seenTo.add(item.to)
     return true
-  })
+  })]
 
   return (
     <>
@@ -1173,7 +1207,7 @@ export default function Sidebar() {
         <div className="lg:hidden fixed inset-0 bg-black/50 backdrop-blur-sm" style={{ zIndex: 41 }} onClick={() => setOpen(false)} aria-hidden />
       )}
       <aside
-        className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'} ${isWorkspaceRoute ? 'lg:hidden' : ''}`}
         style={{ ...sidebarStyle, zIndex: 45 }}
       >
         <BrandHeader />
@@ -1190,14 +1224,14 @@ export default function Sidebar() {
             >
               <span className="text-base">{item.icon}</span>
               {item.label}
-              {item.to === getDepartmentPath('D Light') && dlightConsultNotifications.length > 0 && (
+              {item.to === getDepartmentPath('D Light') && dlightConsultCount > 0 && (
                 <span className="ml-auto min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
-                  {dlightConsultNotifications.length > 9 ? '9+' : dlightConsultNotifications.length}
+                  {dlightConsultCount > 9 ? '9+' : dlightConsultCount}
                 </span>
               )}
-              {item.to === getDepartmentPath('Cell') && consultResponseNotifications.length > 0 && (
+              {item.to === getDepartmentPath('Cell') && consultResponseCount > 0 && (
                 <span className="ml-auto min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
-                  {consultResponseNotifications.length > 9 ? '9+' : consultResponseNotifications.length}
+                  {consultResponseCount > 9 ? '9+' : consultResponseCount}
                 </span>
               )}
             </NavLink>
@@ -1218,6 +1252,7 @@ export default function Sidebar() {
           <button onClick={signOut} className={actionBtnClass}>Sign out</button>
         </div>
       </aside>
+      {isWorkspaceRoute && <IconRail items={visibleWithMyDept} />}
       <BottomTabBar items={visibleWithMyDept} theme={theme} signOut={signOut} userProfile={userProfile} user={user} sidebarOpen={open} />
     </>
   )

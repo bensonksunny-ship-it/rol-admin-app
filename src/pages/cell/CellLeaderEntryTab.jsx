@@ -6,7 +6,7 @@ import MidweekMinistry from '../MidweekMinistry'
  * Leader Entry tab on the Cell page.
  * Internal toggle: Shepherd Care | Mid-week. Defaults to Shepherd Care.
  */
-export default function CellLeaderEntryTab() {
+export default function CellLeaderEntryTab({ pendingFillInvitations = [], onOpenFillInvite } = {}) {
   const [view, setView] = useState('shepherd')
 
   return (
@@ -39,7 +39,9 @@ export default function CellLeaderEntryTab() {
         </button>
       </div>
 
-      {view === 'midweek' ? <MidweekMinistry embedded /> : <ShepherdView embedded />}
+      {view === 'midweek' ? <MidweekMinistry embedded /> : (
+        <ShepherdView embedded pendingFillInvitations={pendingFillInvitations} onOpenFillInvite={onOpenFillInvite} />
+      )}
     </div>
   )
 }

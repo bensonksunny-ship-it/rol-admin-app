@@ -1,3 +1,5 @@
+import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Settings, Sparkles } from 'lucide-react'
+
 /**
  * Canonical list of church departments (exact names as provided).
  * slug: URL segment for /department/:slug
@@ -43,4 +45,21 @@ export function getDepartmentPath(departmentName) {
   if (!d) return `/departments`
   if (d.customPage === 'worship') return '/department/worship'
   return `/department/${d.slug}`
+}
+
+/** Lucide icon component for a department, by name. */
+export function getDepartmentIcon(departmentName) {
+  const n = String(departmentName || '').trim().toLowerCase()
+  if (n === 'worship') return Music
+  if (n === 'cell') return Users
+  if (n === 'caring') return Heart
+  if (n === 'sunday ministry') return CalendarDays
+  if (n === 'd light') return Sun
+  if (n === 'river kids') return UsersRound
+  if (n === 'outreach') return Megaphone
+  if (n === 'media') return Video
+  if (n === 'accounts') return Wallet
+  if (n === 'building care') return Building2
+  if (n === 'administration') return Settings
+  return Sparkles
 }

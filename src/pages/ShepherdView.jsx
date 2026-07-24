@@ -36,7 +36,6 @@ import { calcTenureLabel, memberCategoryLabel } from '../utils/cellMemberCategor
 import { ROLES } from '../constants/roles'
 import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useViewAs } from '../context/ViewAsContext'
-import { useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
 
 function fmt(d) {
@@ -193,11 +192,8 @@ function InactiveCategoryList({ title, members, expanded, onToggle, showTenure, 
 
 // ─── Root Component ───────────────────────────────────────────────────────────
 
-export default function ShepherdView({ embedded = false }) {
+export default function ShepherdView({ embedded = false, pendingFillInvitations = [], onOpenFillInvite }) {
   const { userProfile } = useAuth()
-  const [searchParamsRoot, setSearchParamsRoot] = useSearchParams()
-
-  const openFillInviteId = searchParamsRoot.get('openFillInvite') || null
 
   const isDirector = useMemo(() => isCellDirectorInPositions(userProfile), [userProfile])
   const isLeader   = useMemo(() => isCellLeaderInPositions(userProfile),   [userProfile])
@@ -239,6 +235,8 @@ export default function ShepherdView({ embedded = false }) {
           isLeader={isLeader}
           canSeeAllCells={effectiveCanSeeAllCells}
           canTransfer={capabilities.canTransferMembers}
+          pendingFillInvitations={pendingFillInvitations}
+          onOpenFillInvite={onOpenFillInvite}
         />
         <MinistryContentTab isDirector={effectiveIsDirector} />
       </div>
@@ -358,7 +356,7 @@ function MinistryContentTab({ isDirector }) {
 
 // ─── Shepherd's Hub Dashboard ────────────────────────────────────────────────
 
-function ShepherdHubDashboard({ cellName, leaderName, activeMembers, statusCounts, heatmap, sundayNamesHistory, pendingFillInvCount, pcsLoading }) {
+function ShepherdHubDashboard({ cellName, leaderName, activeMembers, statusCounts, heatmap, sundayNamesHistory, pendingFillInvCount, pcsLoading, onFillClick }) {
   const lastReport       = heatmap?.[0]
   const lastCellDate     = lastReport?.reportDate
   const lastCellPresent  = lastReport?.attendeeNames?.size || 0
@@ -452,15 +450,21 @@ function ShepherdHubDashboard({ cellName, leaderName, activeMembers, statusCount
 
       {/* pending fill invitation alert */}
       {pendingFillInvCount > 0 && (
-        <div className="relative flex items-center gap-2.5 bg-yellow-400/20 border border-yellow-300/40 rounded-2xl px-3 py-2.5">
+        <button
+          type="button"
+          onClick={onFillClick || undefined}
+          disabled={!onFillClick}
+          className={`relative w-full flex items-center gap-2.5 bg-yellow-400/20 border border-yellow-300/40 rounded-2xl px-3 py-2.5 text-left transition-colors ${onFillClick ? 'hover:bg-yellow-400/30 cursor-pointer' : 'cursor-default'}`}
+        >
           <span className="text-xl leading-none flex-shrink-0">📋</span>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-sm font-bold leading-none">
               {pendingFillInvCount} profile fill request{pendingFillInvCount > 1 ? 's' : ''} pending
             </p>
-            <p className="text-[10px] text-yellow-200 mt-0.5">From Caring Director · see My Fellowship below</p>
+            <p className="text-[10px] text-yellow-200 mt-0.5">From Caring Director · tap to fill now</p>
           </div>
-        </div>
+          {onFillClick && <span className="text-yellow-100 text-xs font-semibold flex-shrink-0">Fill →</span>}
+        </button>
       )}
     </div>
   )
@@ -468,7 +472,7 @@ function ShepherdHubDashboard({ cellName, leaderName, activeMembers, statusCount
 
 // ─── Tab 2: Shepherd Care ─────────────────────────────────────────────────────
 
-function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = true, canTransfer: canTransferProp = true }) {
+function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = true, canTransfer: canTransferProp = true, pendingFillInvitations = [], onOpenFillInvite }) {
   const today = format(new Date(), 'yyyy-MM-dd')
 
   const [cellGroups, setCellGroups]         = useState([])
@@ -520,7 +524,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
 
   // Hub dashboard data
   const [sundayNamesHistory, setSundayNamesHistory] = useState([])
-  const [pendingFillInvCount, setPendingFillInvCount] = useState(0)
+  const pendingFillInvCount = pendingFillInvitations.length
 
   // Mark Inactive (cell leaders only)
   const [inactiveTarget, setInactiveTarget]   = useState(null)
@@ -625,18 +629,6 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     const unsub = subscribeCellLeaderDirectorNotes(setLeaderNotes)
     return unsub
   }, [isDirector])
-
-  // Subscribe to pending fill invitations for hub badge count.
-  // Fall back to the resolved selectedCellId for leaders matched by name whose
-  // profile doesn't yet have cellGroupId/cellId set.
-  useEffect(() => {
-    const cellId = selectedCellId || userProfile?.cellGroupId || userProfile?.cellId
-    if (!cellId) return
-    const unsub = subscribePCSFillInvitationsByCellId(cellId, (invs) => {
-      setPendingFillInvCount(invs.filter(i => i.status === 'pending').length)
-    })
-    return unsub
-  }, [userProfile?.cellGroupId, userProfile?.cellId, selectedCellId])
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -925,6 +917,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
           sundayNamesHistory={sundayNamesHistory}
           pendingFillInvCount={pendingFillInvCount}
           pcsLoading={pcsLoading}
+          onFillClick={pendingFillInvitations.length > 0 && onOpenFillInvite ? () => onOpenFillInvite(pendingFillInvitations[0]) : null}
         />
       )}
 

@@ -213,6 +213,65 @@ const fmtService = (s) => {
   return VISITOR_SERVICE_LABELS[s.trim().toUpperCase()] || s
 }
 
+// ─── Cell Leader "Fill Profile" modal ──────────────────────────────────────────
+// Mirrors the section layout of Caring's own PCS profile form (Personal Info,
+// Contact, Spiritual Details, Family Info) minus Membership Particulars, which stays
+// Caring-only. Field-schema-driven so section/highlight logic doesn't repeat per field.
+const emptyFillInviteForm = () => ({
+  phone: '', email: '', dob: '', nativity: '', currentPlace: '',
+  baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
+  previousChurchName: '', previousChurchPlace: '',
+  maritalStatus: '', marriageDate: '', spouseName: '', hasKids: '', children: [],
+})
+
+const FILL_INVITE_SECTIONS = [
+  {
+    key: 'personal', label: 'Personal Info', dot: 'bg-blue-500', headerBg: 'bg-blue-50 border-b border-blue-100', labelColor: 'text-blue-700',
+    fields: [
+      { key: 'dob', label: 'Date of Birth', type: 'date' },
+      { key: 'nativity', label: 'Nativity / Hometown', type: 'text', placeholder: 'Hometown' },
+      { key: 'currentPlace', label: 'Current Place', type: 'text', placeholder: 'Current city' },
+    ],
+  },
+  {
+    key: 'contact', label: 'Contact', dot: 'bg-sky-500', headerBg: 'bg-sky-50 border-b border-sky-100', labelColor: 'text-sky-700',
+    fields: [
+      { key: 'phone', label: 'Phone', type: 'phone' },
+      { key: 'email', label: 'Email', type: 'email' },
+    ],
+  },
+  {
+    key: 'spiritual', label: 'Spiritual Details', dot: 'bg-violet-500', headerBg: 'bg-violet-50 border-b border-violet-100', labelColor: 'text-violet-700',
+    fields: [
+      { key: 'baptised', label: 'Baptised?', type: 'select', options: [['yes', 'Yes'], ['no', 'No']] },
+      { key: 'baptismDate', label: 'Baptism Date', type: 'date', relevantIf: f => f.baptised === 'yes' },
+      { key: 'baptismPlace', label: 'Baptism Place', type: 'text', placeholder: 'Location', relevantIf: f => f.baptised === 'yes' },
+      { key: 'baptismChurch', label: 'Baptism Church', type: 'church', relevantIf: f => f.baptised === 'yes' },
+      { key: 'previousChurchName', label: 'Previous Church Name', type: 'text' },
+      { key: 'previousChurchPlace', label: 'Previous Church Location', type: 'text' },
+    ],
+  },
+  {
+    key: 'family', label: 'Family Info', dot: 'bg-teal-500', headerBg: 'bg-teal-50 border-b border-teal-100', labelColor: 'text-teal-700',
+    fields: [
+      { key: 'maritalStatus', label: 'Marital Status', type: 'select', options: [['Single', 'Single'], ['Married', 'Married'], ['Widowed', 'Widowed'], ['Divorced', 'Divorced']] },
+      { key: 'marriageDate', label: 'Marriage Date', type: 'date', relevantIf: f => f.maritalStatus === 'Married' },
+      { key: 'spouseName', label: 'Spouse Name', type: 'text', placeholder: 'Spouse name', relevantIf: f => f.maritalStatus === 'Married' },
+      { key: 'hasKids', label: 'Do they have kids?', type: 'select', options: [['yes', 'Yes'], ['no', 'No']] },
+      { key: 'children', label: 'Children', type: 'children', relevantIf: f => f.hasKids === 'yes' },
+    ],
+  },
+]
+
+// "Missing" is judged against the pre-fill baseline (not live edits), so a field
+// doesn't lose its highlight the instant the leader starts typing into it.
+const isFillFieldMissing = (baseline, liveForm, field) => {
+  if (field.relevantIf && !field.relevantIf(liveForm)) return false
+  const v = baseline[field.key]
+  if (field.type === 'children') return !Array.isArray(v) || v.filter(c => c.name).length === 0
+  return v === '' || v === null || v === undefined || v === false
+}
+
 export default function DepartmentHub() {
   const { slug } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -401,7 +460,10 @@ export default function DepartmentHub() {
   const [pendingFillInvitations, setPendingFillInvitations] = useState([])
   const [fillInviteOpen, setFillInviteOpen] = useState(null)
   const [fillInviteForm, setFillInviteForm] = useState({})
+  const [fillInviteBaseline, setFillInviteBaseline] = useState({})
+  const [fillInviteLoading, setFillInviteLoading] = useState(false)
   const [fillInviteSaving, setFillInviteSaving] = useState(false)
+  const [fillShowAllFields, setFillShowAllFields] = useState(false)
 
   // Capture baseline after load completes; reset dirty flag
   useEffect(() => {
@@ -438,6 +500,49 @@ export default function DepartmentHub() {
     const unsub = subscribePCSFillInvitationsByCellId(cellId, setPendingFillInvitations)
     return unsub
   }, [slug, userProfile?.cellGroupId, userProfile?.cellId])
+
+  const openFillInviteModal = async (inv) => {
+    setFillInviteOpen(inv)
+    setFillShowAllFields(false)
+    const empty = emptyFillInviteForm()
+    setFillInviteForm(empty)
+    setFillInviteBaseline(empty)
+    if (!inv.visitorId) return
+    setFillInviteLoading(true)
+    try {
+      // member_profiles is the only collection a Cell Leader can read/write for this
+      // person (caring_pcs/people are Caring-department-gated) — see the comment on
+      // upsertMemberProfile in firestore.js.
+      const profile = await getMemberProfile(inv.visitorId)
+      const merged = profile ? {
+        phone: profile.phone || '', email: profile.email || '', dob: profile.dob || '',
+        nativity: profile.nativity || '', currentPlace: profile.currentPlace || '',
+        baptised: profile.baptised || '', baptismDate: profile.baptismDate || '', baptismPlace: profile.baptismPlace || '',
+        baptismChurch: profile.baptismChurch || '',
+        baptismChurchIsOther: !!profile.baptismChurch && profile.baptismChurch !== 'River Of Life Christian Church',
+        previousChurchName: profile.previousChurchName || '', previousChurchPlace: profile.previousChurchPlace || '',
+        maritalStatus: profile.maritalStatus || '', marriageDate: profile.marriageDate || '', spouseName: profile.spouseName || '',
+        hasKids: profile.hasKids || '', children: profile.children || [],
+      } : empty
+      setFillInviteForm(merged)
+      setFillInviteBaseline(merged)
+    } catch { /* keep the empty form — cell leader can still fill from scratch */ }
+    setFillInviteLoading(false)
+  }
+
+  // Deep-link from the notification bell's "Tap to fill" (Sidebar.jsx): once the
+  // pending fill invitations have loaded, auto-open the Fill Profile modal for the
+  // invitation id passed in via ?openFillInvite=, then strip it from the URL so it
+  // doesn't re-trigger on refresh/back-navigation.
+  const openFillInviteId = searchParams.get('openFillInvite') || null
+  useEffect(() => {
+    if (!openFillInviteId || slug !== 'cell' || pendingFillInvitations.length === 0) return
+    const inv = pendingFillInvitations.find(i => i.id === openFillInviteId)
+    if (inv) openFillInviteModal(inv)
+    const next = new URLSearchParams(searchParams)
+    next.delete('openFillInvite')
+    setSearchParams(next, { replace: true })
+  }, [openFillInviteId, slug, pendingFillInvitations])
 
   const [cellReferralTasks, setCellReferralTasks] = useState([])
   const [cellReferralAdding, setCellReferralAdding] = useState(new Set())
@@ -2061,14 +2166,7 @@ export default function DepartmentHub() {
                             </div>
                             <button
                               type="button"
-                              onClick={() => {
-                                setFillInviteOpen(inv)
-                                setFillInviteForm({
-                                  phone: '', dob: '', nativity: '', currentPlace: '',
-                                  baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
-                                  maritalStatus: '', marriageDate: '', spouseName: '',
-                                })
-                              }}
+                              onClick={() => openFillInviteModal(inv)}
                               className="px-3 py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-xl hover:bg-violet-700 transition-colors flex-shrink-0"
                             >
                               Fill Profile
@@ -4585,6 +4683,13 @@ export default function DepartmentHub() {
                     const mergedChildren = [...savedChildren, ...autoKids.filter(k => !savedLinkedIds.has(k.riverKidsChildId))]
                     setPcsExpandedForm(f => ({
                       ...f,
+                      // Cell-Leader-filled contact/personal fields (via profile-fill invitation)
+                      // land in member_profiles — prefer them over the visitor record if present.
+                      phone: p.phone || f.phone,
+                      email: p.email || f.email,
+                      dob: p.dob || f.dob,
+                      nativity: p.nativity || f.nativity,
+                      currentPlace: p.currentPlace || f.currentPlace,
                       baptised: p.baptised || '',
                       baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '',
                       baptismChurch: p.baptismChurch || '',
@@ -5695,6 +5800,7 @@ export default function DepartmentHub() {
                               updateDeptTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
                               updateWorshipTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
                               upsertMemberProfile(entry.visitorId, {
+                                phone, email, dob, nativity, currentPlace,
                                 baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
                                 hasKids: hasKids || '',
                                 children: hasKids === 'yes' ? (children || []) : [],
@@ -8177,14 +8283,7 @@ export default function DepartmentHub() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => {
-                            setFillInviteOpen(inv)
-                            setFillInviteForm({
-                              phone: '', dob: '', nativity: '', currentPlace: '',
-                              baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
-                              maritalStatus: '', marriageDate: '', spouseName: '',
-                            })
-                          }}
+                          onClick={() => openFillInviteModal(inv)}
                           className="px-3 py-1.5 bg-violet-600 text-white text-xs font-semibold rounded-xl hover:bg-violet-700 transition-colors flex-shrink-0"
                         >
                           Fill Profile
@@ -8858,7 +8957,12 @@ export default function DepartmentHub() {
 
           {activeTab === 'reports' && slug === 'cell' && <CellReportsTab />}
 
-          {activeTab === 'leaderEntry' && slug === 'cell' && <CellLeaderEntryTab />}
+          {activeTab === 'leaderEntry' && slug === 'cell' && (
+            <CellLeaderEntryTab
+              pendingFillInvitations={pendingFillInvitations}
+              onOpenFillInvite={openFillInviteModal}
+            />
+          )}
 
           {activeTab === 'operations' && slug === 'cell' && (
             <div className="space-y-4">
@@ -9604,201 +9708,233 @@ export default function DepartmentHub() {
       </div>
 
       {/* ─── Cell Leader Profile Fill Modal ───────────────────────────────── */}
-      {fillInviteOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
-          <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
+      {fillInviteOpen && (() => {
+        const ff = fillInviteForm
+        const setFf = setFillInviteForm
+        const baseline = fillInviteBaseline
 
-            {/* Header */}
-            <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-start justify-between gap-3 flex-shrink-0">
-              <div>
-                <p className="font-bold text-slate-800 text-sm">Fill Profile Details</p>
-                <p className="text-xs text-violet-500 font-medium mt-0.5">{fillInviteOpen.personName}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Requested by Caring Director — fill in what you know</p>
+        const allRelevantFields = FILL_INVITE_SECTIONS.flatMap(s => s.fields.filter(fd => !fd.relevantIf || fd.relevantIf(ff)))
+        const totalMissing = allRelevantFields.filter(fd => isFillFieldMissing(baseline, ff, fd)).length
+
+        const renderFillField = (field) => {
+          const missing = isFillFieldMissing(baseline, ff, field)
+          const inputCls = `w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 transition-colors ${missing ? 'border-amber-300 bg-amber-50/60 focus:ring-amber-200' : 'border-slate-200 bg-white focus:ring-violet-200'}`
+          const labelEl = (
+            <label className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">
+              <span>{field.label}</span>
+              {missing && <span className="text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded-full normal-case tracking-normal">Missing</span>}
+            </label>
+          )
+
+          if (field.type === 'phone') {
+            const CODES = [
+              { code: '+91',  label: '🇮🇳 +91'  }, { code: '+971', label: '🇦🇪 +971' },
+              { code: '+1',   label: '🇺🇸 +1'   }, { code: '+44',  label: '🇬🇧 +44'  },
+              { code: '+61',  label: '🇦🇺 +61'  }, { code: '+65',  label: '🇸🇬 +65'  },
+              { code: '+60',  label: '🇲🇾 +60'  }, { code: '+966', label: '🇸🇦 +966' },
+              { code: '+974', label: '🇶🇦 +974' }, { code: '+965', label: '🇰🇼 +965' },
+              { code: '+973', label: '🇧🇭 +973' }, { code: '+64',  label: '🇳🇿 +64'  },
+              { code: '+49',  label: '🇩🇪 +49'  },
+            ]
+            const parsePhone = (val) => {
+              const v = (val || '').trim()
+              for (const { code } of CODES) {
+                if (v.startsWith(code + ' ')) return { code, number: v.slice(code.length + 1) }
+                if (v.startsWith(code) && v.length > code.length) return { code, number: v.slice(code.length) }
+              }
+              return { code: '+91', number: v }
+            }
+            const { code: cc, number: num } = parsePhone(ff.phone)
+            return (
+              <div key={field.key} className="col-span-2">
+                {labelEl}
+                <div className="flex gap-1">
+                  <select
+                    value={cc}
+                    onChange={e => setFf(p => ({ ...p, phone: e.target.value + ' ' + num }))}
+                    className="px-1.5 py-2 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-violet-200 flex-shrink-0"
+                  >
+                    {CODES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+                  </select>
+                  <input
+                    type="tel"
+                    placeholder="Number"
+                    value={num}
+                    onChange={e => setFf(p => ({ ...p, phone: cc + ' ' + e.target.value }))}
+                    className={`${inputCls} flex-1 min-w-0`}
+                  />
+                </div>
               </div>
-              <button type="button" onClick={() => setFillInviteOpen(null)} className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors text-xl flex-shrink-0">×</button>
+            )
+          }
+
+          if (field.type === 'select') {
+            return (
+              <div key={field.key}>
+                {labelEl}
+                <select value={ff[field.key] || ''} onChange={e => setFf(p => ({ ...p, [field.key]: e.target.value }))} className={inputCls}>
+                  <option value="">— Select —</option>
+                  {field.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+            )
+          }
+
+          if (field.type === 'church') {
+            return (
+              <div key={field.key} className="col-span-2">
+                {labelEl}
+                <select
+                  value={ff.baptismChurchIsOther ? 'other' : ff.baptismChurch}
+                  onChange={e => {
+                    if (e.target.value === 'other') setFf(p => ({ ...p, baptismChurch: '', baptismChurchIsOther: true }))
+                    else setFf(p => ({ ...p, baptismChurch: e.target.value, baptismChurchIsOther: false }))
+                  }}
+                  className={inputCls}
+                >
+                  <option value="">— Select —</option>
+                  <option value="River Of Life Christian Church">River Of Life Christian Church</option>
+                  <option value="other">Other</option>
+                </select>
+                {ff.baptismChurchIsOther && (
+                  <input type="text" placeholder="Specify church name…" value={ff.baptismChurch} onChange={e => setFf(p => ({ ...p, baptismChurch: e.target.value }))} className={`${inputCls} mt-2`} />
+                )}
+              </div>
+            )
+          }
+
+          if (field.type === 'children') {
+            const kids = ff.children || []
+            return (
+              <div key={field.key} className="col-span-2">
+                {labelEl}
+                <div className="space-y-2">
+                  {kids.map((c, i) => (
+                    <div key={c.id || i} className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="Child's name"
+                        value={c.name || ''}
+                        onChange={e => setFf(p => ({ ...p, children: p.children.map((cc, ci) => ci === i ? { ...cc, name: e.target.value } : cc) }))}
+                        className={`${inputCls} flex-1`}
+                      />
+                      <button type="button" onClick={() => setFf(p => ({ ...p, children: p.children.filter((_, ci) => ci !== i) }))} className="w-8 h-8 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center flex-shrink-0 transition-colors">×</button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setFf(p => ({ ...p, children: [...(p.children || []), { id: Date.now().toString(), name: '' }] }))} className="text-xs text-teal-600 hover:text-teal-800 font-medium transition-colors">
+                    + Add Child
+                  </button>
+                </div>
+              </div>
+            )
+          }
+
+          return (
+            <div key={field.key}>
+              {labelEl}
+              <input type={field.type} placeholder={field.placeholder || ''} value={ff[field.key] || ''} onChange={e => setFf(p => ({ ...p, [field.key]: e.target.value }))} className={inputCls} />
             </div>
+          )
+        }
 
-            {/* Form */}
-            <div className="overflow-y-auto flex-1 px-4 py-4 space-y-4">
-              {(() => {
-                const ff = fillInviteForm
-                const setFf = setFillInviteForm
-                const inp = 'w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-200'
-                const lbl = 'block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1'
-                return (
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+            <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
+
+              {/* Header */}
+              <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-start justify-between gap-3 flex-shrink-0">
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">Fill Profile Details</p>
+                  <p className="text-xs text-violet-500 font-medium mt-0.5">{fillInviteOpen.personName}</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Requested by Caring Director — fill in what you know</p>
+                </div>
+                <button type="button" onClick={() => setFillInviteOpen(null)} className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors text-xl flex-shrink-0">×</button>
+              </div>
+
+              {/* Form */}
+              <div className="overflow-y-auto flex-1 px-4 py-4 space-y-3">
+                {fillInviteLoading ? (
+                  <p className="text-xs text-slate-400 text-center py-8">Loading existing profile…</p>
+                ) : !fillInviteOpen.visitorId ? (
+                  <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                    This person isn't linked to a visitor record yet, so their profile can't be saved from here. Ask your Caring Director to link them first.
+                  </p>
+                ) : (
                   <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="col-span-2">
-                        <label className={lbl}>Phone</label>
-                        {(() => {
-                          const CODES = [
-                            { code: '+91',  label: '🇮🇳 +91'  },
-                            { code: '+971', label: '🇦🇪 +971' },
-                            { code: '+1',   label: '🇺🇸 +1'   },
-                            { code: '+44',  label: '🇬🇧 +44'  },
-                            { code: '+61',  label: '🇦🇺 +61'  },
-                            { code: '+65',  label: '🇸🇬 +65'  },
-                            { code: '+60',  label: '🇲🇾 +60'  },
-                            { code: '+966', label: '🇸🇦 +966' },
-                            { code: '+974', label: '🇶🇦 +974' },
-                            { code: '+965', label: '🇰🇼 +965' },
-                            { code: '+973', label: '🇧🇭 +973' },
-                            { code: '+64',  label: '🇳🇿 +64'  },
-                            { code: '+49',  label: '🇩🇪 +49'  },
-                          ]
-                          const parsePhone = (val) => {
-                            const v = (val || '').trim()
-                            for (const { code } of CODES) {
-                              if (v.startsWith(code + ' ')) return { code, number: v.slice(code.length + 1) }
-                              if (v.startsWith(code) && v.length > code.length) return { code, number: v.slice(code.length) }
-                            }
-                            return { code: '+91', number: v }
-                          }
-                          const { code: cc, number: num } = parsePhone(ff.phone)
-                          return (
-                            <div className="flex gap-1">
-                              <select
-                                value={cc}
-                                onChange={e => setFf(p => ({ ...p, phone: e.target.value + ' ' + num }))}
-                                className="px-1.5 py-2 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-violet-200 flex-shrink-0"
-                              >
-                                {CODES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
-                              </select>
-                              <input
-                                type="tel"
-                                placeholder="Number"
-                                value={num}
-                                onChange={e => setFf(p => ({ ...p, phone: cc + ' ' + e.target.value }))}
-                                className={`${inp} flex-1 min-w-0`}
-                              />
+                    <div className="flex items-center justify-between gap-2 px-0.5">
+                      <p className="text-xs text-slate-500">
+                        {totalMissing === 0 ? 'All fields filled in ✓' : `${totalMissing} field${totalMissing > 1 ? 's' : ''} missing`}
+                      </p>
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+                        <input type="checkbox" checked={!fillShowAllFields} onChange={e => setFillShowAllFields(!e.target.checked)} className="rounded accent-violet-600" />
+                        Missing only
+                      </label>
+                    </div>
+
+                    {FILL_INVITE_SECTIONS.map(section => {
+                      const relevantFields = section.fields.filter(fd => !fd.relevantIf || fd.relevantIf(ff))
+                      const missingFields = relevantFields.filter(fd => isFillFieldMissing(baseline, ff, fd))
+                      const visibleFields = fillShowAllFields ? relevantFields : missingFields
+
+                      return (
+                        <div key={section.key} className="rounded-xl border border-slate-100 overflow-hidden">
+                          <div className={`px-3 py-2 flex items-center gap-2 ${section.headerBg}`}>
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${section.dot}`} />
+                            <p className={`text-xs font-bold tracking-tight ${section.labelColor}`}>{section.label}</p>
+                            {missingFields.length > 0 ? (
+                              <span className="ml-auto text-[10px] font-semibold text-amber-700 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full flex-shrink-0">{missingFields.length} missing</span>
+                            ) : (
+                              <span className="ml-auto text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex-shrink-0">✓ Complete</span>
+                            )}
+                          </div>
+                          {visibleFields.length > 0 && (
+                            <div className="p-3 grid grid-cols-2 gap-3">
+                              {visibleFields.map(fd => renderFillField(fd))}
                             </div>
-                          )
-                        })()}
-                      </div>
-                      <div>
-                        <label className={lbl}>Date of Birth</label>
-                        <input type="date" value={ff.dob} onChange={e => setFf(p => ({...p, dob: e.target.value}))} className={inp} />
-                      </div>
-                      <div>
-                        <label className={lbl}>Nativity</label>
-                        <input type="text" value={ff.nativity} onChange={e => setFf(p => ({...p, nativity: e.target.value}))} placeholder="Hometown" className={inp} />
-                      </div>
-                      <div>
-                        <label className={lbl}>Current Place</label>
-                        <input type="text" value={ff.currentPlace} onChange={e => setFf(p => ({...p, currentPlace: e.target.value}))} placeholder="Current city" className={inp} />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className={lbl}>Baptised?</label>
-                      <select value={ff.baptised} onChange={e => setFf(p => ({...p, baptised: e.target.value}))} className={inp}>
-                        <option value="">— Select —</option>
-                        <option value="yes">Yes</option>
-                        <option value="no">No</option>
-                      </select>
-                    </div>
-
-                    {ff.baptised === 'yes' && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className={lbl}>Baptism Date</label>
-                          <input type="date" value={ff.baptismDate} onChange={e => setFf(p => ({...p, baptismDate: e.target.value}))} className={inp} />
-                        </div>
-                        <div>
-                          <label className={lbl}>Baptism Place</label>
-                          <input type="text" value={ff.baptismPlace} onChange={e => setFf(p => ({...p, baptismPlace: e.target.value}))} placeholder="Location" className={inp} />
-                        </div>
-                        <div className="col-span-2">
-                          <label className={lbl}>Baptism Church</label>
-                          <select
-                            value={ff.baptismChurchIsOther ? 'other' : ff.baptismChurch}
-                            onChange={e => {
-                              if (e.target.value === 'other') setFf(p => ({...p, baptismChurch: '', baptismChurchIsOther: true}))
-                              else setFf(p => ({...p, baptismChurch: e.target.value, baptismChurchIsOther: false}))
-                            }}
-                            className={inp}
-                          >
-                            <option value="">— Select —</option>
-                            <option value="River Of Life Christian Church">River Of Life Christian Church</option>
-                            <option value="other">Other</option>
-                          </select>
-                          {ff.baptismChurchIsOther && (
-                            <input type="text" placeholder="Specify church name…" value={ff.baptismChurch} onChange={e => setFf(p => ({...p, baptismChurch: e.target.value}))} className={`${inp} mt-2`} />
                           )}
                         </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <label className={lbl}>Marital Status</label>
-                      <select value={ff.maritalStatus} onChange={e => setFf(p => ({...p, maritalStatus: e.target.value}))} className={inp}>
-                        <option value="">— Select —</option>
-                        {['Single','Married','Widowed','Divorced'].map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    </div>
-
-                    {ff.maritalStatus === 'Married' && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className={lbl}>Marriage Date</label>
-                          <input type="date" value={ff.marriageDate} onChange={e => setFf(p => ({...p, marriageDate: e.target.value}))} className={inp} />
-                        </div>
-                        <div>
-                          <label className={lbl}>Spouse Name</label>
-                          <input type="text" value={ff.spouseName} onChange={e => setFf(p => ({...p, spouseName: e.target.value}))} placeholder="Spouse name" className={inp} />
-                        </div>
-                      </div>
-                    )}
+                      )
+                    })}
                   </>
-                )
-              })()}
-            </div>
+                )}
+              </div>
 
-            {/* Footer */}
-            <div className="px-4 pb-4 pt-3 border-t border-slate-100 flex-shrink-0 space-y-2">
-              <button
-                type="button"
-                disabled={fillInviteSaving}
-                onClick={async () => {
-                  setFillInviteSaving(true)
-                  try {
-                    const ff = fillInviteForm
-                    const pcsPayload = {}
-                    if (ff.phone)        pcsPayload.phone        = ff.phone
-                    if (ff.dob)         pcsPayload.dob          = ff.dob
-                    if (ff.nativity)    pcsPayload.nativity     = ff.nativity
-                    if (ff.currentPlace) pcsPayload.currentPlace = ff.currentPlace
-                    if (Object.keys(pcsPayload).length) {
-                      await updatePCSEntry(fillInviteOpen.pcsEntryId, pcsPayload)
-                    }
-                    if (fillInviteOpen.visitorId) {
-                      const profilePayload = {}
-                      if (ff.baptised)      profilePayload.baptised      = ff.baptised
-                      if (ff.baptismDate)   profilePayload.baptismDate   = ff.baptismDate
-                      if (ff.baptismPlace)  profilePayload.baptismPlace  = ff.baptismPlace
-                      if (ff.baptismChurch) profilePayload.baptismChurch = ff.baptismChurch
-                      if (ff.maritalStatus) profilePayload.maritalStatus = ff.maritalStatus
-                      if (ff.marriageDate)  profilePayload.marriageDate  = ff.marriageDate
-                      if (ff.spouseName)    profilePayload.spouseName    = ff.spouseName
-                      if (Object.keys(profilePayload).length) {
-                        await upsertMemberProfile(fillInviteOpen.visitorId, profilePayload, userProfile?.email || '')
+              {/* Footer */}
+              <div className="px-4 pb-4 pt-3 border-t border-slate-100 flex-shrink-0 space-y-2">
+                <button
+                  type="button"
+                  disabled={fillInviteSaving || fillInviteLoading || !fillInviteOpen.visitorId}
+                  onClick={async () => {
+                    setFillInviteSaving(true)
+                    try {
+                      const payload = {
+                        phone: ff.phone, email: ff.email, dob: ff.dob, nativity: ff.nativity, currentPlace: ff.currentPlace,
+                        baptised: ff.baptised, baptismDate: ff.baptismDate, baptismPlace: ff.baptismPlace, baptismChurch: ff.baptismChurch,
+                        previousChurchName: ff.previousChurchName, previousChurchPlace: ff.previousChurchPlace,
+                        maritalStatus: ff.maritalStatus, marriageDate: ff.marriageDate, spouseName: ff.spouseName,
+                        hasKids: ff.hasKids, children: ff.hasKids === 'yes' ? (ff.children || []).filter(c => c.name) : [],
                       }
-                    }
-                    await completePCSFillInvitation(fillInviteOpen.id, userProfile?.email || '', fillInviteOpen.visitorId || '')
-                    setPendingFillInvitations(prev => prev.filter(i => i.id !== fillInviteOpen.id))
-                    setFillInviteOpen(null)
-                  } catch { alert('Failed to save profile details') }
-                  setFillInviteSaving(false)
-                }}
-                className="w-full min-h-[44px] py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 active:bg-violet-800 transition-colors disabled:opacity-60"
-              >
-                {fillInviteSaving ? 'Submitting…' : 'Submit Profile Details'}
-              </button>
-              <button type="button" onClick={() => setFillInviteOpen(null)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+                      // Never clobber existing data with a blank — only write fields the leader actually filled in.
+                      const cleanPayload = Object.fromEntries(
+                        Object.entries(payload).filter(([k, v]) => k === 'children' || (v !== '' && v !== null && v !== undefined))
+                      )
+                      await upsertMemberProfile(fillInviteOpen.visitorId, cleanPayload, userProfile?.email || '')
+                      await completePCSFillInvitation(fillInviteOpen.id, userProfile?.email || '', fillInviteOpen.visitorId || '')
+                      setPendingFillInvitations(prev => prev.filter(i => i.id !== fillInviteOpen.id))
+                      setFillInviteOpen(null)
+                    } catch { alert('Failed to save profile details') }
+                    setFillInviteSaving(false)
+                  }}
+                  className="w-full min-h-[44px] py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 active:bg-violet-800 transition-colors disabled:opacity-60"
+                >
+                  {fillInviteSaving ? 'Submitting…' : 'Submit Profile Details'}
+                </button>
+                <button type="button" onClick={() => setFillInviteOpen(null)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
     </div>
   )

@@ -94,12 +94,6 @@ const ACCENTS = {
 export default function Analytics() {
   const { isFounder, userProfile } = useAuth()
 
-  // Church-wide analytics is Founder-only; My Workspace ('/') is everyone's landing
-  // page now, so a non-founder hitting this route directly just gets sent back there.
-  if (userProfile && !isFounder) {
-    return <Navigate to="/" replace />
-  }
-
   const year = new Date().getFullYear()
   const now = new Date()
   const last6 = eachMonthOfInterval({ start: subMonths(now, 5), end: now })
@@ -129,6 +123,13 @@ export default function Analytics() {
     }).catch(console.error)
      .finally(() => setLoading(false))
   }, [year])
+
+  // Church-wide analytics is Founder-only; My Workspace ('/') is everyone's landing
+  // page now, so a non-founder hitting this route directly just gets sent back there.
+  // (Checked after the hooks above so hook call order stays stable across renders.)
+  if (userProfile && !isFounder) {
+    return <Navigate to="/" replace />
+  }
 
   // ── derived ─────────────────────────────────────────────────────────────────
 

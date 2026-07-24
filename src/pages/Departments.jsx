@@ -1,8 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { DEPARTMENT_LIST, getDepartmentPath } from '../constants/departments'
+import { DEPARTMENT_LIST, getDepartmentPath, getDepartmentIcon } from '../constants/departments'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
-import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Settings, Sparkles } from 'lucide-react'
 
 export default function Departments() {
   const { userProfile, canSeeAllDepartments, isCellDirector } = useAuth()
@@ -31,22 +30,6 @@ export default function Departments() {
     ? DEPARTMENT_LIST
     : DEPARTMENT_LIST.filter((d) => allowedNorms.has(normDept(d.name)))
 
-  const getIcon = (deptName) => {
-    const n = String(deptName || '').trim().toLowerCase()
-    if (n === 'worship') return Music
-    if (n === 'cell') return Users
-    if (n === 'caring') return Heart
-    if (n === 'sunday ministry') return CalendarDays
-    if (n === 'd light') return Sun
-    if (n === 'river kids') return UsersRound
-    if (n === 'outreach') return Megaphone
-    if (n === 'media') return Video
-    if (n === 'accounts') return Wallet
-    if (n === 'building care') return Building2
-    if (n === 'administration') return Settings
-    return Sparkles
-  }
-
   return (
     <div className="space-y-6 font-sans">
       <div>
@@ -72,7 +55,7 @@ export default function Departments() {
                   <h2 className="text-lg font-semibold text-slate-900">{displayDeptName(d.name)}</h2>
                 </div>
                 {(() => {
-                  const Icon = getIcon(d.name)
+                  const Icon = getDepartmentIcon(d.name)
                   return <Icon className="text-indigo-600" size={22} aria-hidden />
                 })()}
               </div>

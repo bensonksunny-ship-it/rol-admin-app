@@ -1,12 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider, useAuth } from './context/AuthContext'
+import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import MainLayout from './components/Layout/MainLayout'
 import ErrorBoundary from './components/ErrorBoundary'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import { isCellLeaderInPositions, isCellDirectorInPositions } from './utils/cellReportPermissions'
-import { ROLES } from './constants/roles'
+import MyWorkspace from './pages/MyWorkspace'
+import Analytics from './pages/Analytics'
 import Departments from './pages/Departments'
 import DepartmentDetail from './pages/DepartmentDetail'
 import Tasks from './pages/Tasks'
@@ -32,15 +31,6 @@ import DLightMembers from './pages/DLightMembers'
 import PeopleDirectory from './pages/PeopleDirectory'
 import OfflineBanner from './components/OfflineBanner'
 
-function HomeRedirect() {
-  const { userProfile } = useAuth()
-  if (!userProfile) return <Dashboard />
-  const isFounder = userProfile.globalRole === 'FOUNDER' || userProfile.role === ROLES.FOUNDER
-  const isLeaderOnly = isCellLeaderInPositions(userProfile) && !isCellDirectorInPositions(userProfile) && !isFounder
-  if (isLeaderOnly) return <Navigate to="/department/cell?tab=leaderEntry" replace />
-  return <Dashboard />
-}
-
 function App() {
   return (
     <BrowserRouter>
@@ -56,7 +46,8 @@ function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<HomeRedirect />} />
+              <Route index element={<MyWorkspace />} />
+              <Route path="analytics" element={<Analytics />} />
               <Route path="departments" element={<Departments />} />
               <Route path="departments/:slug" element={<DepartmentDetail />} />
               <Route path="tasks" element={<Tasks />} />

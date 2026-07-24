@@ -4519,6 +4519,10 @@ export async function updatePeopleByPhone(phone, data) {
 // ─── Member Profiles ─────────────────────────────────────────────────────────
 // Document ID = visitorId for instant lookup without extra query.
 // Stores fields that don't live in any other collection: baptism, marriage, director.
+// phone/email/dob/nativity/currentPlace are mirrored here too (in addition to
+// caring_pcs/people) because this is the only collection a Cell Leader can write to
+// via a profile-fill invitation grant (see pcs_profile_grants in firestore.rules) —
+// caring_pcs and people are gated to the Caring department.
 
 const MEMBER_PROFILES_COLLECTION = 'member_profiles'
 
@@ -4529,6 +4533,11 @@ export async function getMemberProfile(visitorId) {
   const d = snap.data()
   return {
     visitorId,
+    phone:            d.phone            || '',
+    email:            d.email            || '',
+    dob:              d.dob              || '',
+    nativity:         d.nativity         || '',
+    currentPlace:     d.currentPlace     || '',
     baptised:         d.baptised         || '',
     baptismDate:      d.baptismDate      || '',
     baptismPlace:     d.baptismPlace     || '',
@@ -4561,6 +4570,7 @@ export async function upsertMemberProfile(visitorId, data, updatedBy = '') {
   if (!db || !visitorId) return
   const payload = {}
   const allowed = [
+    'phone','email','dob','nativity','currentPlace',
     'baptised','baptismDate','baptismPlace','baptismChurch','maritalStatus','marriageDate','spouseName','spouseVisitorId',
     'isDirector','directorOf','directorSince','leaderSince','leaderUntil','ministryNotes',
     'ministryHistory','membershipStatus','membershipDocs','permanentAddress','photoUrl',
