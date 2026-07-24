@@ -23,20 +23,6 @@ const CELL_DEPARTMENT = 'Cell'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Fixed CVD-safe hue order — reused (not reordered) as the week color cycles
-const WEEK_COLOR_ORDER = ['blue', 'teal', 'amber', 'green', 'violet', 'red', 'pink', 'orange']
-
-const WEEK_COLOR_CLASSES = {
-  blue:   { bar: 'bg-blue-400',   badge: 'bg-blue-50 text-blue-700 border-blue-200' },
-  teal:   { bar: 'bg-teal-400',   badge: 'bg-teal-50 text-teal-700 border-teal-200' },
-  amber:  { bar: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700 border-amber-200' },
-  green:  { bar: 'bg-green-400',  badge: 'bg-green-50 text-green-700 border-green-200' },
-  violet: { bar: 'bg-violet-400', badge: 'bg-violet-50 text-violet-700 border-violet-200' },
-  red:    { bar: 'bg-red-400',    badge: 'bg-red-50 text-red-700 border-red-200' },
-  pink:   { bar: 'bg-pink-400',   badge: 'bg-pink-50 text-pink-700 border-pink-200' },
-  orange: { bar: 'bg-orange-400', badge: 'bg-orange-50 text-orange-700 border-orange-200' },
-}
-
 /** Sunday-anchored start-of-week key (YYYY-MM-DD) for a meeting date */
 function weekStartKey(dateISO) {
   if (!dateISO) return null
@@ -49,14 +35,16 @@ function weekStartKey(dateISO) {
   return `${yyyy}-${mm}-${dd}`
 }
 
-/** Assigns each unique week (oldest → newest) the next color in the fixed cycle */
-function buildWeekColorMap(rows) {
-  const weekKeys = [...new Set(rows.map((r) => weekStartKey(r.meetingDateISO)).filter(Boolean))].sort()
-  const map = {}
-  weekKeys.forEach((key, i) => {
-    map[key] = WEEK_COLOR_ORDER[i % WEEK_COLOR_ORDER.length]
-  })
-  return map
+/** "Jul 20 – Jul 26" (adds year only when the range falls outside the current year) */
+function formatWeekRange(weekStartISO) {
+  if (!weekStartISO) return 'Unknown'
+  const start = new Date(`${weekStartISO}T00:00:00`)
+  if (Number.isNaN(start.getTime())) return 'Unknown'
+  const end = new Date(start)
+  end.setDate(start.getDate() + 6)
+  const showYear = start.getFullYear() !== new Date().getFullYear()
+  const opts = { month: 'short', day: 'numeric', ...(showYear ? { year: 'numeric' } : {}) }
+  return `${start.toLocaleDateString('en-IN', opts)} – ${end.toLocaleDateString('en-IN', opts)}`
 }
 
 function formatDuration(minutes) {
@@ -75,6 +63,23 @@ function getInitials(name) {
     .map((w) => w[0] || '')
     .join('')
     .toUpperCase()
+}
+
+/** Archived (weekly-history) rows are always "Submitted"; live rows depend on finalize flags */
+function reportStatus(row) {
+  if (row._archived) {
+    return { label: 'Submitted', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+  }
+  if (row.meetingFinalizedAt || row.attendanceFinalizedAt) {
+    return { label: 'Finalized', cls: 'bg-blue-50 text-blue-700 border-blue-200' }
+  }
+  return { label: 'In Progress', cls: 'bg-amber-50 text-amber-700 border-amber-200' }
+}
+
+const STAT_ACCENTS = {
+  indigo:  { bg: 'bg-indigo-50',  border: 'border-indigo-100',  blob: 'bg-indigo-400',  iconBg: 'bg-indigo-100',  value: 'text-indigo-700' },
+  emerald: { bg: 'bg-emerald-50', border: 'border-emerald-100', blob: 'bg-emerald-400', iconBg: 'bg-emerald-100', value: 'text-emerald-700' },
+  amber:   { bg: 'bg-amber-50',   border: 'border-amber-100',   blob: 'bg-amber-400',   iconBg: 'bg-amber-100',   value: 'text-amber-700' },
 }
 
 // ── Root Component ────────────────────────────────────────────────────────────
@@ -134,7 +139,7 @@ export default function CellHistory({ embedded = false }) {
     }
   }, [])
 
-  // Load cell groups (needed to resolve linked cell)
+  // Load cell groups (needed to resolve linked cell + leader names)
   useEffect(() => {
     getCellGroups(CELL_DEPARTMENT)
       .then(setCellGroups)
@@ -166,6 +171,13 @@ export default function CellHistory({ embedded = false }) {
     (row) => isDirector || (isLeader && row.cellId === linkedCellId),
     [isDirector, isLeader, linkedCellId]
   )
+
+  // cellId → leader name, so report cards can show who led each meeting
+  const cellLeaderById = useMemo(() => {
+    const map = {}
+    cellGroups.forEach((g) => { map[g.id] = g.leader || '' })
+    return map
+  }, [cellGroups])
 
   // Load history (archived) + live (current-week) reports, merged
   useEffect(() => {
@@ -216,9 +228,14 @@ export default function CellHistory({ embedded = false }) {
             totalAttendance: (r.membersAttended || 0) + (r.visitors || 0) + (r.children || 0),
             meetingDurationMinutes: null,
             programList: [],
+            attendanceFinalizedAt: r.attendanceFinalizedAt || null,
+            meetingFinalizedAt: r.meetingFinalizedAt || null,
+            _archived: false,
           }))
 
-        if (alive) setHistory([...historyList, ...liveHistory])
+        const archivedHistory = historyList.map((h) => ({ ...h, _archived: true }))
+
+        if (alive) setHistory([...archivedHistory, ...liveHistory])
       } catch (e) {
         console.error('[CellHistory] Failed to load reports:', e)
         if (alive) setHistory([])
@@ -235,37 +252,65 @@ export default function CellHistory({ embedded = false }) {
     [history]
   )
 
-  // Color each report by its meeting week, so same-week reports (across cells) share a color
-  const weekColorMap = useMemo(() => buildWeekColorMap(sorted), [sorted])
-
-  // Split out this week's reports (Sunday–Saturday) so they can be shown as their own group
   const currentWeekKey = useMemo(() => {
     const now = new Date()
     const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     return weekStartKey(todayISO)
   }, [])
-  const thisWeekRows = useMemo(
-    () => sorted.filter((row) => weekStartKey(row.meetingDateISO) === currentWeekKey),
-    [sorted, currentWeekKey]
-  )
-  const earlierRows = useMemo(
-    () => sorted.filter((row) => weekStartKey(row.meetingDateISO) !== currentWeekKey),
-    [sorted, currentWeekKey]
-  )
+
+  // Group every report into its Sunday–Saturday week, newest week first
+  const weekGroups = useMemo(() => {
+    const map = new Map()
+    sorted.forEach((row) => {
+      const key = weekStartKey(row.meetingDateISO)
+      if (!key) return
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(row)
+    })
+    return [...map.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([key, rows]) => ({ key, rows, isCurrentWeek: key === currentWeekKey, label: formatWeekRange(key) }))
+  }, [sorted, currentWeekKey])
+
+  // Summary stats across every loaded report
+  const stats = useMemo(() => {
+    if (sorted.length === 0) return null
+    const totalReports = sorted.length
+    const totalAttendanceSum = sorted.reduce((s, r) => s + (Number(r.totalAttendance) || 0), 0)
+    const avgAttendance = totalAttendanceSum / totalReports
+
+    const byCell = new Map()
+    sorted.forEach((r) => {
+      const key = r.cellId || r.cellName
+      if (!key) return
+      if (!byCell.has(key)) byCell.set(key, { name: r.cellName || '—', sum: 0, count: 0 })
+      const entry = byCell.get(key)
+      entry.sum += Number(r.totalAttendance) || 0
+      entry.count += 1
+    })
+    let topCell = null
+    byCell.forEach((c) => {
+      const avg = c.sum / c.count
+      if (!topCell || avg > topCell.avg) topCell = { name: c.name, avg }
+    })
+
+    return { totalReports, avgAttendance, topCell }
+  }, [sorted])
 
   const toggleExpand = useCallback((id) => {
     setExpandedId((prev) => (prev === id ? null : id))
   }, [])
 
   const renderGrid = (rows) => (
-    <div className="flex flex-wrap gap-1 items-start">
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
       {rows.map((row) => {
         const expanded = expandedId === row.id
         return (
           <Fragment key={row.id}>
-            <HistoryCard
+            <ReportCard
               row={row}
-              weekColor={weekColorMap[weekStartKey(row.meetingDateISO)]}
+              leaderName={cellLeaderById[row.cellId] || ''}
+              status={reportStatus(row)}
               expanded={expanded}
               onToggle={() => toggleExpand(row.id)}
               canEdit={canEditRow(row)}
@@ -274,7 +319,7 @@ export default function CellHistory({ embedded = false }) {
               onDelete={() => handleDelete(row)}
             />
             {expanded && (
-              <div className="w-full basis-full bg-white rounded-2xl border border-indigo-200 shadow-sm shadow-indigo-50 overflow-hidden">
+              <div className="sm:col-span-2 xl:col-span-3 bg-white rounded-2xl border border-indigo-200 shadow-sm shadow-indigo-50 overflow-hidden">
                 <HistoryDetail row={row} />
               </div>
             )}
@@ -284,24 +329,77 @@ export default function CellHistory({ embedded = false }) {
     </div>
   )
 
+  const statsRow = !loading && stats && (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <StatCard
+        icon="📊"
+        label="Average Attendance"
+        value={stats.avgAttendance.toFixed(1)}
+        sub="per cell meeting"
+        accent={STAT_ACCENTS.indigo}
+      />
+      <StatCard
+        icon="🏆"
+        label="Top Performing Cell"
+        value={stats.topCell?.name || '—'}
+        sub={stats.topCell ? `${stats.topCell.avg.toFixed(1)} avg attendance` : ''}
+        accent={STAT_ACCENTS.emerald}
+      />
+      <StatCard
+        icon="📋"
+        label="Reports Submitted"
+        value={stats.totalReports}
+        sub="meetings recorded"
+        accent={STAT_ACCENTS.amber}
+      />
+    </div>
+  )
+
+  const weeklyContent = (
+    <div className="space-y-6">
+      {weekGroups.map((group) => (
+        <div key={group.key} className="space-y-2">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+              Week of {group.label}
+            </p>
+            {group.isCurrentWeek && (
+              <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                Current
+              </span>
+            )}
+            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+              {group.rows.length} {group.rows.length === 1 ? 'report' : 'reports'}
+            </span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+          {renderGrid(group.rows)}
+        </div>
+      ))}
+    </div>
+  )
+
   if (embedded) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-5">
         <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="font-bold text-slate-900 text-base">Past Meeting Records</h2>
-          <p className="text-slate-500 text-xs mt-0.5">Newest first</p>
+          <div>
+            <h2 className="font-bold text-slate-900 text-base">Past Meeting Records</h2>
+            <p className="text-slate-500 text-xs mt-0.5">Grouped by week, newest first</p>
+          </div>
+          {(isDirector || isLeader) && (
+            <button
+              type="button"
+              onClick={() => { setIsNewEntry(true); setEditRow({}) }}
+              className="text-xs font-semibold text-indigo-600 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition-all"
+            >
+              + New Entry
+            </button>
+          )}
         </div>
-        {(isDirector || isLeader) && (
-          <button
-            type="button"
-            onClick={() => { setIsNewEntry(true); setEditRow({}) }}
-            className="text-xs font-semibold text-indigo-600 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition-all"
-          >
-            + New Entry
-          </button>
-        )}
-      </div>
+
+        {statsRow}
+
         {loading ? (
           <div className="text-slate-400 text-sm py-6 text-center">Loading history…</div>
         ) : sorted.length === 0 ? (
@@ -310,24 +408,8 @@ export default function CellHistory({ embedded = false }) {
             <p className="font-semibold text-slate-700">No meeting records yet.</p>
             <p className="text-slate-400 text-sm mt-1">Past meetings will appear here after they are submitted.</p>
           </div>
-        ) : (
-          <div className="space-y-5">
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">This Week's Reports (Sun–Sat)</p>
-              {thisWeekRows.length === 0 ? (
-                <p className="text-sm text-slate-400">No reports submitted yet this week.</p>
-              ) : (
-                renderGrid(thisWeekRows)
-              )}
-            </div>
-            {earlierRows.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Earlier Reports</p>
-                {renderGrid(earlierRows)}
-              </div>
-            )}
-          </div>
-        )}
+        ) : weeklyContent}
+
         <AnimatePresence>
           {editRow !== null && (
             <EditReportSheet
@@ -375,6 +457,8 @@ export default function CellHistory({ embedded = false }) {
           </div>
         </div>
 
+        {statsRow}
+
         {/* Content */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -386,24 +470,8 @@ export default function CellHistory({ embedded = false }) {
             <p className="font-semibold text-slate-700">No meeting records yet.</p>
             <p className="text-slate-400 text-sm mt-1">Past meetings will appear here after they are submitted.</p>
           </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">This Week's Reports (Sun–Sat)</p>
-              {thisWeekRows.length === 0 ? (
-                <p className="text-sm text-slate-400">No reports submitted yet this week.</p>
-              ) : (
-                renderGrid(thisWeekRows)
-              )}
-            </div>
-            {earlierRows.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Earlier Reports</p>
-                {renderGrid(earlierRows)}
-              </div>
-            )}
-          </div>
-        )}
+        ) : weeklyContent}
+
         <AnimatePresence>
           {editRow !== null && (
             <EditReportSheet
@@ -422,13 +490,31 @@ export default function CellHistory({ embedded = false }) {
   )
 }
 
-// ── History Card ──────────────────────────────────────────────────────────────
+// ── Stat Card ──────────────────────────────────────────────────────────────────
 
-function HistoryCard({ row, weekColor, expanded, onToggle, canEdit = false, isDirector = false, onEdit, onDelete }) {
-  const total     = Number(row.totalAttendance) || 0
-  const members   = Number(row.membersAttended) || 0
-  const duration  = formatDuration(row.meetingDurationMinutes)
-  const colorCls  = WEEK_COLOR_CLASSES[weekColor]
+function StatCard({ icon, label, value, sub, accent }) {
+  return (
+    <div className={`relative overflow-hidden rounded-2xl p-4 border ${accent.border} ${accent.bg}`}>
+      <div className={`absolute -top-6 -right-6 w-20 h-20 rounded-full opacity-30 blur-2xl ${accent.blob}`} />
+      <div className="relative">
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg mb-3 ${accent.iconBg}`}>
+          {icon}
+        </div>
+        <p className="text-xs font-medium text-slate-500 leading-snug">{label}</p>
+        <p className={`text-2xl font-black mt-1 tracking-tight truncate ${accent.value}`} title={String(value)}>{value}</p>
+        {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+      </div>
+    </div>
+  )
+}
+
+// ── Report Card ────────────────────────────────────────────────────────────────
+
+function ReportCard({ row, leaderName, status, expanded, onToggle, canEdit = false, isDirector = false, onEdit, onDelete }) {
+  const total    = Number(row.totalAttendance) || 0
+  const members  = Number(row.membersAttended) || 0
+  const visitors = Number(row.visitors) || 0
+  const children = Number(row.children) || 0
 
   return (
     <div
@@ -436,22 +522,18 @@ function HistoryCard({ row, weekColor, expanded, onToggle, canEdit = false, isDi
       tabIndex={0}
       onClick={onToggle}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
-      title={`${row.cellName || '—'} · ${duration}`}
-      className={`group relative w-[0.65in] h-[0.65in] flex-shrink-0 flex flex-col items-center justify-center text-center gap-0 px-0.5 py-0.5 rounded-md border shadow-sm cursor-pointer transition-all ${
-        expanded ? 'border-indigo-300 shadow-indigo-100 bg-indigo-50/40' : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md'
+      className={`group relative bg-white rounded-2xl border shadow-sm p-5 cursor-pointer transition-all ${
+        expanded ? 'border-indigo-300 shadow-indigo-100 ring-1 ring-indigo-100' : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
       }`}
     >
-      {/* Week color dot */}
-      <span className={`absolute top-0.5 left-0.5 w-1 h-1 rounded-full ${colorCls?.bar || 'bg-slate-200'}`} title="Colored by meeting week" />
-
-      {/* Action buttons — shown on hover/focus to keep the tile uncluttered at small size */}
+      {/* Edit / delete — revealed on hover so the larger cards stay uncluttered */}
       {(canEdit || isDirector) && (
-        <div className="absolute top-0 right-0 flex items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+        <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           {canEdit && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onEdit() }}
-              className="p-0.5 rounded text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-all text-[8px] leading-none"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all text-sm"
               title="Edit report"
             >
               ✏️
@@ -461,7 +543,7 @@ function HistoryCard({ row, weekColor, expanded, onToggle, canEdit = false, isDi
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onDelete() }}
-              className="p-0.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all text-[8px] leading-none"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all text-sm"
               title="Delete report"
             >
               🗑️
@@ -470,13 +552,38 @@ function HistoryCard({ row, weekColor, expanded, onToggle, canEdit = false, isDi
         </div>
       )}
 
-      <span className="font-bold text-slate-900 text-[8px] leading-tight truncate max-w-full">{row.cellName || '—'}</span>
-      {row.meetingDateISO && (
-        <span className="text-[7px] text-slate-400 leading-tight">{formatDisplayDate(row.meetingDateISO)}</span>
-      )}
-      <span className="text-[7px] text-slate-500 leading-tight">
-        <span className="font-semibold text-slate-700">{members}</span>/<span className="font-semibold text-slate-700">{total}</span>
+      <div className="pr-14">
+        <p className="font-black text-slate-900 text-base leading-snug truncate">{row.cellName || '—'}</p>
+        <p className="text-xs text-slate-400 mt-0.5">{row.meetingDateISO ? formatDisplayDate(row.meetingDateISO) : '—'}</p>
+      </div>
+
+      <span className={`inline-block text-[10px] font-bold px-2.5 py-1 rounded-full border mt-3 ${status.cls}`}>
+        {status.label}
       </span>
+
+      <div className="flex items-end justify-between gap-3 mt-4">
+        <div>
+          <p className="text-3xl font-black text-slate-800 leading-none">{total}</p>
+          <p className="text-[10px] text-slate-400 mt-1.5 uppercase tracking-wide font-bold">Total Attendance</p>
+        </div>
+        <div className="text-right text-xs text-slate-500 space-y-0.5">
+          <p><span className="font-semibold text-slate-700">{members}</span> members</p>
+          {visitors > 0 && <p><span className="font-semibold text-slate-700">{visitors}</span> visitors</p>}
+          {children > 0 && <p><span className="font-semibold text-slate-700">{children}</span> children</p>}
+        </div>
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+            {getInitials(leaderName) || '—'}
+          </span>
+          <span className="text-xs text-slate-500 truncate">{leaderName || 'No leader linked'}</span>
+        </div>
+        <svg className={`w-4 h-4 text-slate-300 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
     </div>
   )
 }

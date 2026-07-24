@@ -428,6 +428,46 @@ exports.migrateUserDepartmentsAndPositions = onCall(async (request) => {
   return { updatedCount: updated.length }
 })
 
+/**
+ * Backfills `user_directory` (public name/email/role/department — no phone or
+ * membershipNumber) from the full `users` collection, using the Admin SDK so it
+ * runs regardless of the caller's own Firestore rule access. Only the `users`
+ * read needs elevation; every field written here is already meant to be public
+ * per firestore.rules, so any signed-in caller (not just Founder/Admin) may run
+ * this. Used by the Messages "new conversation" picker so search results aren't
+ * limited to whichever users a Founder session happened to sync.
+ */
+exports.syncUserDirectory = onCall(async (request) => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Must be signed in')
+
+  const db = admin.firestore()
+  const usersSnap = await db.collection('users').get()
+  const docs = usersSnap.docs
+
+  let synced = 0
+  for (let i = 0; i < docs.length; i += 400) {
+    const chunk = docs.slice(i, i + 400)
+    const batch = db.batch()
+    chunk.forEach((docSnap) => {
+      const data = docSnap.data() || {}
+      batch.set(db.collection('user_directory').doc(docSnap.id), {
+        uid: docSnap.id,
+        name: data.name || '',
+        email: String(data.email || '').toLowerCase(),
+        role: data.role || '',
+        department: data.department || '',
+        departments: Array.isArray(data.departments) ? data.departments : [],
+        status: data.status || 'active',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true })
+      synced += 1
+    })
+    await batch.commit()
+  }
+
+  return { syncedCount: synced }
+})
+
 function toISTDate(now = new Date()) {
   return new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
 }

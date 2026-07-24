@@ -16,9 +16,10 @@ import {
   writeBatch,
   serverTimestamp,
   onSnapshot,
+  increment,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { db, storage } from '../lib/firebase'
+import { db, storage, functions, httpsCallable } from '../lib/firebase'
 import { deriveRoleFromPositions } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
 
@@ -2670,6 +2671,8 @@ export async function deactivatePCSEntry(id, removedBy = '') {
 
 export async function addPCSEntry(data) {
   if (!db) return null
+  // A PCS entry must be linked to a D-Light visitor record — no freeform/unlinked adds.
+  if (!data.visitorId) throw new Error('A linked visitor record is required to add someone to PCS.')
   const ref = await addDoc(collection(db, CARING_PCS_COLLECTION), {
     visitorId: data.visitorId || '',
     name: data.name || '',
@@ -4828,6 +4831,14 @@ export async function dismissPCSAddNotification(id) {
   await updateDoc(doc(db, PCS_ADD_NOTIFICATIONS, id), { status: 'dismissed' })
 }
 
+// Records that Caring asked D-Light to register this person — the notification stays
+// 'pending' (still shown, still actionable) until they're actually added to PCS; this
+// only flips the status message shown in the meantime.
+export async function markPCSAddNotificationForwarded(id) {
+  if (!db || !id) return
+  await updateDoc(doc(db, PCS_ADD_NOTIFICATIONS, id), { forwardedToDLight: true, forwardedAt: Timestamp.now() })
+}
+
 // ─── Cell Leader Notes to Director (Cell Leader → Cell Director, per-member) ──
 const CELL_LEADER_DIRECTOR_NOTES = 'cell_leader_director_notes'
 
@@ -4905,4 +4916,120 @@ export async function getCellVisitorProposalsByReport(reportId) {
   const q = query(collection(db, CELL_VISITOR_PROPOSALS), where('reportId', '==', reportId))
   const snap = await getDocs(q)
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+// ─── Direct Messaging ───────────────────────────────────────────────────────
+// Lightweight 1-to-1 chat between any two signed-in users. `user_directory` is a
+// denormalized, publicly-readable subset of `users` (name/email/role/department —
+// no phone/membershipNumber) so any user can search for who to message without
+// the /users read restriction getting in the way. See firestore.rules.
+
+const USER_DIRECTORY = 'user_directory'
+const CONVERSATIONS = 'conversations'
+
+export async function upsertUserDirectoryEntry(uid, { name, email, role, department, departments, status } = {}) {
+  if (!db || !uid) return
+  await setDoc(doc(db, USER_DIRECTORY, uid), {
+    uid,
+    name: name || '',
+    email: (email || '').toLowerCase(),
+    role: role || '',
+    department: department || '',
+    departments: Array.isArray(departments) ? departments : [],
+    status: status || 'active',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+export function subscribeUserDirectory(onChange) {
+  if (!db) return () => {}
+  return onSnapshot(collection(db, USER_DIRECTORY), (snap) => {
+    onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  }, () => {})
+}
+
+// Backfills user_directory from the full `users` collection. Only succeeds for
+// callers with Firestore-level full access (Founder — see isFullAccess() in
+// firestore.rules); getAllUsers() throws permission-denied for everyone else,
+// which callers should catch and ignore. Used to auto-populate the directory
+// (on Founder login, and again defensively when the "new message" picker is
+// opened) so the search list isn't stuck empty just because `user_directory`
+// hasn't caught up with `users` yet. Returns the synced rows for callers that
+// want to render them immediately without waiting on the user_directory listener.
+export async function syncAllUsersToDirectory() {
+  if (!db || !functions) return []
+  // Runs server-side via Admin SDK (Cloud Function), so it works for any signed-in
+  // caller — including Cell Leaders/Directors who can't list the full `users`
+  // collection themselves under firestore.rules. See functions/index.js.
+  await httpsCallable(functions, 'syncUserDirectory')()
+  const snap = await getDocs(collection(db, USER_DIRECTORY))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+function directConversationId(uidA, uidB) {
+  return [uidA, uidB].sort().join('_')
+}
+
+export async function getOrCreateDirectConversation(uidA, nameA, uidB, nameB) {
+  if (!db || !uidA || !uidB) return null
+  const conversationId = directConversationId(uidA, uidB)
+  await setDoc(doc(db, CONVERSATIONS, conversationId), {
+    participantIds: [uidA, uidB],
+    participantNames: { [uidA]: nameA || '', [uidB]: nameB || '' },
+    unreadCounts: { [uidA]: 0, [uidB]: 0 },
+    createdAt: Timestamp.now(),
+  }, { merge: true })
+  return conversationId
+}
+
+export function subscribeUserConversations(uid, onChange) {
+  if (!db || !uid) return () => {}
+  const q = query(collection(db, CONVERSATIONS), where('participantIds', 'array-contains', uid))
+  return onSnapshot(q, (snap) => {
+    const rows = snap.docs.map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, lastMessageAt: toDate(data.lastMessageAt) }
+    })
+    rows.sort((a, b) => (b.lastMessageAt?.getTime?.() || 0) - (a.lastMessageAt?.getTime?.() || 0))
+    onChange(rows)
+  }, () => {})
+}
+
+export function subscribeConversationMessages(conversationId, onChange) {
+  if (!db || !conversationId) return () => {}
+  const q = query(collection(db, CONVERSATIONS, conversationId, 'messages'), orderBy('createdAt', 'asc'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
+    }))
+  }, () => {})
+}
+
+export async function sendDirectMessage(conversationId, { senderId, senderName, text }) {
+  if (!db || !conversationId || !senderId || !text?.trim()) return
+  const convoRef = doc(db, CONVERSATIONS, conversationId)
+  const convoSnap = await getDoc(convoRef)
+  const participantIds = convoSnap.exists() ? (convoSnap.data().participantIds || []) : []
+  const otherId = participantIds.find((id) => id !== senderId)
+
+  await addDoc(collection(db, CONVERSATIONS, conversationId, 'messages'), {
+    senderId,
+    senderName: senderName || '',
+    text: text.trim(),
+    createdAt: Timestamp.now(),
+  })
+
+  const update = {
+    lastMessageText: text.trim(),
+    lastMessageAt: Timestamp.now(),
+    lastMessageSenderId: senderId,
+  }
+  if (otherId) update[`unreadCounts.${otherId}`] = increment(1)
+  await updateDoc(convoRef, update)
+}
+
+export async function markConversationRead(conversationId, uid) {
+  if (!db || !conversationId || !uid) return
+  await updateDoc(doc(db, CONVERSATIONS, conversationId), { [`unreadCounts.${uid}`]: 0 })
 }

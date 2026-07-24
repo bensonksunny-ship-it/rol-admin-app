@@ -9,6 +9,7 @@ import { auth, db, functions, httpsCallable } from '../lib/firebase'
 import { ROLES, ROLE_PERMISSIONS, deriveRoleFromPositions } from '../constants/roles'
 import { getDepartmentBySlug } from '../constants/departments'
 import { GLOBAL_ROLES, hasAccess, getDepartmentRole, isFounder as isFounderGlobal } from '../utils/access'
+import { upsertUserDirectoryEntry, syncAllUsersToDirectory } from '../services/firestore'
 
 const AuthContext = createContext(null)
 
@@ -18,6 +19,8 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [bootstrappedFounder, setBootstrappedFounder] = useState(false)
   const [syncedDepartments, setSyncedDepartments] = useState(false)
+  const [syncedDirectory, setSyncedDirectory] = useState(false)
+  const [syncedFullDirectory, setSyncedFullDirectory] = useState(false)
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -75,6 +78,31 @@ export function AuthProvider({ children }) {
             }
           }
 
+          // Best-effort: keep the public user_directory entry (used for the "message a
+          // user" picker) fresh, once per session — see services/firestore.js.
+          if (!syncedDirectory) {
+            setSyncedDirectory(true)
+            upsertUserDirectoryEntry(firebaseUser.uid, {
+              name: merged.name || '',
+              email: merged.email || '',
+              role: merged.role || '',
+              department: merged.department || '',
+              departments: merged.departments || [],
+              status: merged.status || 'active',
+            }).catch((e) => console.warn('Failed to sync user_directory entry:', e))
+          }
+
+          // Once per session: backfill user_directory from the full `users` collection so
+          // every existing user/leader/director is searchable in Messages right away, not
+          // just people who happen to log in after this feature shipped. This runs via a
+          // Cloud Function (Admin SDK), so it works for any signed-in user — not just
+          // Founder — even though a plain client-side `users` list query would be denied
+          // for everyone else under firestore.rules. See functions/index.js#syncUserDirectory.
+          if (!syncedFullDirectory) {
+            setSyncedFullDirectory(true)
+            syncAllUsersToDirectory().catch((e) => console.warn('Failed to backfill user_directory:', e))
+          }
+
           // Auto-bootstrap legacy Founder into globalRole+custom claim (best-effort, once per session)
           if (
             !bootstrappedFounder &&
@@ -113,7 +141,7 @@ export function AuthProvider({ children }) {
       setLoading(false)
     })
     return () => unsub()
-  }, [bootstrappedFounder, syncedDepartments])
+  }, [bootstrappedFounder, syncedDepartments, syncedDirectory, syncedFullDirectory])
 
   const signIn = (email, password) =>
     signInWithEmailAndPassword(auth, email, password)

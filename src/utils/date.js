@@ -84,3 +84,13 @@ export function formatDisplayDate(value) {
   return d ? format(d, 'dd/MMM/yyyy') : '—'
 }
 
+/** This coming Sunday's date (today itself if today is Sunday), as YYYY-MM-DD. */
+export function nextSundayISO() {
+  const today = new Date()
+  const day = today.getDay()
+  const daysUntilSunday = day === 0 ? 0 : 7 - day
+  const next = new Date(today)
+  next.setDate(today.getDate() + daysUntilSunday)
+  return format(next, 'yyyy-MM-dd')
+}
+

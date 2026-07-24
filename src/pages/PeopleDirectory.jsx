@@ -18,6 +18,9 @@ import {
   getAllPersonSundayAttendance,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
+import { isFounder } from '../utils/access'
+import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
+import { ROLES } from '../constants/roles'
 
 const fmt = (d) => {
   if (!d) return null
@@ -467,6 +470,11 @@ export default function PeopleDirectory() {
   const [expandedId, setExpandedId] = useState(null)
   const [editingPerson, setEditingPerson] = useState(null)
 
+  // Cell Directors get a search-only lookup (to find and link a person to a cell
+  // group), not the browsable full directory that Founders/Admins see.
+  const isRestrictedDirector = isCellDirectorInPositions(userProfile) && !isFounder(userProfile) && userProfile?.role !== ROLES.ADMIN
+  const hasSearch = search.trim().length > 0
+
   const handleSaved = useCallback((updated) => {
     setPeople(prev => prev.map(p =>
       p._key === updated._key ||
@@ -754,10 +762,14 @@ export default function PeopleDirectory() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight">People Directory</h1>
-              <p className="text-xs text-slate-400 mt-0.5">{loading ? 'Loading…' : `${people.length} people across all sources`}</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {isRestrictedDirector
+                  ? 'Search to find and link a person to a cell group'
+                  : (loading ? 'Loading…' : `${people.length} people across all sources`)}
+              </p>
             </div>
           </div>
-          {!loading && sourceCounts && (
+          {!isRestrictedDirector && !loading && sourceCounts && (
             <div className="flex flex-wrap gap-1.5 mb-3">
               {[
                 { label: 'In People', count: sourceCounts.people, color: 'text-indigo-700 bg-indigo-50' },
@@ -780,39 +792,49 @@ export default function PeopleDirectory() {
             placeholder="Search by name, phone or email…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300 mb-3"
+            className={`w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300 ${isRestrictedDirector ? '' : 'mb-3'}`}
           />
 
-          {/* Filter tabs */}
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
-            {FILTERS.map(f => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => setFilter(f.key)}
-                className={`flex-shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full border transition-colors ${
-                  filter === f.key
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                {f.label} <span className={`ml-1 ${filter === f.key ? 'text-indigo-200' : 'text-slate-400'}`}>{counts[f.key]}</span>
-              </button>
-            ))}
-          </div>
+          {/* Filter tabs — hidden for the search-only Cell Director view */}
+          {!isRestrictedDirector && (
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
+              {FILTERS.map(f => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setFilter(f.key)}
+                  className={`flex-shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-full border transition-colors ${
+                    filter === f.key
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  {f.label} <span className={`ml-1 ${filter === f.key ? 'text-indigo-200' : 'text-slate-400'}`}>{counts[f.key]}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
       {/* List */}
       <div className="max-w-3xl mx-auto px-4 py-3">
-        {loading && (
+        {isRestrictedDirector && !hasSearch && (
+          <div className="text-center py-16 text-slate-400">
+            <p className="text-2xl mb-2">🔎</p>
+            <p className="text-sm font-semibold">Search for a person</p>
+            <p className="text-xs mt-1">Type a name, phone, or email to find someone and link them to a cell group</p>
+          </div>
+        )}
+
+        {(!isRestrictedDirector || hasSearch) && loading && (
           <div className="flex flex-col items-center justify-center py-16 text-slate-400">
             <div className="w-8 h-8 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin mb-3" />
             <p className="text-sm">Loading all records…</p>
           </div>
         )}
 
-        {!loading && filtered.length === 0 && (
+        {(!isRestrictedDirector || hasSearch) && !loading && filtered.length === 0 && (
           <div className="text-center py-16 text-slate-400">
             <p className="text-2xl mb-2">🔍</p>
             <p className="text-sm font-semibold">No people found</p>
@@ -820,7 +842,7 @@ export default function PeopleDirectory() {
           </div>
         )}
 
-        {!loading && grouped.length > 0 && (
+        {(!isRestrictedDirector || hasSearch) && !loading && grouped.length > 0 && (
           <div className="space-y-4">
             {grouped.map(({ year, entries }) => (
               <div key={year}>
@@ -889,7 +911,7 @@ export default function PeopleDirectory() {
           </div>
         )}
 
-        {!loading && <p className="text-center text-[10px] text-slate-300 mt-4">{filtered.length} of {people.length} people shown</p>}
+        {(!isRestrictedDirector || hasSearch) && !loading && <p className="text-center text-[10px] text-slate-300 mt-4">{filtered.length} of {people.length} people shown</p>}
       </div>
     </div>
   )

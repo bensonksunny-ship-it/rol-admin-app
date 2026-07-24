@@ -12,6 +12,7 @@ import {
   subscribePCSAddNotifications,
   completePCSAddNotification,
   dismissPCSAddNotification,
+  markPCSAddNotificationForwarded,
   getDepartmentEntries,
   addDepartmentEntry,
   getDepartmentTeamMembers,
@@ -221,13 +222,12 @@ export default function DepartmentHub() {
   const department = getDepartmentBySlug(slug)
 
   // Cell access helper must be defined BEFORE any effects that reference it (avoid TDZ crashes)
+  // NOTE: must use isCellDirector (schema-aware: role: 'DIRECTOR' new schema OR
+  // position: 'Director' legacy schema) — a hand-rolled check against only
+  // `position` here previously locked new-schema Directors out of the Cell
+  // Director Cockpit (Pending Approvals, Cell Report Reminders, D-Light Consults).
   const fullAccess = userProfile?.globalRole === 'FOUNDER' || userProfile?.role === ROLES.FOUNDER
-  const cellPosition = (() => {
-    const positions = Array.isArray(userProfile?.positions) ? userProfile.positions : []
-    const p = positions.find((x) => x && x.department === 'Cell')
-    return p?.position || ''
-  })()
-  const canViewAllCells = fullAccess || cellPosition === 'Director'
+  const canViewAllCells = fullAccess || isCellDirector
 
   const [tasks, setTasks] = useState([])
   const [entries, setEntries] = useState([])
@@ -369,7 +369,6 @@ export default function DepartmentHub() {
   const [pcsEntries, setPcsEntries] = useState([])
   const [loadingPCS, setLoadingPCS] = useState(false)
   const [pcsPickerOpen, setPcsPickerOpen] = useState(false)
-  const [pcsManualOpen, setPcsManualOpen] = useState(false)
   const [cellReferralOpen, setCellReferralOpen] = useState(false)
   const [removedFromCellOpen, setRemovedFromCellOpen] = useState(false)
   const [pcsExpandedId, setPcsExpandedId] = useState(null)
@@ -449,7 +448,6 @@ export default function DepartmentHub() {
   const [pcsAddAdding, setPcsAddAdding] = useState(new Set())
   const [pcsAddDismissing, setPcsAddDismissing] = useState(new Set())
   const [pcsAddForwarding, setPcsAddForwarding] = useState(new Set())
-  const [pcsAddForwarded, setPcsAddForwarded] = useState(new Set())
 
   const [cellVisitorProposals, setCellVisitorProposals] = useState([])
   const [cellVisitorProposalOpen, setCellVisitorProposalOpen] = useState(false)
@@ -466,10 +464,57 @@ export default function DepartmentHub() {
   // "Cell Assignment Consults" — Cell Director requests for D-Light input on where to
   // place an unassigned person (department: 'D Light', cellAssignConsult: true on the
   // shared `tasks` collection; see subscribeTasksByDepartment above).
-  const [dlightConsultOpen, setDlightConsultOpen] = useState(false)
+  const [dlightConsultOpen, setDlightConsultOpen] = useState(true)
   const [dlightConsultTarget, setDlightConsultTarget] = useState(null) // task being responded to
   const [dlightConsultReply, setDlightConsultReply] = useState('')
+  const [dlightConsultCellId, setDlightConsultCellId] = useState('')
   const [sendingDlightReply, setSendingDlightReply] = useState(false)
+
+  // Active cell groups for the reply modal's "Recommend a cell" picker. Loaded lazily
+  // (only once a consult is actually being answered) since D-Light otherwise never
+  // needs the cell_groups collection.
+  const [dlightConsultCellOptions, setDlightConsultCellOptions] = useState([])
+  const [loadingDlightConsultCells, setLoadingDlightConsultCells] = useState(false)
+  useEffect(() => {
+    if (!dlightConsultTarget) return
+    let alive = true
+    setLoadingDlightConsultCells(true)
+    getCellGroups('Cell')
+      .then((groups) => {
+        if (!alive) return
+        setDlightConsultCellOptions((groups || []).filter((g) => g.status !== 'inactive'))
+      })
+      .catch(() => {
+        if (!alive) return
+        setDlightConsultCellOptions([])
+      })
+      .finally(() => {
+        if (!alive) return
+        setLoadingDlightConsultCells(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [dlightConsultTarget])
+
+  // Deep-link from the notification bell's "Tap to respond" (Sidebar.jsx): once the
+  // shared `tasks` subscription has loaded, auto-open the Respond modal for the task
+  // id passed in via ?openConsultId=, then strip it from the URL so it doesn't
+  // re-trigger on refresh/back-navigation.
+  const openConsultId = searchParams.get('openConsultId') || null
+  useEffect(() => {
+    if (!openConsultId || slug !== 'd-light' || tasks.length === 0) return
+    const t = tasks.find((x) => x.id === openConsultId && x.cellAssignConsult === true)
+    if (t) {
+      setDlightConsultOpen(true)
+      setDlightConsultTarget(t)
+      setDlightConsultReply(t.recommendation || '')
+      setDlightConsultCellId(t.recommendedCellId || '')
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('openConsultId')
+    setSearchParams(next, { replace: true })
+  }, [openConsultId, slug, tasks])
 
   const [monthlyExpenseTotal, setMonthlyExpenseTotal] = useState(0)
   const [loadingMonthlyExpense, setLoadingMonthlyExpense] = useState(true)
@@ -1052,6 +1097,21 @@ export default function DepartmentHub() {
     })
     return unsub
   }, [slug])
+
+  // Live D-Light visitor list for the Caring hub too — the "Add to PCS — from Cell" /
+  // "Pending from Cell" panels match against this list to decide whether someone is
+  // linkable yet. Without this subscription (bug: it only ran for slug === 'd-light'),
+  // that list was always empty on the Caring hub, so those panels could never detect
+  // that D-Light had since added the person and would never surface "Add to PCS".
+  useEffect(() => {
+    if (slug !== 'caring' || (activeTab !== 'pcs' && activeTab !== 'summary')) return
+    const unsub = subscribeDelightVisitors((visitors) => {
+      setDelightVisitors(visitors.map(v =>
+        v.serviceAttended === 'Sunday Service' ? { ...v, serviceAttended: 'English Service' } : v
+      ))
+    })
+    return unsub
+  }, [slug, activeTab])
 
   useEffect(() => {
     if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
@@ -1643,6 +1703,85 @@ export default function DepartmentHub() {
         <div className="py-8 text-center text-slate-500">Loading...</div>
       ) : (
         <>
+          {/* ── Pending Consultations: Cell Director asking for D-Light input ──
+               Rendered above everything else (including the metrics/KPI section) on
+               the Hub landing tab, Visitor Entry, and Assign, so a D-Light Director
+               can't land on the page and miss a pending consult request. ── */}
+          {slug === 'd-light' && (activeTab === 'summary' || activeTab === 'visitorEntry' || activeTab === 'assign') && (() => {
+            const consultTasks = tasks.filter(t => t.cellAssignConsult === true && t.status !== 'Completed')
+            if (consultTasks.length === 0) return null
+            return (
+              <div className="bg-gradient-to-r from-red-50 to-orange-50 border-2 border-red-300 rounded-2xl shadow-md overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setDlightConsultOpen(o => !o)}
+                  className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-red-100/40 transition-colors"
+                >
+                  <span className="relative flex-shrink-0 flex items-center justify-center w-8 h-8">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-60 animate-ping" />
+                    <span className="relative inline-flex rounded-full h-8 w-8 bg-red-500 text-white items-center justify-center text-base">⚠️</span>
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-red-800">Pending Consultations</p>
+                    <p className="text-xs text-red-600">A Cell Director needs your input on where to place someone</p>
+                  </div>
+                  <span className="bg-red-600 text-white text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0">
+                    {consultTasks.length}
+                  </span>
+                  <svg width="14" height="14" viewBox="0 0 12 12" fill="none" className={`text-red-500 transition-transform flex-shrink-0 ${dlightConsultOpen ? 'rotate-180' : ''}`}>
+                    <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+
+                {dlightConsultOpen && (
+                  <>
+                    <p className="px-4 pb-2 text-xs text-red-500 border-t border-red-200 pt-3">
+                      The Cell Director is asking for your input on where to place these people.
+                    </p>
+                    <ul className="divide-y divide-red-100">
+                      {consultTasks.map((t) => {
+                        const responded = t.status === 'Responded'
+                        return (
+                          <li key={t.id} className="px-4 py-3 flex flex-wrap items-start gap-3 bg-white/60">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-slate-800 text-sm truncate">{t.consultPersonName || t.taskTitle}</p>
+                              {t.consultPersonPhone && <p className="text-xs text-slate-500">{t.consultPersonPhone}</p>}
+                              <p className="text-xs text-slate-400 mt-0.5">{t.consultNote}</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5">Requested by {t.requestedBy || 'Cell Director'}</p>
+                              {responded && t.recommendation && (
+                                <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5 italic">
+                                  Your reply: "{t.recommendation}"
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => { setDlightConsultTarget(t); setDlightConsultReply(t.recommendation || ''); setDlightConsultCellId(t.recommendedCellId || '') }}
+                                className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700"
+                              >
+                                {responded ? 'Edit Reply' : 'Respond'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try { await updateTask(t.id, { status: 'Completed' }) } catch { /* ignore */ }
+                                }}
+                                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 text-xs hover:bg-slate-50"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )
+          })()}
+
           {activeTab === 'summary' && (
             <>
               {/* ── Total Expense (This Month) — shown on every department's dashboard ── */}
@@ -2471,76 +2610,6 @@ export default function DepartmentHub() {
             )
           })()}
 
-          {/* ── Cell Assignment Consults: Cell Director asking for D-Light input ── */}
-          {activeTab === 'visitorEntry' && slug === 'd-light' && (() => {
-            const consultTasks = tasks.filter(t => t.cellAssignConsult === true && t.status !== 'Completed')
-            if (consultTasks.length === 0) return null
-            return (
-              <div className="bg-white rounded-2xl border border-orange-200 shadow-sm overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setDlightConsultOpen(o => !o)}
-                  className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-orange-50 transition-colors"
-                >
-                  <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
-                  <p className="text-sm font-bold text-orange-800 flex-1">Cell Assignment Consults</p>
-                  <span className="bg-orange-100 text-orange-700 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                    {consultTasks.length}
-                  </span>
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-orange-400 transition-transform flex-shrink-0 ${dlightConsultOpen ? 'rotate-180' : ''}`}>
-                    <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-
-                {dlightConsultOpen && (
-                  <>
-                    <p className="px-4 pb-2 text-xs text-slate-400 border-t border-orange-100 pt-3">
-                      The Cell Director is asking for your input on where to place these people.
-                    </p>
-                    <ul className="divide-y divide-orange-50">
-                      {consultTasks.map((t) => {
-                        const responded = t.status === 'Responded'
-                        return (
-                          <li key={t.id} className="px-4 py-3 flex flex-wrap items-start gap-3">
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-slate-800 text-sm truncate">{t.consultPersonName || t.taskTitle}</p>
-                              {t.consultPersonPhone && <p className="text-xs text-slate-500">{t.consultPersonPhone}</p>}
-                              <p className="text-xs text-slate-400 mt-0.5">{t.consultNote}</p>
-                              <p className="text-[11px] text-slate-400 mt-0.5">Requested by {t.requestedBy || 'Cell Director'}</p>
-                              {responded && t.recommendation && (
-                                <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5 italic">
-                                  Your reply: "{t.recommendation}"
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex gap-2 flex-shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => { setDlightConsultTarget(t); setDlightConsultReply(t.recommendation || '') }}
-                                className="px-3 py-1.5 rounded-lg bg-orange-500 text-white text-xs font-medium hover:bg-orange-600"
-                              >
-                                {responded ? 'Edit Reply' : 'Respond'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  try { await updateTask(t.id, { status: 'Completed' }) } catch { /* ignore */ }
-                                }}
-                                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 text-xs hover:bg-slate-50"
-                              >
-                                Dismiss
-                              </button>
-                            </div>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </>
-                )}
-              </div>
-            )
-          })()}
-
           {/* Respond to Cell Assignment Consult modal */}
           {dlightConsultTarget && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setDlightConsultTarget(null)}>
@@ -2548,6 +2617,22 @@ export default function DepartmentHub() {
                 <div>
                   <h3 className="font-bold text-slate-900">Recommendation for {dlightConsultTarget.consultPersonName}</h3>
                   <p className="text-sm text-slate-500 mt-0.5">Sent back to the Cell Director in their Unassigned list.</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 mb-1">Recommended cell group</p>
+                  <select
+                    value={dlightConsultCellId}
+                    onChange={(e) => setDlightConsultCellId(e.target.value)}
+                    disabled={loadingDlightConsultCells}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:opacity-50"
+                  >
+                    <option value="">
+                      {loadingDlightConsultCells ? 'Loading cell groups…' : '— No specific cell —'}
+                    </option>
+                    {dlightConsultCellOptions.map((cell) => (
+                      <option key={cell.id} value={cell.id}>{cell.cellName || cell.id}</option>
+                    ))}
+                  </select>
                 </div>
                 <textarea
                   value={dlightConsultReply}
@@ -2564,14 +2649,18 @@ export default function DepartmentHub() {
                     onClick={async () => {
                       setSendingDlightReply(true)
                       try {
+                        const recommendedCell = dlightConsultCellOptions.find((c) => c.id === dlightConsultCellId)
                         await updateTask(dlightConsultTarget.id, {
                           status: 'Responded',
                           recommendation: dlightConsultReply.trim(),
+                          recommendedCellId: dlightConsultCellId || '',
+                          recommendedCellName: recommendedCell?.cellName || '',
                           respondedBy: userProfile?.email || '',
                           respondedAt: new Date().toISOString(),
                         })
                         setDlightConsultTarget(null)
                         setDlightConsultReply('')
+                        setDlightConsultCellId('')
                       } catch (err) {
                         console.error('Respond to consult error', err)
                         alert('Failed to send recommendation. Please try again.')
@@ -2585,7 +2674,7 @@ export default function DepartmentHub() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDlightConsultTarget(null)}
+                    onClick={() => { setDlightConsultTarget(null); setDlightConsultCellId('') }}
                     className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 text-sm hover:bg-slate-50"
                   >
                     Cancel
@@ -5825,33 +5914,6 @@ export default function DepartmentHub() {
                   </button>
                 </div>
 
-                {/* Manual PCS entry modal */}
-                {pcsManualOpen && (
-                  <PCSManualEntryModal
-                    onSave={async (data) => {
-                      const tempId = `temp_${Date.now()}`
-                      const optimistic = { id: tempId, visitorId: '', personId: '', ...data, addedAt: new Date(), addedBy: userProfile?.email || '' }
-                      setPcsEntries(prev => [optimistic, ...prev])
-                      setPcsManualOpen(false)
-                      try {
-                        const personId = await addPerson({
-                          name: data.name, phone: data.phone,
-                          firstVisitDate: data.attendedDate,
-                          membershipNumber: data.membershipNumber || '',
-                          leadershipPosition: data.leadershipPosition || '',
-                          stage: 'pcs',
-                        }, userProfile?.email || '')
-                        const realId = await addPCSEntry({ ...data, personId, addedBy: userProfile?.email || 'unknown' })
-                        if (realId) setPcsEntries(prev => prev.map(e => e.id === tempId ? { ...e, id: realId, personId } : e))
-                      } catch {
-                        setPcsEntries(prev => prev.filter(e => e.id !== tempId))
-                        alert('Failed to add entry. Please try again.')
-                      }
-                    }}
-                    onClose={() => setPcsManualOpen(false)}
-                  />
-                )}
-
                 {/* Picker */}
                 {pcsPickerOpen && (
                   <PCSPickerModal
@@ -5966,7 +6028,9 @@ export default function DepartmentHub() {
                                                 id: `ref_${task.id}`, visitorId: resolvedVisitorId, name, phone,
                                                 year: new Date().getFullYear(), addedAt: new Date(), addedBy: userProfile?.email || '',
                                               }, ...prev])
-                                            } catch { /* ignore */ }
+                                            } catch {
+                                              alert(`Couldn't add ${name} — no linked visitor record found. Add them to the D-Light visitor list first, then try again.`)
+                                            }
                                             finally {
                                               setCellReferralAdding(prev => { const s = new Set(prev); s.delete(task.id); return s })
                                             }
@@ -6105,10 +6169,10 @@ export default function DepartmentHub() {
                             const inVisitorList = visitorId
                               ? delightVisitors.some(v => v.id === visitorId)
                               : delightVisitors.some(v => (v.name || '').trim().toLowerCase() === (name || '').trim().toLowerCase())
-                            // Note: this component's `tasks` state is scoped to the Caring department
-                            // (we're on the Caring hub), so it can't tell us whether a D-Light task
-                            // already exists — "forwarded" is tracked for this session only.
-                            const alreadyForwarded = pcsAddForwarded.has(notif.id)
+                            // Persisted on the notification doc itself (not local state) so the
+                            // status survives a reload and updates live for every Caring user —
+                            // once inVisitorList flips true this is superseded by "Add to PCS" below.
+                            const alreadyForwarded = !!notif.forwardedToDLight
 
                             return (
                               <div key={notif.id} className="flex items-center gap-3 px-4 py-3">
@@ -6162,7 +6226,9 @@ export default function DepartmentHub() {
                                             year: new Date().getFullYear(), addedAt: new Date(), addedBy: userProfile?.email || '',
                                           }, ...prev])
                                           setPcsAddNotifications(prev => prev.filter(n => n.id !== notif.id))
-                                        } catch { /* ignore */ }
+                                        } catch {
+                                          alert(`Couldn't add ${name} — no linked visitor record found. Add them to the D-Light visitor list first, then try again.`)
+                                        }
                                         finally {
                                           setPcsAddAdding(prev => { const s = new Set(prev); s.delete(notif.id); return s })
                                         }
@@ -6195,7 +6261,7 @@ export default function DepartmentHub() {
                                             pcsPersonPhone: phone || '',
                                             pcsPersonVisitorId: visitorId || '',
                                           })
-                                          setPcsAddForwarded(prev => new Set([...prev, notif.id]))
+                                          await markPCSAddNotificationForwarded(notif.id)
                                         } catch (e) {
                                           console.error('Forward to D-Light error', e)
                                           alert('Failed to forward to D-Light. Please try again.')
@@ -10277,105 +10343,6 @@ function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
 }
 
 // ─── PCS Manual Entry Modal ───────────────────────────────────────────────────
-function PCSManualEntryModal({ onSave, onClose }) {
-  const currentYear = new Date().getFullYear()
-  const [form, setForm] = useState({
-    name: '', phone: '', attendedDate: '', year: currentYear,
-    membershipNumber: '', leadershipPosition: '',
-  })
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  const set = (key, val) => setForm(p => ({ ...p, [key]: val }))
-
-  const handleDateChange = (val) => {
-    const yr = val ? new Date(val).getFullYear() : currentYear
-    setForm(p => ({ ...p, attendedDate: val, year: yr >= 2000 ? yr : p.year }))
-  }
-
-  const handleSubmit = async () => {
-    if (!form.name.trim()) { setError('Name is required'); return }
-    setSaving(true)
-    setError('')
-    await onSave({
-      name: form.name.trim(),
-      phone: form.phone.trim(),
-      attendedDate: form.attendedDate,
-      year: form.year ? Number(form.year) : null,
-      membershipNumber: form.membershipNumber.trim(),
-      leadershipPosition: form.leadershipPosition.trim(),
-      visitorId: '',
-    })
-    setSaving(false)
-  }
-
-  const inp = 'w-full px-3 py-2 rounded-xl border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400'
-
-  return (
-    <>
-      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
-        <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[94vh]" onClick={e => e.stopPropagation()}>
-          <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-            <div>
-              <p className="font-semibold text-slate-800 text-sm">Add to PCS Manually</p>
-              <p className="text-xs text-slate-400 mt-0.5">Enter details for anyone under personal care</p>
-            </div>
-            <button type="button" onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 text-xl leading-none">×</button>
-          </div>
-
-          <div className="overflow-y-auto flex-1 px-4 py-4 space-y-3">
-            <div>
-              <p className="text-xs font-semibold text-slate-500 mb-1">Name <span className="text-red-400">*</span></p>
-              <input type="text" value={form.name} onChange={e => set('name', e.target.value)}
-                placeholder="Full name" className={inp} autoFocus />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500 mb-1">Phone</p>
-              <input type="tel" value={form.phone} onChange={e => set('phone', e.target.value)}
-                placeholder="Phone number" className={inp} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 mb-1">Date Attended</p>
-                <input type="date" value={form.attendedDate} onChange={e => handleDateChange(e.target.value)} className={inp} />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-500 mb-1">Year</p>
-                <input type="number" value={form.year} onChange={e => set('year', e.target.value)}
-                  min={2000} max={2100} className={inp} />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-amber-600 mb-1">Membership # (if applicable)</p>
-              <input type="text" value={form.membershipNumber} onChange={e => set('membershipNumber', e.target.value)}
-                placeholder="Leave blank if not a member" className="w-full px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 placeholder-slate-400" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-emerald-600 mb-1">Leadership Position (if applicable)</p>
-              <input type="text" value={form.leadershipPosition} onChange={e => set('leadershipPosition', e.target.value)}
-                placeholder="e.g. Cell Leader, Deacon" className="w-full px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 placeholder-slate-400" />
-            </div>
-            {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
-          </div>
-
-          <div className="px-4 pb-4 pt-2 border-t border-slate-100 flex gap-3 flex-shrink-0">
-            <button type="button" onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors">
-              Cancel
-            </button>
-            <button type="button" disabled={saving} onClick={handleSubmit}
-              className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
-              {saving ? 'Adding…' : 'Add to PCS'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </>
-  )
-}
-
 // ─── PCS Picker Modal ─────────────────────────────────────────────────────────
 function PCSPickerModal({ addedIds, onAdd, onClose }) {
   const [visitors, setVisitors] = useState([])

@@ -91,7 +91,11 @@
       "Bash(git credential-manager *)",
       "Bash(git fetch *)",
       "Bash(firebase login:list)",
-      "Bash(git status *)"
+      "Bash(git status *)",
+      "Bash(awk 'NR==1660{print NR\": [\"$0\"]\"} NR==2397{print NR\": [\"$0\"]\"} NR==2495{print NR\": [\"$0\"]\"}' src/pages/DepartmentHub.jsx)",
+      "Bash(npx skills *)",
+      "Bash(awk *)",
+      "Bash(taskkill //PID 5456 //F)"
     ]
   }
 }

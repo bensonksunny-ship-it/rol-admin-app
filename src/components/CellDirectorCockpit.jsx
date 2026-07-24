@@ -286,11 +286,12 @@ export function CellDirectorCockpit({
   )
 
   const handleAssign = useCallback(
-    async (item) => {
-      if (!assignSelectedCellId) return
+    async (item, cellIdOverride) => {
+      const targetCellId = cellIdOverride || assignSelectedCellId
+      if (!targetCellId) return
       setAssigning(true)
       try {
-        await addCellGroupMember(assignSelectedCellId, {
+        await addCellGroupMember(targetCellId, {
           name: item.name,
           status: 'active',
           ...(item.phone ? { phone: item.phone } : {}),
@@ -313,11 +314,11 @@ export function CellDirectorCockpit({
         // Sunday-visitor recompute all reflect the new member immediately —
         // without this they stay stale until the component remounts.
         setCellMemberData((prev) => prev.map((c) =>
-          c.cellId === assignSelectedCellId
+          c.cellId === targetCellId
             ? { ...c, memberCount: c.memberCount + 1, names: [...c.names, item.name.toLowerCase()] }
             : c
         ))
-        const cellName = activeCells.find((c) => c.id === assignSelectedCellId)?.cellName || 'cell'
+        const cellName = activeCells.find((c) => c.id === targetCellId)?.cellName || 'cell'
         showToast(`${item.name} added to ${cellName}.`)
         setAssignOpenName(null)
         setAssignSelectedCellId('')
@@ -608,7 +609,11 @@ export function CellDirectorCockpit({
                                     : 'bg-orange-100 text-orange-700'
                                 }`}
                               >
-                                {consultTask.status === 'Responded' ? 'Consulted D Light' : 'Pending D Light Input'}
+                                {consultTask.status === 'Responded'
+                                  ? (consultTask.recommendedCellName
+                                      ? `D-Light Recommendation: ${consultTask.recommendedCellName}`
+                                      : 'D-Light Responded')
+                                  : 'Pending D Light Input'}
                               </span>
                             )}
                           </div>
@@ -621,6 +626,16 @@ export function CellDirectorCockpit({
                             <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5 italic">
                               "{consultTask.recommendation}"
                             </p>
+                          )}
+                          {consultTask?.status === 'Responded' && consultTask.recommendedCellId && (
+                            <button
+                              type="button"
+                              disabled={assigning}
+                              onClick={() => handleAssign(item, consultTask.recommendedCellId)}
+                              className="mt-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50 transition-colors"
+                            >
+                              {assigning ? 'Assigning…' : `Accept & Assign to ${consultTask.recommendedCellName || 'Cell'}`}
+                            </button>
                           )}
                         </div>
                         <button

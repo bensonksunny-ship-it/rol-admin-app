@@ -4,17 +4,7 @@ import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishS
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
-import { formatDMY } from '../utils/date'
-
-function nextSundayISO() {
-  const today = new Date()
-  const day = today.getDay()
-  // If today is Sunday (day=0) → use today. Otherwise → add days until next Sunday.
-  const daysUntilSunday = day === 0 ? 0 : 7 - day
-  const next = new Date(today)
-  next.setDate(today.getDate() + daysUntilSunday)
-  return format(next, 'yyyy-MM-dd')
-}
+import { formatDMY, nextSundayISO } from '../utils/date'
 
 const WORSHIP_ROLES = [
   'Lead Vocal-1', 'Lead Vocal-2', 'Lead Vocal-3', 'Lead Vocal-4', 'Lead Vocal-5', 'Lead Vocal-6',
@@ -685,7 +675,7 @@ export default function SundayPlanning() {
 }
 
 // ── Digital Bulletin — polished read-only view shown once published ────────
-function DigitalBulletin({ plan, preServiceEntry, selectedDate }) {
+export function DigitalBulletin({ plan, preServiceEntry, selectedDate }) {
   return (
     <div className="space-y-4">
       {/* Header */}

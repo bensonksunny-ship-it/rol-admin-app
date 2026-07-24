@@ -44,6 +44,27 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (isFullAccess() || request.auth.uid == userId);
     }
 
+    // Denormalized public directory (name/email/role/department — no phone or
+    // membershipNumber) so any signed-in user can search for who to message —
+    // see /conversations below. Writable by the owning user, or by Founder
+    // (isFullAccess) when backfilling entries for other users.
+    match /user_directory/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || request.auth.uid == uid);
+    }
+
+    // 1-to-1 direct messages. conversationId is the two participant uids sorted+joined,
+    // so membership can be checked directly off the doc without an extra lookup.
+    match /conversations/{conversationId} {
+      allow read, update: if isSignedIn() && request.auth.uid in resource.data.participantIds;
+      allow create: if isSignedIn() && request.auth.uid in request.resource.data.participantIds;
+
+      match /messages/{messageId} {
+        allow read, create: if isSignedIn() &&
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds;
+      }
+    }
+
     // Audit logs: everyone may write; only Founder may read
     match /audit_logs/{logId} {
       allow create: if isSignedIn();
@@ -193,7 +214,9 @@ service cloud.firestore {
 
     match /cell_groups/{cellId} {
       // Sunday Ministry and Caring need read access (attendance + PCS cell connections).
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring'));
+      // D-Light needs read access too: the cell-assignment-consult reply modal lets the
+      // D-Light Director pick a recommended cell group by name.
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring') || canAccessDept('D Light'));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
     }
