@@ -5043,3 +5043,27 @@ export async function markConversationRead(conversationId, uid) {
   if (!db || !conversationId || !uid) return
   await updateDoc(doc(db, CONVERSATIONS, conversationId), { [`unreadCounts.${uid}`]: 0 })
 }
+
+// ─── Dismissed Notifications (per-user "Ignore" on the bell dropdown) ─────────
+// Notifications are synthesized client-side from several source collections
+// (pcs_fill_invitations, cell visitor proposals, D-Light consult tasks). Dismissing
+// one from the bell must not touch that underlying business record — it only hides
+// the alert from this user's own feed, so this is a small independent overlay collection.
+const DISMISSED_NOTIFICATIONS = 'dismissed_notifications'
+
+export async function dismissNotification(uid, notificationId) {
+  if (!db || !uid || !notificationId) return
+  await setDoc(doc(db, DISMISSED_NOTIFICATIONS, `${uid}_${notificationId}`), {
+    uid,
+    notificationId,
+    dismissedAt: Timestamp.now(),
+  })
+}
+
+export function subscribeDismissedNotificationIds(uid, onChange) {
+  if (!db || !uid) return () => {}
+  const q = query(collection(db, DISMISSED_NOTIFICATIONS), where('uid', '==', uid))
+  return onSnapshot(q, (snap) => {
+    onChange(new Set(snap.docs.map((d) => d.data().notificationId)))
+  }, () => {})
+}

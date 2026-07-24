@@ -18,8 +18,10 @@ function myDepartmentNames(userProfile) {
 }
 
 // Active tasks relevant to the user's departments, pulled from the same `tasks`
-// collection as the Tasks page — no separate "prep checklist" data model.
-export default function MyTasksCard() {
+// collection as the Tasks page — no separate "prep checklist" data model. Also picks
+// up anything sent here via a notification's "+ Add to To-Do List" action (same
+// collection, same doc shape) once the parent remounts this card (see MyWorkspace).
+export default function ToDoListCard() {
   const { userProfile, isFounder } = useAuth()
   const navigate = useNavigate()
   const [tasks, setTasks] = useState([])
@@ -51,7 +53,7 @@ export default function MyTasksCard() {
             <CheckSquare size={18} strokeWidth={1.75} />
           </span>
           <div>
-            <p className="text-sm font-bold text-slate-800">My Tasks</p>
+            <p className="text-sm font-bold text-slate-800">To-Do List</p>
             <p className="text-xs text-slate-400 mt-0.5">{myTasks.length} need attention</p>
           </div>
         </div>

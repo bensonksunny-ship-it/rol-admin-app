@@ -2,26 +2,23 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   subscribePCSFillInvitationsByCellId, subscribeCellVisitorProposals, subscribeCellDlightConsultTasks,
+  subscribeDismissedNotificationIds, dismissNotification as dismissNotificationDoc, createTask,
 } from '../services/firestore'
 import { getDepartmentRole } from '../utils/access'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 
 // Single source of truth for the app's cross-department "pending action" feed —
 // PCS fill requests, D-Light visitor proposals, D-Light consult requests, and Cell's
-// consult responses. Shared by the sidebar bell dropdown and My Workspace's Pending
-// Actions card so there is exactly one place that owns this data and its deep-link
-// navigation, per the notification pipeline's "no third parallel implementation" rule.
-export default function useActionNotifications(userProfile, isFounder) {
+// consult responses. Shared by the sidebar bell dropdown and My Workspace's header bell
+// so there is exactly one place that owns this data, its dismissal state, and its
+// deep-link navigation, per the notification pipeline's "no third parallel implementation" rule.
+export default function useActionNotifications(userProfile, isFounder, uid) {
   const navigate = useNavigate()
   const [fillNotifications, setFillNotifications] = useState([])
   const [visitorProposalNotifications, setVisitorProposalNotifications] = useState([])
   const [dlightConsultNotifications, setDlightConsultNotifications] = useState([])
   const [consultResponseNotifications, setConsultResponseNotifications] = useState([])
-
-  const notifications = useMemo(
-    () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications],
-    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications]
-  )
+  const [dismissedIds, setDismissedIds] = useState(new Set())
 
   useEffect(() => {
     const cellId = userProfile?.cellGroupId || userProfile?.cellId
@@ -97,6 +94,19 @@ export default function useActionNotifications(userProfile, isFounder) {
     })
   }, [userProfile, isFounder])
 
+  // Per-user "Ignore" state — hides an item from this feed everywhere it's rendered
+  // without touching the underlying business record it was synthesized from.
+  useEffect(() => {
+    if (!uid) { setDismissedIds(new Set()); return }
+    return subscribeDismissedNotificationIds(uid, setDismissedIds)
+  }, [uid])
+
+  const notifications = useMemo(
+    () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications]
+      .filter((n) => !dismissedIds.has(n.id)),
+    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, dismissedIds]
+  )
+
   const handleNotifAction = (n) => {
     if (n.type === 'pcs_fill') {
       navigate('/department/cell?tab=leaderEntry&openFillInvite=' + (n.inviteId || ''))
@@ -114,10 +124,33 @@ export default function useActionNotifications(userProfile, isFounder) {
     }
   }
 
+  const dismissNotification = (n) => {
+    if (!uid || !n?.id) return
+    dismissNotificationDoc(uid, n.id).catch(() => {})
+  }
+
+  // "+ Add to To-Do List" — drops the notification into the same `tasks` collection
+  // My Workspace's To-Do List card already reads from, then dismisses it from the bell
+  // so it doesn't linger as both a task and an open alert.
+  const addNotificationToTodo = async (n) => {
+    await createTask({
+      taskTitle: n.body || n.title || 'Untitled',
+      department: n.department || '',
+      assignedPerson: userProfile?.displayName || userProfile?.email || '',
+      priority: 'Medium',
+      deadline: null,
+      status: 'Pending',
+      notes: n.title || '',
+    })
+    dismissNotification(n)
+  }
+
   return {
     notifications,
-    dlightConsultCount: dlightConsultNotifications.length,
-    consultResponseCount: consultResponseNotifications.length,
+    dlightConsultCount: dlightConsultNotifications.filter((n) => !dismissedIds.has(n.id)).length,
+    consultResponseCount: consultResponseNotifications.filter((n) => !dismissedIds.has(n.id)).length,
     handleNotifAction,
+    dismissNotification,
+    addNotificationToTodo,
   }
 }

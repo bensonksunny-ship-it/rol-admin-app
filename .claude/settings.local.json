@@ -97,7 +97,11 @@
       "Bash(awk *)",
       "Bash(taskkill //PID 5456 //F)",
       "Bash(git mv *)",
-      "Bash(taskkill //PID 28108 //F)"
+      "Bash(taskkill //PID 28108 //F)",
+      "Bash(grep -E \"^\\\\s*[0-9]+:[0-9]+\\\\s+error|error$\")",
+      "Bash(pkill -f \"vite\")",
+      "Bash(wmic process *)",
+      "Bash(taskkill //F //PID 17928)"
     ]
   }
 }
