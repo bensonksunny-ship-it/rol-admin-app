@@ -85,7 +85,13 @@
       "Bash(npx vercel *)",
       "Bash(powershell -Command \"Stop-Process -Id 27772 -Force -ErrorAction SilentlyContinue\")",
       "PowerShell(cmdkey *)",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(cmdkey /list)",
+      "Bash(git-credential-manager --version)",
+      "Bash(git credential-manager *)",
+      "Bash(git fetch *)",
+      "Bash(firebase login:list)",
+      "Bash(git status *)"
     ]
   }
 }
