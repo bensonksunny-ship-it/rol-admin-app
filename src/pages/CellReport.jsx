@@ -35,7 +35,6 @@ import { ROLES } from '../constants/roles'
 import { getDepartmentRole } from '../utils/access'
 import { canEditCellReport } from '../utils/cellReportPermissions'
 import { calcTenureLabel } from '../utils/cellMemberCategory'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 
 const CELL_DEPARTMENT = 'Cell'
 const MAX_VISIBLE_TILES = 18
@@ -881,7 +880,6 @@ export default function CellReport() {
 
   return (
     <div>
-      <DepartmentTabBar slug="cell" activeTab="cellReport" />
       <div className="space-y-6 p-4">
       {isDirectorView && (
         <>

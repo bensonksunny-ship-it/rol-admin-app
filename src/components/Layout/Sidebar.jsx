@@ -1,20 +1,24 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Crown, Building2, CalendarCheck,
   UserCog, FolderOpen, Leaf, PenLine, LogOut, Bell,
-  MessageCircle, Home, Users,
+  MessageCircle, Home, Users, Presentation,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { getDepartmentPath } from '../../constants/departments'
+import { getDepartmentPath, getDepartmentBySlug } from '../../constants/departments'
 import { ROLES } from '../../constants/roles'
 import { getDepartmentRole } from '../../utils/access'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 import useActionNotifications from '../../hooks/useActionNotifications'
 import useDirectMessages from '../../hooks/useDirectMessages'
+import { getBoardPoints } from '../../services/firestore'
 import NotifPanel from '../NotifPanel'
 import MessagesPanel from '../MessagesPanel'
 import SundayPlanBubble from '../SundayPlanBubble'
+import RailTooltip from '../RailTooltip'
+import BoardPointsModal from '../BoardPointsModal'
+import { getDepartmentSubpages, slugFromDepartmentPath } from '../../utils/departmentSubpages'
 import rolccLogo from '../../assets/rolcc_logo BW.JPG'
 
 const WORKSPACE_ITEM = { to: '/', label: 'My Workspace', icon: '🏠' }
@@ -70,10 +74,12 @@ function getInitials(profile) {
 function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen }) {
   const isDay = theme !== 'night'
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const tabRefs = useRef([])
   const [pillStyle, setPillStyle] = useState(null)
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef(null)
+  const [openSheetKey, setOpenSheetKey] = useState(null)
 
   useEffect(() => {
     if (!showMenu) return
@@ -84,6 +90,19 @@ function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen })
     document.addEventListener('touchstart', close)
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('touchstart', close) }
   }, [showMenu])
+
+  useEffect(() => { setOpenSheetKey(null) }, [pathname])
+
+  useEffect(() => {
+    if (!openSheetKey) return
+    const closeOnEscape = (e) => { if (e.key === 'Escape') setOpenSheetKey(null) }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [openSheetKey])
+
+  const openSheetItem = items.find((it) => (it.to || '/') + (it.label || '') === openSheetKey)
+  const openSheetSlug = openSheetItem ? slugFromDepartmentPath(openSheetItem.to) : null
+  const openSheetSubpages = openSheetSlug ? getDepartmentSubpages(openSheetSlug, userProfile) : []
 
   const initials = getInitials(userProfile)
   const displayName = userProfile?.displayName || userProfile?.email || 'User'
@@ -130,6 +149,7 @@ function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen })
   const inactiveColor = isDay ? '#94a3b8' : '#64748b'
 
   return (
+    <>
     <nav
       className="lg:hidden fixed bottom-4 left-3 right-3"
       style={{
@@ -163,31 +183,51 @@ function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen })
             {items.map((item, i) => {
               const isActive = i === activeIndex
               const Icon = ICON_MAP[item.icon] || LayoutDashboard
+              const itemKey = (item.to || '/') + (item.label || '')
+              const deptSlug = slugFromDepartmentPath(item.to)
+              const tabContent = (
+                <>
+                  <Icon size={20} strokeWidth={1.5} />
+                  <span
+                    className="text-[10px] font-semibold leading-none transition-all duration-200 overflow-hidden whitespace-nowrap"
+                    style={{
+                      maxHeight: isActive ? '14px' : '0px',
+                      opacity: isActive ? 1 : 0,
+                      marginTop: isActive ? '3px' : '0px',
+                      transition: 'max-height 0.2s ease, opacity 0.2s ease, margin-top 0.2s ease',
+                    }}
+                  >
+                    {shortLabel(item.label)}
+                  </span>
+                </>
+              )
               return (
                 <div
-                  key={(item.to || '/') + (item.label || '')}
+                  key={itemKey}
                   ref={(el) => { tabRefs.current[i] = el }}
                   className="flex-shrink-0"
                   style={{ minWidth: '64px' }}
                 >
-                  <NavLink
-                    to={item.to || '/'}
-                    className="flex flex-col items-center justify-center w-full py-2.5 relative z-10 transition-colors duration-200"
-                    style={{ color: isActive ? activeColor : inactiveColor }}
-                  >
-                    <Icon size={20} strokeWidth={1.5} />
-                    <span
-                      className="text-[10px] font-semibold leading-none transition-all duration-200 overflow-hidden whitespace-nowrap"
-                      style={{
-                        maxHeight: isActive ? '14px' : '0px',
-                        opacity: isActive ? 1 : 0,
-                        marginTop: isActive ? '3px' : '0px',
-                        transition: 'max-height 0.2s ease, opacity 0.2s ease, margin-top 0.2s ease',
-                      }}
+                  {deptSlug ? (
+                    // Department tile — opens the folder sheet with its subpages instead
+                    // of navigating straight to the hub (mirrors the desktop dock).
+                    <button
+                      type="button"
+                      onClick={() => setOpenSheetKey(itemKey)}
+                      className="flex flex-col items-center justify-center w-full py-2.5 relative z-10 transition-colors duration-200"
+                      style={{ color: isActive ? activeColor : inactiveColor }}
                     >
-                      {shortLabel(item.label)}
-                    </span>
-                  </NavLink>
+                      {tabContent}
+                    </button>
+                  ) : (
+                    <NavLink
+                      to={item.to || '/'}
+                      className="flex flex-col items-center justify-center w-full py-2.5 relative z-10 transition-colors duration-200"
+                      style={{ color: isActive ? activeColor : inactiveColor }}
+                    >
+                      {tabContent}
+                    </NavLink>
+                  )}
                 </div>
               )
             })}
@@ -278,6 +318,49 @@ function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen })
         </div>
       </div>
     </nav>
+
+    {/* Folder sheet — subpages of the tapped department, mobile equivalent of the
+        desktop dock's popover. Rises above the dock instead of a small anchored
+        popover, which is easier to tap on a narrow screen. */}
+    {openSheetItem && (
+      <>
+        <div
+          className="lg:hidden fixed inset-0 bg-black/40 backdrop-blur-sm"
+          style={{ zIndex: 51 }}
+          onClick={() => setOpenSheetKey(null)}
+          aria-hidden
+        />
+        <div
+          className="lg:hidden fixed left-3 right-3 rounded-3xl overflow-hidden"
+          style={{
+            zIndex: 52,
+            bottom: 'calc(6rem + env(safe-area-inset-bottom, 0px))',
+            background: isDay ? 'rgba(255,255,255,0.97)' : 'rgba(15,23,42,0.97)',
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
+            border: isDay ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)',
+            boxShadow: '0 16px 48px rgba(0,0,0,0.22)',
+          }}
+        >
+          <div className={`px-4 pt-3.5 pb-2.5 border-b ${isDay ? 'border-slate-100' : 'border-slate-700/60'}`}>
+            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">{openSheetItem.label}</p>
+          </div>
+          <div className="py-1.5 max-h-[50vh] overflow-y-auto">
+            {openSheetSubpages.map((sp) => (
+              <button
+                key={sp.key}
+                type="button"
+                onClick={() => { setOpenSheetKey(null); navigate(sp.to) }}
+                className={`w-full text-left px-4 py-3 text-sm font-medium transition-colors ${isDay ? 'text-slate-700 hover:bg-indigo-50 hover:text-indigo-700' : 'text-slate-200 hover:bg-slate-800'}`}
+              >
+                {sp.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </>
+    )}
+    </>
   )
 }
 
@@ -285,7 +368,6 @@ export default function Sidebar() {
   const { user, userProfile, signOut, hasPermission, isFounder, isDepartmentHead } = useAuth()
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
-  const isWorkspaceRoute = pathname === '/'
 
   useEffect(() => {
     setOpen(false)
@@ -377,6 +459,26 @@ export default function Sidebar() {
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('touchstart', close) }
   }, [messagesOpen])
 
+  // ── Board Meeting Points ("Director Board") ─────────────────────────────────
+  // Unlike Notifications/Messages this is department-scoped data (getBoardPoints
+  // reads per-department docs), so the icon only appears while viewing a department
+  // page, and fetches independently of whatever DepartmentHub itself has loaded.
+  const currentDeptSlug = /^\/department\/([^/]+)/.exec(pathname)?.[1] || null
+  const currentDept = currentDeptSlug ? getDepartmentBySlug(currentDeptSlug) : null
+  const showBoardIcon = !!currentDept && currentDept.slug !== 'sec-core'
+  const [boardPointsOpen, setBoardPointsOpen] = useState(false)
+  const [boardPointCount, setBoardPointCount] = useState(0)
+
+  useEffect(() => {
+    setBoardPointsOpen(false)
+    if (!showBoardIcon) { setBoardPointCount(0); return }
+    let alive = true
+    getBoardPoints(currentDept.name)
+      .then((pts) => { if (alive) setBoardPointCount(pts.filter((p) => p.status === 'pending').length) })
+      .catch(() => { if (alive) setBoardPointCount(0) })
+    return () => { alive = false }
+  }, [currentDept?.name, showBoardIcon])
+
   const displayDeptName = (deptName) => {
     if (deptName === 'Event M') return 'Event Management'
     return deptName
@@ -393,7 +495,6 @@ export default function Sidebar() {
     boxShadow: '4px 0 32px rgba(0,0,0,0.08)',
   } : {}
 
-  const headerBorderClass = isDay ? 'border-slate-200/60' : 'border-slate-600/50'
   const footerBorderClass = isDay ? 'border-slate-200/60' : 'border-slate-600/50'
 
   const titleGradient = isDay
@@ -414,18 +515,19 @@ export default function Sidebar() {
   const asideTextClass = isDay ? 'text-slate-900' : 'text-white'
 
   // ── Brand header (shared) ───────────────────────────────────────────────────
+  // Amazon-style: transparent, no border/fill — sits directly on the page background.
   const BrandHeader = () => (
-    <div className={`px-4 pt-20 pb-4 border-b ${headerBorderClass}`}>
-      <div className="flex items-center gap-3">
+    <div className="px-4 pt-20 pb-4">
+      <div className="flex items-center gap-2.5">
         <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
           style={{
             background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
             boxShadow: '0 4px 14px rgba(99,102,241,0.45)',
           }}
         >
           <span
-            className="text-white font-black text-lg leading-none select-none"
+            className="text-white font-black text-xs leading-none select-none"
             style={{ fontFamily: "'Montserrat', Inter, system-ui, sans-serif", letterSpacing: '-0.02em' }}
           >
             R
@@ -436,7 +538,7 @@ export default function Sidebar() {
             className="font-black leading-tight truncate"
             style={{
               fontFamily: "'Montserrat', Inter, system-ui, sans-serif",
-              fontSize: '18px',
+              fontSize: '13px',
               background: titleGradient,
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
@@ -448,12 +550,31 @@ export default function Sidebar() {
           </h1>
           <p
             className={`font-semibold select-none ${isDay ? 'text-slate-400' : 'text-slate-500'}`}
-            style={{ fontSize: '9px', letterSpacing: '0.18em', marginTop: '2px' }}
+            style={{ fontSize: '7px', letterSpacing: '0.15em', marginTop: '1px' }}
           >
             ADMIN PORTAL
           </p>
         </div>
         <SundayPlanBubble isDay={isDay} />
+        {showBoardIcon && (
+          <div className="relative flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setBoardPointsOpen(true)}
+              className="relative p-1.5 rounded-lg transition-colors hover:bg-white/10"
+              style={{ color: isDay ? '#64748b' : '#94a3b8' }}
+              aria-label="Director Board"
+              title="Board Meeting Points"
+            >
+              <Presentation size={18} strokeWidth={1.5} />
+              {boardPointCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-amber-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+                  {boardPointCount > 9 ? '9+' : boardPointCount}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
         <div className="relative flex-shrink-0" ref={notifDesktopRef}>
           <button
             type="button"
@@ -511,25 +632,15 @@ export default function Sidebar() {
   )
 
   // ── Mobile header bar (shared) ─────────────────────────────────────────────
+  // Amazon-style: transparent, no background/border/shadow — sits directly on the page.
   const MobileHeader = () => (
     <div
       className="lg:hidden fixed top-0 left-0 right-0 flex items-center justify-between px-3"
       style={{
         zIndex: 40,
         paddingTop: 'env(safe-area-inset-top, 24px)',
-        minHeight: 'calc(3.5rem + env(safe-area-inset-top, 24px))',
-        height: 'calc(3.5rem + env(safe-area-inset-top, 24px))',
-        ...(isDay ? {
-          background: 'rgba(255,255,255,0.88)',
-          backdropFilter: 'blur(20px) saturate(200%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(200%)',
-          borderBottom: '1px solid rgba(255,255,255,0.9)',
-          boxShadow: '0 2px 16px rgba(0,0,0,0.06)',
-        } : {
-          background: 'rgba(15,23,42,0.95)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          boxShadow: '0 2px 16px rgba(0,0,0,0.3)',
-        }),
+        minHeight: 'calc(3rem + env(safe-area-inset-top, 24px))',
+        height: 'calc(3rem + env(safe-area-inset-top, 24px))',
       }}
     >
       <button
@@ -541,18 +652,17 @@ export default function Sidebar() {
       >
         {open ? '✕' : '☰'}
       </button>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <img
           src={rolccLogo}
           alt="ROLCC"
-          className="w-8 h-8 rounded-lg object-cover flex-shrink-0"
-          style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}
+          className="w-6 h-6 rounded-md object-contain flex-shrink-0"
         />
         <span
           className="font-black"
           style={{
             fontFamily: "'Montserrat', Inter, system-ui, sans-serif",
-            fontSize: '16px',
+            fontSize: '12px',
             background: titleGradient,
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
@@ -562,6 +672,23 @@ export default function Sidebar() {
         >River Of Life</span>
       </div>
       <div className="flex items-center gap-0.5">
+        {showBoardIcon && (
+          <button
+            type="button"
+            onClick={() => setBoardPointsOpen(true)}
+            className="relative p-2 rounded-xl"
+            style={{ color: isDay ? '#475569' : '#94a3b8' }}
+            aria-label="Director Board"
+            title="Board Meeting Points"
+          >
+            <Presentation size={20} strokeWidth={1.5} />
+            {boardPointCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 min-w-[14px] h-3.5 bg-amber-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+                {boardPointCount > 9 ? '9+' : boardPointCount}
+              </span>
+            )}
+          </button>
+        )}
         <div className="relative" ref={notifMobileRef}>
           <button
             type="button"
@@ -639,114 +766,141 @@ export default function Sidebar() {
       className="hidden lg:flex w-16 min-h-screen flex-col items-center fixed left-0 top-0 py-3 gap-1"
       style={{ ...sidebarStyle, zIndex: 45 }}
     >
-      <NavLink to="/" className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mb-1" style={{
-        background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
-        boxShadow: '0 4px 14px rgba(99,102,241,0.45)',
-      }}>
-        <span className="text-white font-black text-base leading-none select-none" style={{ fontFamily: "'Montserrat', Inter, system-ui, sans-serif" }}>R</span>
-      </NavLink>
+      <RailTooltip label="Home">
+        <NavLink to="/" className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mb-1" style={{
+          background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
+          boxShadow: '0 4px 14px rgba(99,102,241,0.45)',
+        }}>
+          <span className="text-white font-black text-base leading-none select-none" style={{ fontFamily: "'Montserrat', Inter, system-ui, sans-serif" }}>R</span>
+        </NavLink>
+      </RailTooltip>
 
-      <div className="relative flex-shrink-0" ref={notifRailRef}>
-        <button
-          type="button"
-          onClick={() => { setMessagesOpen(false); setNotifOpen((v) => !v) }}
-          className="relative p-2 rounded-lg transition-colors hover:bg-white/10"
-          style={{ color: isDay ? '#cbd5e1' : '#94a3b8' }}
-          aria-label="Notifications"
-        >
-          <Bell size={18} strokeWidth={1.5} />
-          {notifications.length > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
-              {notifications.length > 9 ? '9+' : notifications.length}
-            </span>
-          )}
-        </button>
-        {notifOpen && (() => {
-          const r = notifRailRef.current?.getBoundingClientRect()
-          return <NotifPanel isDay={isDay} notifications={notifications} onAction={handleNotifAction}
-              onAddToTodo={addNotificationToTodo} onDismiss={dismissNotification}
-            posStyle={{ top: r?.top ?? 60, left: (r?.right ?? 64) + 8 }} />
-        })()}
-      </div>
+      <RailTooltip label="Notifications">
+        <div className="relative flex-shrink-0" ref={notifRailRef}>
+          <button
+            type="button"
+            onClick={() => { setMessagesOpen(false); setNotifOpen((v) => !v) }}
+            className="relative p-2 rounded-lg transition-colors hover:bg-white/10"
+            style={{ color: isDay ? '#cbd5e1' : '#94a3b8' }}
+            aria-label="Notifications"
+          >
+            <Bell size={18} strokeWidth={1.5} />
+            {notifications.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+                {notifications.length > 9 ? '9+' : notifications.length}
+              </span>
+            )}
+          </button>
+          {notifOpen && (() => {
+            const r = notifRailRef.current?.getBoundingClientRect()
+            return <NotifPanel isDay={isDay} notifications={notifications} onAction={handleNotifAction}
+                onAddToTodo={addNotificationToTodo} onDismiss={dismissNotification}
+              posStyle={{ top: r?.top ?? 60, left: (r?.right ?? 64) + 8 }} />
+          })()}
+        </div>
+      </RailTooltip>
 
-      <div className="relative flex-shrink-0" ref={msgRailRef}>
-        <button
-          type="button"
-          onClick={toggleMessages}
-          className="relative p-2 rounded-lg transition-colors hover:bg-white/10"
-          style={{ color: isDay ? '#cbd5e1' : '#94a3b8' }}
-          aria-label="Messages"
-        >
-          <MessageCircle size={18} strokeWidth={1.5} />
-          {unreadMessagesCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
-              {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
-            </span>
-          )}
-        </button>
-        {messagesOpen && (() => {
-          const r = msgRailRef.current?.getBoundingClientRect()
-          return <MessagesPanel
-            isDay={isDay} currentUid={user?.uid}
-            conversations={conversations} directory={combinedDirectory}
-            directorySearch={directorySearch} setDirectorySearch={setDirectorySearch}
-            showNewMessage={showNewMessage} setShowNewMessage={setShowNewMessage}
-            activeConversation={activeConversation} threadMessages={threadMessages}
-            messageDraft={messageDraft} setMessageDraft={setMessageDraft}
-            onOpenConversation={openConversation} onStartConversation={startConversationWith}
-            onSend={handleSendMessage} onBack={() => setActiveConversation(null)}
-            posStyle={{ top: r?.top ?? 60, left: (r?.right ?? 64) + 8 }}
-          />
-        })()}
-      </div>
+      <RailTooltip label="Messages">
+        <div className="relative flex-shrink-0" ref={msgRailRef}>
+          <button
+            type="button"
+            onClick={toggleMessages}
+            className="relative p-2 rounded-lg transition-colors hover:bg-white/10"
+            style={{ color: isDay ? '#cbd5e1' : '#94a3b8' }}
+            aria-label="Messages"
+          >
+            <MessageCircle size={18} strokeWidth={1.5} />
+            {unreadMessagesCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+                {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
+              </span>
+            )}
+          </button>
+          {messagesOpen && (() => {
+            const r = msgRailRef.current?.getBoundingClientRect()
+            return <MessagesPanel
+              isDay={isDay} currentUid={user?.uid}
+              conversations={conversations} directory={combinedDirectory}
+              directorySearch={directorySearch} setDirectorySearch={setDirectorySearch}
+              showNewMessage={showNewMessage} setShowNewMessage={setShowNewMessage}
+              activeConversation={activeConversation} threadMessages={threadMessages}
+              messageDraft={messageDraft} setMessageDraft={setMessageDraft}
+              onOpenConversation={openConversation} onStartConversation={startConversationWith}
+              onSend={handleSendMessage} onBack={() => setActiveConversation(null)}
+              posStyle={{ top: r?.top ?? 60, left: (r?.right ?? 64) + 8 }}
+            />
+          })()}
+        </div>
+      </RailTooltip>
+
+      {showBoardIcon && (
+        <RailTooltip label="Board Meeting Points">
+          <button
+            type="button"
+            onClick={() => setBoardPointsOpen(true)}
+            className="relative p-2 rounded-lg transition-colors hover:bg-white/10 flex-shrink-0"
+            style={{ color: isDay ? '#cbd5e1' : '#94a3b8' }}
+            aria-label="Director Board"
+          >
+            <Presentation size={18} strokeWidth={1.5} />
+            {boardPointCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-amber-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+                {boardPointCount > 9 ? '9+' : boardPointCount}
+              </span>
+            )}
+          </button>
+        </RailTooltip>
+      )}
 
       <div className="w-8 border-t border-white/10 my-1 flex-shrink-0" />
 
       <nav className="flex-1 flex flex-col items-center gap-1 overflow-y-auto w-full px-1.5">
         {items.map((item) => (
-          <NavLink
-            key={(item.to || '/') + (item.label || '')}
-            to={item.to || '/'}
-            title={item.label}
-            className={({ isActive }) =>
-              `relative w-11 h-11 rounded-xl flex items-center justify-center text-lg flex-shrink-0 transition-all ${
-                isActive ? navLinkActive : navLinkInactive
-              }`
-            }
-          >
-            <span aria-hidden>{item.icon}</span>
-            {item.to === getDepartmentPath('D Light') && dlightConsultCount > 0 && (
-              <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
-                {dlightConsultCount > 9 ? '9+' : dlightConsultCount}
-              </span>
-            )}
-            {(item.to === getDepartmentPath('Cell') || item.to === '/department/cell/cell-report') && consultResponseCount > 0 && (
-              <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
-                {consultResponseCount > 9 ? '9+' : consultResponseCount}
-              </span>
-            )}
-          </NavLink>
+          <RailTooltip key={(item.to || '/') + (item.label || '')} label={item.label}>
+            <NavLink
+              to={item.to || '/'}
+              className={({ isActive }) =>
+                `relative w-11 h-11 rounded-xl flex items-center justify-center text-lg flex-shrink-0 transition-all ${
+                  isActive ? navLinkActive : navLinkInactive
+                }`
+              }
+            >
+              <span aria-hidden>{item.icon}</span>
+              {item.to === getDepartmentPath('D Light') && dlightConsultCount > 0 && (
+                <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                  {dlightConsultCount > 9 ? '9+' : dlightConsultCount}
+                </span>
+              )}
+              {(item.to === getDepartmentPath('Cell') || item.to === '/department/cell/cell-report') && consultResponseCount > 0 && (
+                <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                  {consultResponseCount > 9 ? '9+' : consultResponseCount}
+                </span>
+              )}
+            </NavLink>
+          </RailTooltip>
         ))}
       </nav>
 
-      <button
-        type="button"
-        onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
-        aria-label={themeToggleLabel}
-        title={themeToggleLabel}
-        className="w-10 h-10 rounded-lg flex items-center justify-center text-base flex-shrink-0 hover:bg-white/10 transition-colors"
-      >
-        {theme === 'night' ? '🌙' : '☀️'}
-      </button>
-      <button
-        type="button"
-        onClick={signOut}
-        title="Sign out"
-        aria-label="Sign out"
-        className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 text-rose-400 hover:bg-rose-500/10 transition-colors"
-      >
-        <LogOut size={16} strokeWidth={2} />
-      </button>
+      <RailTooltip label={themeToggleLabel}>
+        <button
+          type="button"
+          onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
+          aria-label={themeToggleLabel}
+          className="w-10 h-10 rounded-lg flex items-center justify-center text-base flex-shrink-0 hover:bg-white/10 transition-colors"
+        >
+          {theme === 'night' ? '🌙' : '☀️'}
+        </button>
+      </RailTooltip>
+      <RailTooltip label="Sign out">
+        <button
+          type="button"
+          onClick={signOut}
+          aria-label="Sign out"
+          className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 text-rose-400 hover:bg-rose-500/10 transition-colors"
+        >
+          <LogOut size={16} strokeWidth={2} />
+        </button>
+      </RailTooltip>
     </aside>
   )
 
@@ -821,7 +975,7 @@ export default function Sidebar() {
           <div className="lg:hidden fixed inset-0 bg-black/50 backdrop-blur-sm" style={{ zIndex: 41 }} onClick={() => setOpen(false)} aria-hidden />
         )}
         <aside
-          className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'} ${isWorkspaceRoute ? 'lg:hidden' : ''}`}
+          className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'} lg:hidden`}
           style={{ ...sidebarStyle, zIndex: 45, paddingTop: 'env(safe-area-inset-top, 0px)' }}
         >
           <BrandHeader />
@@ -865,8 +1019,11 @@ export default function Sidebar() {
             <button onClick={signOut} className={actionBtnClass}>Sign out</button>
           </div>
         </aside>
-        {isWorkspaceRoute && <IconRail items={scopedItems} />}
+        <IconRail items={scopedItems} />
         <BottomTabBar items={scopedItems} theme={theme} signOut={signOut} userProfile={userProfile} user={user} sidebarOpen={open} />
+        {boardPointsOpen && currentDept && (
+          <BoardPointsModal department={currentDept.name} userEmail={userProfile?.email} onClose={() => setBoardPointsOpen(false)} />
+        )}
       </>
     )
   }
@@ -914,7 +1071,7 @@ export default function Sidebar() {
         <div className="lg:hidden fixed inset-0 bg-black/50 backdrop-blur-sm" style={{ zIndex: 41 }} onClick={() => setOpen(false)} aria-hidden />
       )}
       <aside
-        className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'} ${isWorkspaceRoute ? 'lg:hidden' : ''}`}
+        className={`w-64 min-h-screen bg-gradient-to-b from-slate-800 to-slate-900 ${asideTextClass} flex flex-col fixed left-0 top-0 transform transition-transform lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'} lg:hidden`}
         style={{ ...sidebarStyle, zIndex: 45 }}
       >
         <BrandHeader />
@@ -959,8 +1116,11 @@ export default function Sidebar() {
           <button onClick={signOut} className={actionBtnClass}>Sign out</button>
         </div>
       </aside>
-      {isWorkspaceRoute && <IconRail items={visibleWithMyDept} />}
+      <IconRail items={visibleWithMyDept} />
       <BottomTabBar items={visibleWithMyDept} theme={theme} signOut={signOut} userProfile={userProfile} user={user} sidebarOpen={open} />
+      {boardPointsOpen && currentDept && (
+        <BoardPointsModal department={currentDept.name} userEmail={userProfile?.email} onClose={() => setBoardPointsOpen(false)} />
+      )}
     </>
   )
 }

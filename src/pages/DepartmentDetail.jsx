@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import { getTasks } from '../services/firestore'
 import { getDepartmentBySlug } from '../constants/departments'
 import { DEPARTMENTS } from '../constants/roles'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useAuth } from '../context/AuthContext'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { formatDisplayDate } from '../utils/date'
@@ -31,7 +30,6 @@ export default function DepartmentDetail() {
   if (slug === 'd-light' && isRestrictedDLightDirector(userProfile)) {
     return (
       <div>
-        <DepartmentTabBar slug={slug} activeTab="summary" />
         <div className="p-6 text-slate-600">
           <Link to="/sunday-planning" className="text-blue-600 hover:underline">← Sunday Planning</Link>
           <p className="mt-4 text-lg font-semibold text-slate-800">Access Denied</p>
@@ -46,8 +44,11 @@ export default function DepartmentDetail() {
 
   return (
     <div>
-      <DepartmentTabBar slug={slug} activeTab="summary" />
       <div className="space-y-6 p-4">
+      <div className="px-1">
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{name}</h1>
+        <p className="text-slate-500 text-sm mt-0.5">Department overview</p>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500">Total Tasks</p>

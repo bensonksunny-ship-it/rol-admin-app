@@ -13,7 +13,6 @@ import {
   getDeptProgramInput,
   setDeptProgramInput,
 } from '../services/firestore'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 
 function nextSunday() {
   const today = new Date()
@@ -1387,8 +1386,8 @@ export default function SundayProgram({ embedded = false }) {
 
   return (
     <div>
-      {!embedded && <DepartmentTabBar slug="sunday-ministry" activeTab="sundayProgram" />}
       <div className="space-y-2 p-4 max-w-3xl">
+        {!embedded && <h1 className="text-xl font-semibold text-slate-800">Program</h1>}
         <SubTabBar active={subTab} onChange={setSubTab} />
         {subTab === 'default' && <DefaultProgramTab canEdit={canEdit} userProfile={userProfile} navigate={navigate} />}
         {subTab === 'design' && <DesignProgramTab canEdit={canEdit} userProfile={userProfile} />}

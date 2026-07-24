@@ -74,6 +74,16 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.uid == request.auth.uid);
     }
 
+    // Per-user "already added to To-Do" flag for the notification bell — same shape
+    // and ownership rule as dismissed_notifications above, tracked separately (in
+    // addition to also dismissing the notification) so the "+ Add to To-Do" button
+    // can't create a duplicate task if it fires again before the dismissal lands.
+    match /notification_todo_additions/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.uid == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.uid == request.auth.uid);
+    }
+
     // Audit logs: everyone may write; only Founder may read
     match /audit_logs/{logId} {
       allow create: if isSignedIn();
@@ -113,7 +123,9 @@ service cloud.firestore {
         (resource.data.cellAssignConsult == true && canAccessDept('Cell') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']))
       );
-      allow delete: if isSignedIn() && isFullAccess();
+      // Delete matches read/update's department scoping — My Workspace's To-Do List
+      // lets department users delete their own department's tasks inline, not just Founder/Admin.
+      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
     match /department_team_members/{docId} {

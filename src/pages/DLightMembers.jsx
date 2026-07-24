@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useAuth } from '../context/AuthContext'
 import {
   getDlightMembers,
@@ -132,7 +131,6 @@ export default function DLightMembers() {
   if (!canAccess) {
     return (
       <div>
-        <DepartmentTabBar slug={SLUG} activeTab="dataBackup" />
         <div className="flex items-center justify-center min-h-[40vh]">
           <p className="text-slate-500 text-sm">Access restricted to admins only.</p>
         </div>
@@ -293,8 +291,6 @@ export default function DLightMembers() {
 
   return (
     <div>
-      <DepartmentTabBar slug={SLUG} activeTab="dataBackup" />
-
       <div className="p-4 lg:p-6 max-w-7xl mx-auto">
         {/* Page header */}
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">

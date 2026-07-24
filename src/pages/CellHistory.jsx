@@ -15,7 +15,6 @@ import {
 import { isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { getDepartmentRole } from '../utils/access'
 import { formatDisplayDate } from '../utils/date'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 import { AnimatePresence } from 'framer-motion'
 import EditReportSheet from './cell/EditReportSheet'
 
@@ -429,8 +428,6 @@ export default function CellHistory({ embedded = false }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <DepartmentTabBar slug="cell" activeTab="cellHistory" />
-
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">

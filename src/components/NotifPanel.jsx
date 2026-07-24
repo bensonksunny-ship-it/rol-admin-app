@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Bell, ListPlus, X } from 'lucide-react'
+import { Bell, ListPlus, Check, X } from 'lucide-react'
 
 export default function NotifPanel({ isDay, notifications, posStyle, onAction, onAddToTodo, onDismiss }) {
   const [pendingIds, setPendingIds] = useState(() => new Set())
@@ -71,20 +71,24 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
                   {onAddToTodo && (
                     <button
                       type="button"
-                      disabled={pendingIds.has(n.id)}
-                      onClick={(e) => { e.stopPropagation(); withPending(n, onAddToTodo) }}
-                      className={`flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-semibold px-2 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
-                        isDay ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100' : 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
+                      disabled={pendingIds.has(n.id) || n.addedToTodo}
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); withPending(n, onAddToTodo) }}
+                      className={`flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-semibold px-2 py-1.5 rounded-lg transition-colors disabled:opacity-70 ${
+                        n.addedToTodo
+                          ? (isDay ? 'bg-emerald-50 text-emerald-600' : 'bg-emerald-500/15 text-emerald-300')
+                          : (isDay ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100' : 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25')
                       }`}
                     >
-                      <ListPlus size={12} strokeWidth={2} /> Add to To-Do
+                      {n.addedToTodo
+                        ? <><Check size={12} strokeWidth={2.5} /> Added</>
+                        : <><ListPlus size={12} strokeWidth={2} /> Add to To-Do</>}
                     </button>
                   )}
                   {onDismiss && (
                     <button
                       type="button"
                       disabled={pendingIds.has(n.id)}
-                      onClick={(e) => { e.stopPropagation(); withPending(n, onDismiss) }}
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); withPending(n, onDismiss) }}
                       className={`inline-flex items-center justify-center gap-1 text-[11px] font-semibold px-2 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
                         isDay ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
                       }`}

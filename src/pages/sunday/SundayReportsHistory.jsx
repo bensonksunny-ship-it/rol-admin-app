@@ -5,7 +5,6 @@ import * as XLSX from 'xlsx'
 import { getSundayReportSummaries, deleteSundayReport, getCellGroups, bulkImportSundayReports } from '../../services/firestore'
 import { formatDisplayDate } from '../../utils/date'
 import { useAuth } from '../../context/AuthContext'
-import DepartmentTabBar from '../../components/DepartmentTabBar'
 import SundayReportPrintView from './SundayReportPrintView'
 
 const FIXED_COLS = [
@@ -693,7 +692,6 @@ export default function SundayReportsHistory() {
 
   return (
     <div>
-      <DepartmentTabBar slug="sunday-ministry" activeTab="sundayReportsHistory" />
       <div className="p-5 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-slate-800">Sunday Reports</h2>

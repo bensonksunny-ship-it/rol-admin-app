@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Send, Download } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
   addDepartmentEntry,
@@ -36,11 +36,9 @@ import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { format, subMonths, subDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import BudgetPage from './accounts/BudgetPage'
-import BoardPointsModal from '../components/BoardPointsModal'
 import UpcomingSunday from './UpcomingSunday'
 import SongDesigner from './worship/SongDesigner'
 import SongViewer from './worship/SongViewer'
@@ -336,8 +334,14 @@ export default function DepartmentWorship() {
   }
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('summary')
-  const [boardPointsOpen, setBoardPointsOpen] = useState(false)
+  // Tab is URL-driven (?tab=) so the bottom dock's folder popover can deep-link
+  // straight into a subpage, same as DepartmentHub's generic hub.
+  const [searchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'summary')
+  useEffect(() => {
+    const t = searchParams.get('tab')
+    if (t) setActiveTab(t)
+  }, [searchParams])
   const [operationsSubTab, setOperationsSubTab] = useState('expense')
   const [subDepartments, setSubDepartments] = useState([])
   const [subDeptLoading, setSubDeptLoading] = useState(false)
@@ -943,20 +947,8 @@ export default function DepartmentWorship() {
 
   return (
     <div>
-      <DepartmentTabBar
-        slug="worship"
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onBoardPointsClick={() => setBoardPointsOpen(true)}
-      />
-      {boardPointsOpen && (
-        <BoardPointsModal
-          department={DEPARTMENT}
-          userEmail={userProfile?.email}
-          onClose={() => setBoardPointsOpen(false)}
-        />
-      )}
       <div className="space-y-4 p-4">
+      <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Worship</h1>
       {activeTab === 'upcomingSunday' && (
         <UpcomingSunday slug="worship" />
       )}

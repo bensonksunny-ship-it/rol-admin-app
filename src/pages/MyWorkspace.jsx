@@ -1,10 +1,7 @@
-import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import useActionNotifications from '../hooks/useActionNotifications'
 import WorkspaceHeader from '../components/workspace/WorkspaceHeader'
-import SundayPlanningOverviewCard from '../components/workspace/SundayPlanningOverviewCard'
 import ToDoListCard from '../components/workspace/ToDoListCard'
-import DepartmentDock from '../components/workspace/DepartmentDock'
 
 function greeting() {
   const h = new Date().getHours()
@@ -16,22 +13,20 @@ function greeting() {
 // Universal landing page ('/') for every signed-in user — the single home base for
 // someone who manages one or several departments/ministries. Notifications and direct
 // messages are reachable both from the collapsed icon rail (Sidebar's IconRail) and
-// this page's own WorkspaceHeader; the bottom DepartmentDock covers department
-// navigation on desktop.
+// this page's own WorkspaceHeader; department navigation lives in the global bottom
+// dock (rendered once from MainLayout, not this page).
 //
 // Pending actions live only in the notification bell now (WorkspaceHeader) — there
 // used to be a separate "Pending Actions" card showing the exact same list, which was
 // pure duplication. The bell is now the single actionable surface: each item can be
 // deep-linked into, converted into a To-Do (addNotificationToTodo), or dismissed.
+// ToDoListCard subscribes to `tasks` live (onSnapshot), so anything added from the
+// bell shows up there immediately — no manual refresh wiring needed here.
 export default function MyWorkspace() {
   const { user, userProfile, isFounder } = useAuth()
   const {
     notifications, handleNotifAction, dismissNotification, addNotificationToTodo,
   } = useActionNotifications(userProfile, isFounder, user?.uid)
-
-  // Bumped whenever a notification is added to the To-Do list, forcing ToDoListCard
-  // to remount and refetch so the new item shows up immediately, not just on reload.
-  const [todoRefreshKey, setTodoRefreshKey] = useState(0)
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-8">
@@ -44,18 +39,11 @@ export default function MyWorkspace() {
           notifications={notifications}
           onNotifAction={handleNotifAction}
           onDismissNotification={dismissNotification}
-          onAddNotificationToTodo={async (n) => { await addNotificationToTodo(n); setTodoRefreshKey((k) => k + 1) }}
+          onAddNotificationToTodo={addNotificationToTodo}
         />
       </div>
 
-      <SundayPlanningOverviewCard />
-
-      <ToDoListCard key={todoRefreshKey} />
-
-      {/* Clears the floating department dock so it never overlaps card content. */}
-      <div className="hidden lg:block h-16" aria-hidden />
-
-      <DepartmentDock />
+      <ToDoListCard />
     </div>
   )
 }

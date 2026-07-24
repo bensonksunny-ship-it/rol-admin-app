@@ -1,5 +1,4 @@
 import { useSearchParams, Link } from 'react-router-dom'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 import SundayReport from './SundayReport'
 import SundayProgram from './SundayProgram'
 import { useAuth } from '../context/AuthContext'
@@ -51,7 +50,9 @@ export default function Sunday() {
 
   return (
     <div>
-      <DepartmentTabBar slug="sunday-ministry" activeTab="sunday" />
+      <div className="px-4 pt-4">
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Sunday</h1>
+      </div>
       <SubTabBar active={subTab} onChange={setSubTab} />
       {subTab === 'livecontrol' && <SundayReport embedded />}
       {subTab === 'program' && <SundayProgram embedded />}

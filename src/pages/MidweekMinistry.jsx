@@ -4,7 +4,6 @@ import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useViewAs } from '../context/ViewAsContext'
 import {
   getCellGroups,
@@ -78,8 +77,6 @@ export default function MidweekMinistry({ embedded = false }) {
 
   return (
     <div className={embedded ? undefined : 'min-h-screen bg-slate-50'}>
-      {!embedded && <DepartmentTabBar slug="cell" activeTab="midweek" />}
-
       <div className={`max-w-2xl mx-auto space-y-5 ${embedded ? 'py-4' : 'px-4 py-6'}`}>
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Mid-week Ministry</h1>

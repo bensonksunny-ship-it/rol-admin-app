@@ -67,6 +67,7 @@ Lives in the `caring` slug of `DepartmentHub`. Key collections:
 | `tasks` | Cross-department tasks |
 | `department_assignments` | Per-slug assignment data (Worship, D Light, etc.) |
 | `dismissed_notifications` | Per-user "Ignore" state for My Workspace's notification bell; doc id `{uid}_{notificationId}` |
+| `notification_todo_additions` | Per-user "already added to To-Do" flag for the bell (separate from dismissal); doc id `{uid}_{notificationId}` |
 
 ### Sunday Attendance Pattern
 Name-based matching is preferred over doc-ID matching. `sunday_reports.sundayCellAttendance[cellId]` stores lowercased member names; use `getRecentSundayAttendanceNamesByCell(cellId)` and compare against `String(member.name).trim().toLowerCase()`.

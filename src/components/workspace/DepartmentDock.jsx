@@ -1,8 +1,10 @@
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { PenLine } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { DEPARTMENT_LIST, getDepartmentPath, getDepartmentIcon } from '../../constants/departments'
+import { DEPARTMENT_LIST, getDepartmentByName, getDepartmentPath, getDepartmentIcon } from '../../constants/departments'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
+import { getDepartmentSubpages } from '../../utils/departmentSubpages'
 
 function displayDeptName(deptName) {
   if (deptName === 'Event M') return 'Event Management'
@@ -23,29 +25,93 @@ function myDepartmentNames(userProfile, isFounder) {
 }
 
 // Floating, iPhone-style dock of the user's departments, fixed bottom-center. Desktop
-// only — on mobile the existing bottom tab bar already lists the same departments.
+// only — on mobile the existing bottom tab bar covers the same navigation (with its
+// own folder sheet for subpages).
+//
+// Tapping a department tile opens an Apple-Dock-style "folder" popover listing its
+// subpages (from getDepartmentSubpages) instead of navigating straight to the hub —
+// this is what replaced the old per-page DepartmentTabBar pill row.
 export default function DepartmentDock() {
   const { userProfile, isFounder } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const [openKey, setOpenKey] = useState(null)
+  const dockRef = useRef(null)
 
-  const tiles = myDepartmentNames(userProfile, isFounder).map((name) => ({
-    key: name,
-    label: displayDeptName(name),
-    to: getDepartmentPath(name),
-    Icon: getDepartmentIcon(name),
-  }))
+  useEffect(() => { setOpenKey(null) }, [pathname])
+
+  useEffect(() => {
+    if (!openKey) return
+    const close = (e) => {
+      if (dockRef.current && !dockRef.current.contains(e.target)) setOpenKey(null)
+    }
+    const closeOnEscape = (e) => { if (e.key === 'Escape') setOpenKey(null) }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('touchstart', close)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('touchstart', close)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [openKey])
+
+  const tiles = myDepartmentNames(userProfile, isFounder).map((name) => {
+    const dept = getDepartmentByName(name)
+    return {
+      key: name,
+      label: displayDeptName(name),
+      to: getDepartmentPath(name),
+      Icon: getDepartmentIcon(name),
+      subpages: dept ? getDepartmentSubpages(dept.slug, userProfile) : [],
+    }
+  })
 
   if (canAccessWeeklyEntryOnly(userProfile)) {
-    tiles.push({ key: 'weekly-entry', label: 'Weekly Entry', to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, Icon: PenLine })
+    tiles.push({ key: 'weekly-entry', label: 'Weekly Entry', to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, Icon: PenLine, subpages: [] })
   }
 
   if (tiles.length === 0) return null
 
+  const activeTile = tiles.find((t) => pathname === t.to || pathname.startsWith(t.to + '/') || pathname.startsWith(t.to + '?'))
+  const openTile = tiles.find((t) => t.key === openKey)
+
   return (
     <nav
+      ref={dockRef}
       className="hidden lg:flex fixed bottom-5 left-1/2 -translate-x-1/2 z-40"
       aria-label="Department shortcuts"
     >
+      {/* Apple-Dock-style folder popover for the open tile's subpages */}
+      {openTile && openTile.subpages.length > 0 && (
+        <div
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-56 rounded-2xl overflow-hidden"
+          style={{
+            background: 'rgba(255,255,255,0.96)',
+            backdropFilter: 'blur(28px) saturate(200%)',
+            WebkitBackdropFilter: 'blur(28px) saturate(200%)',
+            border: '1px solid rgba(255,255,255,0.95)',
+            boxShadow: '0 16px 48px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.08)',
+          }}
+        >
+          <div className="px-3.5 pt-3 pb-2 border-b border-slate-100">
+            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">{openTile.label}</p>
+          </div>
+          <div className="py-1.5 max-h-72 overflow-y-auto">
+            {openTile.subpages.map((sp) => (
+              <button
+                key={sp.key}
+                type="button"
+                onClick={() => { setOpenKey(null); navigate(sp.to) }}
+                className="w-full text-left px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+              >
+                {sp.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div
         className="flex items-center gap-2 px-3 py-2.5 rounded-3xl max-w-[calc(100vw-4rem)] overflow-x-auto scrollbar-hide"
         style={{
@@ -58,22 +124,34 @@ export default function DepartmentDock() {
       >
         {tiles.map((tile) => {
           const TileIcon = tile.Icon
+          const isActive = activeTile?.key === tile.key
+          const hasFolder = tile.subpages.length > 0
           return (
             <button
               key={tile.key}
               type="button"
-              onClick={() => navigate(tile.to)}
+              onClick={() => {
+                if (hasFolder) setOpenKey((k) => (k === tile.key ? null : tile.key))
+                else navigate(tile.to)
+              }}
               title={tile.label}
               className="group flex flex-col items-center gap-1 flex-shrink-0 w-16"
             >
               <span
-                className="w-12 h-12 rounded-2xl flex items-center justify-center transition-transform duration-150 group-hover:-translate-y-0.5 group-active:scale-95"
+                className="relative w-12 h-12 rounded-2xl flex items-center justify-center transition-transform duration-150 group-hover:-translate-y-0.5 group-active:scale-95"
                 style={{
                   background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
-                  boxShadow: '0 4px 14px rgba(99,102,241,0.35)',
+                  boxShadow: isActive
+                    ? '0 4px 14px rgba(99,102,241,0.55), 0 0 0 2px rgba(99,102,241,0.5)'
+                    : '0 4px 14px rgba(99,102,241,0.35)',
                 }}
               >
                 <TileIcon size={20} className="text-white" strokeWidth={1.75} />
+                {hasFolder && (
+                  <span
+                    className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white transition-opacity ${openKey === tile.key ? 'opacity-100' : 'opacity-60'}`}
+                  />
+                )}
               </span>
               <span className="text-[10px] font-semibold text-slate-600 leading-none truncate w-full text-center">
                 {tile.label}

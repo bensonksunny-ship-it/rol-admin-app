@@ -209,6 +209,27 @@ export function subscribeTasksByDepartment(department, onChange) {
   }, () => {})
 }
 
+// Live feed for My Workspace's To-Do List — pass `null` for "no department filter"
+// (Founder: every task); pass an array to scope to just those departments. No
+// orderBy here on purpose: a Firestore `in` filter combined with orderBy on a
+// different field needs a composite index, so callers sort the results themselves.
+export function subscribeTasksForDepartments(departments, onChange) {
+  if (!db) return () => {}
+  if (Array.isArray(departments) && departments.length === 0) {
+    onChange([])
+    return () => {}
+  }
+  const q = Array.isArray(departments)
+    ? query(collection(db, 'tasks'), where('department', 'in', departments.slice(0, 30)))
+    : collection(db, 'tasks')
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, deadline: toDate(data.deadline) }
+    }))
+  }, () => {})
+}
+
 // Real-time listener for cell-leader referrals sent to the Caring department
 export function subscribeCellMemberReferralTasks(onChange) {
   if (!db) return () => {}
@@ -5063,6 +5084,30 @@ export async function dismissNotification(uid, notificationId) {
 export function subscribeDismissedNotificationIds(uid, onChange) {
   if (!db || !uid) return () => {}
   const q = query(collection(db, DISMISSED_NOTIFICATIONS), where('uid', '==', uid))
+  return onSnapshot(q, (snap) => {
+    onChange(new Set(snap.docs.map((d) => d.data().notificationId)))
+  }, () => {})
+}
+
+// Per-user "already added to To-Do" flag — separate from dismissal. Adding a
+// notification to the To-Do list does NOT remove it from the bell (only Ignore does);
+// this just persists which ones already have a task so the button can permanently
+// switch to a disabled "✓ Added" state (survives dropdown close/reopen and reload,
+// and prevents creating duplicate task docs from repeated clicks).
+const NOTIFICATION_TODO_ADDITIONS = 'notification_todo_additions'
+
+export async function markNotificationAddedToTodo(uid, notificationId) {
+  if (!db || !uid || !notificationId) return
+  await setDoc(doc(db, NOTIFICATION_TODO_ADDITIONS, `${uid}_${notificationId}`), {
+    uid,
+    notificationId,
+    addedAt: Timestamp.now(),
+  })
+}
+
+export function subscribeNotificationTodoAdditionIds(uid, onChange) {
+  if (!db || !uid) return () => {}
+  const q = query(collection(db, NOTIFICATION_TODO_ADDITIONS), where('uid', '==', uid))
   return onSnapshot(q, (snap) => {
     onChange(new Set(snap.docs.map((d) => d.data().notificationId)))
   }, () => {})

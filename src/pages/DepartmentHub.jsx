@@ -131,8 +131,6 @@ import { formatDMY, formatDMYTime, parseDateToYYYYMMDD, formatDisplayDate } from
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
-import DepartmentTabBar from '../components/DepartmentTabBar'
-import BoardPointsModal from '../components/BoardPointsModal'
 import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
 import DLightDirectorDashboard from '../components/DLightDirectorDashboard'
 import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
@@ -396,7 +394,6 @@ export default function DepartmentHub() {
   const [boardPointForm, setBoardPointForm] = useState({ slNo: '', point: '', timeNeeded: '', meetingDate: '' })
   const [boardPointModalOpen, setBoardPointModalOpen] = useState(false)
   const [editingBoardPointId, setEditingBoardPointId] = useState(null)
-  const [boardPointsPopupOpen, setBoardPointsPopupOpen] = useState(false)
   const [boardAllottedNotifications, setBoardAllottedNotifications] = useState([])
   const [delightVisitors, setDelightVisitors] = useState([])
   const [loadingDelightVisitors, setLoadingDelightVisitors] = useState(false)
@@ -752,7 +749,6 @@ export default function DepartmentHub() {
 
   const isAccountsEntryRoute =
     slug === 'accounts' && String(location?.pathname || '').includes('/department/accounts/entry')
-  const activeTabForBar = isAccountsEntryRoute ? 'entry' : activeTab
 
   const tabFromUrl = searchParams.get('tab')
   const isCellLeader = slug === 'cell' && !canViewAllCells
@@ -1750,22 +1746,11 @@ export default function DepartmentHub() {
 
   return (
     <div>
-      <DepartmentTabBar
-        slug={slug}
-        activeTab={activeTabForBar}
-        setActiveTab={(t) => {
-          if (isAccountsEntryRoute) {
-            navigate(`/department/${slug}?tab=${encodeURIComponent(t)}`)
-          } else {
-            setActiveTab(t)
-            setSearchParams({ tab: t }, { replace: true })
-          }
-        }}
-        userProfile={userProfile}
-        departmentName={department?.name}
-        boardPointCount={boardPoints.filter(b => b.status === 'pending').length}
-        onBoardPointsClick={() => setBoardPointsPopupOpen(true)}
-      />
+      {!isAccountsEntryRoute && (
+        <div className="px-2 lg:px-6 pt-4">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{department?.name || slug}</h1>
+        </div>
+      )}
 
       {/* ── Allotted-time notifications ── */}
       {boardAllottedNotifications.length > 0 && (
@@ -1791,14 +1776,6 @@ export default function DepartmentHub() {
             </div>
           ))}
         </div>
-      )}
-
-      {boardPointsPopupOpen && (
-        <BoardPointsModal
-          department={department?.name}
-          userEmail={userProfile?.email}
-          onClose={() => setBoardPointsPopupOpen(false)}
-        />
       )}
 
       <div className="space-y-6 py-4 px-2 lg:px-6">

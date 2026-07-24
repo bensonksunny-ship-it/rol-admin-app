@@ -24,7 +24,6 @@ import {
   subscribeSundayReportNameField,
   patchSundayReportCellAttendance,
 } from '../services/firestore'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 
@@ -1981,7 +1980,11 @@ export default function SundayReport({ embedded = false }) {
 
   return (
     <div>
-      {!embedded && <DepartmentTabBar slug="sunday-ministry" activeTab="sundayReport" />}
+      {!embedded && (
+        <div className="px-4 pt-4">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Live Control</h1>
+        </div>
+      )}
       <BulkImportPanel
         isOpen={showBulkImport}
         onClose={() => setShowBulkImport(false)}

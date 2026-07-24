@@ -12,7 +12,6 @@ import {
   setSundayCrewEntry,
   getDepartmentTeamMembers,
 } from '../services/firestore'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 
 function nextSunday() {
   const today = new Date()
@@ -539,7 +538,6 @@ export default function SundayCrew() {
 
   return (
     <div>
-      <DepartmentTabBar slug="sunday-ministry" activeTab="sundayCrew" />
       <div className="space-y-2 p-4 max-w-3xl">
         <h1 className="text-xl font-semibold text-slate-800">Crew</h1>
         <SubTabBar active={subTab} onChange={setSubTab} />

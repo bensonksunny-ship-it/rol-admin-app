@@ -34,7 +34,6 @@ import {
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { calcTenureLabel, memberCategoryLabel } from '../utils/cellMemberCategory'
 import { ROLES } from '../constants/roles'
-import DepartmentTabBar from '../components/DepartmentTabBar'
 import { useViewAs } from '../context/ViewAsContext'
 import { format } from 'date-fns'
 
@@ -211,8 +210,6 @@ export default function ShepherdView({ embedded = false, pendingFillInvitations 
 
   return (
     <div className={embedded ? undefined : 'min-h-screen bg-slate-50'}>
-      {!embedded && <DepartmentTabBar slug="cell" activeTab="shepherd" />}
-
       <div className={`max-w-5xl mx-auto space-y-5 ${embedded ? 'py-4' : 'px-4 py-6'}`}>
         {/* Page Header */}
         <div>
