@@ -20,7 +20,7 @@ function isDirectorOrAdmin(userProfile, isFounder, isAdmin) {
 // Notifications reuse the same feed as the collapsed sidebar rail (passed down from
 // MyWorkspace, which already subscribes via useActionNotifications); messages get
 // their own independent useDirectMessages instance, same pattern as the rail.
-export default function WorkspaceHeader({ notifications, onNotifAction }) {
+export default function WorkspaceHeader({ notifications, onNotifAction, onDismissNotification, onAddNotificationToTodo }) {
   const { user, userProfile, isFounder, isAdmin } = useAuth()
   const navigate = useNavigate()
   const showDirectorBoard = isDirectorOrAdmin(userProfile, isFounder, isAdmin)
@@ -82,6 +82,7 @@ export default function WorkspaceHeader({ notifications, onNotifAction }) {
         {notifOpen && (() => {
           const r = notifRef.current?.getBoundingClientRect()
           return <NotifPanel isDay notifications={notifications} onAction={(n) => { setNotifOpen(false); onNotifAction(n) }}
+            onAddToTodo={onAddNotificationToTodo} onDismiss={onDismissNotification}
             posStyle={{ top: (r?.bottom ?? 60) + 8, left: Math.min(r?.left ?? 0, window.innerWidth - 300) }} />
         })()}
       </div>

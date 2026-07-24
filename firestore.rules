@@ -65,6 +65,15 @@ service cloud.firestore {
       }
     }
 
+    // Per-user "Ignore" state for the notification bell (My Workspace). Doc id is
+    // `{uid}_{notificationId}`; only the owning user may read/write their own rows —
+    // this never touches the source collections the notifications are synthesized from.
+    match /dismissed_notifications/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.uid == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isSignedIn() && (isFullAccess() || resource.data.uid == request.auth.uid);
+    }
+
     // Audit logs: everyone may write; only Founder may read
     match /audit_logs/{logId} {
       allow create: if isSignedIn();

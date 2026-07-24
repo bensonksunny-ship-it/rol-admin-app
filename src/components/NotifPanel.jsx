@@ -1,11 +1,25 @@
+import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Bell } from 'lucide-react'
+import { Bell, ListPlus, X } from 'lucide-react'
 
-export default function NotifPanel({ isDay, notifications, posStyle, onAction }) {
+export default function NotifPanel({ isDay, notifications, posStyle, onAction, onAddToTodo, onDismiss }) {
+  const [pendingIds, setPendingIds] = useState(() => new Set())
+
   const fmtDate = (d) => {
     if (!d) return ''
     try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) } catch { return '' }
   }
+
+  const withPending = async (n, fn) => {
+    if (!fn || pendingIds.has(n.id)) return
+    setPendingIds((prev) => new Set(prev).add(n.id))
+    try {
+      await fn(n)
+    } finally {
+      setPendingIds((prev) => { const next = new Set(prev); next.delete(n.id); return next })
+    }
+  }
+
   return createPortal(
     <div
       className="w-72 rounded-2xl overflow-hidden"
@@ -33,25 +47,54 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction })
           <p className="text-sm">No new notifications</p>
         </div>
       ) : (
-        <div className={`overflow-y-auto max-h-72 divide-y ${isDay ? 'divide-slate-100' : 'divide-slate-700/50'}`}>
+        <div className={`overflow-y-auto max-h-80 divide-y ${isDay ? 'divide-slate-100' : 'divide-slate-700/50'}`}>
           {notifications.map((n) => (
-            <button
-              key={n.id}
-              type="button"
-              onClick={() => onAction && onAction(n)}
-              className={`w-full text-left px-4 py-3 transition-colors ${isDay ? 'hover:bg-violet-50' : 'hover:bg-slate-800/50'}`}
-            >
-              <p className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isDay ? 'text-violet-600' : 'text-violet-400'}`}>{n.title}</p>
-              <p className={`text-sm ${isDay ? 'text-slate-700' : 'text-slate-200'}`}>{n.body}</p>
-              {n.cellName && <p className={`text-xs mt-0.5 ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>{n.cellName}</p>}
-              {n.sentAt && <p className={`text-[10px] mt-1 ${isDay ? 'text-slate-300' : 'text-slate-600'}`}>{fmtDate(n.sentAt)}</p>}
-              <p className={`text-xs font-semibold mt-1.5 ${isDay ? 'text-violet-600' : 'text-violet-400'}`}>
-                {n.type === 'visitor_proposal' ? 'Tap to review →'
-                  : n.type === 'dlight_consult' ? 'Tap to respond →'
-                  : n.type === 'consult_response' ? 'Tap to review →'
-                  : 'Tap to fill →'}
-              </p>
-            </button>
+            <div key={n.id} className={`px-4 py-3 transition-colors ${isDay ? 'hover:bg-violet-50' : 'hover:bg-slate-800/50'}`}>
+              <button
+                type="button"
+                onClick={() => onAction && onAction(n)}
+                className="w-full text-left"
+              >
+                <p className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${isDay ? 'text-violet-600' : 'text-violet-400'}`}>{n.title}</p>
+                <p className={`text-sm ${isDay ? 'text-slate-700' : 'text-slate-200'}`}>{n.body}</p>
+                {n.cellName && <p className={`text-xs mt-0.5 ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>{n.cellName}</p>}
+                {n.sentAt && <p className={`text-[10px] mt-1 ${isDay ? 'text-slate-300' : 'text-slate-600'}`}>{fmtDate(n.sentAt)}</p>}
+                <p className={`text-xs font-semibold mt-1.5 ${isDay ? 'text-violet-600' : 'text-violet-400'}`}>
+                  {n.type === 'visitor_proposal' ? 'Tap to review →'
+                    : n.type === 'dlight_consult' ? 'Tap to respond →'
+                    : n.type === 'consult_response' ? 'Tap to review →'
+                    : 'Tap to fill →'}
+                </p>
+              </button>
+              {(onAddToTodo || onDismiss) && (
+                <div className="flex items-center gap-1.5 mt-2">
+                  {onAddToTodo && (
+                    <button
+                      type="button"
+                      disabled={pendingIds.has(n.id)}
+                      onClick={(e) => { e.stopPropagation(); withPending(n, onAddToTodo) }}
+                      className={`flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-semibold px-2 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                        isDay ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100' : 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
+                      }`}
+                    >
+                      <ListPlus size={12} strokeWidth={2} /> Add to To-Do
+                    </button>
+                  )}
+                  {onDismiss && (
+                    <button
+                      type="button"
+                      disabled={pendingIds.has(n.id)}
+                      onClick={(e) => { e.stopPropagation(); withPending(n, onDismiss) }}
+                      className={`inline-flex items-center justify-center gap-1 text-[11px] font-semibold px-2 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                        isDay ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      <X size={12} strokeWidth={2} /> Ignore
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )}
