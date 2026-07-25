@@ -162,7 +162,7 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
       : `↓ ${Math.abs(yoyDelta)} fewer than ${currentYear - 1}`
 
   if (loading) {
-    return <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 shadow-sm">Loading dashboard…</div>
+    return <div className="bg-white rounded-xl border border-slate-200 p-5 text-center text-slate-500 shadow-sm">Loading dashboard…</div>
   }
 
   return (

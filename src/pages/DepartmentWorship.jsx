@@ -1114,7 +1114,7 @@ export default function DepartmentWorship() {
           {loadingSchedule ? (
             <div className="py-12 text-center text-slate-400 text-sm">Loading plan…</div>
           ) : savedAssignments.filter(a => a.memberId).length === 0 ? (
-            <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm px-6 py-10 text-center text-slate-400">
+            <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm px-6 py-6 text-center text-slate-400">
               <p className="text-sm">No plan saved for this date yet.</p>
               <p className="text-xs mt-1">Go to the <strong>Assign</strong> tab to set up and save a plan.</p>
             </div>
@@ -1367,9 +1367,9 @@ export default function DepartmentWorship() {
                 </div>
               </div>
               {loadingSchedule ? (
-                <div className="p-8 text-center text-slate-500">Loading...</div>
+                <div className="p-5 text-center text-slate-500">Loading...</div>
               ) : activeMembers.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">Add team members in the Team tab first.</div>
+                <div className="p-5 text-center text-slate-500">Add team members in the Team tab first.</div>
               ) : (
                 <table key={selectedDate} className="w-full">
                   <thead className="bg-slate-50">
@@ -1689,9 +1689,9 @@ export default function DepartmentWorship() {
               </div>
             </div>
             {loadingTeam ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
+              <div className="p-5 text-center text-slate-500">Loading...</div>
             ) : activeMembers.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">No team members yet. Add above or use "Add demo team".</div>
+              <div className="p-5 text-center text-slate-500">No team members yet. Add above or use "Add demo team".</div>
             ) : (
               <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {activeMembers.map((m) => {
@@ -1754,9 +1754,9 @@ export default function DepartmentWorship() {
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Former members</h2>
             {loadingTeam ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
+              <div className="p-5 text-center text-slate-500">Loading...</div>
             ) : formerMembers.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">No former members.</div>
+              <div className="p-5 text-center text-slate-500">No former members.</div>
             ) : (
               <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {formerMembers.map((m) => {
@@ -2164,9 +2164,9 @@ export default function DepartmentWorship() {
               </div>
             </div>
             {loadingTeam ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
+              <div className="p-5 text-center text-slate-500">Loading...</div>
             ) : activeMembers.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">No team members yet.</div>
+              <div className="p-5 text-center text-slate-500">No team members yet.</div>
             ) : (
               <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {activeMembers.map((m) => {
@@ -2224,9 +2224,9 @@ export default function DepartmentWorship() {
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Former members</h2>
             {loadingTeam ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
+              <div className="p-5 text-center text-slate-500">Loading...</div>
             ) : formerMembers.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">No former members.</div>
+              <div className="p-5 text-center text-slate-500">No former members.</div>
             ) : (
               <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {formerMembers.map((m) => {

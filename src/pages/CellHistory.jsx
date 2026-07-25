@@ -402,7 +402,7 @@ export default function CellHistory({ embedded = false }) {
         {loading ? (
           <div className="text-slate-400 text-sm py-6 text-center">Loading history…</div>
         ) : sorted.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center shadow-sm">
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 text-center shadow-sm">
             <p className="text-4xl mb-3">📭</p>
             <p className="font-semibold text-slate-700">No meeting records yet.</p>
             <p className="text-slate-400 text-sm mt-1">Past meetings will appear here after they are submitted.</p>

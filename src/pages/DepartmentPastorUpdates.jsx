@@ -121,7 +121,7 @@ export default function DepartmentPastorUpdates() {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+          <div className="px-5 py-5 text-center text-slate-500">Loading…</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -185,7 +185,7 @@ export default function DepartmentPastorUpdates() {
                 ))}
                 {updates.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-5 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-5 py-5 text-center text-slate-500">
                       No updates yet. Add an entry to get started.
                     </td>
                   </tr>

@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Binds Tailwind's dark: variant to this app's own Night-mode toggle (a `.dark`
+   class on <html>, see below) instead of the framework default of OS
+   prefers-color-scheme — without this, dark: utility classes would only ever
+   activate based on the OS theme and silently ignore the in-app toggle. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   /* Offset for sticky elements on mobile — below fixed header + notch */
   --sticky-top: calc(3.5rem + env(safe-area-inset-top, 24px));

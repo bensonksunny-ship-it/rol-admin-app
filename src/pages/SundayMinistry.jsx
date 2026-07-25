@@ -251,9 +251,9 @@ export default function SundayMinistry() {
           Attendance Records
         </h2>
         {loading ? (
-          <div className="p-8 text-center text-slate-500">Loading...</div>
+          <div className="p-5 text-center text-slate-500">Loading...</div>
         ) : records.length === 0 ? (
-          <div className="p-8 text-center text-slate-500">No records for this year.</div>
+          <div className="p-5 text-center text-slate-500">No records for this year.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -575,7 +575,7 @@ function CellAttendanceTab({ userProfile, canEnter }) {
       </div>
 
       {!loadingGroups && filteredGroups.length === 0 && (
-        <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+        <div className="bg-white rounded-3xl border border-slate-200 p-5 text-center text-slate-500 text-sm">
           No cell groups found.
         </div>
       )}

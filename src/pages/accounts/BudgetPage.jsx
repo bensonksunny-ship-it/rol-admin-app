@@ -324,9 +324,9 @@ export default function BudgetPage({ department } = {}) {
       {/* Budget list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center text-slate-400 text-sm">Loading…</div>
+          <div className="p-6 text-center text-slate-400 text-sm">Loading…</div>
         ) : visible.length === 0 ? (
-          <div className="p-10 text-center text-slate-400 text-sm">
+          <div className="p-6 text-center text-slate-400 text-sm">
             {filterDept === 'all' ? 'No budget items yet.' : `No budget items for ${filterDept}.`}
           </div>
         ) : (

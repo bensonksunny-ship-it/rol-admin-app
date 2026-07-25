@@ -286,7 +286,7 @@ function MinistryContentTab({ isDirector }) {
 
   if (!b2b) {
     return (
-      <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center text-slate-500 shadow-sm">
+      <div className="bg-white rounded-3xl border border-slate-200 p-5 text-center text-slate-500 shadow-sm">
         <p className="text-4xl mb-3">📭</p>
         <p className="font-medium">No active Back to Bible content for this week.</p>
         {isDirector && <p className="text-sm mt-1">Create one in the Cell Report → Back to Bible tab.</p>}
@@ -961,7 +961,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
 
       {/* Empty state */}
       {!selectedCellId && !loadingGroups && (
-        <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-10 text-center text-slate-400 shadow-sm">
+        <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-6 text-center text-slate-400 shadow-sm">
           {isDirector ? 'Select a cell group above.' : 'No cell group linked to your profile.'}
         </div>
       )}
@@ -1213,7 +1213,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
           </div>
 
           {filteredMembers.length === 0 && !loadingMembers && (
-            <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-8 text-center text-slate-400 text-sm">
+            <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-5 text-center text-slate-400 text-sm">
               No members found{search ? ` matching "${search}"` : ''}{glowFilter !== 'all' ? ` with "${GLOW_LABEL[glowFilter]}" status` : ''}.
             </div>
           )}
@@ -2239,7 +2239,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
       )}
 
       {!selectedCellId && !loadingGroups && (
-        <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-10 text-center text-slate-400 shadow-sm">
+        <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-6 text-center text-slate-400 shadow-sm">
           {isDirector ? 'Select a cell group above.' : 'No cell group is linked to your profile.'}
         </div>
       )}
@@ -2358,7 +2358,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
           {loading && <div className="py-8 text-center text-slate-500 text-sm">Loading members…</div>}
 
           {!loading && activeMembers.length === 0 && (
-            <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-10 text-center text-slate-400">
+            <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-6 text-center text-slate-400">
               No active members. Tap "+ Add Member" to get started.
             </div>
           )}

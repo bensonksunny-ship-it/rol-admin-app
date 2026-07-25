@@ -195,7 +195,7 @@ export default function DepartmentPastorView() {
           Key updates from department dashboard
         </h2>
         {entries.length === 0 ? (
-          <div className="p-6 text-center text-slate-500 text-sm">
+          <div className="p-5 text-center text-slate-500 text-sm">
             No recent entries from the department yet.
           </div>
         ) : (

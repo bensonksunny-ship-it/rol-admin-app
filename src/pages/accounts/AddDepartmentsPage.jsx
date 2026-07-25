@@ -100,7 +100,7 @@ export default function AddDepartmentsPage() {
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-slate-500 text-sm">Loading…</div>
+          <div className="p-5 text-center text-slate-500 text-sm">Loading…</div>
         ) : (
           <ul className="divide-y divide-slate-100">
             {EXPENSE_CATEGORIES.map(name => (

@@ -161,9 +161,9 @@ export default function ToDoListCard() {
         </div>
       </div>
       {loading ? (
-        <p className="px-5 py-8 text-sm text-slate-400 text-center">Loading…</p>
+        <p className="px-5 py-5 text-sm text-slate-400 text-center">Loading…</p>
       ) : myTasks.length === 0 ? (
-        <p className="px-5 py-8 text-sm text-slate-400 text-center">All clear — no open tasks 🎉</p>
+        <p className="px-5 py-5 text-sm text-slate-400 text-center">All clear — no open tasks 🎉</p>
       ) : (
         <div className="divide-y divide-slate-50 overflow-y-auto max-h-80">
           {myTasks.map((t) => (

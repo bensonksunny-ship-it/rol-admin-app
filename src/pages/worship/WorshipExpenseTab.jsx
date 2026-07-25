@@ -181,9 +181,9 @@ export default function WorshipExpenseTab({ department }) {
             <button type="button" onClick={load} className="mt-2 text-sm text-indigo-600 hover:underline">Retry</button>
           </div>
         ) : loadingEntries ? (
-          <div className="px-5 py-6 text-center text-slate-400 text-sm">Loading…</div>
+          <div className="px-5 py-5 text-center text-slate-400 text-sm">Loading…</div>
         ) : entries.length === 0 ? (
-          <div className="px-5 py-8 text-center text-slate-400 text-sm">No expense entries yet.</div>
+          <div className="px-5 py-5 text-center text-slate-400 text-sm">No expense entries yet.</div>
         ) : (
           <>
             {/* Mobile cards */}

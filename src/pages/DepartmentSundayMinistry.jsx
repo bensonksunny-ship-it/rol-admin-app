@@ -335,7 +335,7 @@ export default function DepartmentSundayMinistry({ defaultTab }) {
       {activeTab === 'report' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Report (department entries)</h2>
-          {loading ? <div className="p-8 text-center text-slate-500">Loading...</div> : (
+          {loading ? <div className="p-5 text-center text-slate-500">Loading...</div> : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50"><tr><th className="text-left px-5 py-3">Period / Type</th><th className="text-left px-5 py-3">Data</th><th className="text-left px-5 py-3">Entered by</th></tr></thead>

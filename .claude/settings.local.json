@@ -103,7 +103,8 @@
       "Bash(wmic process *)",
       "Bash(taskkill //F //PID 17928)",
       "Bash(git rm *)",
-      "Bash(rm -f src/components/workspace/PendingActionsCard.jsx)"
+      "Bash(rm -f src/components/workspace/PendingActionsCard.jsx)",
+      "Bash(SCRATCH_FILE=/c/Users/User/AppData/Local/Temp/claude/C--Users-User-Documents-ROL-Admin-app/6f08f8f5-8830-4a85-90c9-51beac00895b/scratchpad/new_cell_member_modal_body.txt node -e ' *)"
     ]
   }
 }

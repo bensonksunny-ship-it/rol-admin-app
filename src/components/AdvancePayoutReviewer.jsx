@@ -95,9 +95,9 @@ export default function AdvancePayoutReviewer() {
       </div>
 
       {loading ? (
-        <p className="p-8 text-center text-slate-400 text-sm">Loading…</p>
+        <p className="p-5 text-center text-slate-400 text-sm">Loading…</p>
       ) : requests.length === 0 ? (
-        <p className="p-8 text-center text-slate-400 text-sm">No {filter} requests.</p>
+        <p className="p-5 text-center text-slate-400 text-sm">No {filter} requests.</p>
       ) : (
         <ul className="divide-y divide-slate-100">
           {requests.map(r => (

@@ -449,9 +449,9 @@ export default function WeeklyEntryPage() {
         </div>
 
         {loading ? (
-          <div className="p-10 text-center text-slate-500 text-sm">Loading…</div>
+          <div className="p-6 text-center text-slate-500 text-sm">Loading…</div>
         ) : visibleEntries.length === 0 ? (
-          <div className="p-10 text-center text-slate-400 text-sm">
+          <div className="p-6 text-center text-slate-400 text-sm">
             {filterDept === 'all'
               ? 'No entries for this week.'
               : `No entries for ${filterDept} this week.`}

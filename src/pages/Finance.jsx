@@ -465,7 +465,7 @@ export default function Finance() {
           {loadingVouchers ? (
             <p className="text-sm text-slate-500">Loading…</p>
           ) : voucherRequests.length === 0 ? (
-            <div className="border border-dashed border-slate-200 rounded-2xl p-6 text-center text-sm text-slate-400">
+            <div className="border border-dashed border-slate-200 rounded-2xl p-5 text-center text-sm text-slate-400">
               No pending voucher requests.
             </div>
           ) : (
@@ -549,7 +549,7 @@ export default function Finance() {
               <p className="text-xs text-slate-500 mt-0.5">Last 20 entries — income and expenses</p>
             </div>
             {recentTransactions.length === 0 ? (
-              <p className="px-5 py-8 text-center text-sm text-slate-400">No transactions recorded yet.</p>
+              <p className="px-5 py-5 text-center text-sm text-slate-400">No transactions recorded yet.</p>
             ) : (
               <div className="divide-y divide-slate-100">
                 {recentTransactions.map((tx) => (
@@ -637,7 +637,7 @@ export default function Finance() {
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-slate-500 py-8 text-center">No income data</p>
+                <p className="text-slate-500 py-5 text-center">No income data</p>
               )}
             </div>
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm lg:col-span-2">
@@ -662,7 +662,7 @@ export default function Finance() {
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-slate-500 py-8 text-center">No expense data</p>
+                <p className="text-slate-500 py-5 text-center">No expense data</p>
               )}
             </div>
           </div>
@@ -674,7 +674,7 @@ export default function Finance() {
           {/* Mobile cards */}
           <div className="sm:hidden divide-y divide-slate-100">
             {income.length === 0 ? (
-              <p className="px-4 py-8 text-center text-slate-500 text-sm">No income records</p>
+              <p className="px-4 py-5 text-center text-slate-500 text-sm">No income records</p>
             ) : income.map((i) => (
               <div key={i.id} className="px-4 py-3 space-y-1">
                 <div className="flex items-center justify-between gap-2">
@@ -712,7 +712,7 @@ export default function Finance() {
                   </tr>
                 ))}
                 {income.length === 0 && (
-                  <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500">No income records</td></tr>
+                  <tr><td colSpan={6} className="px-5 py-5 text-center text-slate-500">No income records</td></tr>
                 )}
               </tbody>
             </table>
@@ -725,7 +725,7 @@ export default function Finance() {
           {/* Mobile cards */}
           <div className="sm:hidden divide-y divide-slate-100">
             {expense.length === 0 ? (
-              <p className="px-4 py-8 text-center text-slate-500 text-sm">No expense records</p>
+              <p className="px-4 py-5 text-center text-slate-500 text-sm">No expense records</p>
             ) : expense.map((e) => (
               <div key={e.id} className="px-4 py-3 space-y-1">
                 <div className="flex items-center justify-between gap-2">
@@ -763,7 +763,7 @@ export default function Finance() {
                   </tr>
                 ))}
                 {expense.length === 0 && (
-                  <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500">No expense records</td></tr>
+                  <tr><td colSpan={6} className="px-5 py-5 text-center text-slate-500">No expense records</td></tr>
                 )}
               </tbody>
             </table>
@@ -818,9 +818,9 @@ export default function Finance() {
             </div>
           )}
           {loadingBudget ? (
-            <div className="px-5 py-8 text-center text-slate-500">Loading budget…</div>
+            <div className="px-5 py-5 text-center text-slate-500">Loading budget…</div>
           ) : budgetItems.length === 0 ? (
-            <p className="px-5 py-8 text-center text-slate-500">No budget items. Add a row to get started.</p>
+            <p className="px-5 py-5 text-center text-slate-500">No budget items. Add a row to get started.</p>
           ) : (
             <>
               {/* Mobile cards */}

@@ -91,38 +91,38 @@ export default function BoardPointsModal({ department, userEmail, onClose }) {
       {/* Centered modal */}
       <div className="fixed inset-0 flex items-center justify-center p-4 z-[9999]">
         <div
-          className="animate-folder-zoom-in max-w-md w-full bg-white rounded-2xl shadow-2xl border border-slate-200/80 flex flex-col overflow-hidden"
+          className="animate-folder-zoom-in max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
           style={{ maxHeight: '85vh' }}
           onClick={e => e.stopPropagation()}
         >
 
           {/* ── Header ── */}
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid #f1f5f9', flexShrink:0 }}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
             <div>
-              <p style={{ margin:0, fontWeight:700, fontSize:15, color:'#1e293b' }}>Board Meeting Points</p>
-              <p style={{ margin:0, marginTop:2, fontSize:11, color:'#94a3b8' }}>
+              <p className="text-lg font-bold text-slate-900 dark:text-white leading-tight">Board Meeting Points</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {loading ? 'Loading…' : `${points.length} point${points.length !== 1 ? 's' : ''} submitted · ${department || '—'}`}
               </p>
             </div>
             <button
               onClick={onClose}
-              style={{ width:32, height:32, borderRadius:'50%', border:'none', background:'#f1f5f9', cursor:'pointer', fontSize:20, color:'#64748b', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+              className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-xl flex-shrink-0 transition-colors"
             >×</button>
           </div>
 
           {/* ── Submitted points list ── */}
           {!loading && points.length > 0 && (
-            <div style={{ overflowY:'auto', maxHeight:160, flexShrink:0 }}>
+            <div className="overflow-y-auto flex-shrink-0" style={{ maxHeight: 160 }}>
               {points.map((bp, idx) => (
-                <div key={bp.id} style={{ display:'flex', gap:8, padding:'9px 20px', borderBottom:'1px solid #f8fafc' }}>
-                  <span style={{ fontSize:11, color:'#cbd5e1', flexShrink:0, paddingTop:2, width:18 }}>{idx + 1}.</span>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <p style={{ margin:0, fontSize:13, color:'#334155', lineHeight:1.4 }}>{bp.point}</p>
-                    <div style={{ display:'flex', gap:6, marginTop:3, flexWrap:'wrap', alignItems:'center' }}>
-                      {bp.timeNeeded && <span style={{ fontSize:10, color:'#94a3b8' }}>Need: {bp.timeNeeded}</span>}
+                <div key={bp.id} className="flex gap-2 px-5 py-2.5 border-b border-slate-100 dark:border-slate-800/70">
+                  <span className="text-xs text-slate-300 dark:text-slate-600 flex-shrink-0 pt-0.5 w-4">{idx + 1}.</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-700 dark:text-slate-200 leading-snug">{bp.point}</p>
+                    <div className="flex gap-1.5 mt-1 flex-wrap items-center">
+                      {bp.timeNeeded && <span className="text-[10px] text-slate-400 dark:text-slate-500">Need: {bp.timeNeeded}</span>}
                       {bp.allottedTime
-                        ? <span style={{ fontSize:10, fontWeight:700, color:'#059669', background:'#ecfdf5', border:'1px solid #a7f3d0', padding:'1px 7px', borderRadius:999 }}>Allotted: {bp.allottedTime}</span>
-                        : <span style={{ fontSize:10, fontWeight:600, color:'#d97706', background:'#fffbeb', border:'1px solid #fde68a', padding:'1px 7px', borderRadius:999 }}>{bp.status}</span>
+                        ? <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full">Allotted: {bp.allottedTime}</span>
+                        : <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full">{bp.status}</span>
                       }
                     </div>
                   </div>
@@ -132,10 +132,10 @@ export default function BoardPointsModal({ department, userEmail, onClose }) {
           )}
 
           {/* ── Add point form ── */}
-          <div style={{ padding:'14px 20px 24px', borderTop: points.length > 0 ? '1px solid #f1f5f9' : undefined, flexShrink:0 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-              <span style={{ fontSize:10, fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.08em' }}>New Point</span>
-              <span style={{ fontSize:10, fontWeight:700, color:'#6366f1', background:'#eef2ff', border:'1px solid #e0e7ff', padding:'2px 8px', borderRadius:999 }}>
+          <div className={`px-5 pt-3.5 pb-6 flex-shrink-0 ${points.length > 0 ? 'border-t border-slate-100 dark:border-slate-800' : ''}`}>
+            <div className="flex justify-between items-center mb-2.5">
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">New Point</span>
+              <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-800 px-3 py-1 rounded-full">
                 For Sunday {sundayLabel}
               </span>
             </div>
@@ -145,22 +145,22 @@ export default function BoardPointsModal({ department, userEmail, onClose }) {
               onChange={e => setPoint(e.target.value)}
               placeholder="Describe the point to present at the board meeting…"
               rows={3}
-              style={{ width:'100%', padding:'10px 12px', borderRadius:12, border:'1.5px solid #e2e8f0', fontSize:13, resize:'none', boxSizing:'border-box', fontFamily:'inherit', outline:'none', lineHeight:1.5, display:'block' }}
+              className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-sm resize-none outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
             />
             <input
               type="text"
               value={timeNeeded}
               onChange={e => setTimeNeeded(e.target.value)}
               placeholder="Time needed (e.g. 10 min)"
-              style={{ width:'100%', padding:'9px 12px', borderRadius:12, border:'1.5px solid #e2e8f0', fontSize:13, marginTop:8, boxSizing:'border-box', fontFamily:'inherit', outline:'none', display:'block' }}
+              className="w-full p-3 mt-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
             />
             {error && (
-              <p style={{ margin:'6px 0 0', fontSize:11, color:'#ef4444' }}>{error}</p>
+              <p className="text-xs text-red-500 dark:text-red-400 mt-1.5">{error}</p>
             )}
             <button
               onClick={handleSubmit}
               disabled={!canSubmit}
-              style={{ display:'block', width:'100%', padding:'11px', borderRadius:12, border:'none', background: canSubmit ? '#4f46e5' : '#a5b4fc', color:'#fff', fontSize:13, fontWeight:700, cursor: canSubmit ? 'pointer' : 'not-allowed', marginTop:10, fontFamily:'inherit' }}
+              className="block w-full mt-2.5 py-2 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-medium text-sm shadow-sm active:scale-[0.98] disabled:active:scale-100 disabled:cursor-not-allowed transition-all"
             >
               {submitting ? 'Submitting…' : 'Submit Point'}
             </button>

@@ -39,8 +39,6 @@ import {
   getCellMemberPendingChanges,
   addCellMemberPendingChange,
   deleteCellMemberPendingChange,
-  getLatestCellAttendance,
-  addCellAttendance,
   getBackToBibleList,
   addBackToBible,
   getActiveBackToBibleForDate,
@@ -215,7 +213,7 @@ const emptyFillInviteForm = () => ({
 
 const FILL_INVITE_SECTIONS = [
   {
-    key: 'personal', label: 'Personal Info', dot: 'bg-blue-500', headerBg: 'bg-blue-50 border-b border-blue-100', labelColor: 'text-blue-700',
+    key: 'personal', label: 'Personal Info', dot: 'bg-blue-500', headerBg: 'bg-blue-50 dark:bg-blue-950/30 border-b border-blue-100 dark:border-blue-900', labelColor: 'text-blue-700 dark:text-blue-300',
     fields: [
       { key: 'dob', label: 'Date of Birth', type: 'date' },
       { key: 'nativity', label: 'Nativity / Hometown', type: 'text', placeholder: 'Hometown' },
@@ -223,14 +221,14 @@ const FILL_INVITE_SECTIONS = [
     ],
   },
   {
-    key: 'contact', label: 'Contact', dot: 'bg-sky-500', headerBg: 'bg-sky-50 border-b border-sky-100', labelColor: 'text-sky-700',
+    key: 'contact', label: 'Contact', dot: 'bg-sky-500', headerBg: 'bg-sky-50 dark:bg-sky-950/30 border-b border-sky-100 dark:border-sky-900', labelColor: 'text-sky-700 dark:text-sky-300',
     fields: [
       { key: 'phone', label: 'Phone', type: 'phone' },
       { key: 'email', label: 'Email', type: 'email' },
     ],
   },
   {
-    key: 'spiritual', label: 'Spiritual Details', dot: 'bg-violet-500', headerBg: 'bg-violet-50 border-b border-violet-100', labelColor: 'text-violet-700',
+    key: 'spiritual', label: 'Spiritual Details', dot: 'bg-violet-500', headerBg: 'bg-violet-50 dark:bg-violet-950/30 border-b border-violet-100 dark:border-violet-900', labelColor: 'text-violet-700 dark:text-violet-300',
     fields: [
       { key: 'baptised', label: 'Baptised?', type: 'select', options: [['yes', 'Yes'], ['no', 'No']] },
       { key: 'baptismDate', label: 'Baptism Date', type: 'date', relevantIf: f => f.baptised === 'yes' },
@@ -241,7 +239,7 @@ const FILL_INVITE_SECTIONS = [
     ],
   },
   {
-    key: 'family', label: 'Family Info', dot: 'bg-teal-500', headerBg: 'bg-teal-50 border-b border-teal-100', labelColor: 'text-teal-700',
+    key: 'family', label: 'Family Info', dot: 'bg-teal-500', headerBg: 'bg-teal-50 dark:bg-teal-950/30 border-b border-teal-100 dark:border-teal-900', labelColor: 'text-teal-700 dark:text-teal-300',
     fields: [
       { key: 'maritalStatus', label: 'Marital Status', type: 'select', options: [['Single', 'Single'], ['Married', 'Married'], ['Widowed', 'Widowed'], ['Divorced', 'Divorced']] },
       { key: 'marriageDate', label: 'Marriage Date', type: 'date', relevantIf: f => f.maritalStatus === 'Married' },
@@ -334,9 +332,15 @@ export default function DepartmentHub() {
   const [editingCellMemberId, setEditingCellMemberId] = useState(null)
   const [cellMemberVisitors, setCellMemberVisitors] = useState([])
   const [cellMemberVisitorSearch, setCellMemberVisitorSearch] = useState('')
+  const [loadingCellMemberVisitors, setLoadingCellMemberVisitors] = useState(false)
+  const [cellMemberVisitorsError, setCellMemberVisitorsError] = useState('')
+  const [assigningVisitorId, setAssigningVisitorId] = useState(null)
+  const [cellMemberToast, setCellMemberToast] = useState('')
   const [cellMemberLinking, setCellMemberLinking] = useState(null)
-  const [cellMemberActionMenuId, setCellMemberActionMenuId] = useState(null)
-  const [cellMemberActionMenuPos, setCellMemberActionMenuPos] = useState({ top: 0, right: 0 })
+  const [activeMenuMemberId, setActiveMenuMemberId] = useState(null)
+  const [activeMenuMemberPos, setActiveMenuMemberPos] = useState({ top: 0, right: 0 })
+  const [cellMemberTransfer, setCellMemberTransfer] = useState(null)
+  const [transferringCellMember, setTransferringCellMember] = useState(false)
   const [teamMemberLinking, setTeamMemberLinking] = useState(null)
   const [cellMemberLinkedVisitor, setCellMemberLinkedVisitor] = useState(null)
   const [cellMemberLinkedVisitorForm, setCellMemberLinkedVisitorForm] = useState({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
@@ -345,12 +349,6 @@ export default function DepartmentHub() {
   const [editingCellGroupId, setEditingCellGroupId] = useState(null)
   const [cellGroupEditForm, setCellGroupEditForm] = useState({ cellId: '', cellName: '', leader: '', leaderPersonId: '', meetingDay: '', launchDate: '', status: 'active' })
   const [cellGroupEditModalOpen, setCellGroupEditModalOpen] = useState(false)
-  const [latestCellAttendance, setLatestCellAttendance] = useState(null)
-  const [cellAttendanceModalOpen, setCellAttendanceModalOpen] = useState(false)
-  const [cellAttendanceForm, setCellAttendanceForm] = useState({ date: format(new Date(), 'yyyy-MM-dd'), totalAttendance: '' })
-  const [cellImportPreview, setCellImportPreview] = useState([])
-  const [cellImportModalOpen, setCellImportModalOpen] = useState(false)
-  const [cellImportSaving, setCellImportSaving] = useState(false)
   const [cellPendingChanges, setCellPendingChanges] = useState([])
   const [loadingCellPending, setLoadingCellPending] = useState(false)
   const handleCellChangeResolved = useCallback(
@@ -1151,8 +1149,8 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (department && slug === 'cell' && (activeTab === 'cellGroups' || activeTab === 'summary')) {
       setLoadingCellGroups(true)
-      Promise.all([getCellGroups(department.name), getLatestCellAttendance(department.name)])
-        .then(([groups, attendance]) => {
+      getCellGroups(department.name)
+        .then((groups) => {
           if (canViewAllCells) {
             setCellGroups(groups)
           } else {
@@ -1165,7 +1163,6 @@ export default function DepartmentHub() {
             })
             setCellGroups(filtered)
           }
-          setLatestCellAttendance(attendance)
         })
         .finally(() => setLoadingCellGroups(false))
     }
@@ -2209,9 +2206,9 @@ export default function DepartmentHub() {
                     </button>
                   </div>
                   {subDeptLoading ? (
-                    <div className="p-8 text-center text-slate-500 text-sm">Loading...</div>
+                    <div className="p-5 text-center text-slate-500 text-sm">Loading...</div>
                   ) : subDepartments.length === 0 ? (
-                    <div className="p-8 text-center text-slate-500 text-sm">
+                    <div className="p-5 text-center text-slate-500 text-sm">
                       No sub-departments yet. Add them in <button type="button" onClick={() => { setActiveTab('operations'); setOpsSubTab('subDepartment'); setSearchParams({ tab: 'operations' }, { replace: true }) }} className="text-indigo-600 hover:underline">Operations → Sub Department</button>.
                     </div>
                   ) : (
@@ -2259,9 +2256,9 @@ export default function DepartmentHub() {
                     </div>
                   </div>
                   {mediaSundayLoading ? (
-                    <div className="p-6 text-center text-slate-500 text-sm">Loading…</div>
+                    <div className="p-4 text-center text-slate-500 text-sm">Loading…</div>
                   ) : mediaSundayDesignProgram.length === 0 ? (
-                    <div className="p-6 text-center text-slate-500 text-sm">
+                    <div className="p-4 text-center text-slate-500 text-sm">
                       No design program pushed for this Sunday yet. Design the programme in the Upcoming Sunday tab and push it here.
                     </div>
                   ) : (
@@ -2464,7 +2461,7 @@ export default function DepartmentHub() {
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Recent reports & entries</h2>
                     {entries.length === 0 ? (
-                      <div className="p-6 text-center text-slate-500 text-sm">No entries yet.</div>
+                      <div className="p-4 text-center text-slate-500 text-sm">No entries yet.</div>
                     ) : (
                       <ul className="divide-y divide-slate-100">
                         {entries.slice(0, 5).map((e) => (
@@ -2506,7 +2503,7 @@ export default function DepartmentHub() {
                 )}
               </div>
               {loadingCaringMembers ? (
-                <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+                <div className="px-5 py-5 text-center text-slate-500">Loading…</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -2694,18 +2691,18 @@ export default function DepartmentHub() {
           {/* Respond to Cell Assignment Consult modal */}
           {dlightConsultTarget && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setDlightConsultTarget(null)}>
-              <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
                 <div>
-                  <h3 className="font-bold text-slate-900">Recommendation for {dlightConsultTarget.consultPersonName}</h3>
-                  <p className="text-sm text-slate-500 mt-0.5">Sent back to the Cell Director in their Unassigned list.</p>
+                  <h3 className="font-semibold text-slate-900 dark:text-white">Recommendation for {dlightConsultTarget.consultPersonName}</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Sent back to the Cell Director in their Unassigned list.</p>
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-1">Recommended cell group</p>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Recommended cell group</p>
                   <select
                     value={dlightConsultCellId}
                     onChange={(e) => setDlightConsultCellId(e.target.value)}
                     disabled={loadingDlightConsultCells}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:opacity-50"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:opacity-50"
                   >
                     <option value="">
                       {loadingDlightConsultCells ? 'Loading cell groups…' : '— No specific cell —'}
@@ -2721,7 +2718,7 @@ export default function DepartmentHub() {
                   placeholder="e.g. Best-fit cell, background context, or next steps…"
                   rows={4}
                   autoFocus
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 resize-none"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none"
                 />
                 <div className="flex gap-2">
                   <button
@@ -2749,14 +2746,14 @@ export default function DepartmentHub() {
                         setSendingDlightReply(false)
                       }
                     }}
-                    className="flex-1 px-4 py-2 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 disabled:opacity-50"
+                    className="flex-1 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm disabled:opacity-50"
                   >
                     {sendingDlightReply ? 'Sending…' : 'Send to Cell Director'}
                   </button>
                   <button
                     type="button"
                     onClick={() => { setDlightConsultTarget(null); setDlightConsultCellId('') }}
-                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 text-sm hover:bg-slate-50"
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                   >
                     Cancel
                   </button>
@@ -3193,9 +3190,9 @@ export default function DepartmentHub() {
                 )
               })()}
               {loadingDelightVisitors ? (
-                <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+                <div className="px-5 py-5 text-center text-slate-500">Loading…</div>
               ) : filteredDelightVisitors.length === 0 ? (
-                <div className="px-5 py-8 text-center text-slate-500">No visitor entries yet.</div>
+                <div className="px-5 py-5 text-center text-slate-500">No visitor entries yet.</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -3268,9 +3265,9 @@ export default function DepartmentHub() {
 
           {caringMemberModalOpen && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">{editingCaringId ? 'Edit member' : 'Add Member'}</h3>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{editingCaringId ? 'Edit member' : 'Add Member'}</h3>
                 </div>
                 <form
                   onSubmit={async (e) => {
@@ -3294,46 +3291,46 @@ export default function DepartmentHub() {
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Membership Number</label>
-                      <input type="text" value={caringMemberForm.membershipNumber} onChange={(e) => setCaringMemberForm((f) => ({ ...f, membershipNumber: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Membership Number</label>
+                      <input type="text" value={caringMemberForm.membershipNumber} onChange={(e) => setCaringMemberForm((f) => ({ ...f, membershipNumber: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
-                      <input type="text" value={caringMemberForm.name} onChange={(e) => setCaringMemberForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Name *</label>
+                      <input type="text" value={caringMemberForm.name} onChange={(e) => setCaringMemberForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" required />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">DOB</label>
-                    <input type="date" value={caringMemberForm.dob} onChange={(e) => setCaringMemberForm((f) => ({ ...f, dob: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">DOB</label>
+                    <input type="date" value={caringMemberForm.dob} onChange={(e) => setCaringMemberForm((f) => ({ ...f, dob: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
-                      <input type="text" value={caringMemberForm.phone} onChange={(e) => setCaringMemberForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Phone Number</label>
+                      <input type="text" value={caringMemberForm.phone} onChange={(e) => setCaringMemberForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                      <input type="email" value={caringMemberForm.email} onChange={(e) => setCaringMemberForm((f) => ({ ...f, email: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Nativity</label>
-                      <input type="text" value={caringMemberForm.nativity} onChange={(e) => setCaringMemberForm((f) => ({ ...f, nativity: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Current Place</label>
-                      <input type="text" value={caringMemberForm.currentPlace} onChange={(e) => setCaringMemberForm((f) => ({ ...f, currentPlace: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Email</label>
+                      <input type="email" value={caringMemberForm.email} onChange={(e) => setCaringMemberForm((f) => ({ ...f, email: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">First Sunday</label>
-                      <input type="date" value={caringMemberForm.firstSunday} onChange={(e) => setCaringMemberForm((f) => ({ ...f, firstSunday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Nativity</label>
+                      <input type="text" value={caringMemberForm.nativity} onChange={(e) => setCaringMemberForm((f) => ({ ...f, nativity: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Cell Name</label>
-                      <select value={caringMemberForm.cellName} onChange={(e) => setCaringMemberForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Current Place</label>
+                      <input type="text" value={caringMemberForm.currentPlace} onChange={(e) => setCaringMemberForm((f) => ({ ...f, currentPlace: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">First Sunday</label>
+                      <input type="date" value={caringMemberForm.firstSunday} onChange={(e) => setCaringMemberForm((f) => ({ ...f, firstSunday: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell Name</label>
+                      <select value={caringMemberForm.cellName} onChange={(e) => setCaringMemberForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                         <option value="">— Select —</option>
                         {caringCellNames.map((name) => (
                           <option key={name} value={name}>{name}</option>
@@ -3342,8 +3339,8 @@ export default function DepartmentHub() {
                     </div>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">Save</button>
-                    <button type="button" onClick={() => { setCaringMemberModalOpen(false); setEditingCaringId(null) }} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium shadow-sm transition-colors">Save</button>
+                    <button type="button" onClick={() => { setCaringMemberModalOpen(false); setEditingCaringId(null) }} className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 active:bg-slate-100 dark:active:bg-slate-700 transition-colors">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -3353,13 +3350,13 @@ export default function DepartmentHub() {
           {/* ── Paste-data modal ─────────────────────────────────────────── */}
           {pasteImportOpen && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
-                <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-800">Paste Visitor Data</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Paste rows copied from Excel or a spreadsheet. Each row: Serial(optional), Name, DOB, Phone, Email, Nativity, Place, Service, Date Attended, How Known</p>
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Paste Visitor Data</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Paste rows copied from Excel or a spreadsheet. Each row: Serial(optional), Name, DOB, Phone, Email, Nativity, Place, Service, Date Attended, How Known</p>
                   </div>
-                  <button type="button" onClick={() => setPasteImportOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+                  <button type="button" onClick={() => setPasteImportOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">×</button>
                 </div>
                 <div className="p-5 flex-1 overflow-y-auto">
                   <textarea
@@ -3367,11 +3364,11 @@ export default function DepartmentHub() {
                     value={pasteText}
                     onChange={(e) => setPasteText(e.target.value)}
                     placeholder="Paste your data here…"
-                    className="w-full h-64 px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    className="w-full h-64 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-mono text-slate-900 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </div>
-                <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
-                  <button type="button" onClick={() => setPasteImportOpen(false)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 transition-colors">Cancel</button>
+                <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">
+                  <button type="button" onClick={() => setPasteImportOpen(false)} className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 active:bg-slate-100 dark:active:bg-slate-700 transition-colors">Cancel</button>
                   <button
                     type="button"
                     disabled={!pasteText.trim()}
@@ -3387,7 +3384,7 @@ export default function DepartmentHub() {
                       setImportPreviewRows(parsed)
                       setImportPreviewOpen(true)
                     }}
-                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 disabled:pointer-events-none"
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm disabled:opacity-40 disabled:pointer-events-none"
                   >
                     Preview {pasteText.trim() ? `(${pasteText.trim().split(/\r?\n/).filter(Boolean).length} rows)` : ''}
                   </button>
@@ -3487,14 +3484,14 @@ export default function DepartmentHub() {
 
           {delightVisitorModalOpen && (
             <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 sm:p-4">
-              <div className="bg-slate-50 sm:rounded-2xl rounded-t-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 sm:rounded-2xl rounded-t-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col">
                 <div className="sm:hidden flex justify-center pt-3 pb-0 flex-shrink-0">
-                  <div className="w-10 h-1 rounded-full bg-slate-300" />
+                  <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
                 </div>
-                <div className="flex items-center justify-between px-5 py-4 bg-white sm:rounded-t-2xl border-b border-slate-200 flex-shrink-0">
+                <div className="flex items-center justify-between px-5 py-4 bg-white dark:bg-slate-900 sm:rounded-t-2xl border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-800">{editingDelightVisitorId ? 'Edit Visitor' : 'Add Visitor'}</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">Fill in the visitor's details below</p>
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{editingDelightVisitorId ? 'Edit Visitor' : 'Add Visitor'}</h3>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Fill in the visitor's details below</p>
                   </div>
                   <button
                     type="button"
@@ -3558,21 +3555,21 @@ export default function DepartmentHub() {
                   className="p-4 space-y-3 overflow-y-auto flex-1"
                 >
                   {/* Personal Info card */}
-                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+                  <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-4">
                     <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wider">Personal Info</p>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Name <span className="text-red-400">*</span></label>
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">Name <span className="text-red-400">*</span></label>
                       <input
                         required
                         type="text"
                         placeholder="Full name"
                         value={delightVisitorForm.name}
                         onChange={(e) => setDelightVisitorForm((f) => ({ ...f, name: e.target.value }))}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors text-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Birth</label>
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">Date of Birth</label>
                       <DateSelect
                         value={delightVisitorForm.dob}
                         onChange={val => setDelightVisitorForm(f => ({ ...f, dob: val }))}
@@ -3581,63 +3578,63 @@ export default function DepartmentHub() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>
-                      <div className="flex rounded-xl border border-slate-200 bg-slate-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-200 focus-within:border-indigo-400 transition-colors overflow-hidden">
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">Phone</label>
+                      <div className="flex rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-colors overflow-hidden">
                         <input
                           type="text"
                           placeholder="+91"
                           value={(() => { const m = (delightVisitorForm.phone || '').match(/^(\+\d{1,4})\s*/); return m ? m[1] : '' })()}
                           onChange={(e) => { const num = (delightVisitorForm.phone || '').replace(/^\+\d{1,4}\s*/, ''); setDelightVisitorForm((f) => ({ ...f, phone: (e.target.value + ' ' + num).trim() })) }}
-                          className="w-16 px-2 py-2.5 text-sm text-center bg-transparent border-r border-slate-200 focus:outline-none"
+                          className="w-16 px-2 py-2.5 text-sm text-center bg-transparent text-slate-900 dark:text-white border-r border-slate-300 dark:border-slate-700 focus:outline-none"
                         />
                         <input
                           type="tel"
                           placeholder="phone number"
                           value={(() => { const m = (delightVisitorForm.phone || '').match(/^\+\d{1,4}\s*(.*)/); return m ? m[1] : (delightVisitorForm.phone || '') })()}
                           onChange={(e) => { const code = ((delightVisitorForm.phone || '').match(/^(\+\d{1,4})/) || ['', ''])[1]; setDelightVisitorForm((f) => ({ ...f, phone: code ? (code + ' ' + e.target.value).trim() : e.target.value })) }}
-                          className="flex-1 px-3 py-2.5 text-sm focus:outline-none bg-transparent"
+                          className="flex-1 px-3 py-2.5 text-sm focus:outline-none bg-transparent text-slate-900 dark:text-white"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">Email</label>
                         <input
                           type="email"
                           placeholder="email@example.com"
                           value={delightVisitorForm.email}
                           onChange={(e) => setDelightVisitorForm((f) => ({ ...f, email: e.target.value }))}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors text-sm"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Nativity</label>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">Nativity</label>
                         <input
                           type="text"
                           placeholder="Hometown"
                           value={delightVisitorForm.nativity}
                           onChange={(e) => setDelightVisitorForm((f) => ({ ...f, nativity: e.target.value }))}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors text-sm"
                         />
                       </div>
                     </div>
                   </div>
 
                   {/* Visit Details card */}
-                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+                  <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-4">
                     <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wider">Visit Details</p>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Current Place</label>
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">Current Place</label>
                       <input
                         type="text"
                         placeholder="City / Area"
                         value={delightVisitorForm.currentPlace}
                         onChange={(e) => setDelightVisitorForm((f) => ({ ...f, currentPlace: e.target.value }))}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors text-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Attending <span className="text-red-400">*</span></label>
+                      <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">Date of Attending <span className="text-red-400">*</span></label>
                       <DateSelect
                         value={delightVisitorForm.attendedDate}
                         onChange={val => {
@@ -3651,11 +3648,11 @@ export default function DepartmentHub() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Service Attended</label>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">Service Attended</label>
                         <select
                           value={delightVisitorForm.serviceAttended}
                           onChange={(e) => setDelightVisitorForm((f) => ({ ...f, serviceAttended: e.target.value }))}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors text-sm"
                         >
                           <option value="">— Select —</option>
                           <option value="English Service">English Service</option>
@@ -3666,11 +3663,11 @@ export default function DepartmentHub() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">How did they find us?</label>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">How did they find us?</label>
                         <select
                           value={delightVisitorForm.source || ''}
                           onChange={(e) => setDelightVisitorForm((f) => ({ ...f, source: e.target.value }))}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors text-sm"
                         >
                           <option value="">— Select —</option>
                           <option value="Friend">Friend</option>
@@ -3680,11 +3677,11 @@ export default function DepartmentHub() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Year</label>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1.5">Year</label>
                         <select
                           value={delightVisitorForm.year || ''}
                           onChange={(e) => setDelightVisitorForm((f) => ({ ...f, year: Number(e.target.value) }))}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-colors text-sm"
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors text-sm"
                         >
                           {Array.from({ length: VISITOR_CURRENT_YEAR - VISITOR_START_YEAR + 1 }, (_, i) => VISITOR_CURRENT_YEAR - i).map((yr) => (
                             <option key={yr} value={yr}>{yr}</option>
@@ -3702,7 +3699,7 @@ export default function DepartmentHub() {
                     <button
                       type="button"
                       onClick={() => { setDelightVisitorModalOpen(false); setEditingDelightVisitorId(null) }}
-                      className="px-5 py-3 rounded-xl border border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
+                      className="px-5 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-200 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                     >
                       Cancel
                     </button>
@@ -3850,9 +3847,9 @@ export default function DepartmentHub() {
                 </div>
 
                 {loadingBoardPoints ? (
-                  <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>
+                  <div className="py-5 text-center text-slate-400 text-sm">Loading…</div>
                 ) : boardPoints.length === 0 ? (
-                  <div className="py-10 text-center text-slate-400 text-sm">
+                  <div className="py-6 text-center text-slate-400 text-sm">
                     No presentation points yet. Click "Add Point" to get started.
                   </div>
                 ) : (
@@ -3920,29 +3917,29 @@ export default function DepartmentHub() {
                 <>
                   <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setBoardPointModalOpen(false)} />
                   <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setBoardPointModalOpen(false)}>
-                    <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-                      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                        <h3 className="font-semibold text-slate-800">{editingBoardPointId ? 'Edit Point' : 'Add Presentation Point'}</h3>
-                        <button type="button" onClick={() => setBoardPointModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                      <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <h3 className="font-semibold text-slate-900 dark:text-white">{editingBoardPointId ? 'Edit Point' : 'Add Presentation Point'}</h3>
+                        <button type="button" onClick={() => setBoardPointModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xl">×</button>
                       </div>
                       <div className="px-5 py-4 space-y-4">
                         <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Presentation Point *</label>
+                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Presentation Point *</label>
                           <textarea
                             value={boardPointForm.point}
                             onChange={e => setBoardPointForm(f => ({ ...f, point: e.target.value }))}
                             placeholder="Describe the point to present at the board meeting…"
                             rows={4}
-                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                            className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Meeting Date</label>
+                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Meeting Date</label>
                           <input
                             type="date"
                             value={boardPointForm.meetingDate}
                             onChange={e => setBoardPointForm(f => ({ ...f, meetingDate: e.target.value }))}
-                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                            className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                           />
                         </div>
                       </div>
@@ -3963,7 +3960,7 @@ export default function DepartmentHub() {
                             setEditingBoardPointId(null)
                             setBoardPointForm({ slNo: '', point: '', timeNeeded: '', meetingDate: '' })
                           }}
-                          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                          className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm disabled:opacity-50 transition-colors"
                         >
                           {editingBoardPointId ? 'Save Changes' : 'Add Point'}
                         </button>
@@ -4251,7 +4248,7 @@ export default function DepartmentHub() {
                 )}
               </div>
               {subDeptLoading ? (
-                <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+                <div className="px-5 py-5 text-center text-slate-500">Loading…</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -4315,9 +4312,9 @@ export default function DepartmentHub() {
 
           {genericSubDeptModalOpen && canEdit && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
                     {editingSubDept ? 'Edit Sub Department' : 'Add Sub Department'}
                   </h3>
                 </div>
@@ -4367,17 +4364,17 @@ export default function DepartmentHub() {
                   className="p-5 space-y-4"
                 >
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Sub Department *</label>
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Sub Department *</label>
                     <input
                       type="text"
                       value={subDeptForm.name}
                       onChange={(e) => setSubDeptForm((f) => ({ ...f, name: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       required
                     />
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium shadow-sm transition-colors">
                       Save
                     </button>
                     <button
@@ -4387,7 +4384,7 @@ export default function DepartmentHub() {
                         setEditingSubDept(null)
                         setSubDeptForm({ name: '', servingArea: '' })
                       }}
-                      className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
+                      className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
                     >
                       Cancel
                     </button>
@@ -4415,7 +4412,7 @@ export default function DepartmentHub() {
                 )}
               </div>
               {loadingDlightSubDepts ? (
-                <div className="px-5 py-8 text-center text-slate-500">Loading…</div>
+                <div className="px-5 py-5 text-center text-slate-500">Loading…</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -4469,9 +4466,9 @@ export default function DepartmentHub() {
 
           {dlightSubDeptModalOpen && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">Add Sub Department</h3>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Add Sub Department</h3>
                 </div>
                 <form
                   onSubmit={async (e) => {
@@ -4501,32 +4498,32 @@ export default function DepartmentHub() {
                   className="p-5 space-y-4"
                 >
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Name *</label>
                     <input
                       type="text"
                       value={dlightSubDeptForm.name}
                       onChange={(e) => setDlightSubDeptForm((f) => ({ ...f, name: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Serving Area</label>
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Serving Area</label>
                     <input
                       type="text"
                       value={dlightSubDeptForm.servingArea}
                       onChange={(e) => setDlightSubDeptForm((f) => ({ ...f, servingArea: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     />
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium shadow-sm transition-colors">
                       Save
                     </button>
                     <button
                       type="button"
                       onClick={() => setDlightSubDeptModalOpen(false)}
-                      className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
+                      className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
                     >
                       Cancel
                     </button>
@@ -6344,9 +6341,9 @@ export default function DepartmentHub() {
                       <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{pcsInactiveEntries.length}</span>
                     </div>
                     {pcsLoadingFormer ? (
-                      <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
+                      <div className="py-6 text-center text-slate-400 text-sm">Loading…</div>
                     ) : pcsInactiveEntries.length === 0 ? (
-                      <div className="py-10 text-center text-slate-400 text-sm">No former members.</div>
+                      <div className="py-6 text-center text-slate-400 text-sm">No former members.</div>
                     ) : (
                       <div className="divide-y divide-slate-100">
                         {pcsInactiveEntries.map(e => (
@@ -7103,22 +7100,22 @@ export default function DepartmentHub() {
               {/* Edit kid modal */}
               {rkEditChild && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-                  <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
                     <div className="flex items-center justify-between">
-                      <p className="font-semibold text-slate-800">Edit Kid</p>
+                      <p className="font-semibold text-slate-900 dark:text-white">Edit Kid</p>
                       <button type="button" onClick={() => setRkEditChild(null)}
-                        className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-lg leading-none">×</button>
+                        className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 text-lg leading-none">×</button>
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Name *</label>
+                        <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Name *</label>
                         <input value={rkEditChild.name} onChange={e => setRkEditChild(p => ({ ...p, name: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                          className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Date of Birth</label>
+                        <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Date of Birth</label>
                         <input type="date" value={rkEditChild.dob || ''} onChange={e => setRkEditChild(p => ({ ...p, dob: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                          className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                       </div>
                       <div>
                         <PersonSearchInput label="Father's Name" value={rkEditChild.fatherName || ''}
@@ -7131,9 +7128,9 @@ export default function DepartmentHub() {
                           people={rkAllUsers} placeholder="Search or type mother's name" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Class / Group</label>
+                        <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Class / Group</label>
                         <select value={rkEditChild.group || ''} onChange={e => setRkEditChild(p => ({ ...p, group: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                          className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
                           <option value="">— Unassigned —</option>
                           <option value="sunday-school">Sunday School</option>
                           <option value="river-kids-1">River Kids-1</option>
@@ -7141,7 +7138,7 @@ export default function DepartmentHub() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-2">How They Joined</label>
+                        <label className="block text-xs font-medium text-slate-900 dark:text-white mb-2">How They Joined</label>
                         <div className="flex gap-2">
                           {[{ key: 'born', label: 'Born to members' }, { key: 'outside', label: 'Joined from outside' }].map(opt => (
                             <button key={opt.key} type="button"
@@ -7149,7 +7146,7 @@ export default function DepartmentHub() {
                               className={`flex-1 py-2 px-2 rounded-xl border text-xs font-medium transition ${
                                 rkEditChild.joinedVia === opt.key
                                   ? 'bg-indigo-600 text-white border-indigo-700'
-                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                  : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
                               }`}
                             >
                               {opt.label}
@@ -7162,9 +7159,9 @@ export default function DepartmentHub() {
                         const motherDate = resolveParentJoinDate(rkEditChild.motherName)
                         return (
                           <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Joined Date</label>
+                            <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Joined Date</label>
                             <input type="date" value={rkEditChild.joinedDate || ''} onChange={e => setRkEditChild(p => ({ ...p, joinedDate: e.target.value }))}
-                              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                             {(fatherDate || motherDate) && (
                               <div className="flex flex-wrap gap-1.5 mt-1.5">
                                 {fatherDate && (
@@ -7352,8 +7349,8 @@ export default function DepartmentHub() {
               </div>
               {newEventModalOpen && canEdit && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
-                    <h3 className="font-semibold text-slate-800 mb-3">Add event</h3>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full p-6">
+                    <h3 className="font-semibold text-slate-900 dark:text-white mb-3">Add event</h3>
                     <form
                       onSubmit={async (e) => {
                         e.preventDefault()
@@ -7390,18 +7387,18 @@ export default function DepartmentHub() {
                       <input
                         value={newEventName}
                         onChange={(e) => setNewEventName(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                         placeholder="Event name"
                         required
                       />
                       <div className="flex gap-2">
-                        <button type="submit" className="px-4 min-h-[44px] py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">
+                        <button type="submit" className="px-4 min-h-[44px] py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-sm font-medium shadow-sm transition-colors">
                           Create
                         </button>
                         <button
                           type="button"
                           onClick={() => setNewEventModalOpen(false)}
-                          className="px-4 py-2 border border-slate-300 rounded-lg text-sm"
+                          className="px-4 py-2 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl text-sm transition-colors"
                         >
                           Cancel
                         </button>
@@ -7594,8 +7591,8 @@ export default function DepartmentHub() {
 
                             {eventProgramModalOpen && canEdit && (
                               <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                                <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5">
-                                  <h3 className="font-semibold text-slate-800 mb-3">
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full p-6">
+                                  <h3 className="font-semibold text-slate-900 dark:text-white mb-3">
                                     {eventProgramEditingId ? 'Edit Program' : 'Add Program'}
                                   </h3>
                                   <form
@@ -7653,58 +7650,58 @@ export default function DepartmentHub() {
                                     className="space-y-3"
                                   >
                                     <div>
-                                      <label className="block text-xs text-slate-600 mb-1">Program No *</label>
+                                      <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Program No *</label>
                                       <input
                                         type="number"
                                         value={eventProgramForm.programNo}
                                         onChange={(e) => setEventProgramForm((f) => ({ ...f, programNo: e.target.value }))}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                                         required
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-slate-600 mb-1">Program Name *</label>
+                                      <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Program Name *</label>
                                       <input
                                         type="text"
                                         value={eventProgramForm.programName}
                                         onChange={(e) => setEventProgramForm((f) => ({ ...f, programName: e.target.value }))}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                                         required
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-slate-600 mb-1">Program By *</label>
+                                      <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Program By *</label>
                                       <input
                                         type="text"
                                         value={eventProgramForm.programBy}
                                         onChange={(e) => setEventProgramForm((f) => ({ ...f, programBy: e.target.value }))}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                                         required
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-xs text-slate-600 mb-1">Duration (mins) *</label>
+                                      <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Duration (mins) *</label>
                                       <input
                                         type="number"
                                         value={eventProgramForm.duration}
                                         onChange={(e) => setEventProgramForm((f) => ({ ...f, duration: e.target.value }))}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                                         required
                                         min="1"
                                       />
                                     </div>
-                                    <p className="text-xs text-slate-500">
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
                                       Set the event <strong>Schedule starts at</strong> once above the table. Planned start/end columns update automatically from that time + each program’s duration in order.
                                     </p>
 
                                     <div className="flex gap-2 pt-2">
-                                      <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">
+                                      <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm transition-colors">
                                         Add
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => setEventProgramModalOpen(false)}
-                                        className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm"
+                                        className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm transition-colors"
                                       >
                                         Cancel
                                       </button>
@@ -8330,7 +8327,7 @@ export default function DepartmentHub() {
                 </div>
               )}
               {/* Dashboard metrics */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                   <p className="text-sm text-slate-500 uppercase tracking-wide">Total Cells</p>
                   <p className="text-2xl font-bold text-slate-800 mt-1">{loadingCellGroups ? '—' : cellGroups.length}</p>
@@ -8340,24 +8337,6 @@ export default function DepartmentHub() {
                   <p className="text-2xl font-bold text-slate-800 mt-1">
                     {loadingCellGroups ? '—' : cellGroups.reduce((s, c) => s + (c.memberCount || 0), 0)}
                   </p>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                  <p className="text-sm text-slate-500 uppercase tracking-wide">Latest Total Attendance</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">
-                    {latestCellAttendance != null ? latestCellAttendance.totalAttendance : '—'}
-                  </p>
-                  {latestCellAttendance?.date && (
-                    <p className="text-xs text-slate-500 mt-0.5">{formatDMY(latestCellAttendance.date)}</p>
-                  )}
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => setCellAttendanceModalOpen(true)}
-                      className="mt-2 text-xs text-indigo-600 hover:underline"
-                    >
-                      Record attendance
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -8375,9 +8354,9 @@ export default function DepartmentHub() {
                   )}
                 </div>
                 {loadingCellGroups ? (
-                  <div className="py-8 text-center text-slate-500">Loading cell groups…</div>
+                  <div className="py-5 text-center text-slate-500">Loading cell groups…</div>
                 ) : cellGroups.length === 0 ? (
-                  <div className="py-8 text-center text-slate-500">No cell groups yet.</div>
+                  <div className="py-5 text-center text-slate-500">No cell groups yet.</div>
                 ) : (
                   <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
@@ -8392,29 +8371,35 @@ export default function DepartmentHub() {
                       ][idx % 6]
                       const yearsSince = cell.launchDate ? differenceInYears(new Date(), new Date(cell.launchDate)) : null
                       return (
-                      <div key={cell.id} className={`${expandedCellId === cell.id ? 'col-span-full' : ''} ${tileStyle.bg} ${tileStyle.text} rounded-xl overflow-hidden shadow-lg border ${expandedCellId === cell.id ? 'border-white/60 ring-2 ring-white/40' : 'border-white/20'} transition`}>
+                      <div key={cell.id} className={`relative ${expandedCellId === cell.id ? 'col-span-full' : ''} ${tileStyle.bg} ${tileStyle.text} rounded-xl overflow-hidden shadow-lg border ${expandedCellId === cell.id ? 'border-white/60 ring-2 ring-white/40' : 'border-white/20'} transition`}>
+                        {cell.meetingDay && (
+                          <span className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-wide bg-black/20 rounded-full px-2 py-0.5">
+                            {cell.meetingDay.slice(0, 3)}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => setExpandedCellId(expandedCellId === cell.id ? null : cell.id)}
                           className="w-full text-left p-5 hover:opacity-95 transition"
                         >
                           <p className="text-xl font-semibold">{cell.cellName || 'Unnamed'}</p>
-                          <p className="text-sm opacity-90 mt-0.5">Leader: {cell.leader || '—'}</p>
-                          <p className="text-sm opacity-90">Day: {cell.meetingDay || '—'}</p>
-                          <p className="text-xs opacity-90 mt-1">
-                            Cell ID: <span className="font-mono">{cell.id}</span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                navigator.clipboard?.writeText?.(cell.id).catch(() => {})
-                              }}
-                              className="ml-2 underline"
-                            >
-                              Copy
-                            </button>
-                          </p>
+                          <p className="text-xs opacity-90 mt-0.5">{cell.leader || '—'}</p>
+                          {isFounder && (
+                            <p className="text-xs opacity-90 mt-1">
+                              Cell ID: <span className="font-mono">{cell.id}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  navigator.clipboard?.writeText?.(cell.id).catch(() => {})
+                                }}
+                                className="ml-2 underline"
+                              >
+                                Copy
+                              </button>
+                            </p>
+                          )}
                           {yearsSince !== null && <p className="text-sm opacity-90 mt-1">Launched: {yearsSince} year{yearsSince !== 1 ? 's' : ''} ago</p>}
                           <p className="text-2xl font-bold mt-2">{cell.memberCount ?? 0} Members</p>
                         </button>
@@ -8448,125 +8433,20 @@ export default function DepartmentHub() {
                                     setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: new Date().toISOString().slice(0, 10), status: 'active', visitorId: '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
                                     setCellMemberVisitorSearch('')
                                     setCellMemberModalOpen(true)
-                                    if (cellMemberVisitors.length === 0) {
-                                      getDelightVisitors().then(setCellMemberVisitors).catch(() => {})
-                                    }
+                                    setCellMemberVisitorsError('')
+                                    setLoadingCellMemberVisitors(true)
+                                    getDelightVisitors()
+                                      .then(setCellMemberVisitors)
+                                      .catch((err) => {
+                                        console.error('Failed to load People\'s Directory', err)
+                                        setCellMemberVisitorsError('Could not load the directory. Please try again.')
+                                      })
+                                      .finally(() => setLoadingCellMemberVisitors(false))
                                   }}
                                   className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
                                 >
                                   Add Member
                                 </button>
-                                <label className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 cursor-pointer">
-                                  Import Members
-                                  <input
-                                    type="file"
-                                    accept=".csv,.xlsx,.xls,.doc,.docx,.pdf"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      const file = e.target?.files?.[0]
-                                      if (!file) return
-                                      e.target.value = ''
-                                      const ext = (file.name || '').toLowerCase()
-                                      if (ext.endsWith('.doc') || ext.endsWith('.docx') || ext.endsWith('.pdf')) {
-                                        alert('For best results please use Excel (.xlsx) or CSV files. Word and PDF imports will be supported in a future update.')
-                                        return
-                                      }
-                                      if (!ext.endsWith('.csv') && !ext.endsWith('.xlsx') && !ext.endsWith('.xls')) {
-                                        alert('Please use CSV or Excel (.xlsx / .xls) for import.')
-                                        return
-                                      }
-                                      const reader = new FileReader()
-                                      reader.onload = (ev) => {
-                                        try {
-                                          const data = ev.target?.result
-                                          let rows = []
-                                          if (ext.endsWith('.csv')) {
-                                            const text = typeof data === 'string' ? data : new TextDecoder().decode(data)
-                                            rows = text.split(/\r?\n/).map((line) => line.split(',').map((c) => c.trim().replace(/^["']|["']$/g, '')))
-                                          } else {
-                                            // Lazy-load xlsx to avoid loading it on non-Cell pages
-                                            ;(async () => {
-                                              const XLSX = await import('xlsx')
-                                              const wb = XLSX.read(data, { type: 'binary' })
-                                              const ws = wb.Sheets[wb.SheetNames[0]]
-                                              const parsedRows = XLSX.utils.sheet_to_json(ws, { header: 1 })
-
-                                              const headers = (parsedRows[0] || []).map((h) => String(h || '').toLowerCase())
-                                              const nameIdx = headers.findIndex((h) => h.includes('name'))
-                                              const bdayIdx = headers.findIndex((h) => h.includes('birthday') || h.includes('dob') || h.includes('date'))
-                                              const annIdx = headers.findIndex((h) => h.includes('anniversary'))
-                                              const phoneIdx = headers.findIndex((h) => h.includes('phone') || h.includes('mobile'))
-                                              const locIdx = headers.findIndex((h) => h.includes('locality') || h.includes('location') || h.includes('place'))
-                                              const sinceIdx = headers.findIndex((h) => h.includes('since') || h.includes('first visit'))
-                                              const parsed = []
-                                              for (let i = 1; i < parsedRows.length; i++) {
-                                                const row = parsedRows[i] || []
-                                                const name = nameIdx >= 0 ? String(row[nameIdx] || '').trim() : String(row[0] || '').trim()
-                                                if (!name) continue
-                                                parsed.push({
-                                                  name,
-                                                  birthday: bdayIdx >= 0 ? parseDateToYYYYMMDD(row[bdayIdx]) : '',
-                                                  anniversary: annIdx >= 0 ? parseDateToYYYYMMDD(row[annIdx]) : '',
-                                                  phone: phoneIdx >= 0 ? String(row[phoneIdx] || '').trim() : '',
-                                                  locality: locIdx >= 0 ? String(row[locIdx] || '').trim() : '',
-                                                  since: sinceIdx >= 0 ? parseDateToYYYYMMDD(row[sinceIdx]) : '',
-                                                })
-                                              }
-                                              const seen = new Set()
-                                              const deduped = parsed.filter((p) => {
-                                                const key = p.name.toLowerCase()
-                                                if (seen.has(key)) return false
-                                                seen.add(key)
-                                                return true
-                                              })
-                                              setCellImportPreview(deduped)
-                                              setCellImportModalOpen(true)
-                                            })().catch((err) => {
-                                              console.error(err)
-                                              alert('Could not parse Excel file. Try CSV instead.')
-                                            })
-                                            return
-                                          }
-                                          const headers = (rows[0] || []).map((h) => String(h || '').toLowerCase())
-                                          const nameIdx = headers.findIndex((h) => h.includes('name'))
-                                          const bdayIdx = headers.findIndex((h) => h.includes('birthday') || h.includes('dob') || h.includes('date'))
-                                          const annIdx = headers.findIndex((h) => h.includes('anniversary'))
-                                          const phoneIdx = headers.findIndex((h) => h.includes('phone') || h.includes('mobile'))
-                                          const locIdx = headers.findIndex((h) => h.includes('locality') || h.includes('location') || h.includes('place'))
-                                          const sinceIdx = headers.findIndex((h) => h.includes('since') || h.includes('first visit'))
-                                          const parsed = []
-                                          for (let i = 1; i < rows.length; i++) {
-                                            const row = rows[i] || []
-                                            const name = nameIdx >= 0 ? String(row[nameIdx] || '').trim() : String(row[0] || '').trim()
-                                            if (!name) continue
-                                            parsed.push({
-                                              name,
-                                              birthday: bdayIdx >= 0 ? parseDateToYYYYMMDD(row[bdayIdx]) : '',
-                                              anniversary: annIdx >= 0 ? parseDateToYYYYMMDD(row[annIdx]) : '',
-                                              phone: phoneIdx >= 0 ? String(row[phoneIdx] || '').trim() : '',
-                                              locality: locIdx >= 0 ? String(row[locIdx] || '').trim() : '',
-                                              since: sinceIdx >= 0 ? parseDateToYYYYMMDD(row[sinceIdx]) : '',
-                                            })
-                                          }
-                                          const seen = new Set()
-                                          const deduped = parsed.filter((p) => {
-                                            const key = p.name.toLowerCase()
-                                            if (seen.has(key)) return false
-                                            seen.add(key)
-                                            return true
-                                          })
-                                          setCellImportPreview(deduped)
-                                          setCellImportModalOpen(true)
-                                        } catch (err) {
-                                          console.error(err)
-                                          alert('Could not parse file. Use CSV or Excel with a header row.')
-                                        }
-                                      }
-                                      if (ext.endsWith('.csv')) reader.readAsText(file)
-                                      else reader.readAsBinaryString(file)
-                                    }}
-                                  />
-                                </label>
                               </div>
                             )}
                             {loadingCellMembers ? (
@@ -8602,16 +8482,15 @@ export default function DepartmentHub() {
                                                 <button
                                                   type="button"
                                                   onClick={(e) => {
-                                                    if (cellMemberActionMenuId === m.id) {
-                                                      setCellMemberActionMenuId(null)
+                                                    if (activeMenuMemberId === m.id) {
+                                                      setActiveMenuMemberId(null)
                                                       return
                                                     }
                                                     const rect = e.currentTarget.getBoundingClientRect()
-                                                    setCellMemberActionMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
-                                                    setCellMemberActionMenuId(m.id)
+                                                    setActiveMenuMemberPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                                                    setActiveMenuMemberId(m.id)
                                                   }}
                                                   className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 transition-colors"
-                                                  title="More options"
                                                 >
                                                   <svg width="14" height="14" viewBox="0 0 4 16" fill="currentColor">
                                                     <circle cx="2" cy="2" r="1.5"/>
@@ -8619,15 +8498,15 @@ export default function DepartmentHub() {
                                                     <circle cx="2" cy="14" r="1.5"/>
                                                   </svg>
                                                 </button>
-                                                {cellMemberActionMenuId === m.id && (
+                                                {activeMenuMemberId === m.id && (
                                                   <>
-                                                    <div className="fixed inset-0 z-40" onClick={() => setCellMemberActionMenuId(null)} />
+                                                    <div className="fixed inset-0 z-40" onClick={() => setActiveMenuMemberId(null)} />
                                                     <div
-                                                      style={{ position: 'fixed', top: cellMemberActionMenuPos.top, right: cellMemberActionMenuPos.right }}
-                                                      className="z-50 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[168px] text-left overflow-hidden"
+                                                      style={{ position: 'fixed', top: activeMenuMemberPos.top, right: activeMenuMemberPos.right }}
+                                                      className="z-50 bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 rounded-xl p-1.5 w-48 text-left overflow-hidden"
                                                     >
                                                       <button type="button" onClick={() => {
-                                                        setCellMemberActionMenuId(null)
+                                                        setActiveMenuMemberId(null)
                                                         setEditingCellMemberId(m.id)
                                                         setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: m.status || 'active', visitorId: m.visitorId || '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
                                                         setCellMemberLinkedVisitor(null)
@@ -8650,25 +8529,44 @@ export default function DepartmentHub() {
                                                         </svg>
                                                         Edit
                                                       </button>
-                                                      <button type="button" onClick={() => { setCellMemberActionMenuId(null); setCellMemberLinking({ member: m, cellId: cell.id }) }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                                                      <button type="button" onClick={async () => {
+                                                        setActiveMenuMemberId(null)
+                                                        if (m.visitorId) {
+                                                          try {
+                                                            await updateCellGroupMember(cell.id, m.id, { visitorId: '' })
+                                                            setCellMembers((prev) => prev.map((x) => (x.id === m.id ? { ...x, visitorId: '' } : x)))
+                                                          } catch (err) {
+                                                            console.error('Failed to unlink member', err)
+                                                            alert('Failed to unlink. Please try again.')
+                                                          }
+                                                        } else {
+                                                          setCellMemberLinking({ member: m, cellId: cell.id })
+                                                        }
+                                                      }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 flex-shrink-0">
                                                           <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
                                                           <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
                                                         </svg>
-                                                        {m.visitorId ? 'Relink' : 'Link'}
+                                                        {m.visitorId ? 'Unlink' : 'Link'}
                                                       </button>
-                                                      <button type="button" onClick={async () => { setCellMemberActionMenuId(null); await deactivateCellGroupMember(cell.id, m.id, m.name); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors">
+                                                      <button type="button" onClick={() => { setActiveMenuMemberId(null); setCellMemberTransfer({ member: m, fromCellId: cell.id }) }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 flex-shrink-0">
+                                                          <path d="M17 3l4 4-4 4M21 7H9M7 21l-4-4 4-4M3 17h12"/>
+                                                        </svg>
+                                                        Transfer Cell Group
+                                                      </button>
+                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); await deactivateCellGroupMember(cell.id, m.id, m.name); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                                                           <circle cx="12" cy="12" r="9"/><path d="M9 12h6"/>
                                                         </svg>
                                                         Mark Inactive
                                                       </button>
                                                       <div className="my-1 border-t border-slate-100" />
-                                                      <button type="button" onClick={async () => { setCellMemberActionMenuId(null); if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
+                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); if (!window.confirm(`Remove ${m.name || 'this member'} from this cell group?`)) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                                                           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
                                                         </svg>
-                                                        Delete
+                                                        Remove from Cell
                                                       </button>
                                                     </div>
                                                   </>
@@ -8719,16 +8617,15 @@ export default function DepartmentHub() {
                                                 <button
                                                   type="button"
                                                   onClick={(e) => {
-                                                    if (cellMemberActionMenuId === m.id) {
-                                                      setCellMemberActionMenuId(null)
+                                                    if (activeMenuMemberId === m.id) {
+                                                      setActiveMenuMemberId(null)
                                                       return
                                                     }
                                                     const rect = e.currentTarget.getBoundingClientRect()
-                                                    setCellMemberActionMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
-                                                    setCellMemberActionMenuId(m.id)
+                                                    setActiveMenuMemberPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                                                    setActiveMenuMemberId(m.id)
                                                   }}
                                                   className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 transition-colors"
-                                                  title="More options"
                                                 >
                                                   <svg width="14" height="14" viewBox="0 0 4 16" fill="currentColor">
                                                     <circle cx="2" cy="2" r="1.5"/>
@@ -8736,15 +8633,15 @@ export default function DepartmentHub() {
                                                     <circle cx="2" cy="14" r="1.5"/>
                                                   </svg>
                                                 </button>
-                                                {cellMemberActionMenuId === m.id && (
+                                                {activeMenuMemberId === m.id && (
                                                   <>
-                                                    <div className="fixed inset-0 z-40" onClick={() => setCellMemberActionMenuId(null)} />
+                                                    <div className="fixed inset-0 z-40" onClick={() => setActiveMenuMemberId(null)} />
                                                     <div
-                                                      style={{ position: 'fixed', top: cellMemberActionMenuPos.top, right: cellMemberActionMenuPos.right }}
-                                                      className="z-50 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[168px] text-left overflow-hidden"
+                                                      style={{ position: 'fixed', top: activeMenuMemberPos.top, right: activeMenuMemberPos.right }}
+                                                      className="z-50 bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 rounded-xl p-1.5 w-48 text-left overflow-hidden"
                                                     >
                                                       <button type="button" onClick={() => {
-                                                        setCellMemberActionMenuId(null)
+                                                        setActiveMenuMemberId(null)
                                                         setEditingCellMemberId(m.id)
                                                         setCellMemberForm({ name: m.name || '', birthday: m.birthday ? String(m.birthday).slice(0, 10) : '', anniversary: m.anniversary ? String(m.anniversary).slice(0, 10) : '', phone: m.phone || '', locality: m.locality || '', since: m.since ? String(m.since).slice(0, 10) : '', status: 'inactive', visitorId: m.visitorId || '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
                                                         setCellMemberLinkedVisitor(null)
@@ -8767,25 +8664,44 @@ export default function DepartmentHub() {
                                                         </svg>
                                                         Edit
                                                       </button>
-                                                      <button type="button" onClick={() => { setCellMemberActionMenuId(null); setCellMemberLinking({ member: m, cellId: cell.id }) }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                                                      <button type="button" onClick={async () => {
+                                                        setActiveMenuMemberId(null)
+                                                        if (m.visitorId) {
+                                                          try {
+                                                            await updateCellGroupMember(cell.id, m.id, { visitorId: '' })
+                                                            setCellMembers((prev) => prev.map((x) => (x.id === m.id ? { ...x, visitorId: '' } : x)))
+                                                          } catch (err) {
+                                                            console.error('Failed to unlink member', err)
+                                                            alert('Failed to unlink. Please try again.')
+                                                          }
+                                                        } else {
+                                                          setCellMemberLinking({ member: m, cellId: cell.id })
+                                                        }
+                                                      }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 flex-shrink-0">
                                                           <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
                                                           <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
                                                         </svg>
-                                                        {m.visitorId ? 'Relink' : 'Link'}
+                                                        {m.visitorId ? 'Unlink' : 'Link'}
                                                       </button>
-                                                      <button type="button" onClick={async () => { setCellMemberActionMenuId(null); await updateCellGroupMember(cell.id, m.id, { status: 'active' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors">
+                                                      <button type="button" onClick={() => { setActiveMenuMemberId(null); setCellMemberTransfer({ member: m, fromCellId: cell.id }) }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 flex-shrink-0">
+                                                          <path d="M17 3l4 4-4 4M21 7H9M7 21l-4-4 4-4M3 17h12"/>
+                                                        </svg>
+                                                        Transfer Cell Group
+                                                      </button>
+                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); await updateCellGroupMember(cell.id, m.id, { status: 'active' }); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                                                           <circle cx="12" cy="12" r="9"/><path d="M8 12l2.5 2.5L16 9"/>
                                                         </svg>
                                                         Make Active
                                                       </button>
                                                       <div className="my-1 border-t border-slate-100" />
-                                                      <button type="button" onClick={async () => { setCellMemberActionMenuId(null); if (!window.confirm('Remove this member?')) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
+                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); if (!window.confirm(`Remove ${m.name || 'this member'} from this cell group?`)) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                                                           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
                                                         </svg>
-                                                        Delete
+                                                        Remove from Cell
                                                       </button>
                                                     </div>
                                                   </>
@@ -8860,44 +8776,6 @@ export default function DepartmentHub() {
                 )}
               </div>
 
-              {cellAttendanceModalOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-xl shadow-xl max-w-sm w-full">
-                    <div className="p-5 border-b border-slate-200">
-                      <h3 className="text-lg font-semibold text-slate-800">Record attendance</h3>
-                    </div>
-                    <form
-                      onSubmit={async (e) => {
-                        e.preventDefault()
-                        try {
-                          await addCellAttendance(department.name, cellAttendanceForm.date, Number(cellAttendanceForm.totalAttendance) || 0)
-                          const latest = await getLatestCellAttendance(department.name)
-                          setLatestCellAttendance(latest)
-                          setCellAttendanceModalOpen(false)
-                          setCellAttendanceForm({ date: format(new Date(), 'yyyy-MM-dd'), totalAttendance: '' })
-                        } catch (err) {
-                          console.error(err)
-                          alert('Failed to save')
-                        }
-                      }}
-                      className="p-5 space-y-4"
-                    >
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
-                        <input type="date" value={cellAttendanceForm.date} onChange={(e) => setCellAttendanceForm((f) => ({ ...f, date: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Total attendance</label>
-                        <input type="number" min="0" value={cellAttendanceForm.totalAttendance} onChange={(e) => setCellAttendanceForm((f) => ({ ...f, totalAttendance: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
-                      </div>
-                      <div className="flex gap-2 pt-2">
-                        <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">Save</button>
-                        <button type="button" onClick={() => setCellAttendanceModalOpen(false)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -8913,9 +8791,9 @@ export default function DepartmentHub() {
 
           {cellGroupModalOpen && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">Add cell group</h3>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Add cell group</h3>
                 </div>
                 <form
                   onSubmit={async (e) => {
@@ -8934,24 +8812,24 @@ export default function DepartmentHub() {
                   className="p-5 space-y-4"
                 >
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Cell ID (optional)</label>
-                    <input type="text" placeholder="Unique code; leave blank to use document ID" value={newCellGroupForm.cellId} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, cellId: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                    <p className="text-xs text-slate-500 mt-1">Leaders link via profile <strong>cellGroupId</strong> matching this value.</p>
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell ID (optional)</label>
+                    <input type="text" placeholder="Unique code; leave blank to use document ID" value={newCellGroupForm.cellId} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, cellId: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Leaders link via profile <strong>cellGroupId</strong> matching this value.</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Cell Name *</label>
-                    <input type="text" value={newCellGroupForm.cellName} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell Name *</label>
+                    <input type="text" value={newCellGroupForm.cellName} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" required />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Leader</label>
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Leader</label>
                     <LeaderPicker
                       value={{ name: newCellGroupForm.leader, personId: newCellGroupForm.leaderPersonId }}
                       onChange={({ name, personId }) => setNewCellGroupForm(f => ({ ...f, leader: name, leaderPersonId: personId }))}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Day of Cell</label>
-                    <select value={newCellGroupForm.meetingDay} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, meetingDay: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Day of Cell</label>
+                    <select value={newCellGroupForm.meetingDay} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, meetingDay: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                       <option value="">— select a day —</option>
                       {WEEKDAY_OPTIONS.map((day) => (
                         <option key={day} value={day}>{day}</option>
@@ -8959,19 +8837,19 @@ export default function DepartmentHub() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Launch Date</label>
-                    <input type="date" value={newCellGroupForm.launchDate} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, launchDate: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Launch Date</label>
+                    <input type="date" value={newCellGroupForm.launchDate} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, launchDate: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                    <select value={newCellGroupForm.status} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, status: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Status</label>
+                    <select value={newCellGroupForm.status} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, status: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                       <option value="active">Active</option>
                       <option value="inactive">Inactive</option>
                     </select>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">Save</button>
-                    <button type="button" onClick={() => setCellGroupModalOpen(false)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium shadow-sm transition-colors">Save</button>
+                    <button type="button" onClick={() => setCellGroupModalOpen(false)} className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 active:bg-slate-100 dark:active:bg-slate-700 transition-colors">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -8980,9 +8858,9 @@ export default function DepartmentHub() {
 
           {cellGroupEditModalOpen && editingCellGroupId && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">Edit cell group</h3>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Edit cell group</h3>
                 </div>
                 <form
                   onSubmit={async (e) => {
@@ -9000,24 +8878,24 @@ export default function DepartmentHub() {
                   className="p-5 space-y-4"
                 >
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Cell ID</label>
-                    <input type="text" value={cellGroupEditForm.cellId} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, cellId: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-sm" />
-                    <p className="text-xs text-slate-500 mt-1">Unique string; user <strong>cellGroupId</strong> must match.</p>
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell ID</label>
+                    <input type="text" value={cellGroupEditForm.cellId} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, cellId: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Unique string; user <strong>cellGroupId</strong> must match.</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Cell Name *</label>
-                    <input type="text" value={cellGroupEditForm.cellName} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell Name *</label>
+                    <input type="text" value={cellGroupEditForm.cellName} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" required />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Leader</label>
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Leader</label>
                     <LeaderPicker
                       value={{ name: cellGroupEditForm.leader, personId: cellGroupEditForm.leaderPersonId }}
                       onChange={({ name, personId }) => setCellGroupEditForm(f => ({ ...f, leader: name, leaderPersonId: personId }))}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Meeting Day</label>
-                    <select value={cellGroupEditForm.meetingDay} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, meetingDay: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Meeting Day</label>
+                    <select value={cellGroupEditForm.meetingDay} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, meetingDay: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                       <option value="">— select a day —</option>
                       {WEEKDAY_OPTIONS.map((day) => (
                         <option key={day} value={day}>{day}</option>
@@ -9025,19 +8903,19 @@ export default function DepartmentHub() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Launch Date</label>
-                    <input type="date" value={cellGroupEditForm.launchDate} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, launchDate: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Launch Date</label>
+                    <input type="date" value={cellGroupEditForm.launchDate} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, launchDate: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                    <select value={cellGroupEditForm.status} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, status: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Status</label>
+                    <select value={cellGroupEditForm.status} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, status: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                       <option value="active">Active</option>
                       <option value="inactive">Inactive</option>
                     </select>
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors">Save</button>
-                    <button type="button" onClick={() => { setCellGroupEditModalOpen(false); setEditingCellGroupId(null) }} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
+                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium shadow-sm transition-colors">Save</button>
+                    <button type="button" onClick={() => { setCellGroupEditModalOpen(false); setEditingCellGroupId(null) }} className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 active:bg-slate-100 dark:active:bg-slate-700 transition-colors">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -9083,6 +8961,76 @@ export default function DepartmentHub() {
             />
           )}
 
+          {cellMemberTransfer && (() => {
+            const { member, fromCellId } = cellMemberTransfer
+            const destinations = cellGroups.filter((c) => c.status !== 'inactive' && c.id !== fromCellId)
+            return (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-xl shadow-xl max-w-sm w-full max-h-[80vh] flex flex-col overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+                    <div className="min-w-0">
+                      <h3 className="text-base font-semibold text-slate-800">Transfer Cell Group</h3>
+                      <p className="text-xs text-slate-500 mt-0.5 truncate">Move {member.name || 'this member'} to a different cell group</p>
+                    </div>
+                    <button type="button" onClick={() => setCellMemberTransfer(null)}
+                      className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
+                  </div>
+                  <div className="overflow-y-auto flex-1">
+                    {destinations.length === 0 ? (
+                      <p className="px-5 py-6 text-sm text-slate-400 text-center">No other active cell groups to transfer to.</p>
+                    ) : (
+                      destinations.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          disabled={transferringCellMember}
+                          onClick={async () => {
+                            setTransferringCellMember(true)
+                            try {
+                              await addCellGroupMember(c.id, {
+                                name: member.name || '',
+                                phone: member.phone || '',
+                                birthday: member.birthday || '',
+                                anniversary: member.anniversary || '',
+                                locality: member.locality || '',
+                                since: member.since || '',
+                                visitorId: member.visitorId || '',
+                                status: 'active',
+                              })
+                              await deleteCellGroupMember(fromCellId, member.id)
+                              const [fromList, toList] = await Promise.all([
+                                getCellGroupMembers(fromCellId),
+                                getCellGroupMembers(c.id),
+                              ])
+                              if (expandedCellId === fromCellId) setCellMembers(fromList)
+                              setCellGroups((prev) => prev.map((g) => {
+                                if (g.id === fromCellId) return { ...g, memberCount: fromList.length }
+                                if (g.id === c.id) return { ...g, memberCount: toList.length }
+                                return g
+                              }))
+                              refreshAllCellMembers()
+                              setCellMemberTransfer(null)
+                              setCellMemberToast(`${member.name || 'Member'} transferred to ${c.cellName || c.name || 'the selected cell group'}.`)
+                              setTimeout(() => setCellMemberToast(''), 3500)
+                            } catch (err) {
+                              console.error('Failed to transfer cell member', err)
+                              alert('Failed to transfer member. Please try again.')
+                            } finally {
+                              setTransferringCellMember(false)
+                            }
+                          }}
+                          className="w-full text-left px-5 py-3 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors disabled:opacity-50 border-b border-slate-50 last:border-0"
+                        >
+                          {c.cellName || c.name || c.id}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
           {teamMemberLinking && (
             <CellMemberLinkModal
               member={teamMemberLinking}
@@ -9100,27 +9048,29 @@ export default function DepartmentHub() {
             />
           )}
 
+          {cellMemberToast && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg">
+              {cellMemberToast}
+            </div>
+          )}
+
           {cellMemberModalOpen && expandedCellId && (
             <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
-              <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md flex flex-col max-h-[92vh]">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md flex flex-col max-h-[92vh]">
                 {/* Header */}
-                <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
-                  <h3 className="text-base font-semibold text-slate-800">{editingCellMemberId ? 'Edit Member' : 'Add Member'}</h3>
+                <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">{editingCellMemberId ? 'Edit Member' : 'Add Member'}</h3>
                   <button type="button" onClick={() => { setCellMemberModalOpen(false); setEditingCellMemberId(null) }}
-                    className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl">×</button>
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xl">×</button>
                 </div>
 
                 <div className="overflow-y-auto min-h-0 flex-1">
-                  <form
-                    id="cell-member-form"
-                    onSubmit={async (e) => {
-                      e.preventDefault()
-                      if (!editingCellMemberId && !cellMemberForm.visitorId) {
-                        alert('You must select a person from the People\'s Directory. Only people who have visited (entered via D Light Visitor Entry) can be added to a cell group.')
-                        return
-                      }
-                      try {
-                        if (editingCellMemberId) {
+                  {editingCellMemberId ? (
+                    <form
+                      id="cell-member-form"
+                      onSubmit={async (e) => {
+                        e.preventDefault()
+                        try {
                           await updateCellGroupMember(expandedCellId, editingCellMemberId, cellMemberForm)
                           setCellMembers((prev) => prev.map((m) => (m.id === editingCellMemberId ? { ...m, ...cellMemberForm } : m)))
                           if (cellMemberForm.visitorId) {
@@ -9139,312 +9089,229 @@ export default function DepartmentHub() {
                               spouseName:   cellMemberForm.spouseName   || '',
                             }, userProfile?.email || '')
                           }
-                        } else {
-                          const addKey = cellMemberForm.visitorId || ('name:' + (cellMemberForm.name || '').toLowerCase().trim())
-                          const conflict = allCellMembers.find(m => m.status !== 'inactive' && m.cellId !== expandedCellId && (m.visitorId || ('name:' + (m.name || '').toLowerCase().trim())) === addKey)
-                          if (conflict) {
-                            const otherCell = cellGroups.find(c => c.id === conflict.cellId)
-                            alert(`${cellMemberForm.name || 'This person'} is already a member of "${otherCell?.cellName || otherCell?.name || 'another cell group'}". A person can only be in one cell group.`)
-                            return
-                          }
-                          await addCellGroupMember(expandedCellId, cellMemberForm)
-                          const list = await getCellGroupMembers(expandedCellId)
-                          setCellMembers(list)
-                          setCellGroups((prev) => prev.map((c) => (c.id === expandedCellId ? { ...c, memberCount: list.length } : c)))
-                          refreshAllCellMembers()
+                          setCellMemberModalOpen(false)
+                          setEditingCellMemberId(null)
+                          setCellMemberLinkedVisitor(null)
+                          setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: new Date().toISOString().slice(0, 10), status: 'active', visitorId: '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
+                        } catch (err) {
+                          console.error(err)
+                          alert('Failed to save')
                         }
-                        setCellMemberModalOpen(false)
-                        setEditingCellMemberId(null)
-                        setCellMemberLinkedVisitor(null)
-                        setCellMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: new Date().toISOString().slice(0, 10), status: 'active', visitorId: '', baptismDate: '', baptismPlace: '', marriageDate: '', spouseName: '' })
-                      } catch (err) {
-                        console.error(err)
-                        alert('Failed to save')
-                      }
-                    }}
-                    className="p-5 space-y-4"
-                  >
-                    {/* Visitor picker — only for Add mode */}
-                    {!editingCellMemberId && (
-                      <div className="rounded-xl border border-indigo-100 bg-indigo-50 overflow-hidden">
-                        <div className="px-3 pt-3 pb-2">
-                          <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">Select from People&apos;s Directory</p>
-                          <div className="relative">
-                            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
-                              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
-                              <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                            </svg>
-                            <input
-                              type="text"
-                              placeholder="Search visitor name…"
-                              value={cellMemberVisitorSearch}
-                              onChange={e => setCellMemberVisitorSearch(e.target.value)}
-                              className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-400"
-                            />
-                          </div>
-                        </div>
-                        <div className="max-h-44 overflow-y-auto border-t border-indigo-100">
-                          {cellMemberVisitors.length === 0 ? (
-                            <p className="px-3 py-4 text-xs text-slate-400 text-center">Loading visitors…</p>
-                          ) : (() => {
-                            const q = cellMemberVisitorSearch.trim().toLowerCase()
-                            const matches = cellMemberVisitors.filter(v =>
-                              !q || v.name.toLowerCase().includes(q)
-                            )
-                            if (matches.length === 0) return (
-                              <div className="px-3 py-3 text-center">
-                                <p className="text-xs text-slate-500 font-medium">Not in People&apos;s Directory</p>
-                                <p className="text-xs text-slate-400 mt-0.5">New people are added via D Light Visitor Entry</p>
-                              </div>
-                            )
-                            return matches.map(v => (
-                              <button
-                                key={v.id}
-                                type="button"
-                                onClick={() => {
-                                  setCellMemberForm(f => ({
-                                    ...f,
-                                    name: v.name,
-                                    phone: v.phone || f.phone,
-                                    birthday: v.dob ? String(v.dob).slice(0, 10) : f.birthday,
-                                    visitorId: v.id,
-                                  }))
-                                  setCellMemberVisitorSearch('')
-                                }}
-                                className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 hover:bg-indigo-100 border-b border-indigo-50 transition-colors last:border-0"
-                              >
-                                <div className="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
-                                  {v.name.charAt(0).toUpperCase()}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium text-slate-800 truncate">{v.name}</p>
-                                  {v.phone && <p className="text-xs text-slate-400">{v.phone}</p>}
-                                </div>
-                                {cellMemberForm.name === v.name && (
-                                  <span className="ml-auto text-xs text-indigo-500 font-medium flex-shrink-0">Selected</span>
-                                )}
-                              </button>
-                            ))
-                          })()}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Name field */}
-                    {editingCellMemberId ? (
+                      }}
+                      className="p-5 space-y-4"
+                    >
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Name *</label>
                         <input
                           type="text"
                           value={cellMemberForm.name}
                           onChange={(e) => setCellMemberForm((f) => ({ ...f, name: e.target.value }))}
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                           required
                         />
                       </div>
-                    ) : (
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Selected Person</label>
-                        {cellMemberForm.name ? (
-                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50">
-                            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
-                              {cellMemberForm.name.charAt(0).toUpperCase()}
+
+                      {/* Linked visitor info — shown only when editing a linked member */}
+                      {cellMemberForm.visitorId && (
+                        <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 overflow-hidden">
+                          <div className="px-3 py-2.5 border-b border-emerald-100 dark:border-emerald-800 flex items-center gap-2">
+                            <span className="text-emerald-600 dark:text-emerald-400 text-sm">🔗</span>
+                            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wide">Visitor Entry Details</p>
+                            {!cellMemberLinkedVisitor && <span className="text-xs text-emerald-400 dark:text-emerald-500 ml-auto">Loading…</span>}
+                          </div>
+                          {cellMemberLinkedVisitor && (
+                            <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {[
+                                { label: 'Email', key: 'email', type: 'email' },
+                                { label: 'Nativity', key: 'nativity' },
+                                { label: 'Current Place', key: 'currentPlace' },
+                                { label: 'Service Attended', key: 'serviceAttended' },
+                                { label: 'Date Attended', key: 'attendedDate', type: 'date' },
+                                { label: 'How Known', key: 'howKnown' },
+                              ].map(({ label, key, type = 'text' }) => (
+                                <div key={key}>
+                                  <label className="block text-xs font-medium text-emerald-700 dark:text-emerald-300 mb-1">{label}</label>
+                                  <input
+                                    type={type}
+                                    value={cellMemberLinkedVisitorForm[key] || ''}
+                                    onChange={e => setCellMemberLinkedVisitorForm(f => ({ ...f, [key]: e.target.value }))}
+                                    className="w-full px-2.5 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                                  />
+                                </div>
+                              ))}
                             </div>
-                            <span className="text-sm font-medium text-slate-800 flex-1">{cellMemberForm.name}</span>
-                            <button type="button" onClick={() => setCellMemberForm(f => ({ ...f, name: '', phone: '', birthday: '', visitorId: '' }))} className="text-slate-400 hover:text-red-500 text-lg leading-none">×</button>
-                          </div>
-                        ) : (
-                          <div className="px-3 py-2.5 rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 text-center">
-                            Search and select from the People&apos;s Directory above
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Linked visitor info — shown only when editing a linked member */}
-                    {editingCellMemberId && cellMemberForm.visitorId && (
-                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 overflow-hidden">
-                        <div className="px-3 py-2.5 border-b border-emerald-100 flex items-center gap-2">
-                          <span className="text-emerald-600 text-sm">🔗</span>
-                          <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Visitor Entry Details</p>
-                          {!cellMemberLinkedVisitor && <span className="text-xs text-emerald-400 ml-auto">Loading…</span>}
+                          )}
+                          <p className="px-3 pb-2 text-xs text-emerald-500 dark:text-emerald-400">Changes saved here will also update in Visitor Entry and PCS.</p>
                         </div>
-                        {cellMemberLinkedVisitor && (
+                      )}
+
+                      <div>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Birthday</label>
+                        <input type="date" value={cellMemberForm.birthday} onChange={(e) => setCellMemberForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Anniversary (optional)</label>
+                        <input type="date" value={cellMemberForm.anniversary} onChange={(e) => setCellMemberForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Phone Number</label>
+                        <input type="text" value={cellMemberForm.phone} onChange={(e) => setCellMemberForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Locality</label>
+                        <input type="text" value={cellMemberForm.locality} onChange={(e) => setCellMemberForm((f) => ({ ...f, locality: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Since (first visit / started attending)</label>
+                        <input type="date" value={cellMemberForm.since} onChange={(e) => setCellMemberForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Status</label>
+                        <select value={cellMemberForm.status} onChange={(e) => setCellMemberForm((f) => ({ ...f, status: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
+                      </div>
+
+                      {/* Spiritual Records — only shown when member is linked (has visitorId) */}
+                      {cellMemberForm.visitorId && (
+                        <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/30 overflow-hidden">
+                          <div className="px-3 py-2.5 border-b border-violet-100 dark:border-violet-800">
+                            <p className="text-xs font-bold text-violet-700 dark:text-violet-300 uppercase tracking-wide">Spiritual Records</p>
+                            <p className="text-xs text-violet-400 dark:text-violet-500 mt-0.5">Saved to member profile · visible across the app</p>
+                          </div>
                           <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {[
-                              { label: 'Email', key: 'email', type: 'email' },
-                              { label: 'Nativity', key: 'nativity' },
-                              { label: 'Current Place', key: 'currentPlace' },
-                              { label: 'Service Attended', key: 'serviceAttended' },
-                              { label: 'Date Attended', key: 'attendedDate', type: 'date' },
-                              { label: 'How Known', key: 'howKnown' },
-                            ].map(({ label, key, type = 'text' }) => (
-                              <div key={key}>
-                                <label className="block text-xs font-medium text-emerald-700 mb-1">{label}</label>
-                                <input
-                                  type={type}
-                                  value={cellMemberLinkedVisitorForm[key] || ''}
-                                  onChange={e => setCellMemberLinkedVisitorForm(f => ({ ...f, [key]: e.target.value }))}
-                                  className="w-full px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                                />
+                            <div>
+                              <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1">Baptism Date</label>
+                              <input type="date" value={cellMemberForm.baptismDate} onChange={e => setCellMemberForm(f => ({ ...f, baptismDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1">Baptism Place</label>
+                              <input type="text" placeholder="Church / Location" value={cellMemberForm.baptismPlace} onChange={e => setCellMemberForm(f => ({ ...f, baptismPlace: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1">Marriage Date</label>
+                              <input type="date" value={cellMemberForm.marriageDate} onChange={e => setCellMemberForm(f => ({ ...f, marriageDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1">Spouse Name</label>
+                              <input type="text" placeholder="Spouse full name" value={cellMemberForm.spouseName} onChange={e => setCellMemberForm(f => ({ ...f, spouseName: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500" />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </form>
+                  ) : (
+                    /* Add mode — simple search & quick-assign picker. No personal-detail fields:
+                       that data belongs to Caring, and Cell only needs to place an existing
+                       People's Directory entry into a cell group. */
+                    <div className="p-5">
+                      <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide mb-2">Search People&apos;s Directory</p>
+                      <div className="relative mb-3">
+                        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
+                          <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                        </svg>
+                        <input
+                          type="text"
+                          autoFocus
+                          placeholder="Search by name…"
+                          value={cellMemberVisitorSearch}
+                          onChange={e => setCellMemberVisitorSearch(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 placeholder-slate-400"
+                        />
+                      </div>
+                      <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                        <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                          {loadingCellMemberVisitors ? (
+                            <p className="px-3 py-6 text-xs text-slate-400 text-center">Loading directory…</p>
+                          ) : cellMemberVisitorsError ? (
+                            <div className="px-3 py-6 text-center">
+                              <p className="text-xs text-red-500 dark:text-red-400 font-medium">{cellMemberVisitorsError}</p>
+                            </div>
+                          ) : (() => {
+                            const q = cellMemberVisitorSearch.trim().toLowerCase()
+                            const matches = cellMemberVisitors.filter(v => !q || v.name.toLowerCase().includes(q))
+                            if (matches.length === 0) return (
+                              <div className="px-3 py-6 text-center">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Not in People&apos;s Directory</p>
+                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">New people are added via D Light Visitor Entry</p>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                        <p className="px-3 pb-2 text-xs text-emerald-500">Changes saved here will also update in Visitor Entry and PCS.</p>
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Birthday</label>
-                      <input type="date" value={cellMemberForm.birthday} onChange={(e) => setCellMemberForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Anniversary (optional)</label>
-                      <input type="date" value={cellMemberForm.anniversary} onChange={(e) => setCellMemberForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
-                      <input type="text" value={cellMemberForm.phone} onChange={(e) => setCellMemberForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Locality</label>
-                      <input type="text" value={cellMemberForm.locality} onChange={(e) => setCellMemberForm((f) => ({ ...f, locality: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Since (first visit / started attending)</label>
-                      <input type="date" value={cellMemberForm.since} onChange={(e) => setCellMemberForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                      <select value={cellMemberForm.status} onChange={(e) => setCellMemberForm((f) => ({ ...f, status: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300">
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
-                    </div>
-
-                    {/* Spiritual Records — only shown when member is linked (has visitorId) */}
-                    {(editingCellMemberId && cellMemberForm.visitorId) && (
-                      <div className="rounded-xl border border-violet-200 bg-violet-50 overflow-hidden">
-                        <div className="px-3 py-2.5 border-b border-violet-100">
-                          <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">Spiritual Records</p>
-                          <p className="text-xs text-violet-400 mt-0.5">Saved to member profile · visible across the app</p>
-                        </div>
-                        <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-violet-700 mb-1">Baptism Date</label>
-                            <input type="date" value={cellMemberForm.baptismDate} onChange={e => setCellMemberForm(f => ({ ...f, baptismDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-violet-700 mb-1">Baptism Place</label>
-                            <input type="text" placeholder="Church / Location" value={cellMemberForm.baptismPlace} onChange={e => setCellMemberForm(f => ({ ...f, baptismPlace: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-violet-700 mb-1">Marriage Date</label>
-                            <input type="date" value={cellMemberForm.marriageDate} onChange={e => setCellMemberForm(f => ({ ...f, marriageDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-violet-700 mb-1">Spouse Name</label>
-                            <input type="text" placeholder="Spouse full name" value={cellMemberForm.spouseName} onChange={e => setCellMemberForm(f => ({ ...f, spouseName: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
-                          </div>
+                            )
+                            return matches.map(v => (
+                              <div key={v.id} className="flex items-center gap-2.5 px-3 py-2.5">
+                                <div className="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                  {v.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{v.name}</p>
+                                  {v.phone && <p className="text-xs text-slate-400 dark:text-slate-500">{v.phone}</p>}
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={assigningVisitorId === v.id}
+                                  onClick={async () => {
+                                    const addKey = v.id || ('name:' + (v.name || '').toLowerCase().trim())
+                                    const conflict = allCellMembers.find(m => m.status !== 'inactive' && m.cellId !== expandedCellId && (m.visitorId || ('name:' + (m.name || '').toLowerCase().trim())) === addKey)
+                                    if (conflict) {
+                                      const otherCell = cellGroups.find(c => c.id === conflict.cellId)
+                                      alert(`${v.name || 'This person'} is already a member of "${otherCell?.cellName || otherCell?.name || 'another cell group'}". A person can only be in one cell group.`)
+                                      return
+                                    }
+                                    setAssigningVisitorId(v.id)
+                                    try {
+                                      await addCellGroupMember(expandedCellId, { name: v.name, phone: v.phone || '', visitorId: v.id, status: 'active' })
+                                      const list = await getCellGroupMembers(expandedCellId)
+                                      setCellMembers(list)
+                                      setCellGroups((prev) => prev.map((c) => (c.id === expandedCellId ? { ...c, memberCount: list.length } : c)))
+                                      refreshAllCellMembers()
+                                      setCellMemberModalOpen(false)
+                                      setCellMemberVisitorSearch('')
+                                      setCellMemberToast(`${v.name} added to the cell.`)
+                                      setTimeout(() => setCellMemberToast(''), 3500)
+                                    } catch (err) {
+                                      console.error(err)
+                                      alert('Failed to add member. Please try again.')
+                                    } finally {
+                                      setAssigningVisitorId(null)
+                                    }
+                                  }}
+                                  className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                                >
+                                  {assigningVisitorId === v.id ? 'Adding…' : 'Add to Cell'}
+                                </button>
+                              </div>
+                            ))
+                          })()}
                         </div>
                       </div>
-                    )}
-                  </form>
+                    </div>
+                  )}
                 </div>
 
                 {/* Footer */}
-                <div className="px-5 py-4 border-t border-slate-100 flex gap-2 flex-shrink-0">
-                  <button type="submit" form="cell-member-form" className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700">Save</button>
-                  <button type="button" onClick={() => { setCellMemberModalOpen(false); setEditingCellMemberId(null) }}
-                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-                </div>
+                {editingCellMemberId ? (
+                  <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 flex gap-2 flex-shrink-0">
+                    <button type="submit" form="cell-member-form" className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm shadow-sm">Save</button>
+                    <button type="button" onClick={() => { setCellMemberModalOpen(false); setEditingCellMemberId(null) }}
+                      className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-200 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+                  </div>
+                ) : (
+                  <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 flex-shrink-0">
+                    <button type="button" onClick={() => setCellMemberModalOpen(false)}
+                      className="w-full py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-200 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800">Close</button>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {cellImportModalOpen && expandedCellId && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">Import preview (duplicates removed)</h3>
-                  <p className="text-sm text-slate-500 mt-1">{cellImportPreview.length} member(s) to import. Confirm to add to this cell group.</p>
-                </div>
-                <div className="flex-1 overflow-auto p-4">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-100">
-                      <tr>
-                        <th className="text-left px-2 py-1.5 font-medium text-slate-600">#</th>
-                        <th className="text-left px-2 py-1.5 font-medium text-slate-600">Name</th>
-                        <th className="text-left px-2 py-1.5 font-medium text-slate-600">Birthday</th>
-                        <th className="text-left px-2 py-1.5 font-medium text-slate-600">Anniversary</th>
-                        <th className="text-left px-2 py-1.5 font-medium text-slate-600">Phone</th>
-                        <th className="text-left px-2 py-1.5 font-medium text-slate-600">Locality</th>
-                        <th className="text-left px-2 py-1.5 font-medium text-slate-600">Since</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {cellImportPreview.map((row, idx) => (
-                        <tr key={idx}>
-                          <td className="px-2 py-1.5 text-slate-600">{idx + 1}</td>
-                          <td className="px-2 py-1.5 text-slate-800">{row.name || '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.birthday ? formatDMY(row.birthday) : '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.anniversary ? formatDMY(row.anniversary) : '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.phone || '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.locality || '—'}</td>
-                          <td className="px-2 py-1.5 text-slate-600">{row.since ? formatDMY(row.since) : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="p-4 border-t border-slate-200 flex gap-2 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => { setCellImportModalOpen(false); setCellImportPreview([]) }}
-                    className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={cellImportSaving || cellImportPreview.length === 0}
-                    onClick={async () => {
-                      if (!expandedCellId || !cellImportPreview.length) return
-                      setCellImportSaving(true)
-                      try {
-                        const existingNames = new Set(cellMembers.map((m) => (m.name || '').toLowerCase()))
-                        for (const row of cellImportPreview) {
-                          const n = (row.name || '').trim()
-                          if (!n || existingNames.has(n.toLowerCase())) continue
-                          await addCellGroupMember(expandedCellId, row)
-                          existingNames.add(n.toLowerCase())
-                        }
-                        const list = await getCellGroupMembers(expandedCellId)
-                        setCellMembers(list)
-                        setCellGroups((prev) => prev.map((c) => (c.id === expandedCellId ? { ...c, memberCount: list.length } : c)))
-                        setCellImportModalOpen(false)
-                        setCellImportPreview([])
-                      } catch (err) {
-                        console.error(err)
-                        alert('Failed to import some members')
-                      }
-                      setCellImportSaving(false)
-                    }}
-                    className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 transition-colors"
-                  >
-                    {cellImportSaving ? 'Importing…' : 'Confirm Import'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {budgetModalOpen && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">{editingBudgetId ? 'Edit row' : 'Add row'}</h3>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{editingBudgetId ? 'Edit row' : 'Add row'}</h3>
                 </div>
                 <form
                   onSubmit={async (e) => {
@@ -9473,41 +9340,41 @@ export default function DepartmentHub() {
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Category *</label>
-                      <input type="text" value={budgetForm.category} onChange={(e) => setBudgetForm((f) => ({ ...f, category: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" required />
+                      <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Category *</label>
+                      <input type="text" value={budgetForm.category} onChange={(e) => setBudgetForm((f) => ({ ...f, category: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" required />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Sub-Category</label>
-                      <input type="text" value={budgetForm.subCategory} onChange={(e) => setBudgetForm((f) => ({ ...f, subCategory: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" />
+                      <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Sub-Category</label>
+                      <input type="text" value={budgetForm.subCategory} onChange={(e) => setBudgetForm((f) => ({ ...f, subCategory: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Description</label>
-                    <input type="text" value={budgetForm.description} onChange={(e) => setBudgetForm((f) => ({ ...f, description: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" />
+                    <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Description</label>
+                    <input type="text" value={budgetForm.description} onChange={(e) => setBudgetForm((f) => ({ ...f, description: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
-                      <input type="number" min="0" step="1" value={budgetForm.quantity} onChange={(e) => setBudgetForm((f) => ({ ...f, quantity: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" required />
+                      <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Quantity *</label>
+                      <input type="number" min="0" step="1" value={budgetForm.quantity} onChange={(e) => setBudgetForm((f) => ({ ...f, quantity: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" required />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Unit Cost (₹) *</label>
-                      <input type="number" min="0" step="0.01" value={budgetForm.unitCost} onChange={(e) => setBudgetForm((f) => ({ ...f, unitCost: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" required />
+                      <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Unit Cost (₹) *</label>
+                      <input type="number" min="0" step="0.01" value={budgetForm.unitCost} onChange={(e) => setBudgetForm((f) => ({ ...f, unitCost: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" required />
                     </div>
                   </div>
-                  <p className="text-xs text-slate-600">Total Cost (₹): ₹ {((Number(budgetForm.quantity) || 0) * (Number(budgetForm.unitCost) || 0)).toLocaleString()}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Total Cost (₹): ₹ {((Number(budgetForm.quantity) || 0) * (Number(budgetForm.unitCost) || 0)).toLocaleString()}</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Priority</label>
-                      <select value={budgetForm.priority} onChange={(e) => setBudgetForm((f) => ({ ...f, priority: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm">
+                      <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Priority</label>
+                      <select value={budgetForm.priority} onChange={(e) => setBudgetForm((f) => ({ ...f, priority: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                         <option value="High">High</option>
                         <option value="Medium">Medium</option>
                         <option value="Low">Low</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Type</label>
-                      <select value={budgetForm.type} onChange={(e) => setBudgetForm((f) => ({ ...f, type: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm">
+                      <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Type</label>
+                      <select value={budgetForm.type} onChange={(e) => setBudgetForm((f) => ({ ...f, type: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                         <option value="Recurring">Recurring</option>
                         <option value="Project">Project</option>
                         <option value="Asset">Asset</option>
@@ -9515,16 +9382,16 @@ export default function DepartmentHub() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Justification</label>
-                    <input type="text" value={budgetForm.justification} onChange={(e) => setBudgetForm((f) => ({ ...f, justification: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" />
+                    <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Justification</label>
+                    <input type="text" value={budgetForm.justification} onChange={(e) => setBudgetForm((f) => ({ ...f, justification: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Expected Date</label>
-                    <input type="date" value={budgetForm.expectedDate} onChange={(e) => setBudgetForm((f) => ({ ...f, expectedDate: e.target.value }))} className="w-full px-2 py-1.5 rounded border border-slate-300 text-sm" />
+                    <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Expected Date</label>
+                    <input type="date" value={budgetForm.expectedDate} onChange={(e) => setBudgetForm((f) => ({ ...f, expectedDate: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">{editingBudgetId ? 'Update' : 'Add row'}</button>
-                    <button type="button" onClick={() => { setBudgetModalOpen(false); setEditingBudgetId(null) }} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50">Cancel</button>
+                    <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm">{editingBudgetId ? 'Update' : 'Add row'}</button>
+                    <button type="button" onClick={() => { setBudgetModalOpen(false); setEditingBudgetId(null) }} className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -9533,9 +9400,9 @@ export default function DepartmentHub() {
 
           {updateModalOpen && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
                     {editingUpdateId ? 'Edit update' : 'Add update'}
                   </h3>
                 </div>
@@ -9582,7 +9449,7 @@ export default function DepartmentHub() {
                   className="p-5 space-y-4"
                 >
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">
                       Date
                     </label>
                     <input
@@ -9591,12 +9458,12 @@ export default function DepartmentHub() {
                       onChange={(e) =>
                         setUpdateForm((f) => ({ ...f, date: e.target.value }))
                       }
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">
                       Update
                     </label>
                     <textarea
@@ -9604,12 +9471,12 @@ export default function DepartmentHub() {
                       onChange={(e) =>
                         setUpdateForm((f) => ({ ...f, update: e.target.value }))
                       }
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[80px]"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-h-[80px] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">
                       Action Plan
                     </label>
                     <textarea
@@ -9617,13 +9484,13 @@ export default function DepartmentHub() {
                       onChange={(e) =>
                         setUpdateForm((f) => ({ ...f, actionPlan: e.target.value }))
                       }
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 min-h-[80px]"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-h-[80px] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     />
                   </div>
                   <div className="flex gap-2 pt-2">
                     <button
                       type="submit"
-                      className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
+                      className="px-4 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium shadow-sm transition-colors"
                     >
                       Save
                     </button>
@@ -9633,7 +9500,7 @@ export default function DepartmentHub() {
                         setUpdateModalOpen(false)
                         setEditingUpdateId(null)
                       }}
-                      className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors"
+                      className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
                     >
                       Cancel
                     </button>
@@ -9659,11 +9526,11 @@ export default function DepartmentHub() {
 
         const renderFillField = (field) => {
           const missing = isFillFieldMissing(baseline, ff, field)
-          const inputCls = `w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 transition-colors ${missing ? 'border-amber-300 bg-amber-50/60 focus:ring-amber-200' : 'border-slate-200 bg-white focus:ring-violet-200'}`
+          const inputCls = `w-full px-3 py-2 rounded-xl border text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${missing ? 'border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/30 focus:ring-amber-500/20 focus:border-amber-500' : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-indigo-500/20 focus:border-indigo-500'}`
           const labelEl = (
-            <label className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">
+            <label className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
               <span>{field.label}</span>
-              {missing && <span className="text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded-full normal-case tracking-normal">Missing</span>}
+              {missing && <span className="text-[9px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded-full normal-case tracking-normal">Missing</span>}
             </label>
           )
 
@@ -9693,7 +9560,7 @@ export default function DepartmentHub() {
                   <select
                     value={cc}
                     onChange={e => setFf(p => ({ ...p, phone: e.target.value + ' ' + num }))}
-                    className="px-1.5 py-2 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-violet-200 flex-shrink-0"
+                    className="px-1.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 flex-shrink-0"
                   >
                     {CODES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
                   </select>
@@ -9780,34 +9647,34 @@ export default function DepartmentHub() {
 
         return (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
-            <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
 
               {/* Header */}
-              <div className="px-4 pt-4 pb-3 border-b border-slate-100 flex items-start justify-between gap-3 flex-shrink-0">
+              <div className="px-4 pt-4 pb-3 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3 flex-shrink-0">
                 <div>
-                  <p className="font-bold text-slate-800 text-sm">Fill Profile Details</p>
-                  <p className="text-xs text-violet-500 font-medium mt-0.5">{fillInviteOpen.personName}</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Requested by Caring Director — fill in what you know</p>
+                  <p className="font-semibold text-slate-900 dark:text-white text-sm">Fill Profile Details</p>
+                  <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium mt-0.5">{fillInviteOpen.personName}</p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">Requested by Caring Director — fill in what you know</p>
                 </div>
-                <button type="button" onClick={() => setFillInviteOpen(null)} className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors text-xl flex-shrink-0">×</button>
+                <button type="button" onClick={() => setFillInviteOpen(null)} className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200 transition-colors text-xl flex-shrink-0">×</button>
               </div>
 
               {/* Form */}
               <div className="overflow-y-auto flex-1 px-4 py-4 space-y-3">
                 {fillInviteLoading ? (
-                  <p className="text-xs text-slate-400 text-center py-8">Loading existing profile…</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-8">Loading existing profile…</p>
                 ) : !fillInviteOpen.visitorId ? (
-                  <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                  <p className="text-xs text-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2.5">
                     This person isn't linked to a visitor record yet, so their profile can't be saved from here. Ask your Caring Director to link them first.
                   </p>
                 ) : (
                   <>
                     <div className="flex items-center justify-between gap-2 px-0.5">
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         {totalMissing === 0 ? 'All fields filled in ✓' : `${totalMissing} field${totalMissing > 1 ? 's' : ''} missing`}
                       </p>
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
-                        <input type="checkbox" checked={!fillShowAllFields} onChange={e => setFillShowAllFields(!e.target.checked)} className="rounded accent-violet-600" />
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                        <input type="checkbox" checked={!fillShowAllFields} onChange={e => setFillShowAllFields(!e.target.checked)} className="rounded accent-indigo-600" />
                         Missing only
                       </label>
                     </div>
@@ -9818,14 +9685,14 @@ export default function DepartmentHub() {
                       const visibleFields = fillShowAllFields ? relevantFields : missingFields
 
                       return (
-                        <div key={section.key} className="rounded-xl border border-slate-100 overflow-hidden">
+                        <div key={section.key} className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                           <div className={`px-3 py-2 flex items-center gap-2 ${section.headerBg}`}>
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${section.dot}`} />
                             <p className={`text-xs font-bold tracking-tight ${section.labelColor}`}>{section.label}</p>
                             {missingFields.length > 0 ? (
-                              <span className="ml-auto text-[10px] font-semibold text-amber-700 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full flex-shrink-0">{missingFields.length} missing</span>
+                              <span className="ml-auto text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full flex-shrink-0">{missingFields.length} missing</span>
                             ) : (
-                              <span className="ml-auto text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex-shrink-0">✓ Complete</span>
+                              <span className="ml-auto text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full flex-shrink-0">✓ Complete</span>
                             )}
                           </div>
                           {visibleFields.length > 0 && (
@@ -9841,7 +9708,7 @@ export default function DepartmentHub() {
               </div>
 
               {/* Footer */}
-              <div className="px-4 pb-4 pt-3 border-t border-slate-100 flex-shrink-0 space-y-2">
+              <div className="px-4 pb-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex-shrink-0 space-y-2">
                 <button
                   type="button"
                   disabled={fillInviteSaving || fillInviteLoading || !fillInviteOpen.visitorId}
@@ -9866,11 +9733,11 @@ export default function DepartmentHub() {
                     } catch { alert('Failed to save profile details') }
                     setFillInviteSaving(false)
                   }}
-                  className="w-full min-h-[44px] py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 active:bg-violet-800 transition-colors disabled:opacity-60"
+                  className="w-full min-h-[44px] py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium shadow-sm transition-colors disabled:opacity-60"
                 >
                   {fillInviteSaving ? 'Submitting…' : 'Submit Profile Details'}
                 </button>
-                <button type="button" onClick={() => setFillInviteOpen(null)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+                <button type="button" onClick={() => setFillInviteOpen(null)} className="w-full py-2 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">Cancel</button>
               </div>
             </div>
           </div>

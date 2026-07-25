@@ -149,7 +149,7 @@ export default function SundayPlanBubble({ isDay = true }) {
               {isPublished ? (
                 <DigitalBulletin plan={plan} preServiceEntry={preServiceEntry} selectedDate={dateISO} />
               ) : (
-                <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-10 text-center text-slate-400">
+                <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-6 text-center text-slate-400">
                   <p className="text-3xl mb-2">📋</p>
                   <p className="font-medium">Not published yet</p>
                   <p className="text-sm mt-1">Check back once the Sunday Plan for {formatDMY(dateISO)} is published.</p>

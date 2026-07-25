@@ -173,9 +173,9 @@ export default function Tasks() {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-slate-500">Loading...</div>
+          <div className="p-5 text-center text-slate-500">Loading...</div>
         ) : tasks.length === 0 ? (
-          <div className="p-8 text-center text-slate-500">No tasks match filters.</div>
+          <div className="p-5 text-center text-slate-500">No tasks match filters.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">

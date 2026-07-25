@@ -465,9 +465,9 @@ export default function IncomePage({ controlledMonth } = {}) {
       {/* Income list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center text-slate-500 text-sm">Loading…</div>
+          <div className="p-6 text-center text-slate-500 text-sm">Loading…</div>
         ) : entries.length === 0 ? (
-          <div className="p-10 text-center text-slate-400 text-sm">
+          <div className="p-6 text-center text-slate-400 text-sm">
             No income recorded for this month.
           </div>
         ) : (

@@ -141,9 +141,9 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, reminding
       </div>
 
       {loading ? (
-        <div className="px-5 py-10 text-sm text-slate-400 text-center">Loading…</div>
+        <div className="px-5 py-6 text-sm text-slate-400 text-center">Loading…</div>
       ) : rows.length === 0 ? (
-        <div className="px-5 py-10 text-sm text-slate-400 text-center">No cell groups in scope.</div>
+        <div className="px-5 py-6 text-sm text-slate-400 text-center">No cell groups in scope.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">

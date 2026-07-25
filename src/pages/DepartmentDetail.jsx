@@ -69,9 +69,9 @@ export default function DepartmentDetail() {
           Tasks
         </h2>
         {loading ? (
-          <div className="p-8 text-center text-slate-500">Loading...</div>
+          <div className="p-5 text-center text-slate-500">Loading...</div>
         ) : tasks.length === 0 ? (
-          <div className="p-8 text-center text-slate-500">No tasks for this department yet.</div>
+          <div className="p-5 text-center text-slate-500">No tasks for this department yet.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">

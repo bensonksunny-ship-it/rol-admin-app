@@ -433,9 +433,9 @@ export function CellDirectorCockpit({
         </div>
 
         {loadingCellPending ? (
-          <div className="px-5 py-10 text-sm text-slate-400 text-center">Loading…</div>
+          <div className="px-5 py-6 text-sm text-slate-400 text-center">Loading…</div>
         ) : (cellPendingChanges.length + leaderNotes.length) === 0 ? (
-          <div className="px-5 py-10 text-sm text-slate-400 text-center">
+          <div className="px-5 py-6 text-sm text-slate-400 text-center">
             All caught up — no pending changes.
           </div>
         ) : (

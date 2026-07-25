@@ -804,7 +804,7 @@ function BoardAgendaTab({ canEdit, userProfile }) {
           {/* Agenda rows */}
           <div className="divide-y divide-slate-100">
             {sortedPoints.length === 0 && (
-              <p className="px-6 py-10 text-center text-slate-400 text-sm">
+              <p className="px-6 py-6 text-center text-slate-400 text-sm">
                 No points submitted for this Sunday yet.
               </p>
             )}

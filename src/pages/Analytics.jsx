@@ -355,7 +355,7 @@ export default function Analytics() {
               className="text-xs text-indigo-600 font-medium hover:underline">View all →</Link>
           </div>
           {recentVisitors.length === 0 ? (
-            <p className="px-5 py-8 text-sm text-slate-400 text-center">No visitors recorded yet.</p>
+            <p className="px-5 py-5 text-sm text-slate-400 text-center">No visitors recorded yet.</p>
           ) : (
             <div className="divide-y divide-slate-50">
               {recentVisitors.map((v) => (
@@ -386,7 +386,7 @@ export default function Analytics() {
             <Link to="/department/sec-core" className="text-xs text-indigo-600 font-medium hover:underline">Review →</Link>
           </div>
           {boardPts.length === 0 ? (
-            <p className="px-5 py-8 text-sm text-slate-400 text-center">No agenda points submitted.</p>
+            <p className="px-5 py-5 text-sm text-slate-400 text-center">No agenda points submitted.</p>
           ) : (
             <div className="divide-y divide-slate-50">
               {boardPts.slice(0, 5).map((bp) => (
@@ -423,7 +423,7 @@ export default function Analytics() {
             <Link to="/tasks" className="text-xs text-indigo-600 font-medium hover:underline">View all →</Link>
           </div>
           {pendingTasks.length === 0 ? (
-            <p className="px-5 py-8 text-sm text-slate-400 text-center">All clear — no open tasks 🎉</p>
+            <p className="px-5 py-5 text-sm text-slate-400 text-center">All clear — no open tasks 🎉</p>
           ) : (
             <div className="divide-y divide-slate-50">
               {pendingTasks.slice(0, 6).map((t) => (

@@ -209,7 +209,10 @@ service cloud.firestore {
 
     match /delight_visitors/{docId} {
       // Sunday Ministry reads for Non Cell / Others attendance search-linking (Live Control).
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring') || canAccessDept('Sunday Ministry'));
+      // Cell reads for the "Add Member" People's Directory picker (Cell Groups tab) — only
+      // people entered via D Light Visitor Entry can be added to a cell group, so Cell
+      // Directors/Leaders need read access here too, not just D Light/Caring/Sunday Ministry.
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring') || canAccessDept('Sunday Ministry') || canAccessDept('Cell') || isCellDirector());
       allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
       allow update: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring'));
     }

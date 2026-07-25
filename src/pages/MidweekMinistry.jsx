@@ -135,7 +135,7 @@ export default function MidweekMinistry({ embedded = false }) {
               onSwitchToPrep={() => setSubTab('prep')}
             />
           ) : (
-            <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center text-slate-400 shadow-sm">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 text-center text-slate-400 shadow-sm">
               <p className="text-4xl mb-3">🔒</p>
               <p className="font-medium text-slate-500">Live Control is not available for this role.</p>
               <p className="text-sm mt-1">Switch to Director or Leader view to access it.</p>
