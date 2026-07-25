@@ -22,7 +22,7 @@ export default function MyWorkspace() {
   } = useActionNotifications(userProfile, isFounder, user?.uid)
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-8">
+    <div className="space-y-6 pb-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-slate-400 text-sm font-medium">{greeting()}, {userProfile?.displayName?.split(' ')[0] || 'there'} 👋</p>

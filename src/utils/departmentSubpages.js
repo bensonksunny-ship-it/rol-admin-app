@@ -3,6 +3,7 @@ import {
   Palette, UserCircle, Database, Sun, Tv, ListMusic, FolderTree, UserCheck,
   Music, Music2, Archive, History, PenSquare, LineChart, UserPlus, ClipboardList,
   CheckSquare, HeartHandshake, PartyPopper, CalendarClock, Sparkles,
+  CreditCard, Banknote, Building2,
 } from 'lucide-react'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { ACCOUNTS_ENTRY_BASE_PATH } from './accountsEntryAccess'
@@ -93,6 +94,41 @@ function getTabIcon(tab) {
   }
 }
 
+// Operations sub-views — previously each department rendered its own inline toggle
+// strip (CellOperationsToggle, SundayOperationsToggle, DefaultOperationsToggle, etc.)
+// at the top of its Operations tab, all with near-identical option sets. Centralized
+// here so the folder modal can show them as a nested grid instead: tapping the
+// Operations tile opens a second-level grid of these, driven by the `opsSub` query
+// param DepartmentHub already reads (replacing the toggle's local/onChange state).
+const DEFAULT_OPS_CHILDREN = [
+  { key: 'expense',       label: 'Expense',         Icon: CreditCard },
+  { key: 'subDepartment', label: 'Sub Department',  Icon: FolderTree },
+  { key: 'team',          label: 'Team',            Icon: Users },
+  { key: 'planning',      label: 'Planning',        Icon: CalendarDays },
+  { key: 'budget',        label: 'Budget',          Icon: Wallet },
+  { key: 'payout',        label: 'Payout Request',  Icon: Banknote },
+]
+
+function getOperationsChildren(slug) {
+  if (slug === 'accounts') {
+    return DEFAULT_OPS_CHILDREN.map((c) =>
+      c.key === 'payout' ? { key: 'addDepartments', label: 'Add Departments', Icon: Building2 } : c
+    )
+  }
+  if (slug === 'd-light') {
+    return DEFAULT_OPS_CHILDREN.map((c) => (c.key === 'subDepartment' ? { ...c, label: 'Sub Dept' } : c))
+  }
+  return DEFAULT_OPS_CHILDREN
+}
+
+// Cell's Leader Entry tab used to have its own inline toggle (CellLeaderEntryTab) for
+// switching between Shepherd Care and Mid-week Ministry — same idea, one level deep,
+// Cell-only. Drives the `leaderView` query param.
+const CELL_LEADER_ENTRY_CHILDREN = [
+  { key: 'shepherd', label: 'Shepherd Care', Icon: HeartHandshake },
+  { key: 'midweek',  label: 'Mid-week',      Icon: CalendarClock },
+]
+
 // Tabs that link to a dedicated standalone route instead of `?tab=` on the generic hub.
 function getTabPath(slug, tab) {
   if (tab === 'entry' && slug === 'accounts') return ACCOUNTS_ENTRY_BASE_PATH
@@ -105,21 +141,44 @@ function getTabPath(slug, tab) {
 }
 
 /**
- * Returns this department's subpages as `{ key, label, to }`, in the same order and
- * with the same per-user visibility (e.g. Cell Leaders only see leaderEntry/reports)
- * that DepartmentTabBar used to render as pills.
+ * Returns this department's subpages as `{ key, label, to, Icon, children? }`, in the
+ * same order and with the same per-user visibility (e.g. Cell Leaders only see
+ * leaderEntry/reports) that DepartmentTabBar used to render as pills. `children` (only
+ * present on Operations, and on Cell's Leader Entry) is a second grid of tiles the
+ * folder modal drills into instead of navigating straight there.
  */
 export function getDepartmentSubpages(slug, userProfile) {
   const allTabs = getDepartmentHubTabs(slug)
   const tabs = slug === 'cell'
     ? visibleCellTabs(userProfile).filter((t) => allTabs.includes(t))
     : allTabs
-  return tabs.map((tab) => ({
-    key: tab,
-    label: getTabLabel(tab),
-    to: getTabPath(slug, tab),
-    Icon: getTabIcon(tab),
-  }))
+  return tabs.map((tab) => {
+    const base = {
+      key: tab,
+      label: getTabLabel(tab),
+      to: getTabPath(slug, tab),
+      Icon: getTabIcon(tab),
+    }
+    if (tab === 'operations') {
+      return {
+        ...base,
+        children: getOperationsChildren(slug).map((c) => ({
+          ...c,
+          to: `/department/${slug}?tab=operations&opsSub=${encodeURIComponent(c.key)}`,
+        })),
+      }
+    }
+    if (tab === 'leaderEntry' && slug === 'cell') {
+      return {
+        ...base,
+        children: CELL_LEADER_ENTRY_CHILDREN.map((c) => ({
+          ...c,
+          to: `/department/cell?tab=leaderEntry&leaderView=${encodeURIComponent(c.key)}`,
+        })),
+      }
+    }
+    return base
+  })
 }
 
 /**

@@ -15,6 +15,8 @@ import {
   subscribeCellDlightConsultTasks,
   subscribeCellLeaderDirectorNotes,
   markCellLeaderDirectorNoteRead,
+  dismissUnassignedPerson,
+  subscribeCellUnassignedDismissals,
 } from '../services/firestore'
 import { totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
@@ -55,6 +57,14 @@ export function CellDirectorCockpit({
   const [assignSelectedCellId, setAssignSelectedCellId] = useState('')
   const [assigning, setAssigning] = useState(false)
   const [dismissedNames, setDismissedNames] = useState(new Set())
+  // Durable, cross-session dismissal record for Sunday-report-sourced cards (which
+  // have no task/member doc of their own to persist a "handled" state onto).
+  // `dismissedNames` above stays as the optimistic/instant local layer.
+  const [persistedDismissedNames, setPersistedDismissedNames] = useState(new Set())
+  useEffect(() => {
+    const unsub = subscribeCellUnassignedDismissals(setPersistedDismissedNames)
+    return unsub
+  }, [])
 
 
   // Live PCS referral tasks — independent of parent tasks prop so they update in real time
@@ -222,18 +232,19 @@ export function CellDirectorCockpit({
   )
 
   const visibleUnassigned = useMemo(() => {
+    const isDismissed = (nameKey) => dismissedNames.has(nameKey) || persistedDismissedNames.has(nameKey)
     const sundayItems = unassignedVisitors
-      .filter(v => !assignedNames.has(v.name.toLowerCase()) && !dismissedNames.has(v.name.toLowerCase()))
+      .filter(v => !assignedNames.has(v.name.toLowerCase()) && !isDismissed(v.name.toLowerCase()))
       .map(v => ({ ...v, source: 'sunday' }))
     // PCS referrals come first; deduplicate by name against Sunday list
     const sundayNames = new Set(sundayItems.map(v => v.name.toLowerCase()))
     const pcsItems = pcsReferrals.filter(
       r => !assignedNames.has(r.name.toLowerCase()) &&
-           !dismissedNames.has(r.name.toLowerCase()) &&
+           !isDismissed(r.name.toLowerCase()) &&
            !sundayNames.has(r.name.toLowerCase())
     )
     return [...pcsItems, ...sundayItems]
-  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames])
+  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames])
 
   const handleApprove = useCallback(
     async (change) => {
@@ -322,7 +333,8 @@ export function CellDirectorCockpit({
         showToast(`${item.name} added to ${cellName}.`)
         setAssignOpenName(null)
         setAssignSelectedCellId('')
-      } catch {
+      } catch (err) {
+        console.error('Failed to assign', item?.name, 'to cell', targetCellId, err)
         showToast('Failed to assign. Please try again.', 'error')
       } finally {
         setAssigning(false)
@@ -658,13 +670,32 @@ export function CellDirectorCockpit({
                           type="button"
                           title="Dismiss"
                           onClick={async () => {
-                            setDismissedNames(prev => new Set([...prev, item.name.toLowerCase()]))
+                            const nameKey = item.name.toLowerCase()
+                            // Optimistic — instant removal from the list; reverted below if the
+                            // backing write fails, so a failed dismiss doesn't look like a
+                            // successful one.
+                            setDismissedNames(prev => new Set([...prev, nameKey]))
                             if (assignOpenName === item.name) setAssignOpenName(null)
-                            if (item.taskId) {
-                              try {
+                            try {
+                              if (item.taskId) {
                                 await updateTask(item.taskId, { status: 'Completed' })
                                 onTaskUpdated?.(item.taskId, { status: 'Completed' })
-                              } catch { /* silently ignore */ }
+                              } else {
+                                // Sunday-attendance-derived card — no task/member doc to update, so
+                                // persist the dismissal itself (see cell_unassigned_dismissals).
+                                await dismissUnassignedPerson(
+                                  nameKey,
+                                  userProfile?.displayName || userProfile?.email || ''
+                                )
+                              }
+                            } catch (err) {
+                              console.error('Failed to dismiss unassigned person', item.name, err)
+                              showToast(`Failed to dismiss ${item.name}. Please try again.`, 'error')
+                              setDismissedNames(prev => {
+                                const next = new Set(prev)
+                                next.delete(nameKey)
+                                return next
+                              })
                             }
                           }}
                           className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 hover:text-slate-600 flex-shrink-0 transition-colors text-xs leading-none"

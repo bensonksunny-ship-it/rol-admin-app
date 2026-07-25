@@ -84,14 +84,15 @@ export default function BoardPointsModal({ department, userEmail, onClose }) {
     <>
       {/* Backdrop */}
       <div
-        style={{ position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.55)', zIndex:9998 }}
+        className="fixed inset-0 bg-black/55 z-[9998]"
         onClick={onClose}
       />
 
-      {/* Bottom sheet */}
-      <div style={{ position:'fixed', top:0, left:0, right:0, bottom:0, zIndex:9999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+      {/* Centered modal */}
+      <div className="fixed inset-0 flex items-center justify-center p-4 z-[9999]">
         <div
-          style={{ background:'#fff', width:'100%', maxWidth:'440px', borderRadius:'20px 20px 0 0', maxHeight:'85svh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 -8px 40px rgba(0,0,0,0.22)' }}
+          className="animate-folder-zoom-in max-w-md w-full bg-white rounded-2xl shadow-2xl border border-slate-200/80 flex flex-col overflow-hidden"
+          style={{ maxHeight: '85vh' }}
           onClick={e => e.stopPropagation()}
         >
 

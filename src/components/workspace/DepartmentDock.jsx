@@ -38,7 +38,7 @@ function myDepartmentNames(userProfile, isFounder) {
 export default function DepartmentDock() {
   const { userProfile, isFounder } = useAuth()
   const navigate = useNavigate()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const [openKey, setOpenKey] = useState(null)
 
   useEffect(() => { setOpenKey(null) }, [pathname])
@@ -63,6 +63,13 @@ export default function DepartmentDock() {
   const activeTile = tiles.find((t) => pathname === t.to || pathname.startsWith(t.to + '/') || pathname.startsWith(t.to + '?'))
   const openTile = tiles.find((t) => t.key === openKey)
 
+  // If the tile being opened is also the one the user is currently on, drop them
+  // straight into whichever nested category (Operations, Cell's Leader Entry) they're
+  // actually viewing instead of the top-level department grid — "tapping the dock icon
+  // while inside a sub-category shows that sub-category's nested pages".
+  const currentTab = new URLSearchParams(search).get('tab')
+  const initialChildKey = openTile && activeTile?.key === openTile.key ? currentTab : null
+
   return (
     <nav
       className="flex fixed left-1/2 -translate-x-1/2 z-40"
@@ -71,8 +78,10 @@ export default function DepartmentDock() {
     >
       {openTile && openTile.subpages.length > 0 && (
         <DepartmentFolderModal
+          key={openTile.key}
           label={openTile.label}
           subpages={openTile.subpages}
+          initialChildKey={initialChildKey}
           onClose={() => setOpenKey(null)}
           onNavigate={(to) => { setOpenKey(null); navigate(to) }}
         />

@@ -138,16 +138,7 @@ import { defaultCellTab, visibleCellTabs } from '../utils/cellTabVisibility'
 import { calcTenureLabel } from '../utils/cellMemberCategory'
 import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
-import CellOperationsToggle from './cell/CellOperationsToggle'
-import SundayOperationsToggle from './sunday/SundayOperationsToggle'
-import MediaOperationsToggle from './media/MediaOperationsToggle'
-import RiverKidsOperationsToggle from './river-kids/RiverKidsOperationsToggle'
 import PersonSearchInput from '../components/PersonSearchInput'
-import AdministrationOperationsToggle from './administration/AdministrationOperationsToggle'
-import AccountsOperationsToggle from './accounts/AccountsOperationsToggle'
-import DLightOperationsToggle from './d-light/DLightOperationsToggle'
-import WorshipOperationsToggle from './worship/WorshipOperationsToggle'
-import DefaultOperationsToggle from '../components/DefaultOperationsToggle'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
 import DeptExpenseTab from '../components/DeptExpenseTab'
@@ -766,6 +757,21 @@ export default function DepartmentHub() {
       setActiveTab('summary')
     }
   }, [slug, tabFromUrl, userProfile])
+
+  // Operations' sub-view used to be an inline toggle strip (CellOperationsToggle,
+  // SundayOperationsToggle, etc.) the user clicked; it's now a nested grid inside the
+  // dock's folder modal (DepartmentFolderModal), so the same choice comes in via
+  // ?opsSub= instead. Falls back to 'expense' — the toggle's own previous default —
+  // whenever the tab isn't Operations or the param is missing/stale.
+  const opsSubFromUrl = searchParams.get('opsSub')
+  useEffect(() => {
+    if (activeTab !== 'operations') return
+    setOpsSubTab(opsSubFromUrl || 'expense')
+  }, [activeTab, opsSubFromUrl])
+
+  // Same idea as opsSub, one level deep, Cell-only: CellLeaderEntryTab used to own a
+  // local 'shepherd' | 'midweek' toggle; now it's a controlled prop from ?leaderView=.
+  const leaderViewFromUrl = searchParams.get('leaderView') === 'midweek' ? 'midweek' : 'shepherd'
 
   function formatDuration(firstSundayStr) {
     if (!firstSundayStr) return '—'
@@ -3706,45 +3712,8 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {activeTab === 'operations' && slug === 'caring' && (
-            <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-          )}
-
-          {activeTab === 'operations' && slug === 'sunday-ministry' && (
-            <SundayOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-          )}
-
           {activeTab === 'upcomingSunday' && ['media', 'worship', 'd-light', 'administration'].includes(slug) && (
             <UpcomingSunday slug={slug} />
-          )}
-
-
-          {activeTab === 'operations' && slug === 'media' && (
-            <MediaOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-          )}
-
-          {activeTab === 'operations' && slug === 'river-kids' && (
-            <RiverKidsOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-          )}
-
-          {activeTab === 'operations' && slug === 'administration' && (
-            <AdministrationOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-          )}
-
-          {activeTab === 'operations' && slug === 'accounts' && (
-            <AccountsOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-          )}
-
-          {activeTab === 'operations' && slug === 'd-light' && (
-            <DLightOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-          )}
-
-          {activeTab === 'operations' && slug === 'worship' && (
-            <WorshipOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-          )}
-
-          {activeTab === 'operations' && !['caring', 'sunday-ministry', 'media', 'river-kids', 'administration', 'accounts', 'd-light', 'worship', 'cell'].includes(slug) && (
-            <DefaultOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
           )}
 
           {activeTab === 'operations' && opsSubTab === 'expense' && department?.name && (
@@ -8936,15 +8905,10 @@ export default function DepartmentHub() {
 
           {activeTab === 'leaderEntry' && slug === 'cell' && (
             <CellLeaderEntryTab
+              view={leaderViewFromUrl}
               pendingFillInvitations={pendingFillInvitations}
               onOpenFillInvite={openFillInviteModal}
             />
-          )}
-
-          {activeTab === 'operations' && slug === 'cell' && (
-            <div className="space-y-4">
-              <CellOperationsToggle value={opsSubTab} onChange={setOpsSubTab} />
-            </div>
           )}
 
           {cellGroupModalOpen && (

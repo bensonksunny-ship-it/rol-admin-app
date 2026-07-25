@@ -5112,3 +5112,26 @@ export function subscribeNotificationTodoAdditionIds(uid, onChange) {
     onChange(new Set(snap.docs.map((d) => d.data().notificationId)))
   }, () => {})
 }
+
+// ─── Cell Director Cockpit: "Unassigned" card dismissal ───────────────────────
+// The Sunday-attendance-derived Unassigned cards have no task/member doc of their
+// own — they're just a name diffed out of Sunday attendance vs. cell rosters — so
+// dismissing one needs its own small durable record, shared across all Cell
+// Directors (doc id = normalized lowercase name).
+const CELL_UNASSIGNED_DISMISSALS = 'cell_unassigned_dismissals'
+
+export async function dismissUnassignedPerson(nameKey, dismissedBy = '') {
+  if (!db || !nameKey) return
+  await setDoc(doc(db, CELL_UNASSIGNED_DISMISSALS, nameKey), {
+    nameKey,
+    dismissedBy,
+    dismissedAt: Timestamp.now(),
+  })
+}
+
+export function subscribeCellUnassignedDismissals(onChange) {
+  if (!db) return () => {}
+  return onSnapshot(collection(db, CELL_UNASSIGNED_DISMISSALS), (snap) => {
+    onChange(new Set(snap.docs.map((d) => d.id)))
+  }, () => {})
+}
