@@ -10,8 +10,8 @@ import { visibleCellTabs } from './cellTabVisibility'
 
 /**
  * Single source of truth for "what are this department's subpages, and where do they
- * link" — used by the bottom dock's folder popovers (desktop DepartmentDock, mobile
- * BottomTabBar) in place of the old per-page DepartmentTabBar pill row.
+ * link" — used by DepartmentDock's folder modal (the single nav dock at every screen
+ * size) in place of the old per-page DepartmentTabBar pill row.
  */
 
 function getTabLabel(tab) {

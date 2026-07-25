@@ -121,6 +121,15 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
             body: `${t.consultPersonName || 'Someone'}: ${t.recommendation || 'D-Light responded to your request'}`,
             cellName: '',
             sentAt: typeof t.respondedAt === 'string' ? new Date(t.respondedAt) : t.respondedAt,
+            // Carried through onto the To-Do task (see addNotificationToTodo) so the
+            // To-Do List card can offer one-tap "Assign to [recommended cell]" —
+            // same fields CellDirectorCockpit's Unassigned drawer already uses.
+            consultPersonName: t.consultPersonName || '',
+            consultPersonPhone: t.consultPersonPhone || '',
+            consultPersonVisitorId: t.consultPersonVisitorId || '',
+            recommendation: t.recommendation || '',
+            recommendedCellId: t.recommendedCellId || '',
+            recommendedCellName: t.recommendedCellName || '',
           }))
       )
     })
@@ -189,6 +198,19 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         notes: n.title || '',
         sourceNotificationId: n.id,
         deepLink: buildNotificationDeepLink(n),
+        // Cell-assignment recommendations get inline "Assign to [cell]" controls on
+        // the To-Do List card (ToDoListCard.jsx) — sourceConsultTaskId lets it also
+        // close out the original D-Light consult task once acted on.
+        ...(n.type === 'consult_response' ? {
+          cellAssignRecommendation: true,
+          sourceConsultTaskId: n.id,
+          consultPersonName: n.consultPersonName || '',
+          consultPersonPhone: n.consultPersonPhone || '',
+          consultPersonVisitorId: n.consultPersonVisitorId || '',
+          recommendation: n.recommendation || '',
+          recommendedCellId: n.recommendedCellId || '',
+          recommendedCellName: n.recommendedCellName || '',
+        } : {}),
       })
       await markNotificationAddedToTodo(uid, n.id)
       await dismissNotificationDoc(uid, n.id)

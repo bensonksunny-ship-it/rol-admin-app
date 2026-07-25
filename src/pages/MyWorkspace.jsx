@@ -11,17 +11,10 @@ function greeting() {
 }
 
 // Universal landing page ('/') for every signed-in user — the single home base for
-// someone who manages one or several departments/ministries. Notifications and direct
-// messages are reachable both from the collapsed icon rail (Sidebar's IconRail) and
-// this page's own WorkspaceHeader; department navigation lives in the global bottom
-// dock (rendered once from MainLayout, not this page).
-//
-// Pending actions live only in the notification bell now (WorkspaceHeader) — there
-// used to be a separate "Pending Actions" card showing the exact same list, which was
-// pure duplication. The bell is now the single actionable surface: each item can be
-// deep-linked into, converted into a To-Do (addNotificationToTodo), or dismissed.
-// ToDoListCard subscribes to `tasks` live (onSnapshot), so anything added from the
-// bell shows up there immediately — no manual refresh wiring needed here.
+// someone who manages one or several departments/ministries. Department navigation
+// lives in the global bottom dock (rendered once from MainLayout, not this page).
+// WorkspaceHeader keeps notifications/messages (top bar) — only the sidebar rail was
+// simplified down to just the My Workspace shortcut + profile avatar.
 export default function MyWorkspace() {
   const { user, userProfile, isFounder } = useAuth()
   const {

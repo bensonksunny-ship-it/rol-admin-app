@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CheckSquare, Check, Trash2 } from 'lucide-react'
-import { subscribeTasksForDepartments, updateTask, deleteTask } from '../../services/firestore'
+import { CheckSquare, Check, Trash2, Users } from 'lucide-react'
+import { subscribeTasksForDepartments, updateTask, deleteTask, getCellGroups, addCellGroupMember } from '../../services/firestore'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { formatDMY } from '../../utils/date'
@@ -43,6 +43,26 @@ export default function ToDoListCard() {
   const [completingIds, setCompletingIds] = useState(() => new Set())
   const [deletingIds, setDeletingIds] = useState(() => new Set())
 
+  // Cell assignment (inline "Assign to [recommended cell]" / "Assign to Other…" on
+  // consult_response To-Dos) — same underlying write CellDirectorCockpit's Unassigned
+  // drawer uses (addCellGroupMember into cell_groups/{cellId}/members), so a Cell
+  // Director can act on a D-Light recommendation right from the To-Do List without
+  // navigating to the Cell Hub.
+  const [cellGroups, setCellGroups] = useState([])
+  const [assigningId, setAssigningId] = useState(null)
+  const [toast, setToast] = useState(null)
+
+  useEffect(() => {
+    getCellGroups('Cell').then(setCellGroups).catch(() => setCellGroups([]))
+  }, [])
+
+  const activeCells = useMemo(() => cellGroups.filter((g) => g.status !== 'inactive'), [cellGroups])
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3500)
+  }
+
   const myDepts = useMemo(() => myDepartmentNames(userProfile), [userProfile])
 
   useEffect(() => {
@@ -81,8 +101,41 @@ export default function ToDoListCard() {
     }
   }
 
+  // Assigns the recommended/chosen person to a cell, completes this To-Do, and closes
+  // out the original D-Light consult task (if any) so its "pending" notification stops
+  // reappearing — mirrors CellDirectorCockpit's handleAssign exactly.
+  const assignToCell = async (t, cellId) => {
+    if (!cellId || assigningId) return
+    setAssigningId(t.id)
+    try {
+      await addCellGroupMember(cellId, {
+        name: t.consultPersonName || t.taskTitle || 'Unassigned',
+        status: 'active',
+        ...(t.consultPersonPhone ? { phone: t.consultPersonPhone } : {}),
+        ...(t.consultPersonVisitorId ? { visitorId: t.consultPersonVisitorId } : {}),
+      })
+      await updateTask(t.id, { status: 'Completed' })
+      if (t.sourceConsultTaskId) {
+        try { await updateTask(t.sourceConsultTaskId, { status: 'Completed' }) } catch { /* non-fatal */ }
+      }
+      const cellName = activeCells.find((c) => c.id === cellId)?.cellName || 'the cell'
+      showToast(`${t.consultPersonName || 'Member'} assigned to ${cellName}.`)
+    } catch {
+      showToast('Failed to assign. Please try again.', 'error')
+    } finally {
+      setAssigningId(null)
+    }
+  }
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col relative">
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
+          toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
+        }`}>
+          {toast.msg}
+        </div>
+      )}
       <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <span className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0">
@@ -101,49 +154,79 @@ export default function ToDoListCard() {
       ) : (
         <div className="divide-y divide-slate-50 overflow-y-auto max-h-80">
           {myTasks.map((t) => (
-            <div key={t.id} className="group w-full flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
-              <button
-                type="button"
-                onClick={() => completeTask(t)}
-                disabled={completingIds.has(t.id)}
-                aria-label="Mark task complete"
-                className="w-5 h-5 rounded-md border-2 border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 flex-shrink-0 flex items-center justify-center transition-colors disabled:opacity-50"
-              >
-                <Check size={12} strokeWidth={3} className="text-emerald-600 opacity-0 hover:opacity-100 transition-opacity" />
-              </button>
+            <div key={t.id} className="group w-full px-5 py-3 hover:bg-slate-50 transition-colors">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => completeTask(t)}
+                  disabled={completingIds.has(t.id)}
+                  aria-label="Mark task complete"
+                  className="w-5 h-5 rounded-md border-2 border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 flex-shrink-0 flex items-center justify-center transition-colors disabled:opacity-50"
+                >
+                  <Check size={12} strokeWidth={3} className="text-emerald-600 opacity-0 hover:opacity-100 transition-opacity" />
+                </button>
 
-              <button
-                type="button"
-                onClick={() => navigate(taskDeepLink(t))}
-                className="flex-1 min-w-0 flex items-center gap-3 text-left"
-              >
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.status === 'In Progress' ? 'bg-indigo-500' : 'bg-amber-400'}`} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800 truncate">{t.taskTitle || t.task || 'Untitled'}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    {t.department && (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
-                        [{t.department}]
-                      </span>
-                    )}
-                    {t.deadline && <span className="text-xs text-slate-400">{formatDMY(t.deadline)}</span>}
+                <button
+                  type="button"
+                  onClick={() => navigate(taskDeepLink(t))}
+                  className="flex-1 min-w-0 flex items-center gap-3 text-left"
+                >
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.status === 'In Progress' ? 'bg-indigo-500' : 'bg-amber-400'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">{t.taskTitle || t.task || 'Untitled'}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {t.department && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                          [{t.department}]
+                        </span>
+                      )}
+                      {t.deadline && <span className="text-xs text-slate-400">{formatDMY(t.deadline)}</span>}
+                    </div>
                   </div>
-                </div>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                  t.status === 'In Progress' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'
-                }`}>{t.status}</span>
-              </button>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
+                    t.status === 'In Progress' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'
+                  }`}>{t.status}</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => removeTask(t)}
-                disabled={deletingIds.has(t.id)}
-                aria-label="Delete task"
-                title="Delete task"
-                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-slate-300 opacity-0 group-hover:opacity-100 hover:!text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
-              >
-                <Trash2 size={14} strokeWidth={2} />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => removeTask(t)}
+                  disabled={deletingIds.has(t.id)}
+                  aria-label="Delete task"
+                  title="Delete task"
+                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-slate-300 opacity-0 group-hover:opacity-100 hover:!text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 size={14} strokeWidth={2} />
+                </button>
+              </div>
+
+              {/* Cell assignment — quick-assign to D-Light's recommended cell, or pick another */}
+              {t.cellAssignRecommendation && (
+                <div className="flex items-center flex-wrap gap-1.5 mt-2 pl-8">
+                  {t.recommendedCellId && (
+                    <button
+                      type="button"
+                      disabled={assigningId === t.id}
+                      onClick={() => assignToCell(t, t.recommendedCellId)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                    >
+                      <Users size={12} strokeWidth={2} />
+                      {assigningId === t.id ? 'Assigning…' : `Assign to ${t.recommendedCellName || 'recommended cell'}`}
+                    </button>
+                  )}
+                  <select
+                    value=""
+                    disabled={assigningId === t.id || activeCells.length === 0}
+                    onChange={(e) => assignToCell(t, e.target.value)}
+                    className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 max-w-[160px]"
+                  >
+                    <option value="" disabled>Assign to Other…</option>
+                    {activeCells.map((c) => (
+                      <option key={c.id} value={c.id}>{c.cellName || c.id}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           ))}
         </div>

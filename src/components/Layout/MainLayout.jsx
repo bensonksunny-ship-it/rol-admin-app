@@ -5,8 +5,8 @@ import DepartmentDock from '../workspace/DepartmentDock'
 // ─── Main Layout ──────────────────────────────────────────────────────────────
 // The sidebar is a permanent slim icon rail (~64px) at lg+ on every route, so
 // content only ever needs to clear that width, not a full-width labeled sidebar.
-// DepartmentDock is global too (desktop floating dock; mobile's equivalent is
-// Sidebar's own BottomTabBar) — lg:pb-24 keeps page content clear of it.
+// DepartmentDock is the sole navigation dock at every screen size (mobile included) —
+// pb-24 / pb-[7rem] keeps page content clear of it either way.
 
 export default function MainLayout() {
   return (

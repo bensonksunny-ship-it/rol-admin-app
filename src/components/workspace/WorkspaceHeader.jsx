@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Bell, MessageSquare, LayoutDashboard } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentRole } from '../../utils/access'
+import { getBoardPoints } from '../../services/firestore'
 import useDirectMessages from '../../hooks/useDirectMessages'
 import NotifPanel from '../NotifPanel'
 import MessagesPanel from '../MessagesPanel'
 import SundayPlanBubble from '../SundayPlanBubble'
+import BoardPointsModal from '../BoardPointsModal'
+
+const SEC_CORE_DEPARTMENT = 'Sec-Core'
 
 // True if the user directs any department they belong to, or is Founder/Admin.
 function isDirectorOrAdmin(userProfile, isFounder, isAdmin) {
@@ -16,17 +19,33 @@ function isDirectorOrAdmin(userProfile, isFounder, isAdmin) {
 }
 
 // Top-right action row for My Workspace: Sunday Plan preview, notifications, direct
-// messages, and (Director/Admin only) a shortcut into the church-wide Analytics view.
-// Notifications reuse the same feed as the collapsed sidebar rail (passed down from
-// MyWorkspace, which already subscribes via useActionNotifications); messages get
-// their own independent useDirectMessages instance, same pattern as the rail.
+// messages, and (Director/Admin only) the Director Board shortcut. Notifications
+// reuse the same feed as the collapsed sidebar rail (passed down from MyWorkspace,
+// which already subscribes via useActionNotifications); messages get their own
+// independent useDirectMessages instance, same pattern as the rail. The profile
+// avatar lives in the sidebar rail now, not here.
 export default function WorkspaceHeader({ notifications, onNotifAction, onDismissNotification, onAddNotificationToTodo }) {
   const { user, userProfile, isFounder, isAdmin } = useAuth()
-  const navigate = useNavigate()
   const showDirectorBoard = isDirectorOrAdmin(userProfile, isFounder, isAdmin)
 
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
+
+  // Director Board — opens the same BoardPointsModal the department hubs use, scoped
+  // to Sec-Core (the Secretary Core department that owns the church-wide board
+  // agenda), so a Director can see/submit points from My Workspace without having to
+  // first navigate into a specific department page.
+  const [boardPointsOpen, setBoardPointsOpen] = useState(false)
+  const [boardPointCount, setBoardPointCount] = useState(0)
+
+  useEffect(() => {
+    if (!showDirectorBoard) { setBoardPointCount(0); return }
+    let alive = true
+    getBoardPoints(SEC_CORE_DEPARTMENT)
+      .then((pts) => { if (alive) setBoardPointCount(pts.filter((p) => p.status === 'pending').length) })
+      .catch(() => { if (alive) setBoardPointCount(0) })
+    return () => { alive = false }
+  }, [showDirectorBoard])
 
   const [messagesOpen, setMessagesOpen] = useState(false)
   const msgRef = useRef(null)
@@ -117,13 +136,26 @@ export default function WorkspaceHeader({ notifications, onNotifAction, onDismis
       {showDirectorBoard && (
         <button
           type="button"
-          onClick={() => navigate('/analytics')}
+          onClick={() => setBoardPointsOpen(true)}
           title="Director Board"
           aria-label="Director Board"
-          className={iconBtnClass}
+          className={`relative ${iconBtnClass}`}
         >
           <LayoutDashboard size={18} strokeWidth={1.75} />
+          {boardPointCount > 0 && (
+            <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-amber-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
+              {boardPointCount > 9 ? '9+' : boardPointCount}
+            </span>
+          )}
         </button>
+      )}
+
+      {boardPointsOpen && (
+        <BoardPointsModal
+          department={SEC_CORE_DEPARTMENT}
+          userEmail={userProfile?.email}
+          onClose={() => setBoardPointsOpen(false)}
+        />
       )}
     </div>
   )

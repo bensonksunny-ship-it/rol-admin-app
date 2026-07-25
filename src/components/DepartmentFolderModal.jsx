@@ -18,8 +18,9 @@ const TILE_COLORS = [
 
 // Centered "iOS App Folder" modal — replaces a small anchored popover/bottom-sheet
 // with a true centered, frosted-glass folder matching Apple's Home Screen folder UI.
-// Shared by the desktop DepartmentDock and mobile BottomTabBar so there's one folder
-// look across the app regardless of screen size. Light-styled only (no dark-mode
+// Used by DepartmentDock (the single nav dock at every screen size, mobile included)
+// so there's one folder look across the app regardless of screen size. Light-styled
+// only (no dark-mode
 // variant): the dock this replaces never threaded the app's day/night toggle either,
 // and Tailwind's `dark:` variant isn't wired to that toggle (it's class-based via a
 // manual .dark selector, not the default media-query strategy) — adding a real dark

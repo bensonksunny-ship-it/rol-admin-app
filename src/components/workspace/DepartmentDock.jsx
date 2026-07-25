@@ -25,9 +25,11 @@ function myDepartmentNames(userProfile, isFounder) {
   return [...new Set([...fromPositions, ...fromDepartments, ...fromPrimary])]
 }
 
-// Floating, iPhone-style dock of the user's departments, fixed bottom-center. Desktop
-// only — on mobile the existing bottom tab bar covers the same navigation (with its
-// own folder sheet for subpages).
+// Floating, iPhone-style dock of the user's departments, fixed bottom-center — the
+// sole navigation surface on every screen size. There is no separate mobile bottom
+// tab bar anymore (Sidebar's MobileHeader is just the logo + profile avatar), so this
+// dock is what carries department navigation on phones too, with room for the home
+// indicator via safe-area-inset-bottom.
 //
 // Tapping a department tile opens a centered, iOS-Home-Screen-style folder modal
 // (DepartmentFolderModal) listing its subpages (from getDepartmentSubpages) instead
@@ -63,7 +65,8 @@ export default function DepartmentDock() {
 
   return (
     <nav
-      className="hidden lg:flex fixed bottom-5 left-1/2 -translate-x-1/2 z-40"
+      className="flex fixed left-1/2 -translate-x-1/2 z-40"
+      style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
       aria-label="Department shortcuts"
     >
       {openTile && openTile.subpages.length > 0 && (
