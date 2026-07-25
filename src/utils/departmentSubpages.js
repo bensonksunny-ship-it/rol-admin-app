@@ -1,3 +1,9 @@
+import {
+  LayoutGrid, Users, CalendarDays, Wallet, FileBarChart2, PenLine, Settings2,
+  Palette, UserCircle, Database, Sun, Tv, ListMusic, FolderTree, UserCheck,
+  Music, Music2, Archive, History, PenSquare, LineChart, UserPlus, ClipboardList,
+  CheckSquare, HeartHandshake, PartyPopper, CalendarClock, Sparkles,
+} from 'lucide-react'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { ACCOUNTS_ENTRY_BASE_PATH } from './accountsEntryAccess'
 import { visibleCellTabs } from './cellTabVisibility'
@@ -47,6 +53,46 @@ function getTabLabel(tab) {
   }
 }
 
+// Icon shown in the folder modal's app-style grid tile for each subpage.
+function getTabIcon(tab) {
+  switch (tab) {
+    case 'summary':           return LayoutGrid
+    case 'team':               return Users
+    case 'planning':           return CalendarDays
+    case 'financial':          return Wallet
+    case 'cellGroups':         return Users
+    case 'reports':            return FileBarChart2
+    case 'leaderEntry':        return PenLine
+    case 'operations':         return Settings2
+    case 'design':             return Palette
+    case 'members':            return UserCircle
+    case 'dataBackup':         return Database
+    case 'sunday':             return Sun
+    case 'sundayReport':       return Tv
+    case 'sundayReportsHistory': return FileBarChart2
+    case 'sundayProgram':      return ListMusic
+    case 'subDepartment':      return FolderTree
+    case 'assign':             return UserCheck
+    case 'theTeam':            return Users
+    case 'practiceRehearsal':  return Music
+    case 'songsDirectory':     return Music2
+    case 'archives':           return Archive
+    case 'budget':             return Wallet
+    case 'history':            return History
+    case 'entry':              return PenSquare
+    case 'insights':           return LineChart
+    case 'visitorEntry':       return UserPlus
+    case 'register':           return ClipboardList
+    case 'attendance':         return CheckSquare
+    case 'pcs':                return HeartHandshake
+    case 'events':             return PartyPopper
+    case 'liveControl':        return Tv
+    case 'upcomingSunday':     return CalendarClock
+    case 'sundayCrew':         return Users
+    default:                   return Sparkles
+  }
+}
+
 // Tabs that link to a dedicated standalone route instead of `?tab=` on the generic hub.
 function getTabPath(slug, tab) {
   if (tab === 'entry' && slug === 'accounts') return ACCOUNTS_ENTRY_BASE_PATH
@@ -72,6 +118,7 @@ export function getDepartmentSubpages(slug, userProfile) {
     key: tab,
     label: getTabLabel(tab),
     to: getTabPath(slug, tab),
+    Icon: getTabIcon(tab),
   }))
 }
 

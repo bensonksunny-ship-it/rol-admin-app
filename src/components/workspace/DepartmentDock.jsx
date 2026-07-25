@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { PenLine } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { DEPARTMENT_LIST, getDepartmentByName, getDepartmentPath, getDepartmentIcon } from '../../constants/departments'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 import { getDepartmentSubpages } from '../../utils/departmentSubpages'
+import DepartmentFolderModal from '../DepartmentFolderModal'
 
 function displayDeptName(deptName) {
   if (deptName === 'Event M') return 'Event Management'
@@ -28,33 +29,17 @@ function myDepartmentNames(userProfile, isFounder) {
 // only — on mobile the existing bottom tab bar covers the same navigation (with its
 // own folder sheet for subpages).
 //
-// Tapping a department tile opens an Apple-Dock-style "folder" popover listing its
-// subpages (from getDepartmentSubpages) instead of navigating straight to the hub —
-// this is what replaced the old per-page DepartmentTabBar pill row.
+// Tapping a department tile opens a centered, iOS-Home-Screen-style folder modal
+// (DepartmentFolderModal) listing its subpages (from getDepartmentSubpages) instead
+// of navigating straight to the hub — this is what replaced the old per-page
+// DepartmentTabBar pill row.
 export default function DepartmentDock() {
   const { userProfile, isFounder } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [openKey, setOpenKey] = useState(null)
-  const dockRef = useRef(null)
 
   useEffect(() => { setOpenKey(null) }, [pathname])
-
-  useEffect(() => {
-    if (!openKey) return
-    const close = (e) => {
-      if (dockRef.current && !dockRef.current.contains(e.target)) setOpenKey(null)
-    }
-    const closeOnEscape = (e) => { if (e.key === 'Escape') setOpenKey(null) }
-    document.addEventListener('mousedown', close)
-    document.addEventListener('touchstart', close)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('touchstart', close)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [openKey])
 
   const tiles = myDepartmentNames(userProfile, isFounder).map((name) => {
     const dept = getDepartmentByName(name)
@@ -78,38 +63,16 @@ export default function DepartmentDock() {
 
   return (
     <nav
-      ref={dockRef}
       className="hidden lg:flex fixed bottom-5 left-1/2 -translate-x-1/2 z-40"
       aria-label="Department shortcuts"
     >
-      {/* Apple-Dock-style folder popover for the open tile's subpages */}
       {openTile && openTile.subpages.length > 0 && (
-        <div
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-56 rounded-2xl overflow-hidden"
-          style={{
-            background: 'rgba(255,255,255,0.96)',
-            backdropFilter: 'blur(28px) saturate(200%)',
-            WebkitBackdropFilter: 'blur(28px) saturate(200%)',
-            border: '1px solid rgba(255,255,255,0.95)',
-            boxShadow: '0 16px 48px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.08)',
-          }}
-        >
-          <div className="px-3.5 pt-3 pb-2 border-b border-slate-100">
-            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">{openTile.label}</p>
-          </div>
-          <div className="py-1.5 max-h-72 overflow-y-auto">
-            {openTile.subpages.map((sp) => (
-              <button
-                key={sp.key}
-                type="button"
-                onClick={() => { setOpenKey(null); navigate(sp.to) }}
-                className="w-full text-left px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
-              >
-                {sp.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <DepartmentFolderModal
+          label={openTile.label}
+          subpages={openTile.subpages}
+          onClose={() => setOpenKey(null)}
+          onNavigate={(to) => { setOpenKey(null); navigate(to) }}
+        />
       )}
 
       <div

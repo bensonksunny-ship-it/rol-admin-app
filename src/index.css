@@ -61,6 +61,16 @@ body {
   min-height: 100vh;
 }
 
+/* iOS-folder-style modal open animation (no tailwindcss-animate plugin installed,
+   so this is a small hand-rolled equivalent of animate-in + zoom-in-95). */
+@keyframes folder-zoom-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.animate-folder-zoom-in {
+  animation: folder-zoom-in 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
 /* Broad Tailwind color overrides so the existing UI actually "turns dark"
    without rewriting every component. We keep it limited to the main classes used
    throughout the admin UI. */

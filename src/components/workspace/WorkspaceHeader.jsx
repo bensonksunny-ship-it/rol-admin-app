@@ -42,13 +42,10 @@ export default function WorkspaceHeader({ notifications, onNotifAction, onDismis
     resetPanel()
   }
 
-  useEffect(() => {
-    if (!notifOpen) return
-    const close = (e) => { if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false) }
-    document.addEventListener('mousedown', close)
-    document.addEventListener('touchstart', close)
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('touchstart', close) }
-  }, [notifOpen])
+  // NotifPanel owns its own outside-click-to-close (it renders via createPortal to
+  // document.body, so it's never a DOM descendant of notifRef — a listener here
+  // checking only notifRef would fire before the portal's own button onClicks get a
+  // chance to run, silently swallowing "+ Add to To-Do" / "Ignore").
 
   useEffect(() => {
     if (!messagesOpen) return
@@ -82,7 +79,7 @@ export default function WorkspaceHeader({ notifications, onNotifAction, onDismis
         {notifOpen && (() => {
           const r = notifRef.current?.getBoundingClientRect()
           return <NotifPanel isDay notifications={notifications} onAction={(n) => { setNotifOpen(false); onNotifAction(n) }}
-            onAddToTodo={onAddNotificationToTodo} onDismiss={onDismissNotification}
+            onAddToTodo={onAddNotificationToTodo} onDismiss={onDismissNotification} onClose={() => setNotifOpen(false)}
             posStyle={{ top: (r?.bottom ?? 60) + 8, left: Math.min(r?.left ?? 0, window.innerWidth - 300) }} />
         })()}
       </div>

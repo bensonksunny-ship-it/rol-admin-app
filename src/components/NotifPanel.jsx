@@ -1,9 +1,30 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Bell, ListPlus, Check, X } from 'lucide-react'
 
-export default function NotifPanel({ isDay, notifications, posStyle, onAction, onAddToTodo, onDismiss }) {
+export default function NotifPanel({ isDay, notifications, posStyle, onAction, onAddToTodo, onDismiss, onClose }) {
   const [pendingIds, setPendingIds] = useState(() => new Set())
+  // This panel is portaled to document.body, so it's never a DOM descendant of
+  // whatever trigger button opened it. Owning outside-click detection here, against
+  // this root's own ref, means "is this click inside the panel" is a real DOM
+  // containment check — not a race between a parent's raw document listener and
+  // React's synthetic event dispatch (which don't reliably order against each other,
+  // so a parent-side listener could fire — and close/unmount this panel — before a
+  // button's own onClick runs, silently swallowing "+ Add to To-Do" / "Ignore").
+  const panelRef = useRef(null)
+
+  useEffect(() => {
+    if (!onClose) return
+    const close = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target)) onClose()
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('touchstart', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('touchstart', close)
+    }
+  }, [onClose])
 
   const fmtDate = (d) => {
     if (!d) return ''
@@ -22,6 +43,7 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
 
   return createPortal(
     <div
+      ref={panelRef}
       className="w-72 rounded-2xl overflow-hidden"
       style={{
         position: 'fixed',

@@ -19,6 +19,7 @@ import SundayPlanBubble from '../SundayPlanBubble'
 import RailTooltip from '../RailTooltip'
 import BoardPointsModal from '../BoardPointsModal'
 import { getDepartmentSubpages, slugFromDepartmentPath } from '../../utils/departmentSubpages'
+import DepartmentFolderModal from '../DepartmentFolderModal'
 import rolccLogo from '../../assets/rolcc_logo BW.JPG'
 
 const WORKSPACE_ITEM = { to: '/', label: 'My Workspace', icon: '🏠' }
@@ -92,13 +93,6 @@ function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen })
   }, [showMenu])
 
   useEffect(() => { setOpenSheetKey(null) }, [pathname])
-
-  useEffect(() => {
-    if (!openSheetKey) return
-    const closeOnEscape = (e) => { if (e.key === 'Escape') setOpenSheetKey(null) }
-    document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
-  }, [openSheetKey])
 
   const openSheetItem = items.find((it) => (it.to || '/') + (it.label || '') === openSheetKey)
   const openSheetSlug = openSheetItem ? slugFromDepartmentPath(openSheetItem.to) : null
@@ -185,6 +179,7 @@ function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen })
               const Icon = ICON_MAP[item.icon] || LayoutDashboard
               const itemKey = (item.to || '/') + (item.label || '')
               const deptSlug = slugFromDepartmentPath(item.to)
+              const hasFolder = deptSlug ? getDepartmentSubpages(deptSlug, userProfile).length > 0 : false
               const tabContent = (
                 <>
                   <Icon size={20} strokeWidth={1.5} />
@@ -208,8 +203,8 @@ function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen })
                   className="flex-shrink-0"
                   style={{ minWidth: '64px' }}
                 >
-                  {deptSlug ? (
-                    // Department tile — opens the folder sheet with its subpages instead
+                  {deptSlug && hasFolder ? (
+                    // Department tile — opens the folder modal with its subpages instead
                     // of navigating straight to the hub (mirrors the desktop dock).
                     <button
                       type="button"
@@ -319,46 +314,15 @@ function BottomTabBar({ items, theme, signOut, userProfile, user, sidebarOpen })
       </div>
     </nav>
 
-    {/* Folder sheet — subpages of the tapped department, mobile equivalent of the
-        desktop dock's popover. Rises above the dock instead of a small anchored
-        popover, which is easier to tap on a narrow screen. */}
+    {/* iOS-folder-style modal — subpages of the tapped department, mobile equivalent
+        of the desktop dock's folder popover (same shared component). */}
     {openSheetItem && (
-      <>
-        <div
-          className="lg:hidden fixed inset-0 bg-black/40 backdrop-blur-sm"
-          style={{ zIndex: 51 }}
-          onClick={() => setOpenSheetKey(null)}
-          aria-hidden
-        />
-        <div
-          className="lg:hidden fixed left-3 right-3 rounded-3xl overflow-hidden"
-          style={{
-            zIndex: 52,
-            bottom: 'calc(6rem + env(safe-area-inset-bottom, 0px))',
-            background: isDay ? 'rgba(255,255,255,0.97)' : 'rgba(15,23,42,0.97)',
-            backdropFilter: 'blur(28px)',
-            WebkitBackdropFilter: 'blur(28px)',
-            border: isDay ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)',
-            boxShadow: '0 16px 48px rgba(0,0,0,0.22)',
-          }}
-        >
-          <div className={`px-4 pt-3.5 pb-2.5 border-b ${isDay ? 'border-slate-100' : 'border-slate-700/60'}`}>
-            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">{openSheetItem.label}</p>
-          </div>
-          <div className="py-1.5 max-h-[50vh] overflow-y-auto">
-            {openSheetSubpages.map((sp) => (
-              <button
-                key={sp.key}
-                type="button"
-                onClick={() => { setOpenSheetKey(null); navigate(sp.to) }}
-                className={`w-full text-left px-4 py-3 text-sm font-medium transition-colors ${isDay ? 'text-slate-700 hover:bg-indigo-50 hover:text-indigo-700' : 'text-slate-200 hover:bg-slate-800'}`}
-              >
-                {sp.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </>
+      <DepartmentFolderModal
+        label={openSheetItem.label}
+        subpages={openSheetSubpages}
+        onClose={() => setOpenSheetKey(null)}
+        onNavigate={(to) => { setOpenSheetKey(null); navigate(to) }}
+      />
     )}
     </>
   )
@@ -407,18 +371,11 @@ export default function Sidebar() {
     navigateForNotif(n)
   }
 
-  useEffect(() => {
-    if (!notifOpen) return
-    const close = (e) => {
-      const d = notifDesktopRef.current
-      const m = notifMobileRef.current
-      const r = notifRailRef.current
-      if ((!d || !d.contains(e.target)) && (!m || !m.contains(e.target)) && (!r || !r.contains(e.target))) setNotifOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    document.addEventListener('touchstart', close)
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('touchstart', close) }
-  }, [notifOpen])
+  // NotifPanel owns its own outside-click-to-close (it renders via createPortal to
+  // document.body, so it's never a DOM descendant of notifDesktopRef/notifMobileRef/
+  // notifRailRef — a listener here checking only those refs would fire before the
+  // portal's own button onClicks get a chance to run, silently swallowing
+  // "+ Add to To-Do" / "Ignore").
 
   // ── Direct Messages ─────────────────────────────────────────────────────────
   const [messagesOpen, setMessagesOpen] = useState(false)
