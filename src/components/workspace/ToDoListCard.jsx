@@ -51,6 +51,7 @@ export default function ToDoListCard() {
   const [cellGroups, setCellGroups] = useState([])
   const [assigningId, setAssigningId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   useEffect(() => {
     getCellGroups('Cell').then(setCellGroups).catch(() => setCellGroups([]))
@@ -90,13 +91,25 @@ export default function ToDoListCard() {
     }
   }
 
+  // Two-tap delete (tap trash to arm, tap the confirm check to actually delete) instead
+  // of window.confirm — a native blocking dialog is one more thing that can behave
+  // unpredictably (browser/extension/embedded-context quirks); this keeps everything
+  // inside React so it's easy to reason about and test. Removes from local `tasks`
+  // state immediately (optimistic), then deletes the Firestore doc; if the write
+  // fails, the task is put back and the actual error is surfaced in the toast instead
+  // of silently doing nothing, so a permission-denied failure is visibly a failure —
+  // not indistinguishable from "worked, but slow."
   const removeTask = async (t) => {
     if (deletingIds.has(t.id)) return
-    if (!window.confirm('Delete this task?')) return
+    setConfirmDeleteId(null)
     setDeletingIds((prev) => new Set(prev).add(t.id))
+    setTasks((prev) => prev.filter((x) => x.id !== t.id))
     try {
       await deleteTask(t.id)
-    } catch {
+    } catch (err) {
+      setTasks((prev) => (prev.some((x) => x.id === t.id) ? prev : [...prev, t]))
+      showToast(`Failed to delete: ${err?.code || err?.message || 'unknown error'}`, 'error')
+    } finally {
       setDeletingIds((prev) => { const next = new Set(prev); next.delete(t.id); return next })
     }
   }
@@ -188,16 +201,39 @@ export default function ToDoListCard() {
                   }`}>{t.status}</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => removeTask(t)}
-                  disabled={deletingIds.has(t.id)}
-                  aria-label="Delete task"
-                  title="Delete task"
-                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-slate-300 opacity-0 group-hover:opacity-100 hover:!text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
-                >
-                  <Trash2 size={14} strokeWidth={2} />
-                </button>
+                {confirmDeleteId === t.id ? (
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); removeTask(t) }}
+                      disabled={deletingIds.has(t.id)}
+                      aria-label="Confirm delete"
+                      title="Confirm delete"
+                      className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-semibold hover:bg-rose-700 transition-colors disabled:opacity-50"
+                    >
+                      {deletingIds.has(t.id) ? '…' : 'Delete?'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); setConfirmDeleteId(null) }}
+                      aria-label="Cancel delete"
+                      title="Cancel"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); setConfirmDeleteId(t.id) }}
+                    aria-label="Delete task"
+                    title="Delete task"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-slate-300 opacity-0 group-hover:opacity-100 hover:!text-rose-600 hover:bg-rose-50 transition-colors"
+                  >
+                    <Trash2 size={14} strokeWidth={2} />
+                  </button>
+                )}
               </div>
 
               {/* Cell assignment — quick-assign to D-Light's recommended cell, or pick another */}

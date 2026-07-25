@@ -4,6 +4,7 @@ import { Bell, ListPlus, Check, X } from 'lucide-react'
 
 export default function NotifPanel({ isDay, notifications, posStyle, onAction, onAddToTodo, onDismiss, onClose }) {
   const [pendingIds, setPendingIds] = useState(() => new Set())
+  const [actionError, setActionError] = useState(null)
   // This panel is portaled to document.body, so it's never a DOM descendant of
   // whatever trigger button opened it. Owning outside-click detection here, against
   // this root's own ref, means "is this click inside the panel" is a real DOM
@@ -34,8 +35,14 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
   const withPending = async (n, fn) => {
     if (!fn || pendingIds.has(n.id)) return
     setPendingIds((prev) => new Set(prev).add(n.id))
+    setActionError(null)
     try {
       await fn(n)
+    } catch (err) {
+      // Surface the failure instead of letting the click look like it did nothing —
+      // e.g. a permission-denied write previously just reverted silently a moment later.
+      setActionError(err?.code || err?.message || 'Something went wrong. Please try again.')
+      setTimeout(() => setActionError(null), 5000)
     } finally {
       setPendingIds((prev) => { const next = new Set(prev); next.delete(n.id); return next })
     }
@@ -63,6 +70,11 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
           <span className="text-xs font-semibold text-indigo-500">{notifications.length} pending</span>
         )}
       </div>
+      {actionError && (
+        <p className="px-4 py-2 text-xs font-semibold text-rose-600 bg-rose-50 border-b border-rose-100">
+          {actionError}
+        </p>
+      )}
       {notifications.length === 0 ? (
         <div className={`px-4 py-6 text-center ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>
           <Bell size={24} className="mx-auto mb-2 opacity-30" />

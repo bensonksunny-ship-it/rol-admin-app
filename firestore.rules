@@ -238,8 +238,13 @@ service cloud.firestore {
       // D-Light needs read access too: the cell-assignment-consult reply modal lets the
       // D-Light Director pick a recommended cell group by name.
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring') || canAccessDept('D Light'));
-      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
-      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Cell'));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || isCellDirector());
+      // isCellDirector() added to match the members subcollection below — some Cell
+      // Directors are set up via positions[] only (no top-level department/departments
+      // field), so canAccessDept('Cell') alone was rejecting the memberCount bump that
+      // addCellGroupMember() does right after creating the member doc, leaving a
+      // half-written assignment (member added, count stale) with a swallowed error.
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || isCellDirector());
     }
 
     match /cell_groups/{cellId}/members/{memberId} {
@@ -256,6 +261,18 @@ service cloud.firestore {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(cellId)));
       allow create, update, delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(cellId)));
     }
+    // Cell Director's "dismiss" on a Sunday-attendance-derived Unassigned card — these
+    // people have no task/member doc of their own (they're just a name diffed out of
+    // Sunday attendance vs. cell rosters), so dismissal needs its own small durable
+    // record or it silently only lived in React state and reappeared on reload.
+    // Doc id is the normalized lowercase name; shared across all Cell Directors on
+    // purpose (a dismissal by one director should stick for everyone, same as an
+    // actual assignment would).
+    match /cell_unassigned_dismissals/{nameKey} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || isCellDirector());
+    }
+
     match /cell_program_log/{docId} {
       allow read, write: if request.auth != null;
     }

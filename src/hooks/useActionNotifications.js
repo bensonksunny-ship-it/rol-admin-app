@@ -170,10 +170,18 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     return next
   })
 
-  const dismissNotification = (n) => {
+  // Rolls back (and re-throws) on failure instead of swallowing the error — a caller
+  // that awaits this now actually sees a permission-denied/offline/etc. failure
+  // instead of the notification silently reappearing a moment after it looked gone.
+  const dismissNotification = async (n) => {
     if (!uid || !n?.id) return
     hideOptimistically(n.id)
-    dismissNotificationDoc(uid, n.id).catch(() => unhideOptimistically(n.id))
+    try {
+      await dismissNotificationDoc(uid, n.id)
+    } catch (err) {
+      unhideOptimistically(n.id)
+      throw err
+    }
   }
 
   // "+ Add to To-Do List" — writes straight into the same `tasks` collection My
