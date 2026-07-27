@@ -15,7 +15,7 @@ import { format, startOfWeek, subWeeks, parseISO } from 'date-fns'
 import { getCellGroups, getLatestCellReports, createCellReportReminder } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole, isFounder as isFounderUser } from '../utils/access'
-import { computeMeetingDateISO, totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
+import { computeMeetingDateISO, formatWeekRangeLabel, totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
 
 const CELL_DEPARTMENT = 'Cell'
 const TREND_LINE_COLOR = '#6366f1'
@@ -342,10 +342,18 @@ export function CellWeeklyTrendsChart({ chartData }) {
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
       <p className="text-sm font-bold text-slate-800">Weekly Attendance Trends</p>
       <p className="text-xs text-slate-400 mt-0.5 mb-5">Total attendance across all cells · last 6 weeks</p>
-      <ResponsiveContainer width="100%" height={260}>
-        <LineChart data={chartData}>
+      <ResponsiveContainer width="100%" height={280}>
+        <LineChart data={chartData} margin={{ bottom: 16 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-          <XAxis dataKey="weekLabel" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+          <XAxis
+            dataKey="weekLabel"
+            tick={{ fontSize: 10, fill: '#94a3b8' }}
+            axisLine={false}
+            tickLine={false}
+            angle={-20}
+            textAnchor="end"
+            height={45}
+          />
           <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} axisLine={false} tickLine={false} />
           <Tooltip
             contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
@@ -471,7 +479,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
           || (cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(wk) : null)
         return sum + totalAttendanceFromCellReport(r)
       }, 0)
-      return { weekLabel: format(ws, 'MMM d'), weekStart: wk, total }
+      return { weekLabel: formatWeekRangeLabel(ws), weekStart: wk, total }
     })
   }, [reportsByCellWeek, visibleGroups])
 

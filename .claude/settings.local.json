@@ -126,7 +126,13 @@
       "Bash(sed -i '8912r /tmp/_close.txt' src/pages/DepartmentHub.jsx)",
       "Bash(sed -i '8907r /tmp/_open.txt' src/pages/DepartmentHub.jsx)",
       "Bash(sed -i '8846r /tmp/_close.txt' src/pages/DepartmentHub.jsx)",
-      "Bash(sed -i '8841r /tmp/_open.txt' src/pages/DepartmentHub.jsx)"
+      "Bash(sed -i '8841r /tmp/_open.txt' src/pages/DepartmentHub.jsx)",
+      "Bash(npm ls *)",
+      "Bash(npm install *)",
+      "Bash(java -version)",
+      "Bash(where java *)",
+      "Bash(npm uninstall *)",
+      "Artifact"
     ]
   }
 }

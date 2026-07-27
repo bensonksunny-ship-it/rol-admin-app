@@ -115,10 +115,10 @@ export default function DepartmentDock() {
               <span
                 className="relative w-12 h-12 rounded-2xl flex items-center justify-center transition-transform duration-150 group-hover:-translate-y-0.5 group-active:scale-95"
                 style={{
-                  background: 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
+                  background: 'linear-gradient(135deg, #6357c9 0%, #8b7ff0 100%)',
                   boxShadow: isActive
-                    ? '0 4px 14px rgba(99,102,241,0.55), 0 0 0 2px rgba(99,102,241,0.5)'
-                    : '0 4px 14px rgba(99,102,241,0.35)',
+                    ? '0 4px 14px rgba(99,87,201,0.55), 0 0 0 2px rgba(99,87,201,0.5)'
+                    : '0 4px 14px rgba(99,87,201,0.35)',
                 }}
               >
                 <TileIcon size={20} className="text-white" strokeWidth={1.75} />

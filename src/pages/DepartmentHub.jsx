@@ -41,7 +41,7 @@ import {
   updateCellGroupMember,
   deactivateCellGroupMember,
   deleteCellGroupMember,
-  getCellMemberPendingChanges,
+  subscribeCellMemberPendingChanges,
   addCellMemberPendingChange,
   getBackToBibleList,
   addBackToBible,
@@ -1209,13 +1209,13 @@ export default function DepartmentHub() {
   }, [department, slug, activeTab, canViewAllCells, userProfile?.cellGroup, userProfile?.cellId])
 
   useEffect(() => {
-    if (slug === 'cell' && activeTab === 'summary') {
-      setLoadingCellPending(true)
-      getCellMemberPendingChanges()
-        .then(setCellPendingChanges)
-        .catch(() => setCellPendingChanges([]))
-        .finally(() => setLoadingCellPending(false))
-    }
+    if (!(slug === 'cell' && activeTab === 'summary')) return
+    setLoadingCellPending(true)
+    const unsub = subscribeCellMemberPendingChanges((changes) => {
+      setCellPendingChanges(changes)
+      setLoadingCellPending(false)
+    })
+    return unsub
   }, [slug, activeTab])
 
 

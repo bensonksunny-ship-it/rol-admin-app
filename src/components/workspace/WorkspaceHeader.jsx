@@ -75,7 +75,7 @@ export default function WorkspaceHeader({ notifications, onNotifAction, onDismis
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messagesOpen])
 
-  const iconBtnClass = 'relative w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors'
+  const iconBtnClass = 'relative w-10 h-10 rounded-xl flex items-center justify-center text-[#8a8377] hover:bg-[#efe9dd] hover:text-[#6357c9] transition-colors'
 
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0">

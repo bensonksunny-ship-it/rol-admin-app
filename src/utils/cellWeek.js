@@ -39,3 +39,16 @@ export function totalAttendanceFromCellReport(r) {
   if (!r) return 0
   return (Number(r.membersAttended) || 0) + (Number(r.visitors) || 0) + (Number(r.children) || 0)
 }
+
+/**
+ * Display-only Sunday–Saturday range for a Monday-anchored week start (as produced
+ * by weekStartKey / startOfWeek(d, { weekStartsOn: 1 })). Does not affect bucketing —
+ * reports are still matched/aggregated by the Monday key everywhere else.
+ * e.g. weekStart 2026-07-27 (Mon) -> "Jul 26 - Aug 01"
+ */
+export function formatWeekRangeLabel(weekStart) {
+  const monday = typeof weekStart === 'string' ? parseISO(weekStart) : weekStart
+  const sunday = addDays(monday, -1)
+  const saturday = addDays(monday, 5)
+  return `${format(sunday, 'MMM dd')} - ${format(saturday, 'MMM dd')}`
+}

@@ -67,6 +67,22 @@ body {
   min-height: 100vh;
 }
 
+/* My Workspace's greeting wave — a small, deliberate ambient detail, not a
+   generic emoji-as-marker; disabled entirely under reduced motion. */
+@keyframes greeting-wave {
+  0%, 100% { transform: rotate(0deg); }
+  15%      { transform: rotate(14deg); }
+  30%      { transform: rotate(-8deg); }
+  45%      { transform: rotate(14deg); }
+  60%      { transform: rotate(0deg); }
+}
+.animate-greeting-wave {
+  animation: greeting-wave 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-greeting-wave { animation: none; }
+}
+
 /* iOS-folder-style modal open animation (no tailwindcss-animate plugin installed,
    so this is a small hand-rolled equivalent of animate-in + zoom-in-95). */
 @keyframes folder-zoom-in {

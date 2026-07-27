@@ -2089,6 +2089,36 @@ export async function deleteCellMemberPendingChange(id) {
   await deleteDoc(doc(db, CELL_MEMBER_PENDING_CHANGES_COLLECTION, id))
 }
 
+// Real-time listener for the Cell Director's Pending Member Changes widget — so a
+// request submitted by a leader (or resolved by another director) shows up/clears
+// live instead of only on next mount of the Cell Summary tab.
+export function subscribeCellMemberPendingChanges(onChange) {
+  if (!db) return () => {}
+  const q = query(
+    collection(db, CELL_MEMBER_PENDING_CHANGES_COLLECTION),
+    where('status', '==', 'pending'),
+    orderBy('requestedAt', 'desc')
+  )
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        changeType: data.changeType || '',
+        changeSummary: data.changeSummary || '',
+        reason: data.reason || '',
+        cellId: data.cellId || '',
+        cellName: data.cellName || '',
+        memberId: data.memberId || '',
+        memberData: data.memberData || null,
+        requestedBy: data.requestedBy || '',
+        requestedAt: toDate(data.requestedAt),
+        status: data.status || 'pending',
+      }
+    }))
+  }, () => {})
+}
+
 // Back to the Bible (Cell Department planning – weekly teaching)
 const CELL_BACK_TO_BIBLE_COLLECTION = 'cell_back_to_bible'
 

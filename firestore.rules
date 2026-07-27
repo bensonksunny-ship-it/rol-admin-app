@@ -212,11 +212,26 @@ service cloud.firestore {
       // Cell reads for the "Add Member" People's Directory picker (Cell Groups tab) — only
       // people entered via D Light Visitor Entry can be added to a cell group, so Cell
       // Directors/Leaders need read access here too, not just D Light/Caring/Sunday Ministry.
-      // hasAnyCellPosition() is checked directly (not just canAccessDept/isCellDirector,
-      // which both ultimately depend on legacy top-level department/role fields) so a user
-      // whose `positions[]` has a Cell entry is never blocked by those fields being stale
-      // or never having been synced.
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring') || canAccessDept('Sunday Ministry') || canAccessDept('Cell') || isCellDirector() || hasAnyCellPosition());
+      // Deliberately flat/inlined (not routed through canAccessDept/isCellDirector's several
+      // layers of helper functions) so this specific grant is trivial to audit on its own.
+      allow read: if isSignedIn() && (
+        isFullAccess() ||
+        getUserData().get('department', '') in ['D Light', 'Caring', 'Sunday Ministry', 'Cell'] ||
+        'D Light' in getUserData().get('departments', []) ||
+        'Caring' in getUserData().get('departments', []) ||
+        'Sunday Ministry' in getUserData().get('departments', []) ||
+        'Cell' in getUserData().get('departments', []) ||
+        getUserData().get('positions', []).hasAny([
+          {'department': 'Cell', 'position': 'Director'},
+          {'department': 'Cell', 'position': 'Coordinator'},
+          {'department': 'Cell', 'position': 'Cell Leader'},
+          {'department': 'Cell', 'position': 'Associate'},
+          {'department': 'Cell', 'role': 'DIRECTOR'},
+          {'department': 'Cell', 'role': 'COORDINATOR'},
+          {'department': 'Cell', 'role': 'LEADER'},
+          {'department': 'Cell', 'role': 'MEMBER'}
+        ])
+      );
       allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
       allow update: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring'));
     }
