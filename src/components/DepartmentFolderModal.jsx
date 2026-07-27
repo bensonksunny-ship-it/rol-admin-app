@@ -30,7 +30,7 @@ function TileGrid({ items, onTap }) {
             className="group flex flex-col items-center gap-1.5"
           >
             <span
-              className="relative w-14 h-14 rounded-2xl flex items-center justify-center transition-transform duration-150 group-hover:-translate-y-0.5 group-active:scale-95"
+              className="relative w-14 h-14 rounded-2xl flex items-center justify-center transition-[transform,filter] duration-150 group-hover:-translate-y-0.5 group-hover:brightness-110 group-active:scale-95"
               style={{
                 background: TILE_COLORS[i % TILE_COLORS.length],
                 boxShadow: '0 4px 14px rgba(0,0,0,0.2)',
@@ -43,7 +43,7 @@ function TileGrid({ items, onTap }) {
                 <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white opacity-70" />
               )}
             </span>
-            <span className="text-[11px] font-medium text-slate-700 text-center leading-tight line-clamp-2">
+            <span className="text-[11px] font-medium text-slate-700 dark:text-slate-200 text-center leading-tight line-clamp-2">
               {item.label}
             </span>
           </button>
@@ -53,10 +53,12 @@ function TileGrid({ items, onTap }) {
   )
 }
 
-// Centered "iOS App Folder" modal — replaces a small anchored popover/bottom-sheet
-// with a true centered, frosted-glass folder matching Apple's Home Screen folder UI.
-// Used by DepartmentDock (the single nav dock at every screen size, mobile included)
-// so there's one folder look across the app regardless of screen size.
+// Centered "iOS App Folder" modal — a true centered card over the page, styled after
+// Apple's Liquid Glass: highly translucent, thin glass border with an inner highlight,
+// and a soft (not opaque) backdrop tint, rather than the earlier heavy frosted-white
+// fill that fully masked whatever was behind it. Used by DepartmentDock (the single
+// nav dock at every screen size, mobile included) so there's one folder look across
+// the app regardless of screen size.
 //
 // Two levels deep: the top-level grid is this department's tabs (Hub, Cell Groups,
 // Reports, Leader Entry, Operations, ...); tapping a tile whose subpage carries its own
@@ -67,21 +69,37 @@ function TileGrid({ items, onTap }) {
 // tapping the dock icon while on e.g. Operations → Team shows Operations' grid
 // immediately rather than the top-level department grid.
 //
-// Light-styled only (no dark-mode variant): the dock this replaces never threaded the
-// app's day/night toggle either, and Tailwind's `dark:` variant isn't wired to that
-// toggle (it's class-based via a manual .dark selector, not the default media-query
-// strategy) — real dark mode here would need theme state lifted to a shared context,
-// which is separate plumbing beyond this component's scope.
+// `dark:` classes here are real — the app wires Tailwind's dark variant to its own
+// .dark toggle via @custom-variant in index.css, so this needs no isDay prop; the OS/
+// in-app theme flips it automatically.
 export default function DepartmentFolderModal({ label, subpages, initialChildKey, onClose, onNavigate }) {
   const [openChild, setOpenChild] = useState(
     () => subpages.find((sp) => sp.key === initialChildKey && sp.children?.length > 0) || null
   )
 
+  // Drives the enter/exit transition: false → true right after mount (so the CSS
+  // transition actually has a starting frame to animate from), then false again on
+  // close, with the real onClose deferred until that closing transition finishes —
+  // otherwise the whole thing would just vanish on backdrop-click/Escape.
+  const [visible, setVisible] = useState(false)
+  const [closing, setClosing] = useState(false)
+
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    const raf = requestAnimationFrame(() => setVisible(true))
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  const requestClose = () => {
+    setClosing(true)
+    setTimeout(onClose, 180)
+  }
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') requestClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleTap = (item) => {
     if (item.children?.length > 0) setOpenChild(item)
@@ -90,39 +108,40 @@ export default function DepartmentFolderModal({ label, subpages, initialChildKey
 
   const gridLabel = openChild ? openChild.label : label
   const gridItems = openChild ? openChild.children : subpages
+  const shown = visible && !closing
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-6"
-      style={{ background: 'rgba(15,23,42,0.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
-      onClick={onClose}
+      className={`fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/10 backdrop-blur-sm transition-opacity duration-200 ease-out ${
+        shown ? 'opacity-100' : 'opacity-0'
+      }`}
+      onClick={requestClose}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={gridLabel}
         onClick={(e) => e.stopPropagation()}
-        className="animate-folder-zoom-in rounded-3xl w-full max-w-sm p-6"
-        style={{
-          background: 'rgba(255,255,255,0.7)',
-          backdropFilter: 'blur(28px) saturate(200%)',
-          WebkitBackdropFilter: 'blur(28px) saturate(200%)',
-          border: '1px solid rgba(255,255,255,0.6)',
-          boxShadow: '0 24px 70px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.08)',
-        }}
+        className={`w-full max-w-sm p-6 rounded-3xl border border-white/60 dark:border-white/10
+          bg-white/40 dark:bg-slate-900/40 backdrop-blur-md
+          shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.5)]
+          dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.08)]
+          transition-all duration-200 ease-out ${
+          shown ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+        }`}
       >
-        <div className="relative mb-5">
+        <div className="flex flex-col pt-2 pb-3 px-2 mb-2">
           {openChild && (
             <button
               type="button"
               onClick={() => setOpenChild(null)}
-              className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors -ml-1 pl-1 pr-2 py-1 rounded-full hover:bg-indigo-50"
+              className="inline-flex items-center gap-0.5 self-start text-xs font-medium text-indigo-500 dark:text-indigo-300 hover:underline mb-1 cursor-pointer transition-colors"
             >
-              <ChevronLeft size={14} strokeWidth={2.5} />
+              <ChevronLeft size={12} strokeWidth={2.5} />
               Back to Department
             </button>
           )}
-          <h2 className={`text-center text-lg font-bold text-slate-900 truncate ${openChild ? 'px-24' : ''}`}>
+          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">
             {gridLabel}
           </h2>
         </div>

@@ -16,11 +16,13 @@ function greeting() {
 // WorkspaceHeader keeps notifications/messages (top bar) — only the sidebar rail was
 // simplified down to just the My Workspace shortcut + profile avatar.
 //
-// Visual language ("Modern Soft Warmth"): a warm cream canvas with a soft twin-hue
-// wash (violet-indigo + amber, never a flat gradient) behind a serif greeting — see
-// the design review at /workspace-design-concepts for the other two directions this
-// was chosen over. Kept scoped to this one page/component tree rather than touched
-// globally, so the rest of the app's cooler slate palette is untouched.
+// Visual language ("Modern Soft Warmth"): a warm serif greeting over the app's plain
+// background, no boxed container around it — see the design review at
+// /workspace-design-concepts for the other two directions this was chosen over.
+// Previously this page (and ToDoListCard inside it) each had their own rounded/
+// bordered wrapper, which nested a card inside a card; both were flattened to a
+// single unified surface (ToDoListCard's own soft glass panel) with no outer box,
+// so content rests directly on the page background instead.
 export default function MyWorkspace() {
   const { user, userProfile, isFounder } = useAuth()
   const {
@@ -28,43 +30,30 @@ export default function MyWorkspace() {
   } = useActionNotifications(userProfile, isFounder, user?.uid)
 
   return (
-    <div className="relative rounded-[28px] border border-[#e9e2d6] overflow-hidden">
-      <div
-        className="absolute inset-0"
-        style={{
-          background: [
-            'radial-gradient(ellipse 60% 50% at 15% 0%, rgba(99,87,201,0.10), transparent 60%)',
-            'radial-gradient(ellipse 55% 45% at 100% 10%, rgba(217,139,43,0.14), transparent 55%)',
-            '#f6f3ee',
-          ].join(', '),
-        }}
-      />
-      <div className="relative p-5 sm:p-8 space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium" style={{ color: '#8a8377' }}>{greeting()}</p>
-            <h1
-              className="text-[26px] sm:text-[30px] mt-1 leading-tight"
-              style={{
-                fontFamily: 'Constantia, "Iowan Old Style", "Palatino Linotype", Georgia, serif',
-                color: '#2b2620',
-                letterSpacing: '-0.005em',
-              }}
-            >
-              Welcome back, {userProfile?.displayName?.split(' ')[0] || 'there'}{' '}
-              <span className="inline-block animate-greeting-wave" style={{ transformOrigin: '70% 70%' }}>👋</span>
-            </h1>
-          </div>
-          <WorkspaceHeader
-            notifications={notifications}
-            onNotifAction={handleNotifAction}
-            onDismissNotification={dismissNotification}
-            onAddNotificationToTodo={addNotificationToTodo}
-          />
+    <div className="space-y-6 pb-8">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-[#8a8377] dark:text-slate-400">{greeting()}</p>
+          <h1
+            className="text-[26px] sm:text-[30px] mt-1 leading-tight text-[#2b2620] dark:text-slate-50"
+            style={{
+              fontFamily: 'Constantia, "Iowan Old Style", "Palatino Linotype", Georgia, serif',
+              letterSpacing: '-0.005em',
+            }}
+          >
+            Welcome back, {userProfile?.displayName?.split(' ')[0] || 'there'}{' '}
+            <span className="inline-block animate-greeting-wave" style={{ transformOrigin: '70% 70%' }}>👋</span>
+          </h1>
         </div>
-
-        <ToDoListCard />
+        <WorkspaceHeader
+          notifications={notifications}
+          onNotifAction={handleNotifAction}
+          onDismissNotification={dismissNotification}
+          onAddNotificationToTodo={addNotificationToTodo}
+        />
       </div>
+
+      <ToDoListCard />
     </div>
   )
 }

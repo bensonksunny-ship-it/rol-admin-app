@@ -141,7 +141,7 @@ export default function ToDoListCard() {
   }
 
   return (
-    <div className="bg-white rounded-[18px] border border-[#e9e2d6] shadow-[0_1px_2px_rgba(60,45,20,0.04)] overflow-hidden flex flex-col relative">
+    <div className="relative rounded-2xl bg-white/60 dark:bg-slate-900/40 backdrop-blur-md overflow-hidden flex flex-col">
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
           toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
@@ -149,34 +149,34 @@ export default function ToDoListCard() {
           {toast.msg}
         </div>
       )}
-      <div className="px-5 py-4 border-b border-[#f1ece1] flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <span className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0">
+          <span className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
             <CheckSquare size={18} strokeWidth={1.75} />
           </span>
           <div>
-            <p className="text-sm font-bold text-[#2b2620]">To-Do List</p>
-            <p className="text-xs mt-0.5" style={{ color: '#8a8377' }}>{myTasks.length} need attention</p>
+            <p className="text-sm font-bold text-slate-800 dark:text-slate-100">To-Do List</p>
+            <p className="text-xs mt-0.5 text-slate-400 dark:text-slate-500">{myTasks.length} need attention</p>
           </div>
         </div>
       </div>
       {loading ? (
-        <p className="px-5 py-5 text-sm text-center" style={{ color: '#8a8377' }}>Loading…</p>
+        <p className="px-5 py-5 text-sm text-center text-slate-400 dark:text-slate-500">Loading…</p>
       ) : myTasks.length === 0 ? (
-        <p className="px-5 py-5 text-sm text-center" style={{ color: '#8a8377' }}>All clear — no open tasks 🎉</p>
+        <p className="px-5 py-5 text-sm text-center text-slate-400 dark:text-slate-500">All clear — no open tasks 🎉</p>
       ) : (
-        <div className="divide-y divide-[#f1ece1] overflow-y-auto max-h-80">
+        <div className="divide-y divide-slate-100 dark:divide-slate-800 overflow-y-auto max-h-80">
           {myTasks.map((t) => (
-            <div key={t.id} className="group w-full px-5 py-3 hover:bg-[#faf7f1] transition-colors">
+            <div key={t.id} className="group w-full px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => completeTask(t)}
                   disabled={completingIds.has(t.id)}
                   aria-label="Mark task complete"
-                  className="w-5 h-5 rounded-md border-2 border-[#ddd0b8] hover:border-emerald-500 hover:bg-emerald-50 flex-shrink-0 flex items-center justify-center transition-colors disabled:opacity-50"
+                  className="w-5 h-5 rounded-md border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex-shrink-0 flex items-center justify-center transition-colors disabled:opacity-50"
                 >
-                  <Check size={12} strokeWidth={3} className="text-emerald-600 opacity-0 hover:opacity-100 transition-opacity" />
+                  <Check size={12} strokeWidth={3} className="text-emerald-600 dark:text-emerald-400 opacity-0 hover:opacity-100 transition-opacity" />
                 </button>
 
                 <button
@@ -186,18 +186,18 @@ export default function ToDoListCard() {
                 >
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.status === 'In Progress' ? 'bg-[#6357c9]' : 'bg-amber-400'}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#2b2620] truncate">{t.taskTitle || t.task || 'Untitled'}</p>
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{t.taskTitle || t.task || 'Untitled'}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       {t.department && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#f1ece1]" style={{ color: '#8a8377' }}>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
                           [{t.department}]
                         </span>
                       )}
-                      {t.deadline && <span className="text-xs" style={{ color: '#a29a8a' }}>{formatDMY(t.deadline)}</span>}
+                      {t.deadline && <span className="text-xs text-slate-400 dark:text-slate-500">{formatDMY(t.deadline)}</span>}
                     </div>
                   </div>
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                    t.status === 'In Progress' ? 'bg-[#efecfb] text-[#6357c9]' : 'bg-amber-50 text-amber-600'
+                    t.status === 'In Progress' ? 'bg-[#efecfb] dark:bg-[#6357c9]/15 text-[#6357c9] dark:text-[#a599e8]' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'
                   }`}>{t.status}</span>
                 </button>
 
@@ -218,7 +218,7 @@ export default function ToDoListCard() {
                       onClick={(e) => { e.stopPropagation(); e.preventDefault(); setConfirmDeleteId(null) }}
                       aria-label="Cancel delete"
                       title="Cancel"
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     >
                       ✕
                     </button>
@@ -229,7 +229,7 @@ export default function ToDoListCard() {
                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); setConfirmDeleteId(t.id) }}
                     aria-label="Delete task"
                     title="Delete task"
-                    className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-slate-300 opacity-0 group-hover:opacity-100 hover:!text-rose-600 hover:bg-rose-50 transition-colors"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 hover:!text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors"
                   >
                     <Trash2 size={14} strokeWidth={2} />
                   </button>
@@ -254,7 +254,7 @@ export default function ToDoListCard() {
                     value=""
                     disabled={assigningId === t.id || activeCells.length === 0}
                     onChange={(e) => assignToCell(t, e.target.value)}
-                    className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-[#e9e2d6] bg-white text-[#6b6459] hover:bg-[#faf7f1] transition-colors disabled:opacity-50 max-w-[160px]"
+                    className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50 max-w-[160px]"
                   >
                     <option value="" disabled>Assign to Other…</option>
                     {activeCells.map((c) => (
