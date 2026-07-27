@@ -56,11 +56,19 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
         position: 'fixed',
         zIndex: 100,
         maxWidth: 'calc(100vw - 24px)',
-        background: isDay ? 'rgba(255,255,255,0.97)' : 'rgba(15,23,42,0.97)',
-        backdropFilter: 'blur(28px)',
-        WebkitBackdropFilter: 'blur(28px)',
-        border: isDay ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.1)',
-        boxShadow: '0 16px 48px rgba(0,0,0,0.22)',
+        // Glossy glass, not matte frosted-white: a top-to-bottom translucency gradient
+        // (reads as a light source raking the surface) instead of one flat near-opaque
+        // fill, a lighter backdrop blur so the page behind still shows through, and a
+        // bright hairline + inset top highlight standing in for a specular sheen.
+        background: isDay
+          ? 'linear-gradient(to bottom, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.62) 100%)'
+          : 'linear-gradient(to bottom, rgba(30,41,59,0.82) 0%, rgba(15,23,42,0.62) 100%)',
+        backdropFilter: 'blur(12px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+        border: isDay ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.14)',
+        boxShadow: isDay
+          ? '0 16px 48px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.7)'
+          : '0 16px 48px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.12)',
         ...posStyle,
       }}
     >

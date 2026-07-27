@@ -4,27 +4,27 @@
 export function getDepartmentHubTabs(slug) {
   switch (slug) {
     case 'cell':
-      return ['summary', 'cellGroups', 'reports', 'leaderEntry', 'operations']
+      return ['summary', 'cellGroups', 'reports', 'leaderEntry', 'finance', 'operations']
     case 'caring':
-      return ['summary', 'pcs', 'operations']
+      return ['summary', 'pcs', 'finance', 'operations']
     case 'sunday-ministry':
-      return ['summary', 'sunday', 'sundayReportsHistory', 'sundayCrew', 'operations']
+      return ['summary', 'sunday', 'sundayReportsHistory', 'sundayCrew', 'finance', 'operations']
     case 'worship':
-      return ['summary', 'upcomingSunday', 'assign', 'theTeam', 'practiceRehearsal', 'songsDirectory', 'archives', 'operations']
+      return ['summary', 'upcomingSunday', 'assign', 'theTeam', 'practiceRehearsal', 'songsDirectory', 'archives', 'finance', 'operations']
     case 'media':
-      return ['summary', 'upcomingSunday', 'operations']
+      return ['summary', 'upcomingSunday', 'finance', 'operations']
     case 'd-light':
-      return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'operations']
+      return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'finance', 'operations']
     case 'event-m':
-      return ['summary', 'events', 'liveControl', 'operations']
+      return ['summary', 'events', 'liveControl', 'finance', 'operations']
     case 'river-kids':
-      return ['summary', 'register', 'attendance', 'operations']
+      return ['summary', 'register', 'attendance', 'finance', 'operations']
     case 'accounts':
-      return ['summary', 'entry', 'operations']
+      return ['summary', 'entry', 'finance', 'operations']
     case 'administration':
-      return ['summary', 'upcomingSunday', 'operations']
+      return ['summary', 'upcomingSunday', 'finance', 'operations']
     default:
-      return ['summary', 'operations']
+      return ['summary', 'finance', 'operations']
   }
 }
 

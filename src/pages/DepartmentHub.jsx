@@ -287,7 +287,8 @@ export default function DepartmentHub() {
   const [planningDraftStatus, setPlanningDraftStatus] = useState('')
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('summary')
-  const [opsSubTab, setOpsSubTab] = useState('expense')
+  const [opsSubTab, setOpsSubTab] = useState('team')
+  const [financeSubTab, setFinanceSubTab] = useState('expense')
   const [acctSummary, setAcctSummary] = useState(null)
   const [acctSummaryLoading, setAcctSummaryLoading] = useState(false)
   const [team, setTeam] = useState([])
@@ -799,13 +800,21 @@ export default function DepartmentHub() {
   // Operations' sub-view used to be an inline toggle strip (CellOperationsToggle,
   // SundayOperationsToggle, etc.) the user clicked; it's now a nested grid inside the
   // dock's folder modal (DepartmentFolderModal), so the same choice comes in via
-  // ?opsSub= instead. Falls back to 'expense' — the toggle's own previous default —
-  // whenever the tab isn't Operations or the param is missing/stale.
+  // ?opsSub= instead. Falls back to 'team' whenever the tab isn't Operations or the
+  // param is missing/stale.
   const opsSubFromUrl = searchParams.get('opsSub')
   useEffect(() => {
     if (activeTab !== 'operations') return
-    setOpsSubTab(opsSubFromUrl || 'expense')
+    setOpsSubTab(opsSubFromUrl || 'team')
   }, [activeTab, opsSubFromUrl])
+
+  // Same idea, for Finance's Expense/Budget/Payout Request children (moved out of
+  // Operations into their own tab) — driven by ?financeSub= instead.
+  const financeSubFromUrl = searchParams.get('financeSub')
+  useEffect(() => {
+    if (activeTab !== 'finance') return
+    setFinanceSubTab(financeSubFromUrl || 'expense')
+  }, [activeTab, financeSubFromUrl])
 
   // Same idea as opsSub, one level deep, Cell-only: CellLeaderEntryTab used to own a
   // local 'shepherd' | 'midweek' toggle; now it's a controlled prop from ?leaderView=.
@@ -2133,7 +2142,7 @@ export default function DepartmentHub() {
                             <p className="text-xs text-slate-500 mt-0.5">{pending.length} task{pending.length !== 1 ? 's' : ''}</p>
                           </button>
                           <button type="button"
-                            onClick={() => { setOpsSubTab('financial'); setActiveTab('operations'); setSearchParams({ tab: 'operations' }, { replace: true }) }}
+                            onClick={() => { setFinanceSubTab('budget'); setActiveTab('finance'); setSearchParams({ tab: 'finance' }, { replace: true }) }}
                             className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-teal-200 hover:shadow-md transition-all group">
                             <div className="w-9 h-9 rounded-xl bg-teal-100 group-hover:bg-teal-200 flex items-center justify-center text-base mb-3 transition-colors">💰</div>
                             <p className="text-sm font-bold text-slate-800">Budget</p>
@@ -3769,24 +3778,24 @@ export default function DepartmentHub() {
             <UpcomingSunday slug={slug} />
           )}
 
-          {activeTab === 'operations' && opsSubTab === 'expense' && department?.name && (
+          {activeTab === 'finance' && financeSubTab === 'expense' && department?.name && (
             slug === 'accounts'
               ? <AccountsExpensePage />
               : <DeptExpenseTab department={department.name} />
           )}
 
-          {activeTab === 'operations' && opsSubTab === 'budget' && (
+          {activeTab === 'finance' && financeSubTab === 'budget' && (
             <BudgetPage department={slug === 'accounts' ? undefined : department?.name} />
           )}
 
-          {activeTab === 'operations' && opsSubTab === 'payout' && slug !== 'accounts' && (
+          {activeTab === 'finance' && financeSubTab === 'payout' && slug !== 'accounts' && (
             <div className="space-y-4">
               {slug === 'administration' && <AdvancePayoutReviewer />}
               <AdvancePayoutTab departmentSlug={slug} departmentName={department?.name || slug} />
             </div>
           )}
 
-          {activeTab === 'operations' && slug === 'accounts' && opsSubTab === 'addDepartments' && (
+          {activeTab === 'finance' && slug === 'accounts' && financeSubTab === 'addDepartments' && (
             <AddDepartmentsPage />
           )}
 

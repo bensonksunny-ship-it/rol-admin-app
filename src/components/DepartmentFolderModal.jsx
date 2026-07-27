@@ -122,10 +122,10 @@ export default function DepartmentFolderModal({ label, subpages, initialChildKey
         aria-modal="true"
         aria-label={gridLabel}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-sm p-6 rounded-3xl border border-white/60 dark:border-white/10
-          bg-white/40 dark:bg-slate-900/40 backdrop-blur-md
-          shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.5)]
-          dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.08)]
+        className={`w-full max-w-sm p-6 rounded-3xl border border-white/70 dark:border-white/14
+          bg-gradient-to-b from-white/70 to-white/40 dark:from-slate-900/55 dark:to-slate-900/30 backdrop-blur-md
+          shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.6)]
+          dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.1)]
           transition-all duration-200 ease-out ${
           shown ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
         }`}

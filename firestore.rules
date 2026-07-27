@@ -165,7 +165,10 @@ service cloud.firestore {
     match /department_children/{docId} {
       // Sunday Ministry additionally reads River Kids' children for the Sunday School
       // attendee search in Live Control (Non Cell / Others linking, River Kids registry).
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) || (resource.data.department == 'River Kids' && canAccessDept('Sunday Ministry')));
+      // Cell additionally reads River Kids' children for the cell-report "Kids Present"
+      // picker, which name-matches a child's fatherName/motherName against the active
+      // cell's member roster (department_children has no parentId/cellGroupId field).
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) || (resource.data.department == 'River Kids' && (canAccessDept('Sunday Ministry') || canAccessDept('Cell') || hasAnyCellPosition())));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }

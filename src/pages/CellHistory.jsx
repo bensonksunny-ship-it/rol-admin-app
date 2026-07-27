@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { format as formatDateFns } from 'date-fns'
 import {
   getCellGroups,
   getCellReportHistory,
@@ -10,12 +11,14 @@ import {
   getMidweekPrayerPoints,
   getLatestCellReports,
   getCellGroupMembers,
+  getProgramLogsByCellAndDate,
   deleteCellReportFull,
 } from '../services/firestore'
 import { isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { getDepartmentRole } from '../utils/access'
-import { formatDisplayDate } from '../utils/date'
-import { AnimatePresence } from 'framer-motion'
+import { formatDisplayDate, formatDMYTime, computeDurationMinutes, formatMeetingTimeRange } from '../utils/date'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Download, Trash2 } from 'lucide-react'
 import EditReportSheet from './cell/EditReportSheet'
 
 const CELL_DEPARTMENT = 'Cell'
@@ -55,6 +58,26 @@ function formatDuration(minutes) {
   return rem ? `${h}h ${rem}m` : `${h}h`
 }
 
+/** Sum segment durations defensively — some sources store durationMinutes as a string. */
+function sumSegmentMinutes(segments) {
+  if (!Array.isArray(segments)) return 0
+  return segments.reduce((s, t) => s + (parseInt(t?.durationMinutes, 10) || 0), 0)
+}
+
+// Explicit startTime/endTime (set via the report entry form's time pickers) is the
+// most trustworthy duration signal there is — a leader entered it directly, no
+// segment-log inference needed. Prefer it everywhere a row's duration is shown;
+// fall back to whatever legacy meetingDurationMinutes value the row already has
+// for older reports that predate the time-picker fields.
+function effectiveDurationMinutes(row) {
+  if (row?.startTime && row?.endTime) {
+    const m = computeDurationMinutes(row.startTime, row.endTime)
+    if (m != null) return m
+  }
+  const legacy = Number(row?.meetingDurationMinutes)
+  return Number.isFinite(legacy) && legacy > 0 ? legacy : null
+}
+
 function getInitials(name) {
   return String(name || '')
     .split(' ')
@@ -64,13 +87,33 @@ function getInitials(name) {
     .toUpperCase()
 }
 
-/** Archived (weekly-history) rows are always "Submitted"; live rows depend on finalize flags */
+// A cell_reports doc gets auto-created (all-zero) the moment a leader opens the Cell
+// Report page or Edit sheet for a week — before any real attendance is entered (see
+// CellReport.jsx's createCellReport call and updateCellReportFull's find-or-create
+// step). The weekly archive Cloud Function then copies whatever exists into
+// cell_report_history without checking for real content, so a doc existing is not
+// the same thing as a leader having actually submitted a report. Treat a row as a
+// real submission only if it carries some actual recorded content.
+function isRealSubmission(row) {
+  return (
+    (Number(row.totalAttendance) || 0) > 0 ||
+    (effectiveDurationMinutes(row) || 0) > 0
+  )
+}
+
+// "Submitted" must mean the same thing everywhere a report can end up: real recorded
+// content, full stop. It previously also required row.meetingFinalizedAt for live
+// (not-yet-archived) rows — but that flag is only ever set by the Timer tab's "End
+// Cell Meeting" button, a control most leaders never touch because it lives outside
+// the Attendance tab where they actually finish the report. That mismatch is exactly
+// why fully completed reports (real attendance, real duration) sat stuck on the amber
+// "In Progress" badge: the data was there, the unrelated Timer flag just wasn't.
 function reportStatus(row) {
-  if (row._archived) {
+  if (isRealSubmission(row)) {
     return { label: 'Submitted', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
   }
-  if (row.meetingFinalizedAt || row.attendanceFinalizedAt) {
-    return { label: 'Finalized', cls: 'bg-blue-50 text-blue-700 border-blue-200' }
+  if (row._archived) {
+    return { label: 'Not Submitted', cls: 'bg-red-50 text-red-700 border-red-200' }
   }
   return { label: 'In Progress', cls: 'bg-amber-50 text-amber-700 border-amber-200' }
 }
@@ -79,6 +122,153 @@ const STAT_ACCENTS = {
   indigo:  { bg: 'bg-indigo-50',  border: 'border-indigo-100',  blob: 'bg-indigo-400',  iconBg: 'bg-indigo-100',  value: 'text-indigo-700' },
   emerald: { bg: 'bg-emerald-50', border: 'border-emerald-100', blob: 'bg-emerald-400', iconBg: 'bg-emerald-100', value: 'text-emerald-700' },
   amber:   { bg: 'bg-amber-50',   border: 'border-amber-100',   blob: 'bg-amber-400',   iconBg: 'bg-amber-100',   value: 'text-amber-700' },
+}
+
+// Prefer the report's own explicit startTime/endTime (set via the report entry
+// form's time pickers) — a leader entered it directly, no inference needed. Only
+// fall back to cell_program_log's per-segment start timestamps (the Timer tab) for
+// older reports from before the time-picker fields existed. Either way, synthesize
+// real Date objects on the report's meeting date so formatClockTime works uniformly
+// regardless of which source it came from.
+async function getRowTiming(row) {
+  if (row.startTime && row.endTime) {
+    const dateStr = String(row.meetingDateISO || '').slice(0, 10)
+    const toDateTime = (hhmm) => {
+      const mMatch = /^(\d{1,2}):(\d{2})$/.exec(hhmm)
+      if (!dateStr || !mMatch) return null
+      return new Date(`${dateStr}T${mMatch[1].padStart(2, '0')}:${mMatch[2]}:00`)
+    }
+    return {
+      startTime: toDateTime(row.startTime),
+      endTime: toDateTime(row.endTime),
+      durationMinutes: computeDurationMinutes(row.startTime, row.endTime),
+    }
+  }
+  const logs = await getProgramLogsByCellAndDate(row.cellName, row.meetingDateISO).catch(() => [])
+  if (logs.length < 2) {
+    return { startTime: logs[0]?.startTime || null, endTime: null, durationMinutes: null }
+  }
+  const start = logs[0].startTime
+  const end = logs[logs.length - 1].startTime
+  const durationMinutes = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000))
+  return { startTime: start, endTime: end, durationMinutes }
+}
+
+function formatClockTime(date) {
+  return date ? formatDateFns(date, 'HH:mm') : '—'
+}
+
+function formatSubmittedAt(row) {
+  const at = row.attendanceFinalizedAt || row.meetingFinalizedAt || row.createdAt
+  return at ? formatDateFns(at, 'dd MMM yyyy, HH:mm') : '—'
+}
+
+// One combined single-A4-page executive summary — every cell group's key numbers
+// for one week, side by side. Drawn natively with jsPDF/autoTable (like the rest of
+// the app's exports) rather than rendered from HTML/@media print, so the page count
+// and layout are deterministic regardless of what's on screen. Landscape (not
+// portrait) — the grouped Attendance/Timing sub-columns need more horizontal room
+// than a portrait page can give without cramming.
+async function exportWeeklySummaryPDF(weekGroup) {
+  const { jsPDF } = await import('jspdf')
+  const autoTableModule = await import('jspdf-autotable')
+  const autoTable = autoTableModule.default || autoTableModule
+
+  const rows = [...weekGroup.rows].sort((a, b) => (a.cellName || '').localeCompare(b.cellName || ''))
+
+  // Fetch each cell's real segment-log timing in parallel — this is the fix for the
+  // duration-always-0 bug (see getRowTiming above).
+  const timings = await Promise.all(rows.map(getRowTiming))
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const margin = 10
+
+  doc.setFontSize(14)
+  doc.setFont(undefined, 'bold')
+  doc.text('River Of Life Church — Cell Ministry Weekly Summary', margin, 15)
+  doc.setFont(undefined, 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(90)
+  doc.text(`Week of ${weekGroup.label}`, margin, 21)
+  doc.text(`Generated ${formatDMYTime(new Date())}`, pageWidth - margin, 21, { align: 'right' })
+  doc.setTextColor(0)
+
+  const body = rows.map((r, i) => {
+    const t = timings[i]
+    return [
+      r.cellName || '—',
+      String(Number(r.membersAttended) || 0),
+      String(Number(r.visitors) || 0),
+      String(Number(r.children) || 0),
+      String(Number(r.totalAttendance) || 0),
+      formatClockTime(t.startTime),
+      formatClockTime(t.endTime),
+      formatDuration(t.durationMinutes),
+      reportStatus(r).label,
+      formatSubmittedAt(r),
+    ]
+  })
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      members: acc.members + (Number(r.membersAttended) || 0),
+      visitors: acc.visitors + (Number(r.visitors) || 0),
+      kids: acc.kids + (Number(r.children) || 0),
+      total: acc.total + (Number(r.totalAttendance) || 0),
+    }),
+    { members: 0, visitors: 0, kids: 0, total: 0 }
+  )
+  const validDurations = timings.map((t) => t.durationMinutes).filter((m) => m != null)
+  const avgDuration = validDurations.length
+    ? Math.round(validDurations.reduce((s, m) => s + m, 0) / validDurations.length)
+    : null
+
+  autoTable(doc, {
+    startY: 26,
+    margin: { left: margin, right: margin, bottom: margin },
+    head: [
+      [
+        { content: 'Cell Group', rowSpan: 2, styles: { valign: 'middle' } },
+        { content: 'Attendance', colSpan: 4, styles: { halign: 'center' } },
+        { content: 'Timing', colSpan: 3, styles: { halign: 'center' } },
+        { content: 'Status', rowSpan: 2, styles: { valign: 'middle' } },
+        { content: 'Submitted', rowSpan: 2, styles: { valign: 'middle' } },
+      ],
+      ['Members', 'Visitors', 'Kids', 'Total', 'Start', 'End', 'Duration'],
+    ],
+    body,
+    foot: [[
+      `${rows.length} cell${rows.length === 1 ? '' : 's'}`,
+      String(totals.members),
+      String(totals.visitors),
+      String(totals.kids),
+      String(totals.total),
+      '', '',
+      avgDuration != null ? `avg ${formatDuration(avgDuration)}` : '—',
+      '', '',
+    ]],
+    styles: { fontSize: 8.5, cellPadding: 1.8, valign: 'middle' },
+    headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold', fontSize: 8.5, halign: 'center' },
+    footStyles: { fillColor: [238, 242, 255], textColor: [30, 27, 75], fontStyle: 'bold', fontSize: 8.5 },
+    columnStyles: {
+      0: { cellWidth: 42 },
+      1: { fontStyle: 'bold', halign: 'center' },
+      2: { fontStyle: 'bold', halign: 'center' },
+      3: { fontStyle: 'bold', halign: 'center' },
+      4: { fontStyle: 'bold', halign: 'center', textColor: [79, 70, 229] },
+      5: { halign: 'center' },
+      6: { halign: 'center' },
+      7: { fontStyle: 'bold', halign: 'center' },
+      8: { halign: 'center' },
+      9: { cellWidth: 32 },
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    theme: 'grid',
+  })
+
+  const weekFileTag = (weekGroup.key || 'week').replace(/-/g, '')
+  doc.save(`ROL_Cell_Weekly_Summary_${weekFileTag}.pdf`)
 }
 
 // ── Root Component ────────────────────────────────────────────────────────────
@@ -123,20 +313,39 @@ export default function CellHistory({ embedded = false }) {
     })
   }, [])
 
-  const handleDelete = useCallback(async (row) => {
-    const confirmed = window.confirm(
-      `Delete the meeting record for ${row.cellName} on ${row.meetingDateISO}? This cannot be undone.`
-    )
-    if (!confirmed) return
-    try {
-      await deleteCellReportFull(row)
-      setHistory((prev) =>
-        prev.filter((h) => !(h.cellId === row.cellId && h.meetingDateISO === row.meetingDateISO))
-      )
-    } catch {
-      alert('Could not delete. Please try again.')
-    }
+  // Delete confirmation — a controlled modal (below) instead of window.confirm/alert,
+  // which broke the app's design system with a native browser popup.
+  const [reportToDelete, setReportToDelete] = useState(null)
+  const [deleting, setDeleting]             = useState(false)
+  const [deleteError, setDeleteError]       = useState(null)
+
+  const requestDelete = useCallback((row) => {
+    setDeleteError(null)
+    setReportToDelete(row)
   }, [])
+
+  const cancelDelete = useCallback(() => {
+    if (deleting) return
+    setReportToDelete(null)
+    setDeleteError(null)
+  }, [deleting])
+
+  const confirmDelete = useCallback(async () => {
+    if (!reportToDelete || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteCellReportFull(reportToDelete)
+      setHistory((prev) =>
+        prev.filter((h) => !(h.cellId === reportToDelete.cellId && h.meetingDateISO === reportToDelete.meetingDateISO))
+      )
+      setReportToDelete(null)
+    } catch {
+      setDeleteError('Could not delete. Please try again.')
+    } finally {
+      setDeleting(false)
+    }
+  }, [reportToDelete, deleting])
 
   // Load cell groups (needed to resolve linked cell + leader names)
   useEffect(() => {
@@ -210,27 +419,56 @@ export default function CellHistory({ embedded = false }) {
           historyList.map((h) => `${h.cellId}_${String(h.meetingDateISO || '').slice(0, 10)}`)
         )
 
-        const liveHistory = liveList
-          .filter((r) => {
-            const date = String(r.reportDate || '').slice(0, 10)
-            return date && !archivedKeys.has(`${r.cellId}_${date}`)
-          })
-          .map((r) => ({
-            id: r.id,
-            cellId: r.cellId,
-            cellName: r.cellName,
-            meetingDateISO: String(r.reportDate || '').slice(0, 10),
-            meetingDay: r.meetingDay || '',
-            membersAttended: r.membersAttended || 0,
-            visitors: r.visitors || 0,
-            children: r.children || 0,
-            totalAttendance: (r.membersAttended || 0) + (r.visitors || 0) + (r.children || 0),
-            meetingDurationMinutes: null,
-            programList: [],
-            attendanceFinalizedAt: r.attendanceFinalizedAt || null,
-            meetingFinalizedAt: r.meetingFinalizedAt || null,
-            _archived: false,
-          }))
+        // Live (not-yet-archived) reports have no top-level duration field of their
+        // own — the segment timer writes straight to cell_midweek_sessions and only
+        // updateCellReportFull's history-patch step ever back-fills meetingDurationMinutes,
+        // which only runs once a doc exists in cell_report_history. So the current week's
+        // duration is looked up here by summing that session's segments directly, instead
+        // of defaulting to null (which the Segment Timings card previously read as 0 min).
+        const liveHistory = await Promise.all(
+          liveList
+            .filter((r) => {
+              const date = String(r.reportDate || '').slice(0, 10)
+              return date && !archivedKeys.has(`${r.cellId}_${date}`)
+            })
+            .map(async (r) => {
+              const dateStr = String(r.reportDate || '').slice(0, 10)
+              let meetingDurationMinutes = null
+              // Explicit start/end times mean we already know the duration — skip the
+              // extra segment-summing fetch entirely.
+              if (r.startTime && r.endTime) {
+                meetingDurationMinutes = computeDurationMinutes(r.startTime, r.endTime)
+              } else if (r.cellId && dateStr) {
+                try {
+                  const session = await getMidweekSessionData(r.cellId, dateStr)
+                  if (session?.segmentTimings) meetingDurationMinutes = sumSegmentMinutes(session.segmentTimings)
+                } catch {
+                  // duration is a nice-to-have — leave null on failure
+                }
+              }
+              return {
+                id: r.id,
+                cellId: r.cellId,
+                cellName: r.cellName,
+                meetingDateISO: dateStr,
+                meetingDay: r.meetingDay || '',
+                membersAttended: r.membersAttended || 0,
+                visitors: r.visitors || 0,
+                children: r.children || 0,
+                visitorsList: Array.isArray(r.visitorsList) ? r.visitorsList : [],
+                childrenList: Array.isArray(r.childrenList) ? r.childrenList : [],
+                totalAttendance: (r.membersAttended || 0) + (r.visitors || 0) + (r.children || 0),
+                startTime: r.startTime || '',
+                endTime: r.endTime || '',
+                meetingDurationMinutes,
+                programList: [],
+                createdAt: r.createdAt || null,
+                attendanceFinalizedAt: r.attendanceFinalizedAt || null,
+                meetingFinalizedAt: r.meetingFinalizedAt || null,
+                _archived: false,
+              }
+            })
+        )
 
         const archivedHistory = historyList.map((h) => ({ ...h, _archived: true }))
 
@@ -257,7 +495,14 @@ export default function CellHistory({ embedded = false }) {
     return weekStartKey(todayISO)
   }, [])
 
-  // Group every report into its Sunday–Saturday week, newest week first
+  // Active cell count — denominator for each week's "Cells Submitted" compliance badge
+  const totalActiveCells = useMemo(
+    () => cellGroups.filter((g) => g.status !== 'inactive').length,
+    [cellGroups]
+  )
+
+  // Group every report into its Sunday–Saturday week, newest week first, each
+  // carrying its own quick-analysis numbers for the per-week header badges.
   const weekGroups = useMemo(() => {
     const map = new Map()
     sorted.forEach((row) => {
@@ -268,8 +513,47 @@ export default function CellHistory({ embedded = false }) {
     })
     return [...map.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([key, rows]) => ({ key, rows, isCurrentWeek: key === currentWeekKey, label: formatWeekRange(key) }))
-  }, [sorted, currentWeekKey])
+      .map(([key, rows]) => {
+        // Only rows with real content count toward compliance — a blank auto-created
+        // doc existing for a cell isn't the same as that cell having submitted.
+        const cellsSubmitted = new Set(
+          rows.filter(isRealSubmission).map((r) => r.cellId).filter(Boolean)
+        ).size
+        const totalAttendance = rows.reduce((s, r) => s + (Number(r.totalAttendance) || 0), 0)
+        const durations = rows
+          .map(effectiveDurationMinutes)
+          .filter((m) => Number.isFinite(m) && m > 0)
+        const avgDurationMinutes = durations.length
+          ? durations.reduce((s, m) => s + m, 0) / durations.length
+          : null
+        return {
+          key,
+          rows,
+          isCurrentWeek: key === currentWeekKey,
+          label: formatWeekRange(key),
+          cellsSubmitted,
+          totalCells: totalActiveCells,
+          totalAttendance,
+          avgDurationMinutes,
+        }
+      })
+  }, [sorted, currentWeekKey, totalActiveCells])
+
+  // PDF export now happens per-week (icon button in each week's header band) rather
+  // than one global "current week" button.
+  const [exportingWeekKey, setExportingWeekKey] = useState(null)
+  const handleExportWeekPDF = useCallback(async (group) => {
+    if (!group || exportingWeekKey) return
+    setExportingWeekKey(group.key)
+    try {
+      await exportWeeklySummaryPDF(group)
+    } catch (e) {
+      console.error('[CellHistory] Failed to export weekly PDF:', e)
+      alert('Could not generate the PDF. Please try again.')
+    } finally {
+      setExportingWeekKey(null)
+    }
+  }, [exportingWeekKey])
 
   // Summary stats across every loaded report
   const stats = useMemo(() => {
@@ -315,7 +599,7 @@ export default function CellHistory({ embedded = false }) {
               canEdit={canEditRow(row)}
               isDirector={isDirector}
               onEdit={() => { setIsNewEntry(false); setEditRow(row) }}
-              onDelete={() => handleDelete(row)}
+              onDelete={() => requestDelete(row)}
             />
             {expanded && (
               <div className="sm:col-span-2 xl:col-span-3 bg-white rounded-2xl border border-indigo-200 shadow-sm shadow-indigo-50 overflow-hidden">
@@ -356,26 +640,74 @@ export default function CellHistory({ embedded = false }) {
 
   const weeklyContent = (
     <div className="space-y-6">
-      {weekGroups.map((group) => (
-        <div key={group.key} className="space-y-2">
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
-              Week of {group.label}
-            </p>
-            {group.isCurrentWeek && (
-              <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full whitespace-nowrap">
-                Current
-              </span>
-            )}
-            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-              {group.rows.length} {group.rows.length === 1 ? 'report' : 'reports'}
-            </span>
-            <div className="flex-1 h-px bg-slate-200" />
+      {weekGroups.map((group, idx) => {
+        const bandClasses = group.isCurrentWeek
+          ? 'bg-indigo-50/70 border-l-4 border-indigo-500'
+          : idx % 2 === 1
+            ? 'bg-slate-100/80 border-l-4 border-slate-300'
+            : 'bg-white border-l-4 border-slate-200'
+        const isExporting = exportingWeekKey === group.key
+        return (
+          <div key={group.key} className="space-y-3">
+            <div className={`rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2.5 ${bandClasses}`}>
+              <p className="text-sm font-black text-slate-800 uppercase tracking-wide whitespace-nowrap">
+                Week of {group.label}
+              </p>
+              {group.isCurrentWeek && (
+                <span className="text-[9px] font-bold text-indigo-600 bg-white border border-indigo-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                  Current
+                </span>
+              )}
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-bold text-slate-600 bg-white/80 border border-slate-200 px-2 py-1 rounded-full whitespace-nowrap">
+                  {group.cellsSubmitted}/{group.totalCells} Cells Submitted
+                </span>
+                <span className="text-[10px] font-bold text-slate-600 bg-white/80 border border-slate-200 px-2 py-1 rounded-full whitespace-nowrap">
+                  Total Attendance: {group.totalAttendance}
+                </span>
+                {group.avgDurationMinutes != null && (
+                  <span className="text-[10px] font-bold text-slate-600 bg-white/80 border border-slate-200 px-2 py-1 rounded-full whitespace-nowrap">
+                    Avg Time: {formatDuration(Math.round(group.avgDurationMinutes))}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex-1" />
+
+              {isDirector && (
+                <button
+                  type="button"
+                  onClick={() => handleExportWeekPDF(group)}
+                  disabled={isExporting}
+                  title={`Download PDF summary for week of ${group.label}`}
+                  className="flex items-center justify-center w-8 h-8 rounded-xl text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 transition-all flex-shrink-0"
+                >
+                  {isExporting
+                    ? <span className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+                    : <Download size={14} strokeWidth={2.5} />}
+                </button>
+              )}
+            </div>
+            {renderGrid(group.rows)}
           </div>
-          {renderGrid(group.rows)}
-        </div>
-      ))}
+        )
+      })}
     </div>
+  )
+
+  const deleteModal = (
+    <AnimatePresence>
+      {reportToDelete && (
+        <DeleteReportModal
+          row={reportToDelete}
+          deleting={deleting}
+          error={deleteError}
+          onCancel={cancelDelete}
+          onConfirm={confirmDelete}
+        />
+      )}
+    </AnimatePresence>
   )
 
   if (embedded) {
@@ -386,15 +718,17 @@ export default function CellHistory({ embedded = false }) {
             <h2 className="font-bold text-slate-900 text-base">Past Meeting Records</h2>
             <p className="text-slate-500 text-xs mt-0.5">Grouped by week, newest first</p>
           </div>
-          {(isDirector || isLeader) && (
-            <button
-              type="button"
-              onClick={() => { setIsNewEntry(true); setEditRow({}) }}
-              className="text-xs font-semibold text-indigo-600 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition-all"
-            >
-              + New Entry
-            </button>
-          )}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {(isDirector || isLeader) && (
+              <button
+                type="button"
+                onClick={() => { setIsNewEntry(true); setEditRow({}) }}
+                className="text-xs font-semibold text-indigo-600 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition-all"
+              >
+                + New Entry
+              </button>
+            )}
+          </div>
         </div>
 
         {statsRow}
@@ -422,6 +756,8 @@ export default function CellHistory({ embedded = false }) {
             />
           )}
         </AnimatePresence>
+
+        {deleteModal}
       </div>
     )
   }
@@ -482,8 +818,69 @@ export default function CellHistory({ embedded = false }) {
             />
           )}
         </AnimatePresence>
+
+        {deleteModal}
       </div>
     </div>
+  )
+}
+
+// ── Delete Confirmation Modal ────────────────────────────────────────────────────
+
+function DeleteReportModal({ row, deleting, error, onCancel, onConfirm }) {
+  return (
+    <motion.div
+      key="delete-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <motion.div
+        key="delete-card"
+        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 8 }}
+        transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+        className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl p-6 text-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-14 h-14 mx-auto rounded-full bg-red-50 border border-red-100 flex items-center justify-center mb-4">
+          <Trash2 size={24} strokeWidth={2} className="text-red-500" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-900">Delete Meeting Report?</h3>
+        <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+          Are you sure you want to delete the report for{' '}
+          <span className="font-semibold text-slate-700">{row.cellName || 'this cell'}</span> on{' '}
+          <span className="font-semibold text-slate-700">
+            {row.meetingDateISO ? formatDisplayDate(row.meetingDateISO) : 'this date'}
+          </span>
+          ? This action cannot be undone.
+        </p>
+
+        {error && <p className="text-xs text-red-500 font-medium mt-3">{error}</p>}
+
+        <div className="flex gap-3 mt-6">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={deleting}
+            className="flex-1 py-2.5 rounded-2xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-all disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex-1 py-2.5 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold shadow-lg shadow-red-200 transition-all disabled:opacity-60"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   )
 }
 
@@ -552,6 +949,9 @@ function ReportCard({ row, leaderName, status, expanded, onToggle, canEdit = fal
       <div className="pr-14">
         <p className="font-black text-slate-900 text-base leading-snug truncate">{row.cellName || '—'}</p>
         <p className="text-xs text-slate-400 mt-0.5">{row.meetingDateISO ? formatDisplayDate(row.meetingDateISO) : '—'}</p>
+        {row.startTime && row.endTime && (
+          <p className="text-xs text-indigo-600 font-medium mt-0.5">{formatMeetingTimeRange(row.startTime, row.endTime)}</p>
+        )}
       </div>
 
       <span className={`inline-block text-[10px] font-bold px-2.5 py-1 rounded-full border mt-3 ${status.cls}`}>
@@ -656,14 +1056,25 @@ function HistoryDetail({ row }) {
     )
   }
 
-  const segmentTimings = sessionData?.segmentTimings || row.programList?.map((p) => ({ name: p.programName, durationMinutes: null })) || []
+  const segmentTimings = sessionData?.segmentTimings || row.programList?.map((p) => ({ name: p.programName, durationMinutes: p.durationMinutes })) || []
   const shepherdNotes  = sessionData?.shepherdNotes || ''
-  const totalDuration  = formatDuration(row.meetingDurationMinutes)
+  // Sum the segments actually being rendered below rather than trusting row.meetingDurationMinutes
+  // (a separately-stored top-level field that's often stale or missing for live reports).
+  const totalDuration  = formatDuration(sumSegmentMinutes(segmentTimings))
 
   return (
     <div className="px-6 pb-6 space-y-4">
       {/* Divider */}
       <div className="h-px bg-slate-100" />
+
+      {/* ── Meeting Time ── */}
+      {row.startTime && row.endTime && (
+        <Section title="🕐 Meeting Time">
+          <div className="px-4 py-3 bg-indigo-50 rounded-2xl">
+            <span className="font-bold text-indigo-900 text-sm">{formatMeetingTimeRange(row.startTime, row.endTime)}</span>
+          </div>
+        </Section>
+      )}
 
       {/* ── Segment Timings ── */}
       <Section title="⏱ Segment Timings">
@@ -708,6 +1119,25 @@ function HistoryDetail({ row }) {
           </div>
         )}
       </Section>
+
+      {/* ── Kids Present ── */}
+      {(row.childrenList || []).length > 0 && (
+        <Section title="🧒 Kids Present">
+          <div className="flex flex-wrap gap-2">
+            {row.childrenList.map((name, i) => (
+              <span
+                key={`${name}-${i}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-amber-50 text-amber-800 border border-amber-200"
+              >
+                <span className="w-5 h-5 rounded-full bg-amber-400/30 text-amber-900 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                  {getInitials(name).slice(0, 1)}
+                </span>
+                {name}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {/* ── Prayer Matters ── */}
       <Section title="🙏 Prayer Matters">

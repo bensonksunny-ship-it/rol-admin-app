@@ -141,7 +141,7 @@ export default function ToDoListCard() {
   }
 
   return (
-    <div className="relative rounded-2xl bg-white/60 dark:bg-slate-900/40 backdrop-blur-md overflow-hidden flex flex-col">
+    <div className="relative rounded-2xl border border-white/30 dark:border-white/10 bg-gradient-to-b from-white/75 to-white/45 dark:from-slate-900/50 dark:to-slate-900/30 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] overflow-hidden flex flex-col">
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
           toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'

@@ -15,7 +15,7 @@ import { format, startOfWeek, subWeeks, parseISO } from 'date-fns'
 import { getCellGroups, getLatestCellReports, createCellReportReminder } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole, isFounder as isFounderUser } from '../utils/access'
-import { computeMeetingDateISO, formatWeekRangeLabel, totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
+import { computeMeetingDateISO, formatWeekRangeLabel, formatWeekDayRangeShort, monthSpanLabel, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission } from '../utils/cellWeek'
 
 const CELL_DEPARTMENT = 'Cell'
 const TREND_LINE_COLOR = '#6366f1'
@@ -338,25 +338,31 @@ export function CellWeeklyTrendsChart({ chartData }) {
     )
   }
 
+  // Month lives in a header instead of repeating on every tick (formatWeekDayRangeShort
+  // already inlines it for the rare tick that itself crosses a month boundary).
+  const monthLabel = monthSpanLabel(chartData.map((d) => d.weekStart))
+
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-      <p className="text-sm font-bold text-slate-800">Weekly Attendance Trends</p>
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <p className="text-sm font-bold text-slate-800">Weekly Attendance Trends</p>
+        {monthLabel && <p className="text-xs font-semibold text-slate-500">{monthLabel}</p>}
+      </div>
       <p className="text-xs text-slate-400 mt-0.5 mb-5">Total attendance across all cells · last 6 weeks</p>
-      <ResponsiveContainer width="100%" height={280}>
-        <LineChart data={chartData} margin={{ bottom: 16 }}>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={chartData} margin={{ bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
           <XAxis
-            dataKey="weekLabel"
+            dataKey="weekLabelShort"
             tick={{ fontSize: 10, fill: '#94a3b8' }}
             axisLine={false}
             tickLine={false}
-            angle={-20}
-            textAnchor="end"
-            height={45}
+            height={24}
           />
           <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} axisLine={false} tickLine={false} />
           <Tooltip
             contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+            labelFormatter={(_, payload) => payload?.[0]?.payload?.weekLabel || ''}
           />
           <Line
             type="monotone"
@@ -426,7 +432,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
       // Try Firestore doc ID first; fall back to logical cellId for legacy reports.
       const hit = reportLookup.get(`${cell.id}|${expectedDate}`)
         || (cell.cellId !== cell.id ? reportLookup.get(`${cell.cellId}|${expectedDate}`) : null)
-      const submitted = Boolean(hit)
+      const submitted = isRealCellReportSubmission(hit)
       const isDue = !submitted && !!expectedDate && expectedDate < todayISO
       const isMeetingToday = !submitted && !!expectedDate && expectedDate === todayISO
       return {
@@ -479,7 +485,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
           || (cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(wk) : null)
         return sum + totalAttendanceFromCellReport(r)
       }, 0)
-      return { weekLabel: formatWeekRangeLabel(ws), weekStart: wk, total }
+      return { weekLabel: formatWeekRangeLabel(ws), weekLabelShort: formatWeekDayRangeShort(ws), weekStart: wk, total }
     })
   }, [reportsByCellWeek, visibleGroups])
 
@@ -495,7 +501,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
         const wk = format(ws, 'yyyy-MM-dd')
         const hit = reportsByCellWeek.get(cell.id)?.get(wk)
           || (cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(wk) : null)
-        return { weekStart: wk, submitted: Boolean(hit) }
+        return { weekStart: wk, submitted: isRealCellReportSubmission(hit) }
       })
       return {
         cellId: cell.id,

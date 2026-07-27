@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Home, LogOut, Menu } from 'lucide-react'
+import { Home, Menu, Moon, Sun } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import RailTooltip from '../RailTooltip'
 import ProfileDrawer from '../ProfileDrawer'
@@ -20,12 +20,12 @@ function getInitials(profile) {
 // My Workspace, theme, sign out). Department/report/admin navigation lives entirely in
 // the global floating dock (DepartmentDock, rendered from MainLayout) and My Workspace
 // itself — neither surface here duplicates that as a per-role nav-item list; the mobile
-// drawer only carries account-level actions (profile, home, theme, sign out), mirroring
-// IconRail's content rather than the old wide nav-list drawer. Notifications/messages
-// live on WorkspaceHeader (My Workspace's page-level header) so they render in exactly
-// one place, not here.
+// drawer is a slim w-16 icon-only rail carrying the same four account-level actions as
+// IconRail (profile, home, theme, sign out) — no text labels, no full-width nav-list
+// panel. Notifications/messages live on WorkspaceHeader (My Workspace's page-level
+// header) so they render in exactly one place, not here.
 export default function Sidebar() {
-  const { user, userProfile, signOut } = useAuth()
+  const { user, userProfile } = useAuth()
   const { pathname } = useLocation()
   const [profileOpen, setProfileOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -72,8 +72,6 @@ export default function Sidebar() {
 
   const photoURL = user?.photoURL || null
   const initials = getInitials(userProfile)
-  const displayName = userProfile?.displayName || userProfile?.email || 'User'
-  const roleLabel = userProfile?.globalRole === 'FOUNDER' ? 'Senior Pastor' : (userProfile?.role || '')
 
   const AvatarGlyph = ({ className }) => (
     photoURL ? (
@@ -141,86 +139,130 @@ export default function Sidebar() {
     </div>
   )
 
-  // ── Narrow mobile drawer — compact account rail (profile, home, theme, sign out),
-  // not a second copy of app-wide navigation. Always mounted so the slide/backdrop
-  // transitions animate on close as well as open, not just appear/disappear.
-  const MobileDrawer = () => (
-    <div
-      className="lg:hidden fixed inset-0"
-      style={{ zIndex: 45, pointerEvents: drawerOpen ? 'auto' : 'none' }}
-    >
+  // ── Narrow mobile drawer — a w-16 icon-only rail, not a text-labeled nav-list
+  // panel. Brand mark up top (where the profile avatar used to sit), then
+  // Workspace; theme + profile grouped in the footer, mirroring desktop's
+  // IconRail exactly. No Sign Out here — it lives inside ProfileDrawer (opened
+  // by the footer avatar) so there's one place to sign out, not a second copy
+  // sitting right next to it. Always mounted (rather than conditionally
+  // rendered) so the slide/backdrop transitions animate on close as well as open.
+  const MobileDrawer = () => {
+    const mobileRailBtnClass = 'relative rounded-2xl flex items-center justify-center flex-shrink-0 transition-all active:scale-95'
+    return (
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300"
-        style={{ opacity: drawerOpen ? 1 : 0 }}
-        onClick={() => setDrawerOpen(false)}
-        aria-hidden
-      />
-      <aside
-        className="absolute inset-y-0 left-0 w-56 max-w-[70vw] flex flex-col shadow-2xl transition-transform duration-300 bg-white"
-        style={{
-          transform: drawerOpen ? 'translateX(0)' : 'translateX(-100%)',
-          paddingTop: 'env(safe-area-inset-top, 12px)',
-        }}
+        className="lg:hidden fixed inset-0"
+        style={{ zIndex: 45, pointerEvents: drawerOpen ? 'auto' : 'none' }}
       >
-        <button
-          type="button"
-          onClick={() => { setDrawerOpen(false); setProfileOpen(true) }}
-          className="flex items-center gap-2.5 px-3.5 py-4 border-b border-slate-100 text-left hover:bg-slate-50 transition-colors flex-shrink-0"
+        <div
+          className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300"
+          style={{ opacity: drawerOpen ? 1 : 0 }}
+          onClick={() => setDrawerOpen(false)}
+          aria-hidden
+        />
+        <aside
+          className="absolute inset-y-0 left-0 w-16 flex flex-col items-center py-3 gap-1 shadow-2xl transition-transform duration-300 bg-white"
+          style={{
+            transform: drawerOpen ? 'translateX(0)' : 'translateX(-100%)',
+            paddingTop: 'env(safe-area-inset-top, 12px)',
+          }}
         >
-          <AvatarGlyph className="w-10 h-10 rounded-full flex-shrink-0" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-800 truncate">{displayName}</p>
-            {roleLabel && <p className="text-xs text-slate-400 truncate mt-0.5">{roleLabel}</p>}
-          </div>
-        </button>
+          <Link
+            to="/"
+            title="River Of Life"
+            aria-label="River Of Life — My Workspace"
+            onClick={() => setDrawerOpen(false)}
+            className="w-10 h-10 rounded-2xl overflow-hidden flex-shrink-0"
+          >
+            <img src={rolccLogo} alt="ROLCC" className="w-full h-full object-cover" />
+          </Link>
 
-        <nav className="flex-1 p-2">
+          <div className="w-8 border-t border-slate-100 my-1 flex-shrink-0" />
+
           <NavLink
             to="/"
+            title="My Workspace"
+            aria-label="My Workspace"
             onClick={() => setDrawerOpen(false)}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                isActive ? navLinkActive : navLinkInactive
-              }`
+              `${mobileRailBtnClass} w-12 h-12 ${isActive ? navLinkActive : navLinkInactive}`
             }
           >
-            <Home size={18} strokeWidth={1.75} />
-            My Workspace
+            <Home size={22} strokeWidth={1.75} />
           </NavLink>
-        </nav>
 
-        <div className="p-2 border-t border-slate-100 flex-shrink-0 space-y-0.5">
+          <div className="flex-1" />
+
           <button
             type="button"
+            title={themeToggleLabel}
+            aria-label={themeToggleLabel}
             onClick={() => { setTheme((t) => (t === 'night' ? 'day' : 'night')); setDrawerOpen(false) }}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
+            className={`${mobileRailBtnClass} w-11 h-11 text-slate-500 hover:bg-slate-100`}
           >
-            <span className="w-[18px] text-center leading-none">{theme === 'night' ? '🌙' : '☀️'}</span>
-            {themeToggleLabel}
+            {theme === 'night' ? <Moon size={20} strokeWidth={1.75} /> : <Sun size={20} strokeWidth={1.75} />}
           </button>
           <button
             type="button"
-            onClick={() => { setDrawerOpen(false); signOut() }}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
+            title="Profile"
+            aria-label="Profile"
+            onClick={() => { setDrawerOpen(false); setProfileOpen(true) }}
+            className={`${mobileRailBtnClass} w-11 h-11 overflow-hidden hover:ring-2 hover:ring-indigo-400/50`}
           >
-            <LogOut size={18} strokeWidth={1.75} />
-            Sign out
+            <AvatarGlyph className="w-11 h-11 rounded-2xl" />
           </button>
-        </div>
-      </aside>
-    </div>
-  )
+        </aside>
+      </div>
+    )
+  }
 
   // ── Icon-only rail (desktop, every route) ───────────────────────────────────
+  // Brand mark up top (where the profile avatar used to sit), then Workspace;
+  // theme + profile grouped in the footer. No Sign Out here — it lives inside
+  // ProfileDrawer (opened by the footer avatar) so there's one place to sign
+  // out, not a second copy sitting right next to it.
   const IconRail = () => (
     <aside
       className="hidden lg:flex w-16 min-h-screen flex-col items-center fixed left-0 top-0 py-3 gap-1"
       style={{ ...sidebarStyle, zIndex: 45 }}
     >
+      <Link to="/" title="River Of Life" aria-label="River Of Life — My Workspace" className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0">
+        <img src={rolccLogo} alt="ROLCC" className="w-full h-full object-cover" />
+      </Link>
+
+      <div className="w-8 border-t border-white/10 my-1 flex-shrink-0" />
+
+      <RailTooltip label="My Workspace">
+        <NavLink
+          to="/"
+          className={({ isActive }) =>
+            `relative w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
+              isActive ? navLinkActive : navLinkInactive
+            }`
+          }
+        >
+          <Home size={20} strokeWidth={1.75} />
+        </NavLink>
+      </RailTooltip>
+
+      <div className="flex-1" />
+
+      <RailTooltip label={themeToggleLabel}>
+        <button
+          type="button"
+          onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
+          title={themeToggleLabel}
+          aria-label={themeToggleLabel}
+          className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 hover:bg-white/10 transition-colors"
+          style={{ color: isDay ? '#64748b' : '#94a3b8' }}
+        >
+          {theme === 'night' ? <Moon size={18} strokeWidth={1.75} /> : <Sun size={18} strokeWidth={1.75} />}
+        </button>
+      </RailTooltip>
       <RailTooltip label="Profile">
         <button
           type="button"
           onClick={() => setProfileOpen(true)}
+          title="Profile"
           aria-label="Profile"
           className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden hover:ring-2 hover:ring-indigo-400/50 transition-all"
         >
@@ -234,44 +276,6 @@ export default function Sidebar() {
               {initials}
             </span>
           )}
-        </button>
-      </RailTooltip>
-
-      <div className="w-8 border-t border-white/10 my-1 flex-shrink-0" />
-
-      <div className="flex-1 flex flex-col items-center w-full">
-        <RailTooltip label="My Workspace">
-          <NavLink
-            to="/"
-            className={({ isActive }) =>
-              `relative w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
-                isActive ? navLinkActive : navLinkInactive
-              }`
-            }
-          >
-            <Home size={20} strokeWidth={1.75} />
-          </NavLink>
-        </RailTooltip>
-      </div>
-
-      <RailTooltip label={themeToggleLabel}>
-        <button
-          type="button"
-          onClick={() => setTheme((t) => (t === 'night' ? 'day' : 'night'))}
-          aria-label={themeToggleLabel}
-          className="w-10 h-10 rounded-lg flex items-center justify-center text-base flex-shrink-0 hover:bg-white/10 transition-colors"
-        >
-          {theme === 'night' ? '🌙' : '☀️'}
-        </button>
-      </RailTooltip>
-      <RailTooltip label="Sign out">
-        <button
-          type="button"
-          onClick={signOut}
-          aria-label="Sign out"
-          className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 text-rose-400 hover:bg-rose-500/10 transition-colors"
-        >
-          <LogOut size={16} strokeWidth={2} />
         </button>
       </RailTooltip>
     </aside>

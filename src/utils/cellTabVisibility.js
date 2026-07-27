@@ -6,7 +6,7 @@ import { isCellDirectorInPositions, isCellLeaderInPositions } from './cellReport
  * Used by DepartmentTabBar and DepartmentHub (slug === 'cell').
  *
  * New tab keys (post-restructure):
- *   summary | cellGroups | reports | leaderEntry | operations
+ *   summary | cellGroups | reports | leaderEntry | finance | operations
  */
 
 export const CELL_TAB_KEYS = Object.freeze([
@@ -14,6 +14,7 @@ export const CELL_TAB_KEYS = Object.freeze([
   'cellGroups',
   'reports',
   'leaderEntry',
+  'finance',
   'operations',
 ])
 

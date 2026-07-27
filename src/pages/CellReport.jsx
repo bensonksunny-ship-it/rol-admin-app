@@ -30,11 +30,13 @@ import {
   createCellVisitorProposal,
   getCellVisitorProposalsByReport,
   getDelightVisitors,
+  getDepartmentChildren,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole } from '../utils/access'
 import { canEditCellReport } from '../utils/cellReportPermissions'
 import { calcTenureLabel } from '../utils/cellMemberCategory'
+import { computeDurationMinutes, formatMeetingTimeRange } from '../utils/date'
 
 const CELL_DEPARTMENT = 'Cell'
 const MAX_VISIBLE_TILES = 18
@@ -206,6 +208,7 @@ export default function CellReport() {
   const [leaderAttendanceOpen, setLeaderAttendanceOpen] = useState(true)
   const [attendanceSaveOk, setAttendanceSaveOk] = useState(false)
   const [attendanceSaveError, setAttendanceSaveError] = useState('')
+  const [riverKidsChildren, setRiverKidsChildren] = useState([])
 
   // Current weekly window: Monday → Sunday (client local time).
   // Cell reports are restricted to the meeting day inside this window.
@@ -428,6 +431,31 @@ export default function CellReport() {
     }).finally(() => setLoadingCellMembers(false))
   }, [effectiveCellId])
 
+  // River Kids roster (department-wide, not per-cell — department_children has no
+  // parentId/cellGroupId field) so a child can be matched to whichever cell is
+  // currently open by comparing fatherName/motherName against that cell's members.
+  useEffect(() => {
+    getDepartmentChildren('River Kids').then(setRiverKidsChildren).catch(() => setRiverKidsChildren([]))
+  }, [])
+
+  // River Kids children whose father or mother name matches a member of the
+  // currently open cell — name-matched (trimmed/lowercased), the same pattern this
+  // app already uses for Sunday attendance since there's no structural parent-cell link.
+  const cellRiverKids = useMemo(() => {
+    if (!riverKidsChildren.length || !cellMembers.length) return []
+    const memberNames = new Set(
+      cellMembers.filter((m) => m.status !== 'inactive').map((m) => String(m.name || '').trim().toLowerCase())
+    )
+    if (!memberNames.size) return []
+    return riverKidsChildren
+      .filter((c) => c.active !== false)
+      .filter((c) => {
+        const father = String(c.fatherName || '').trim().toLowerCase()
+        const mother = String(c.motherName || '').trim().toLowerCase()
+        return (father && memberNames.has(father)) || (mother && memberNames.has(mother))
+      })
+  }, [riverKidsChildren, cellMembers])
+
   useEffect(() => {
     if (!isDirectorView) {
       setDirectorRowsMap({})
@@ -645,8 +673,8 @@ export default function CellReport() {
     if (!n || !report) return
     const list = [...(report.childrenList || []), n]
     try {
-      await updateCellReport(report.id, { childrenList: list })
-      setReport((prev) => (prev ? { ...prev, childrenList: list } : null))
+      await updateCellReport(report.id, { childrenList: list, children: list.length })
+      setReport((prev) => (prev ? { ...prev, childrenList: list, children: list.length } : null))
       setAttendanceDirty(true)
       setAttendanceDone(false)
     } catch (err) {
@@ -658,11 +686,33 @@ export default function CellReport() {
   const handleRemoveChild = (index) => {
     if (!canEditCurrentReport || !report) return
     const list = (report.childrenList || []).filter((_, i) => i !== index)
-    updateCellReport(report.id, { childrenList: list }).then(() => {
-      setReport((prev) => (prev ? { ...prev, childrenList: list } : null))
+    updateCellReport(report.id, { childrenList: list, children: list.length }).then(() => {
+      setReport((prev) => (prev ? { ...prev, childrenList: list, children: list.length } : null))
       setAttendanceDirty(true)
       setAttendanceDone(false)
     }).catch(() => alert('Failed to remove'))
+  }
+
+  // Single-tap present/absent toggle for a River Kids child linked to this cell —
+  // mirrors handleToggleAttendance's tap-to-toggle UX for regular members. Stored in
+  // the same childrenList array as free-text children so every existing total-
+  // attendance calculation and report-summary display picks it up automatically.
+  const handleToggleChildPresent = async (name) => {
+    if (!canEditCurrentReport || !report) return
+    const n = (name || '').trim()
+    if (!n) return
+    const current = report.childrenList || []
+    const idx = current.indexOf(n)
+    const list = idx >= 0 ? current.filter((_, i) => i !== idx) : [...current, n]
+    try {
+      await updateCellReport(report.id, { childrenList: list, children: list.length })
+      setReport((prev) => (prev ? { ...prev, childrenList: list, children: list.length } : null))
+      setAttendanceDirty(true)
+      setAttendanceDone(false)
+    } catch (err) {
+      console.error(err)
+      alert('Failed to update child attendance')
+    }
   }
 
   const handleSaveCounters = async () => {
@@ -1091,6 +1141,33 @@ export default function CellReport() {
                                           <div className="bg-white rounded-lg border border-slate-200 p-3">
                                             <h4 className="text-sm font-semibold text-slate-900 mb-2">Children</h4>
 
+                                            {cellRiverKids.length > 0 && (
+                                              <div className="mb-2">
+                                                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">River Kids in this Cell</p>
+                                                <ul className="space-y-1.5">
+                                                  {cellRiverKids.map((c) => {
+                                                    const present = (report.childrenList || []).includes(c.name)
+                                                    return (
+                                                      <li key={c.id}>
+                                                        <button
+                                                          type="button"
+                                                          disabled={!canEditSelectedCellReport}
+                                                          onClick={() => handleToggleChildPresent(c.name)}
+                                                          className={`w-full text-left px-2 py-1.5 rounded text-sm disabled:cursor-default ${
+                                                            present
+                                                              ? 'bg-emerald-100 text-emerald-800'
+                                                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                                          }`}
+                                                        >
+                                                          {c.name || '—'} {present ? '· Present' : ''}
+                                                        </button>
+                                                      </li>
+                                                    )
+                                                  })}
+                                                </ul>
+                                              </div>
+                                            )}
+
                                             {canEditSelectedCellReport && (
                                               <div className="flex gap-2 mb-2">
                                                 <input
@@ -1146,6 +1223,41 @@ export default function CellReport() {
                                           </div>
                                         </div>
 
+                                        <div className="bg-white rounded-lg border border-slate-200 p-3">
+                                          <h4 className="text-sm font-semibold text-slate-900 mb-2">Meeting Timing</h4>
+                                          {canEditSelectedCellReport ? (
+                                            <div className="flex flex-wrap items-end gap-3">
+                                              <label className="text-xs text-slate-500 flex flex-col gap-1">
+                                                Start Time
+                                                <input
+                                                  type="time"
+                                                  value={report.startTime || ''}
+                                                  onChange={(e) => setReport((prev) => (prev ? { ...prev, startTime: e.target.value } : prev))}
+                                                  className="px-2 py-1.5 rounded border border-slate-300 text-sm"
+                                                />
+                                              </label>
+                                              <label className="text-xs text-slate-500 flex flex-col gap-1">
+                                                End Time
+                                                <input
+                                                  type="time"
+                                                  value={report.endTime || ''}
+                                                  onChange={(e) => setReport((prev) => (prev ? { ...prev, endTime: e.target.value } : prev))}
+                                                  className="px-2 py-1.5 rounded border border-slate-300 text-sm"
+                                                />
+                                              </label>
+                                              {report.startTime && report.endTime && (
+                                                <p className="text-sm font-medium text-indigo-700">
+                                                  {formatMeetingTimeRange(report.startTime, report.endTime)}
+                                                </p>
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <p className="text-sm text-slate-700">
+                                              {report.startTime && report.endTime ? formatMeetingTimeRange(report.startTime, report.endTime) : 'Not recorded.'}
+                                            </p>
+                                          )}
+                                        </div>
+
                                         <div className="flex flex-wrap items-center gap-3">
                                           {canEditSelectedCellReport && (
                                             <div className="flex items-center gap-3 flex-wrap">
@@ -1167,6 +1279,8 @@ export default function CellReport() {
                                                       membersAttended: attendees.length,
                                                       visitors: (report.visitorsList || []).length,
                                                       children: (report.childrenList || []).length,
+                                                      startTime: report.startTime || '',
+                                                      endTime: report.endTime || '',
                                                     })
                                                     await refreshReportAndAttendees()
                                                     setAttendanceDone(true)
@@ -1249,7 +1363,7 @@ export default function CellReport() {
                                                 <div className="px-4 py-3 border-t border-slate-100 flex items-center gap-3">
                                                   <span className="text-sm font-medium text-emerald-700">✓ All programs recorded</span>
                                                   {canEditTimer && (
-                                                    <button type="button" onClick={async () => { if (!report) return; try { setSaving(true); await updateCellReport(report.id, { meetingFinalized: true, membersAttended: attendees.length, visitors: (report.visitorsList || []).length, children: (report.childrenList || []).length }); await refreshReportAndAttendees(); setCellReportUpdatedMsg('Cell report is updated'); window.setTimeout(() => setCellReportUpdatedMsg(''), 2500) } catch (e) { alert('Failed to end meeting') } finally { setSaving(false) } }} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700">End Cell Meeting</button>
+                                                    <button type="button" onClick={async () => { if (!report) return; try { setSaving(true); await updateCellReport(report.id, { meetingFinalized: true, membersAttended: attendees.length, visitors: (report.visitorsList || []).length, children: (report.childrenList || []).length, startTime: report.startTime || '', endTime: report.endTime || '' }); await refreshReportAndAttendees(); setCellReportUpdatedMsg('Cell report is updated'); window.setTimeout(() => setCellReportUpdatedMsg(''), 2500) } catch (e) { alert('Failed to end meeting') } finally { setSaving(false) } }} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700">End Cell Meeting</button>
                                                   )}
                                                 </div>
                                               )}
@@ -1551,6 +1665,32 @@ export default function CellReport() {
 
                                       <div className="bg-white rounded-lg border border-slate-200 p-3">
                                         <h4 className="text-sm font-semibold text-slate-900 mb-2">Children</h4>
+                                        {cellRiverKids.length > 0 && (
+                                          <div className="mb-2">
+                                            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">River Kids in this Cell</p>
+                                            <ul className="space-y-1.5">
+                                              {cellRiverKids.map((c) => {
+                                                const present = (report.childrenList || []).includes(c.name)
+                                                return (
+                                                  <li key={c.id}>
+                                                    <button
+                                                      type="button"
+                                                      disabled={!canEditCurrentReport}
+                                                      onClick={() => handleToggleChildPresent(c.name)}
+                                                      className={`w-full text-left px-2 py-1.5 rounded text-sm disabled:cursor-default ${
+                                                        present
+                                                          ? 'bg-emerald-100 text-emerald-800'
+                                                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                                      }`}
+                                                    >
+                                                      {c.name || '—'} {present ? '· Present' : ''}
+                                                    </button>
+                                                  </li>
+                                                )
+                                              })}
+                                            </ul>
+                                          </div>
+                                        )}
                                         {canEditCurrentReport && (
                                           <div className="flex gap-2 mb-2">
                                             <input
@@ -1604,6 +1744,41 @@ export default function CellReport() {
                                       </div>
                                     </div>
 
+                                    <div className="bg-white rounded-lg border border-slate-200 p-3">
+                                      <h4 className="text-sm font-semibold text-slate-900 mb-2">Meeting Timing</h4>
+                                      {canEditCurrentReport ? (
+                                        <div className="flex flex-wrap items-end gap-3">
+                                          <label className="text-xs text-slate-500 flex flex-col gap-1">
+                                            Start Time
+                                            <input
+                                              type="time"
+                                              value={report.startTime || ''}
+                                              onChange={(e) => { setReport((prev) => (prev ? { ...prev, startTime: e.target.value } : prev)); setAttendanceDirty(true); setAttendanceDone(false) }}
+                                              className="px-2 py-1.5 rounded border border-slate-300 text-sm"
+                                            />
+                                          </label>
+                                          <label className="text-xs text-slate-500 flex flex-col gap-1">
+                                            End Time
+                                            <input
+                                              type="time"
+                                              value={report.endTime || ''}
+                                              onChange={(e) => { setReport((prev) => (prev ? { ...prev, endTime: e.target.value } : prev)); setAttendanceDirty(true); setAttendanceDone(false) }}
+                                              className="px-2 py-1.5 rounded border border-slate-300 text-sm"
+                                            />
+                                          </label>
+                                          {report.startTime && report.endTime && (
+                                            <p className="text-sm font-medium text-indigo-700">
+                                              {formatMeetingTimeRange(report.startTime, report.endTime)}
+                                            </p>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <p className="text-sm text-slate-700">
+                                          {report.startTime && report.endTime ? formatMeetingTimeRange(report.startTime, report.endTime) : 'Not recorded.'}
+                                        </p>
+                                      )}
+                                    </div>
+
                                     <div className="flex flex-wrap items-center gap-3">
                                       {canEditCurrentReport && attendanceDirty ? (
                                         <div className="flex items-center gap-3 flex-wrap">
@@ -1625,6 +1800,8 @@ export default function CellReport() {
                                                   membersAttended: attendees.length,
                                                   visitors: (report.visitorsList || []).length,
                                                   children: (report.childrenList || []).length,
+                                                  startTime: report.startTime || '',
+                                                  endTime: report.endTime || '',
                                                 })
                                                 await refreshReportAndAttendees()
                                                 setAttendanceDone(true)
@@ -1803,6 +1980,8 @@ export default function CellReport() {
                                   membersAttended: attendees.length,
                                   visitors: (report.visitorsList || []).length,
                                   children: (report.childrenList || []).length,
+                                  startTime: report.startTime || '',
+                                  endTime: report.endTime || '',
                                 })
                                 await refreshReportAndAttendees()
                                 setLeaderTab('meetingReport')
@@ -2021,10 +2200,15 @@ export default function CellReport() {
                     <div className="min-w-[160px]">
                       <div className="text-xs text-slate-500">Meeting duration</div>
                       <div className="text-2xl font-bold text-slate-900">
-                        {formatDurationMinutes(meetingDurationMinutesFromLogs(programLogs))}
+                        {report?.startTime && report?.endTime
+                          ? formatDurationMinutes(computeDurationMinutes(report.startTime, report.endTime))
+                          : formatDurationMinutes(meetingDurationMinutesFromLogs(programLogs))}
                       </div>
                     </div>
                   </div>
+                  {report?.startTime && report?.endTime && (
+                    <p className="text-sm text-slate-600 mt-2">{formatMeetingTimeRange(report.startTime, report.endTime)}</p>
+                  )}
                 </div>
               </div>
             )}

@@ -3,7 +3,7 @@ import {
   Palette, UserCircle, Database, Sun, Tv, ListMusic, FolderTree, UserCheck,
   Music, Music2, Archive, History, PenSquare, LineChart, UserPlus, ClipboardList,
   CheckSquare, HeartHandshake, PartyPopper, CalendarClock, Sparkles,
-  CreditCard, Banknote, Building2,
+  CreditCard, Banknote, Building2, Landmark,
 } from 'lucide-react'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { ACCOUNTS_ENTRY_BASE_PATH } from './accountsEntryAccess'
@@ -24,6 +24,7 @@ function getTabLabel(tab) {
     case 'cellGroups':        return 'Cell Groups'
     case 'reports':           return 'Reports'
     case 'leaderEntry':       return 'Leader Entry'
+    case 'finance':           return 'Finance'
     case 'operations':        return 'Operations'
     case 'design':            return 'Design'
     case 'members':           return 'Members'
@@ -64,6 +65,7 @@ function getTabIcon(tab) {
     case 'cellGroups':         return Users
     case 'reports':            return FileBarChart2
     case 'leaderEntry':        return PenLine
+    case 'finance':            return Landmark
     case 'operations':         return Settings2
     case 'design':             return Palette
     case 'members':            return UserCircle
@@ -100,25 +102,38 @@ function getTabIcon(tab) {
 // here so the folder modal can show them as a nested grid instead: tapping the
 // Operations tile opens a second-level grid of these, driven by the `opsSub` query
 // param DepartmentHub already reads (replacing the toggle's local/onChange state).
+// Expense/Budget/Payout Request previously lived here too — moved out into their own
+// Finance tab (see DEFAULT_FINANCE_CHILDREN below) so money-related sub-pages aren't
+// buried inside a generically-named "Operations" tab.
 const DEFAULT_OPS_CHILDREN = [
-  { key: 'expense',       label: 'Expense',         Icon: CreditCard },
   { key: 'subDepartment', label: 'Sub Department',  Icon: FolderTree },
   { key: 'team',          label: 'Team',            Icon: Users },
   { key: 'planning',      label: 'Planning',        Icon: CalendarDays },
-  { key: 'budget',        label: 'Budget',          Icon: Wallet },
-  { key: 'payout',        label: 'Payout Request',  Icon: Banknote },
 ]
 
 function getOperationsChildren(slug) {
-  if (slug === 'accounts') {
-    return DEFAULT_OPS_CHILDREN.map((c) =>
-      c.key === 'payout' ? { key: 'addDepartments', label: 'Add Departments', Icon: Building2 } : c
-    )
-  }
   if (slug === 'd-light') {
     return DEFAULT_OPS_CHILDREN.map((c) => (c.key === 'subDepartment' ? { ...c, label: 'Sub Dept' } : c))
   }
   return DEFAULT_OPS_CHILDREN
+}
+
+// Finance sub-views — Expense, Budget, and Payout Request, regrouped out of
+// Operations under their own tab. Drives the `financeSub` query param, mirroring
+// how `opsSub` drives Operations' children above.
+const DEFAULT_FINANCE_CHILDREN = [
+  { key: 'expense', label: 'Expense',        Icon: CreditCard },
+  { key: 'budget',  label: 'Budget',         Icon: Wallet },
+  { key: 'payout',  label: 'Payout Request', Icon: Banknote },
+]
+
+function getFinanceChildren(slug) {
+  if (slug === 'accounts') {
+    return DEFAULT_FINANCE_CHILDREN.map((c) =>
+      c.key === 'payout' ? { key: 'addDepartments', label: 'Add Departments', Icon: Building2 } : c
+    )
+  }
+  return DEFAULT_FINANCE_CHILDREN
 }
 
 // Cell's Leader Entry tab used to have its own inline toggle (CellLeaderEntryTab) for
@@ -165,6 +180,15 @@ export function getDepartmentSubpages(slug, userProfile) {
         children: getOperationsChildren(slug).map((c) => ({
           ...c,
           to: `/department/${slug}?tab=operations&opsSub=${encodeURIComponent(c.key)}`,
+        })),
+      }
+    }
+    if (tab === 'finance') {
+      return {
+        ...base,
+        children: getFinanceChildren(slug).map((c) => ({
+          ...c,
+          to: `/department/${slug}?tab=finance&financeSub=${encodeURIComponent(c.key)}`,
         })),
       }
     }

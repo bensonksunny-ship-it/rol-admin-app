@@ -2189,6 +2189,8 @@ export async function getCellReportByCellAndDate(cellId, reportDate, altCellId) 
       visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
       childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
       reportDate: data.reportDate || '',
+      startTime: data.startTime || '',
+      endTime: data.endTime || '',
       attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
       meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
       createdBy: data.createdBy || '',
@@ -2235,6 +2237,8 @@ export async function getCellReportsByCell(cellId) {
       visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
       childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
       reportDate: data.reportDate || '',
+      startTime: data.startTime || '',
+      endTime: data.endTime || '',
       attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
       meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
       createdBy: data.createdBy || '',
@@ -2264,6 +2268,8 @@ export async function getLatestCellReports(limitCount = 30) {
       visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
       childrenList: Array.isArray(data.childrenList) ? data.childrenList : [],
       reportDate: data.reportDate || '',
+      startTime: data.startTime || '',
+      endTime: data.endTime || '',
       attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
       meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
       createdBy: data.createdBy || '',
@@ -2313,19 +2319,22 @@ export async function createCellReport(data, createdBy) {
  * exists for that cell/week — keeps Cell Reports history from going stale when a
  * report is edited (e.g. via the Live Entry page) after the Sunday-night archive job.
  */
-async function syncCellReportHistoryCounts(cellId, meetingDateISO, { membersAttended, visitors, children }) {
+async function syncCellReportHistoryCounts(cellId, meetingDateISO, { membersAttended, visitors, children, startTime, endTime }) {
   if (!db || !cellId || !meetingDateISO) return
   try {
     const weekStart = toMondayISO(meetingDateISO)
     const historyRef = doc(db, CELL_REPORT_HISTORY_COLLECTION, `${weekStart}_${cellId}`)
     const historySnap = await getDoc(historyRef)
     if (historySnap.exists()) {
-      await updateDoc(historyRef, {
+      const patch = {
         membersAttended,
         visitors,
         children,
         totalAttendance: membersAttended + visitors + children,
-      })
+      }
+      if (startTime !== undefined) patch.startTime = startTime
+      if (endTime !== undefined) patch.endTime = endTime
+      await updateDoc(historyRef, patch)
     }
   } catch (err) {
     console.warn('syncCellReportHistoryCounts: could not patch cell_report_history', err)
@@ -2340,6 +2349,8 @@ export async function updateCellReport(reportId, data) {
     children: data.children !== undefined ? Number(data.children) : undefined,
     visitorsList: data.visitorsList !== undefined ? (Array.isArray(data.visitorsList) ? data.visitorsList : []) : undefined,
     childrenList: data.childrenList !== undefined ? (Array.isArray(data.childrenList) ? data.childrenList : []) : undefined,
+    startTime: data.startTime !== undefined ? String(data.startTime || '') : undefined,
+    endTime: data.endTime !== undefined ? String(data.endTime || '') : undefined,
     attendanceFinalizedAt: data.attendanceFinalized === true ? serverTimestamp() : undefined,
     meetingFinalizedAt: data.meetingFinalized === true ? serverTimestamp() : undefined,
   }
@@ -2347,7 +2358,8 @@ export async function updateCellReport(reportId, data) {
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), clean)
 
   const countsChanged = clean.membersAttended !== undefined || clean.visitors !== undefined || clean.children !== undefined
-  if (countsChanged) {
+  const timingChanged = clean.startTime !== undefined || clean.endTime !== undefined
+  if (countsChanged || timingChanged) {
     const reportSnap = await getDoc(doc(db, CELL_REPORTS_COLLECTION, reportId))
     const reportData = reportSnap.exists() ? reportSnap.data() : null
     if (reportData?.cellId && reportData?.reportDate) {
@@ -2355,6 +2367,8 @@ export async function updateCellReport(reportId, data) {
         membersAttended: clean.membersAttended ?? (Number(reportData.membersAttended) || 0),
         visitors: clean.visitors ?? (Number(reportData.visitors) || 0),
         children: clean.children ?? (Number(reportData.children) || 0),
+        ...(clean.startTime !== undefined ? { startTime: clean.startTime } : {}),
+        ...(clean.endTime !== undefined ? { endTime: clean.endTime } : {}),
       })
     }
   }
