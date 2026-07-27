@@ -17,6 +17,7 @@ import {
   serverTimestamp,
   onSnapshot,
   increment,
+  getDocsFromServer,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, functions, httpsCallable } from '../lib/firebase'
@@ -2506,7 +2507,10 @@ export async function getDelightVisitors() {
     collection(db, DELIGHT_VISITORS_COLLECTION),
     orderBy('createdAt', 'desc')
   )
-  const snap = await getDocs(q)
+  // Bypass the persistent local cache — a permission-denied result on this query
+  // can otherwise get stuck in IndexedDB and keep rejecting on retry even after
+  // the underlying Firestore rule has been fixed and the page reloaded.
+  const snap = await getDocsFromServer(q)
   return snap.docs.map((d) => {
     const data = d.data()
     return {

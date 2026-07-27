@@ -212,7 +212,11 @@ service cloud.firestore {
       // Cell reads for the "Add Member" People's Directory picker (Cell Groups tab) — only
       // people entered via D Light Visitor Entry can be added to a cell group, so Cell
       // Directors/Leaders need read access here too, not just D Light/Caring/Sunday Ministry.
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring') || canAccessDept('Sunday Ministry') || canAccessDept('Cell') || isCellDirector());
+      // hasAnyCellPosition() is checked directly (not just canAccessDept/isCellDirector,
+      // which both ultimately depend on legacy top-level department/role fields) so a user
+      // whose `positions[]` has a Cell entry is never blocked by those fields being stale
+      // or never having been synced.
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring') || canAccessDept('Sunday Ministry') || canAccessDept('Cell') || isCellDirector() || hasAnyCellPosition());
       allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
       allow update: if isSignedIn() && (isFullAccess() || canAccessDept('D Light') || canAccessDept('Caring'));
     }
@@ -313,16 +317,42 @@ service cloud.firestore {
         {'department': 'Cell', 'position': 'Director'}
       ]);
     }
+    // True when `positions` has ANY entry for the Cell department, regardless of role
+    // (Director/Coordinator/Cell Leader/Associate — the AdminUserManagement dropdown
+    // options — plus the new-schema role tokens). Rules language has no generic
+    // "any element has field X" check, so this enumerates every position value the
+    // app actually writes (see AdminUserManagement.jsx's position dropdown).
+    function hasAnyCellPosition() {
+      return isSignedIn() && getUserData().get('positions', []).hasAny([
+        {'department': 'Cell', 'position': 'Director'},
+        {'department': 'Cell', 'position': 'Coordinator'},
+        {'department': 'Cell', 'position': 'Cell Leader'},
+        {'department': 'Cell', 'position': 'Associate'},
+        {'department': 'Cell', 'role': 'DIRECTOR'},
+        {'department': 'Cell', 'role': 'COORDINATOR'},
+        {'department': 'Cell', 'role': 'LEADER'},
+        {'department': 'Cell', 'role': 'MEMBER'}
+      ]);
+    }
+    // Mirrors the client's getDepartmentRole() in src/utils/access.js, which only
+    // consults the top-level role/department fields when no Cell entry exists.
+    function hasNoCellPosition() {
+      return !hasAnyCellPosition();
+    }
     function isCellDirector() {
       // Prefer the explicit positions-array check above. Only fall back to the
-      // top-level role/department fields for legacy profiles with no positions
-      // array at all — otherwise a Director of an unrelated department (e.g. a
-      // Cell Leader who is also River Kids Director) whose primary `department`
-      // field happens to be 'Cell' would incorrectly gain full Cell Director
-      // access to every cell's reports and members.
+      // top-level role/department fields when `positions` has no Cell entry at
+      // all — matching src/utils/access.js's getDepartmentRole() exactly, so a
+      // Director whose `positions` array only lists other departments (e.g. also
+      // River Kids Director) but whose legacy top-level department/role fields
+      // say Cell Director still gets recognized here the same way the client
+      // already recognizes them (previously this only fired when `positions`
+      // was entirely empty, which silently denied reads the UI had already
+      // allowed for any Director with a non-empty positions array and no
+      // explicit Cell entry).
       return isSignedIn() && (
         hasCellDirectorPosition() ||
-        (getUserData().get('positions', []).size() == 0 &&
+        (hasNoCellPosition() &&
           getUserRole() == 'Director' &&
           (userDepartment() == 'Cell' || 'Cell' in userDepartments()))
       );

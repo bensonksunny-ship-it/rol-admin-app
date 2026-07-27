@@ -104,7 +104,29 @@
       "Bash(taskkill //F //PID 17928)",
       "Bash(git rm *)",
       "Bash(rm -f src/components/workspace/PendingActionsCard.jsx)",
-      "Bash(SCRATCH_FILE=/c/Users/User/AppData/Local/Temp/claude/C--Users-User-Documents-ROL-Admin-app/6f08f8f5-8830-4a85-90c9-51beac00895b/scratchpad/new_cell_member_modal_body.txt node -e ' *)"
+      "Bash(SCRATCH_FILE=/c/Users/User/AppData/Local/Temp/claude/C--Users-User-Documents-ROL-Admin-app/6f08f8f5-8830-4a85-90c9-51beac00895b/scratchpad/new_cell_member_modal_body.txt node -e ' *)",
+      "Bash(grep -n '^                                                    >$' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8601r /tmp/_header_raw.txt' \"src/pages/DepartmentHub.jsx\")",
+      "Bash(sed -i '8442r /tmp/_header_raw.txt' \"src/pages/DepartmentHub.jsx\")",
+      "Bash(grep -n \"flex items-start justify-between gap-2\\\\|canEdit && \\(\\\\|{!m.visitorId &&\\\\|</div>$\" src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8750r /tmp/_badge_row.txt' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8623,8627d' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8622d' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8620d' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8619s/.*/                                            <div className=\"min-w-0 flex items-center gap-1.5 flex-wrap\">/' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8620s/.*/                                              <p className=\"font-bold text-sm text-slate-800 truncate\">{m.name || '\"'\"'—'\"'\"'}<\\\\/p>/' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8577r /tmp/_badge_row.txt' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8452,8456d' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8451d' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8443d' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8442s#.*#                                            <div className=\"min-w-0 flex items-center gap-1.5 flex-wrap\">#' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8439s#.*#                                          className={`relative h-24 w-full flex flex-col justify-between rounded-2xl border p-3.5 shadow-sm transition-all hover:shadow-md cursor-pointer ${isDuplicate ? '\"'\"'bg-red-50/70 border-red-200 hover:border-red-300'\"'\"' : '\"'\"'bg-white border-slate-200 hover:border-indigo-200'\"'\"'}`}#' src/pages/DepartmentHub.jsx)",
+      "Bash(printf '%18s{isFounder && \\(\\\\n' \"\")",
+      "Bash(printf '%18s\\)}\\\\n' \"\")",
+      "Bash(sed -i '8912r /tmp/_close.txt' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8907r /tmp/_open.txt' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8846r /tmp/_close.txt' src/pages/DepartmentHub.jsx)",
+      "Bash(sed -i '8841r /tmp/_open.txt' src/pages/DepartmentHub.jsx)"
     ]
   }
 }

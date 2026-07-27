@@ -11,7 +11,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import { format, startOfWeek, subWeeks } from 'date-fns'
+import { format, startOfWeek, subWeeks, parseISO } from 'date-fns'
 import { getCellGroups, getLatestCellReports, createCellReportReminder } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole, isFounder as isFounderUser } from '../utils/access'
@@ -234,6 +234,100 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, reminding
   )
 }
 
+const TEN_WEEK_COUNT = 10
+
+function tenWeekBadgeStyle(missingCount) {
+  if (missingCount === 0) return 'text-emerald-700 bg-emerald-50 border-emerald-100'
+  if (missingCount <= 2) return 'text-amber-700 bg-amber-50 border-amber-200'
+  return 'text-red-700 bg-red-50 border-red-200'
+}
+
+function tenWeekBadgeLabel(missingCount) {
+  if (missingCount === 0) return `${TEN_WEEK_COUNT}/${TEN_WEEK_COUNT} Submitted`
+  if (missingCount <= 2) return `${missingCount} Missing`
+  return `${missingCount}/${TEN_WEEK_COUNT} Missing — Action Required`
+}
+
+/**
+ * Per-cell compliance over the last 10 weeks, click-to-expand per row to see the
+ * specific missing week dates. Reuses the same reportsByCellWeek lookup the 6-week
+ * trend chart already builds — no extra Firestore reads.
+ */
+export function TenWeekComplianceTable({ rows, loading }) {
+  const [openCellId, setOpenCellId] = useState(null)
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100">
+        <p className="text-sm font-bold text-slate-800">Report Submission Tracking (Last 10 Weeks)</p>
+        <p className="text-xs text-slate-400 mt-0.5">Click a cell's badge to see which weeks are missing</p>
+      </div>
+
+      {loading ? (
+        <div className="px-5 py-6 text-sm text-slate-400 text-center">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="px-5 py-6 text-sm text-slate-400 text-center">No cell groups in scope.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100 text-left">
+                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Cell</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Leader</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Missing Reports (Last 10 Weeks)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {rows.map((row) => {
+                const isOpen = openCellId === row.cellId
+                const missingWeeks = row.weeks.filter((w) => !w.submitted)
+                return (
+                  <tr key={row.cellId} className="hover:bg-slate-50 transition-colors align-top">
+                    <td className="px-5 py-3 font-medium text-slate-800">{row.cellName}</td>
+                    <td className="px-4 py-3 text-slate-600">{row.leaderName || '—'}</td>
+                    <td className="px-4 py-3 relative">
+                      <button
+                        type="button"
+                        onClick={() => setOpenCellId(isOpen ? null : row.cellId)}
+                        title={missingWeeks.length > 0 ? 'Click to see which weeks are missing' : undefined}
+                        className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${tenWeekBadgeStyle(row.missingCount)} ${
+                          missingWeeks.length > 0 ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'
+                        }`}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-current inline-block opacity-70" />
+                        {tenWeekBadgeLabel(row.missingCount)}
+                      </button>
+
+                      {isOpen && missingWeeks.length > 0 && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setOpenCellId(null)} aria-hidden />
+                          <div className="absolute z-20 left-4 top-full mt-1.5 w-56 bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
+                            <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
+                              Missing weeks for {row.cellName}
+                            </p>
+                            <ul className="max-h-56 overflow-y-auto divide-y divide-slate-50">
+                              {missingWeeks.map((w) => (
+                                <li key={w.weekStart} className="px-3 py-2 text-xs text-slate-600 flex items-center gap-2">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+                                  Week of {format(parseISO(w.weekStart), 'd MMM yyyy')}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function CellWeeklyTrendsChart({ chartData }) {
   if (!chartData?.length) {
     return (
@@ -290,7 +384,10 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
 
   const load = useCallback(() => {
     setLoading(true)
-    Promise.all([getCellGroups(CELL_DEPARTMENT), getLatestCellReports(500)])
+    // 1000, not 500 — the 10-week compliance table below needs enough history for
+    // every cell across a 10-week window; 500 risked truncating older weeks once
+    // there are 50+ active cells (500 / 10 weeks = 50 cells before it starts missing data).
+    Promise.all([getCellGroups(CELL_DEPARTMENT), getLatestCellReports(1000)])
       .then(([groups, reports]) => {
         setCellGroups(groups || [])
         setLatestCellReports(reports || [])
@@ -378,6 +475,30 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
     })
   }, [reportsByCellWeek, visibleGroups])
 
+  // Compliance over the last 10 *completed* weeks — deliberately excludes the
+  // current in-progress week (which MissingCellReportsTable above already covers
+  // via isDue/isMeetingToday), so a cell isn't flagged "missing" for a meeting
+  // that hasn't happened yet.
+  const tenWeekRows = useMemo(() => {
+    const cur = startOfWeek(new Date(), { weekStartsOn: 1 })
+    const tenWeeks = Array.from({ length: TEN_WEEK_COUNT }, (_, i) => subWeeks(cur, TEN_WEEK_COUNT - i))
+    return visibleGroups.map((cell) => {
+      const weeks = tenWeeks.map((ws) => {
+        const wk = format(ws, 'yyyy-MM-dd')
+        const hit = reportsByCellWeek.get(cell.id)?.get(wk)
+          || (cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(wk) : null)
+        return { weekStart: wk, submitted: Boolean(hit) }
+      })
+      return {
+        cellId: cell.id,
+        cellName: cell.cellName || 'Unnamed',
+        leaderName: cell.leader || '',
+        weeks,
+        missingCount: weeks.filter((w) => !w.submitted).length,
+      }
+    })
+  }, [visibleGroups, reportsByCellWeek])
+
   const remindLeader = useCallback(async (row) => {
     if (!row?.cellId || remindingIds.has(row.cellId)) return
     setRemindingIds((prev) => new Set([...prev, row.cellId]))
@@ -440,6 +561,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
           onUndismiss={undismissAlert}
         />
       </div>
+      <TenWeekComplianceTable rows={tenWeekRows} loading={loading} />
       <CellWeeklyTrendsChart chartData={chartData} />
     </div>
   )

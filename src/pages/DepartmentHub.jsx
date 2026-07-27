@@ -1,5 +1,6 @@
 import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
@@ -30,6 +31,10 @@ import {
   getCellGroups,
   getCellGroupMembers,
   getAllCellGroupMembers,
+  getCellReportsByCell,
+  getCellReportAttendees,
+  getRecentSundayAttendanceNamesByCell,
+  getRecentCellReportsForHeatmap,
   addCellGroup,
   updateCellGroup,
   addCellGroupMember,
@@ -38,7 +43,6 @@ import {
   deleteCellGroupMember,
   getCellMemberPendingChanges,
   addCellMemberPendingChange,
-  deleteCellMemberPendingChange,
   getBackToBibleList,
   addBackToBible,
   getActiveBackToBibleForDate,
@@ -125,7 +129,7 @@ import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { differenceInDays, differenceInYears, differenceInMonths, format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
-import { formatDMY, formatDMYTime, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
+import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
@@ -133,7 +137,6 @@ import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
 import DLightDirectorDashboard from '../components/DLightDirectorDashboard'
 import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
 import { defaultCellTab, visibleCellTabs } from '../utils/cellTabVisibility'
-import { calcTenureLabel } from '../utils/cellMemberCategory'
 import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import PersonSearchInput from '../components/PersonSearchInput'
@@ -341,6 +344,43 @@ export default function DepartmentHub() {
   const [activeMenuMemberPos, setActiveMenuMemberPos] = useState({ top: 0, right: 0 })
   const [cellMemberTransfer, setCellMemberTransfer] = useState(null)
   const [transferringCellMember, setTransferringCellMember] = useState(false)
+  const [expandedMemberSections, setExpandedMemberSections] = useState({})
+  const [cellRecentAttendedNames, setCellRecentAttendedNames] = useState(new Set())
+  const [detailMember, setDetailMember] = useState(null)
+  const [detailMemberLoading, setDetailMemberLoading] = useState(false)
+  const [detailMemberProfile, setDetailMemberProfile] = useState(null)
+  const [detailMemberVisitor, setDetailMemberVisitor] = useState(null)
+  const [detailMemberMinistries, setDetailMemberMinistries] = useState([])
+  const [detailMemberCellAttendance, setDetailMemberCellAttendance] = useState([])
+  const [detailMemberSundayAttendance, setDetailMemberSundayAttendance] = useState([])
+
+  const openMemberDetail = useCallback((m, cellId) => {
+    setDetailMember(m)
+    setDetailMemberProfile(null)
+    setDetailMemberVisitor(null)
+    setDetailMemberMinistries([])
+    setDetailMemberCellAttendance([])
+    setDetailMemberSundayAttendance([])
+    setDetailMemberLoading(true)
+    const nameLower = String(m.name || '').trim().toLowerCase()
+    Promise.all([
+      m.visitorId ? getMemberProfileWithContext(m.visitorId, m.phone, null, m.name).catch(() => null) : Promise.resolve(null),
+      m.visitorId ? getDelightVisitorById(m.visitorId).catch(() => null) : Promise.resolve(null),
+      cellId ? getRecentCellReportsForHeatmap(cellId, 5).catch(() => []) : Promise.resolve([]),
+      cellId ? getRecentSundayAttendanceNamesByCell(cellId, 5).catch(() => []) : Promise.resolve([]),
+    ]).then(([ctx, visitor, cellReports, sundayWeeks]) => {
+      setDetailMemberProfile(ctx?.profile || null)
+      setDetailMemberVisitor(visitor)
+      const deptTeams = ctx?.deptTeams || []
+      const worshipTeams = ctx?.worshipTeams || []
+      setDetailMemberMinistries([
+        ...deptTeams.map((t) => ({ ministry: t.department, role: t.rolePosition || t.role || '', from: t.since || '' })),
+        ...worshipTeams.map((t) => ({ ministry: 'Worship', role: (t.positions || [])[0] || '', from: t.since || '' })),
+      ])
+      setDetailMemberCellAttendance(cellReports.map((r) => ({ date: r.reportDate, present: r.attendeeNames.has(nameLower) })))
+      setDetailMemberSundayAttendance(sundayWeeks)
+    }).finally(() => setDetailMemberLoading(false))
+  }, [])
   const [teamMemberLinking, setTeamMemberLinking] = useState(null)
   const [cellMemberLinkedVisitor, setCellMemberLinkedVisitor] = useState(null)
   const [cellMemberLinkedVisitorForm, setCellMemberLinkedVisitorForm] = useState({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
@@ -1448,12 +1488,28 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (!expandedCellId) {
       setCellMembers([])
+      setCellRecentAttendedNames(new Set())
       return
     }
     setLoadingCellMembers(true)
     getCellGroupMembers(expandedCellId)
       .then(setCellMembers)
       .finally(() => setLoadingCellMembers(false))
+
+    const fourWeeksAgo = new Date()
+    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28)
+    Promise.all([
+      getCellReportsByCell(expandedCellId).then((reports) => {
+        const recentReports = reports.filter((r) => r.reportDate && new Date(r.reportDate) >= fourWeeksAgo)
+        return Promise.all(recentReports.map((r) => getCellReportAttendees(r.id)))
+      }),
+      getRecentSundayAttendanceNamesByCell(expandedCellId, 4),
+    ]).then(([attendeeLists, sundayWeeks]) => {
+      const names = new Set()
+      attendeeLists.flat().forEach((a) => { if (a.name) names.add(String(a.name).trim().toLowerCase()) })
+      sundayWeeks.forEach((wk) => wk.presentNames.forEach((n) => names.add(n)))
+      setCellRecentAttendedNames(names)
+    }).catch(() => setCellRecentAttendedNames(new Set()))
   }, [expandedCellId])
 
   const canEdit = department
@@ -8237,95 +8293,6 @@ export default function DepartmentHub() {
                 </div>
               )}
 
-              {/* Pending Actions (Cell Director) */}
-              {canViewAllCells && (
-                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                  <h2 className="font-semibold text-slate-800 mb-3">Pending Actions</h2>
-                  {loadingCellPending ? (
-                    <p className="text-sm text-slate-500">Loading…</p>
-                  ) : cellPendingChanges.length === 0 ? (
-                    <p className="text-sm text-slate-500">No pending member changes.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-sm">
-                        <thead className="bg-slate-100">
-                          <tr>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600 w-10">SL</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Cell Name</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Member Name</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Action Type</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Field changed</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Requested By</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Date & Time</th>
-                            <th className="text-left px-3 py-2 font-medium text-slate-600">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {cellPendingChanges.map((p, idx) => (
-                            <tr key={p.id}>
-                              <td className="px-3 py-2 text-slate-600">{idx + 1}</td>
-                              <td className="px-3 py-2 text-slate-800">{p.cellName || '—'}</td>
-                              <td className="px-3 py-2 text-slate-800">{p.memberData?.name ?? (p.changeType === 'delete' ? '(delete)' : '—')}</td>
-                              <td className="px-3 py-2 text-slate-600 capitalize">{p.changeType || '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{p.changeType === 'edit' ? (p.changeSummary || '—') : '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{p.requestedBy || '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{p.requestedAt ? formatDMYTime(p.requestedAt) : '—'}</td>
-                              <td className="px-3 py-2 space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    try {
-                                      if (p.changeType === 'add' && p.memberData) {
-                                        await addCellGroupMember(p.cellId, p.memberData)
-                                      } else if (p.changeType === 'edit' && p.memberId && p.memberData) {
-                                        await updateCellGroupMember(p.cellId, p.memberId, p.memberData)
-                                      } else if (p.changeType === 'delete' && p.memberId) {
-                                        await deleteCellGroupMember(p.cellId, p.memberId)
-                                      } else if (p.changeType === 'activate' && p.memberId) {
-                                        await updateCellGroupMember(p.cellId, p.memberId, { status: 'active' })
-                                      } else if (p.changeType === 'deactivate' && p.memberId) {
-                                        await deactivateCellGroupMember(p.cellId, p.memberId, p.memberData?.name)
-                                      }
-                                      await deleteCellMemberPendingChange(p.id)
-                                      setCellPendingChanges((prev) => prev.filter((x) => x.id !== p.id))
-                                      if (expandedCellId === p.cellId) {
-                                        const list = await getCellGroupMembers(p.cellId)
-                                        setCellMembers(list)
-                                      }
-                                      const updatedList = await getCellGroupMembers(p.cellId)
-                                      setCellGroups((prev) => prev.map((c) => (c.id === p.cellId ? { ...c, memberCount: updatedList.length } : c)))
-                                    } catch (err) {
-                                      console.error(err)
-                                      alert('Failed to apply')
-                                    }
-                                  }}
-                                  className="text-emerald-600 hover:underline font-medium"
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    try {
-                                      await deleteCellMemberPendingChange(p.id)
-                                      setCellPendingChanges((prev) => prev.filter((x) => x.id !== p.id))
-                                    } catch (err) {
-                                      console.error(err)
-                                    }
-                                  }}
-                                  className="text-red-600 hover:underline"
-                                >
-                                  Deny
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
               {/* Dashboard metrics */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -8335,7 +8302,7 @@ export default function DepartmentHub() {
                 <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
                   <p className="text-sm text-slate-500 uppercase tracking-wide">Total Cell Members</p>
                   <p className="text-2xl font-bold text-slate-800 mt-1">
-                    {loadingCellGroups ? '—' : cellGroups.reduce((s, c) => s + (c.memberCount || 0), 0)}
+                    {loadingCellGroups ? '—' : allCellMembers.filter((m) => m.status !== 'inactive' && m.memberCategory !== 'former').length}
                   </p>
                 </div>
               </div>
@@ -8401,7 +8368,7 @@ export default function DepartmentHub() {
                             </p>
                           )}
                           {yearsSince !== null && <p className="text-sm opacity-90 mt-1">Launched: {yearsSince} year{yearsSince !== 1 ? 's' : ''} ago</p>}
-                          <p className="text-2xl font-bold mt-2">{cell.memberCount ?? 0} Members</p>
+                          <p className="text-2xl font-bold mt-2">{allCellMembers.filter((m) => m.cellId === cell.id && m.status !== 'inactive' && m.memberCategory !== 'former').length} Members</p>
                         </button>
                         {expandedCellId === cell.id && (
                           <div className="border-t border-slate-200 p-4 bg-white">
@@ -8439,7 +8406,7 @@ export default function DepartmentHub() {
                                       .then(setCellMemberVisitors)
                                       .catch((err) => {
                                         console.error('Failed to load People\'s Directory', err)
-                                        setCellMemberVisitorsError('Could not load the directory. Please try again.')
+                                        setCellMemberVisitorsError(`Could not load the directory. (${err?.code || err?.message || 'unknown error'})`)
                                       })
                                       .finally(() => setLoadingCellMemberVisitors(false))
                                   }}
@@ -8460,28 +8427,33 @@ export default function DepartmentHub() {
                                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                     {cellMembers.filter((m) => m.status !== 'inactive').map((m) => {
                                       const isDuplicate = duplicateCellMemberKeys.has(m.visitorId || ('name:' + (m.name || '').toLowerCase().trim()))
+                                      const nameKey = String(m.name || '').trim().toLowerCase()
+                                      const isAbsent = !!nameKey && !cellRecentAttendedNames.has(nameKey)
                                       return (
-                                        <div key={m.id} className={`relative rounded-2xl border p-4 shadow-sm ${isDuplicate ? 'bg-red-50 border-red-300' : 'bg-white border-slate-200'}`}>
+                                        <div
+                                          key={m.id}
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={() => openMemberDetail(m, cell.id)}
+                                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMemberDetail(m, cell.id) } }}
+                                          className={`relative h-24 w-full flex flex-col justify-between rounded-2xl border p-3.5 shadow-sm transition-all hover:shadow-md cursor-pointer ${isDuplicate ? 'bg-red-50/70 border-red-200 hover:border-red-300' : 'bg-white border-slate-200 hover:border-indigo-200'}`}
+                                        >
                                           <div className="flex items-start justify-between gap-2">
-                                            <div className="min-w-0">
-                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                            <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
                                                 {isDuplicate && (
                                                   <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="This person is in multiple cell groups" />
                                                 )}
+                                                {isAbsent && (
+                                                  <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Not attended cell or Sunday service in over 4 weeks" />
+                                                )}
                                                 <p className={`font-bold text-sm truncate ${isDuplicate ? 'text-red-800' : 'text-slate-900'}`}>{m.name || '—'}</p>
-                                              </div>
-                                              <div className="mt-1">
-                                                {m.visitorId
-                                                  ? <span title="Linked to visitor entry" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                                                  : <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                                                }
-                                              </div>
                                             </div>
                                             {canEdit && (
                                               <div className="relative flex-shrink-0">
                                                 <button
                                                   type="button"
                                                   onClick={(e) => {
+                                                    e.stopPropagation()
                                                     if (activeMenuMemberId === m.id) {
                                                       setActiveMenuMemberId(null)
                                                       return
@@ -8498,13 +8470,17 @@ export default function DepartmentHub() {
                                                     <circle cx="2" cy="14" r="1.5"/>
                                                   </svg>
                                                 </button>
-                                                {activeMenuMemberId === m.id && (
+                                                {activeMenuMemberId === m.id && createPortal(
                                                   <>
-                                                    <div className="fixed inset-0 z-40" onClick={() => setActiveMenuMemberId(null)} />
+                                                    <div className="fixed inset-0 z-40 bg-black/10 backdrop-blur-none transition-opacity duration-200" onClick={(e) => { e.stopPropagation(); setActiveMenuMemberId(null) }} />
                                                     <div
                                                       style={{ position: 'fixed', top: activeMenuMemberPos.top, right: activeMenuMemberPos.right }}
-                                                      className="z-50 bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 rounded-xl p-1.5 w-48 text-left overflow-hidden"
+                                                      onClick={(e) => e.stopPropagation()}
+                                      className="z-50 bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 rounded-xl p-2 w-48 text-left overflow-hidden"
                                                     >
+                                                      <p className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-1.5 px-2">
+                                                        Cell • {cell.cellName || 'Unnamed'}
+                                                      </p>
                                                       <button type="button" onClick={() => {
                                                         setActiveMenuMemberId(null)
                                                         setEditingCellMemberId(m.id)
@@ -8561,6 +8537,23 @@ export default function DepartmentHub() {
                                                         </svg>
                                                         Mark Inactive
                                                       </button>
+                                                      <button type="button" onClick={async () => {
+                                                        setActiveMenuMemberId(null)
+                                                        try {
+                                                          await updateCellGroupMember(cell.id, m.id, { status: 'inactive', memberCategory: 'former' })
+                                                          const list = await getCellGroupMembers(cell.id)
+                                                          setCellMembers(list)
+                                                          refreshAllCellMembers()
+                                                        } catch (err) {
+                                                          console.error('Failed to mark member as former', err)
+                                                          alert('Failed to mark as former. Please try again.')
+                                                        }
+                                                      }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                                                          <path d="M3 3v18h18"/><path d="M7 12l3-3 3 3 5-5"/>
+                                                        </svg>
+                                                        Mark as Former
+                                                      </button>
                                                       <div className="my-1 border-t border-slate-100" />
                                                       <button type="button" onClick={async () => { setActiveMenuMemberId(null); if (!window.confirm(`Remove ${m.name || 'this member'} from this cell group?`)) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
@@ -8569,17 +8562,18 @@ export default function DepartmentHub() {
                                                         Remove from Cell
                                                       </button>
                                                     </div>
-                                                  </>
+                                                  </>,
+                                                  document.body
                                                 )}
                                               </div>
                                             )}
                                           </div>
-                                          <div className="flex flex-wrap gap-1.5 mt-2.5">
-                                            {m.phone && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📞 {m.phone}</span>}
-                                            {m.locality && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📍 {m.locality}</span>}
-                                            {m.birthday && <span className="text-xs text-pink-600 bg-pink-50 px-2 py-0.5 rounded-full">🎂 {formatDMY(m.birthday)}</span>}
-                                            {m.anniversary && <span className="text-xs text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">💍 {formatDMY(m.anniversary)}</span>}
-                                            {m.since && <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">⏳ {differenceInDays(new Date(), new Date(m.since))}d</span>}
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            {m.visitorId ? (
+                                              <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">Linked</span>
+                                            ) : (
+                                              <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Unlinked</span>
+                                            )}
                                           </div>
                                         </div>
                                       )
@@ -8591,32 +8585,46 @@ export default function DepartmentHub() {
                                   { key: 'not_attending', title: 'Inactive Members (Not Attending)', emptyLabel: 'No inactive members.', match: (m) => m.memberCategory !== 'former' },
                                 ].map(({ key, title, emptyLabel, match }) => {
                                   const rows = cellMembers.filter((m) => m.status === 'inactive' && match(m))
+                                  const sectionKey = `${cell.id}_${key}`
+                                  const isSectionOpen = !!expandedMemberSections[sectionKey]
                                   return (
                                   <div key={key}>
-                                  <h4 className="font-medium text-slate-700 mt-4 mb-1">{title}</h4>
-                                  {rows.length === 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedMemberSections((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }))}
+                                    className="w-full flex items-center justify-between gap-2 mt-4 mb-1 py-1 text-left"
+                                  >
+                                    <span className="font-medium text-slate-700 flex items-center gap-2">
+                                      {title}
+                                      <span className="text-xs font-semibold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">{rows.length}</span>
+                                    </span>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-slate-400 flex-shrink-0 transition-transform ${isSectionOpen ? 'rotate-180' : ''}`}>
+                                      <polyline points="6 9 12 15 18 9"/>
+                                    </svg>
+                                  </button>
+                                  {isSectionOpen && (rows.length === 0 ? (
                                     <p className="px-1 py-4 text-center text-slate-500 text-sm">{emptyLabel}</p>
                                   ) : (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                       {rows.map((m) => (
-                                        <div key={m.id} className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm opacity-90">
+                                        <div
+                                          key={m.id}
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={() => openMemberDetail(m, cell.id)}
+                                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMemberDetail(m, cell.id) } }}
+                                          className="relative h-24 w-full flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm opacity-90 transition-all hover:shadow-md hover:opacity-100 hover:border-indigo-200 cursor-pointer"
+                                        >
                                           <div className="flex items-start justify-between gap-2">
-                                            <div className="min-w-0">
-                                              <div className="flex items-center gap-1.5 flex-wrap">
-                                                <p className="font-bold text-sm text-slate-800 truncate">{m.name || '—'}</p>
-                                              </div>
-                                              <div className="mt-1">
-                                                {m.visitorId
-                                                  ? <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                                                  : <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                                                }
-                                              </div>
+                                            <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                                              <p className="font-bold text-sm text-slate-800 truncate">{m.name || '—'}</p>
                                             </div>
                                             {canEdit && (
                                               <div className="relative flex-shrink-0">
                                                 <button
                                                   type="button"
                                                   onClick={(e) => {
+                                                    e.stopPropagation()
                                                     if (activeMenuMemberId === m.id) {
                                                       setActiveMenuMemberId(null)
                                                       return
@@ -8633,13 +8641,17 @@ export default function DepartmentHub() {
                                                     <circle cx="2" cy="14" r="1.5"/>
                                                   </svg>
                                                 </button>
-                                                {activeMenuMemberId === m.id && (
+                                                {activeMenuMemberId === m.id && createPortal(
                                                   <>
-                                                    <div className="fixed inset-0 z-40" onClick={() => setActiveMenuMemberId(null)} />
+                                                    <div className="fixed inset-0 z-40 bg-black/10 backdrop-blur-none transition-opacity duration-200" onClick={(e) => { e.stopPropagation(); setActiveMenuMemberId(null) }} />
                                                     <div
                                                       style={{ position: 'fixed', top: activeMenuMemberPos.top, right: activeMenuMemberPos.right }}
-                                                      className="z-50 bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 rounded-xl p-1.5 w-48 text-left overflow-hidden"
+                                                      onClick={(e) => e.stopPropagation()}
+                                      className="z-50 bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 rounded-xl p-2 w-48 text-left overflow-hidden"
                                                     >
+                                                      <p className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-1.5 px-2">
+                                                        Cell • {cell.cellName || 'Unnamed'}
+                                                      </p>
                                                       <button type="button" onClick={() => {
                                                         setActiveMenuMemberId(null)
                                                         setEditingCellMemberId(m.id)
@@ -8696,6 +8708,25 @@ export default function DepartmentHub() {
                                                         </svg>
                                                         Make Active
                                                       </button>
+                                                      {m.memberCategory !== 'former' && (
+                                                        <button type="button" onClick={async () => {
+                                                          setActiveMenuMemberId(null)
+                                                          try {
+                                                            await updateCellGroupMember(cell.id, m.id, { status: 'inactive', memberCategory: 'former' })
+                                                            const list = await getCellGroupMembers(cell.id)
+                                                            setCellMembers(list)
+                                                            refreshAllCellMembers()
+                                                          } catch (err) {
+                                                            console.error('Failed to mark member as former', err)
+                                                            alert('Failed to mark as former. Please try again.')
+                                                          }
+                                                        }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+                                                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                                                            <path d="M3 3v18h18"/><path d="M7 12l3-3 3 3 5-5"/>
+                                                          </svg>
+                                                          Mark as Former
+                                                        </button>
+                                                      )}
                                                       <div className="my-1 border-t border-slate-100" />
                                                       <button type="button" onClick={async () => { setActiveMenuMemberId(null); if (!window.confirm(`Remove ${m.name || 'this member'} from this cell group?`)) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
@@ -8704,26 +8735,23 @@ export default function DepartmentHub() {
                                                         Remove from Cell
                                                       </button>
                                                     </div>
-                                                  </>
+                                                  </>,
+                                                  document.body
                                                 )}
                                               </div>
                                             )}
                                           </div>
-                                          <div className="flex flex-wrap gap-1.5 mt-2.5">
-                                            {m.phone && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📞 {m.phone}</span>}
-                                            {m.locality && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">📍 {m.locality}</span>}
-                                            {m.birthday && <span className="text-xs text-pink-600 bg-pink-50 px-2 py-0.5 rounded-full">🎂 {formatDMY(m.birthday)}</span>}
-                                            {m.anniversary && <span className="text-xs text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">💍 {formatDMY(m.anniversary)}</span>}
-                                            <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">
-                                              {key === 'former'
-                                                ? (calcTenureLabel(m.since, m.leftDate) ? `Member for ${calcTenureLabel(m.since, m.leftDate)}` : '—')
-                                                : (m.since ? `⏳ ${differenceInDays(new Date(), new Date(m.since))}d` : '—')}
-                                            </span>
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            {m.visitorId ? (
+                                              <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">Linked</span>
+                                            ) : (
+                                              <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Unlinked</span>
+                                            )}
                                           </div>
                                         </div>
                                       ))}
                                     </div>
-                                  )}
+                                  ))}
                                   </div>
                                   )
                                 })}
@@ -8811,11 +8839,13 @@ export default function DepartmentHub() {
                   }}
                   className="p-5 space-y-4"
                 >
+                  {isFounder && (
                   <div>
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell ID (optional)</label>
                     <input type="text" placeholder="Unique code; leave blank to use document ID" value={newCellGroupForm.cellId} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, cellId: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Leaders link via profile <strong>cellGroupId</strong> matching this value.</p>
                   </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell Name *</label>
                     <input type="text" value={newCellGroupForm.cellName} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" required />
@@ -8877,11 +8907,13 @@ export default function DepartmentHub() {
                   }}
                   className="p-5 space-y-4"
                 >
+                  {isFounder && (
                   <div>
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell ID</label>
                     <input type="text" value={cellGroupEditForm.cellId} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, cellId: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Unique string; user <strong>cellGroupId</strong> must match.</p>
                   </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell Name *</label>
                     <input type="text" value={cellGroupEditForm.cellName} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, cellName: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" required />
@@ -8920,6 +8952,143 @@ export default function DepartmentHub() {
                 </form>
               </div>
             </div>
+          )}
+
+          {detailMember && createPortal(
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4" onClick={() => setDetailMember(null)}>
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-slate-900 w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-xl max-h-[85vh] overflow-y-auto"
+              >
+                <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-5 py-4 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-900 dark:text-slate-100 truncate">{detailMember.name || '—'}</p>
+                    {detailMemberVisitor?.phone && <p className="text-xs text-slate-500 mt-0.5">{detailMemberVisitor.phone}</p>}
+                  </div>
+                  <button type="button" onClick={() => setDetailMember(null)} className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+                <div className="p-5 space-y-4">
+                  {detailMemberLoading ? (
+                    <p className="text-sm text-slate-500 text-center py-6">Loading…</p>
+                  ) : (
+                    <>
+                      {!detailMember.visitorId && (
+                        <p className="text-xs text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">Not linked to a directory profile — limited details available.</p>
+                      )}
+
+                      {detailMemberVisitor?.attendedDate && (
+                        <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                          <div>
+                            <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-100 mb-0.5">Time in Church</p>
+                            <p className="text-sm font-semibold text-white">since {formatDMY(detailMemberVisitor.attendedDate)}</p>
+                          </div>
+                          {detailMemberVisitor.serviceAttended && (
+                            <span className="text-[9px] font-bold text-emerald-100 bg-white/20 px-2 py-1 rounded-full border border-white/30">{detailMemberVisitor.serviceAttended}</span>
+                          )}
+                        </div>
+                      )}
+
+                      {detailMemberMinistries.length > 0 && (
+                        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                          <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                            <div className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />
+                            <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Ministry & Leadership</p>
+                          </div>
+                          <div className="px-3 py-2 space-y-1.5">
+                            {detailMemberMinistries.map((mn, i) => (
+                              <div key={i} className="bg-violet-50 dark:bg-violet-950/40 border border-violet-100 dark:border-violet-900 rounded-lg px-2.5 py-2">
+                                <p className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                                  {mn.ministry}{mn.role ? <span className="font-normal text-slate-400"> · {mn.role}</span> : ''}
+                                </p>
+                                {mn.from && <p className="text-[9px] text-slate-400 mt-0.5">since {formatDMY(mn.from)}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {detailMemberProfile && (detailMemberProfile.baptised || detailMemberProfile.maritalStatus || detailMemberProfile.membershipStatus || detailMemberProfile.permanentAddress) && (
+                        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                          <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                            <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                            <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Spiritual & Membership</p>
+                          </div>
+                          <div className="px-3 py-1 divide-y divide-slate-50 dark:divide-slate-800">
+                            {detailMemberProfile.baptised && (
+                              <div className="flex items-start justify-between gap-2 py-1.5">
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Baptised</span>
+                                <span className="text-[11px] font-semibold text-right text-slate-800 dark:text-slate-200">{detailMemberProfile.baptised === 'yes' ? 'Yes' : detailMemberProfile.baptised === 'no' ? 'No' : detailMemberProfile.baptised}</span>
+                              </div>
+                            )}
+                            {detailMemberProfile.maritalStatus && (
+                              <div className="flex items-start justify-between gap-2 py-1.5">
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Marital Status</span>
+                                <span className="text-[11px] font-semibold text-right text-slate-800 dark:text-slate-200 capitalize">{detailMemberProfile.maritalStatus}</span>
+                              </div>
+                            )}
+                            {detailMemberProfile.maritalStatus?.toLowerCase() === 'married' && detailMemberProfile.spouseName && (
+                              <div className="flex items-start justify-between gap-2 py-1.5">
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Spouse</span>
+                                <span className="text-[11px] font-semibold text-right text-slate-800 dark:text-slate-200">{detailMemberProfile.spouseName}</span>
+                              </div>
+                            )}
+                            {detailMemberProfile.membershipStatus && (
+                              <div className="flex items-start justify-between gap-2 py-1.5">
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Membership</span>
+                                <span className="text-[11px] font-semibold text-right text-slate-800 dark:text-slate-200 capitalize">{detailMemberProfile.membershipStatus}</span>
+                              </div>
+                            )}
+                            {detailMemberProfile.permanentAddress && (
+                              <div className="flex items-start justify-between gap-2 py-1.5">
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex-shrink-0 w-28">Perm. Address</span>
+                                <span className="text-[11px] font-semibold text-right text-slate-800 dark:text-slate-200 leading-snug">{detailMemberProfile.permanentAddress}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {detailMemberCellAttendance.length > 0 && (
+                        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                          <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                            <div className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />
+                            <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Cell Attendance (last {detailMemberCellAttendance.length})</p>
+                          </div>
+                          <div className="px-3 py-3 flex items-center gap-2 flex-wrap">
+                            {detailMemberCellAttendance.map((r, i) => (
+                              <span key={i} title={r.date ? formatDMY(r.date) : ''} className={`rounded-full flex-shrink-0 ${r.present ? 'bg-green-400' : 'bg-red-300'} ${i === 0 ? 'w-4 h-4' : 'w-2.5 h-2.5'}`} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {detailMemberSundayAttendance.length > 0 && (
+                        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                          <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                            <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                            <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Sunday Attendance (last {detailMemberSundayAttendance.length})</p>
+                          </div>
+                          <div className="px-3 py-3 flex items-center gap-2 flex-wrap">
+                            {detailMemberSundayAttendance.map((s, i) => {
+                              const nameLower = String(detailMember.name || '').trim().toLowerCase()
+                              const present = s.presentNames.includes(nameLower)
+                              return <span key={i} title={s.date ? formatDMY(s.date) : ''} className={`rounded-full flex-shrink-0 ${present ? 'bg-emerald-400' : 'bg-red-300'} ${i === 0 ? 'w-4 h-4' : 'w-2.5 h-2.5'}`} />
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {!detailMemberVisitor && detailMemberMinistries.length === 0 && detailMemberCellAttendance.length === 0 && detailMemberSundayAttendance.length === 0 && (
+                        <p className="text-sm text-slate-400 text-center py-6">No additional details on file.</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>,
+            document.body
           )}
 
           {cellMemberLinking && (
@@ -9226,8 +9395,16 @@ export default function DepartmentHub() {
                           {loadingCellMemberVisitors ? (
                             <p className="px-3 py-6 text-xs text-slate-400 text-center">Loading directory…</p>
                           ) : cellMemberVisitorsError ? (
-                            <div className="px-3 py-6 text-center">
+                            <div className="px-3 py-6 text-center space-y-2">
                               <p className="text-xs text-red-500 dark:text-red-400 font-medium">{cellMemberVisitorsError}</p>
+                              <div className="text-left bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5 text-[10px] font-mono text-slate-500 dark:text-slate-400 break-all">
+                                <p>role: {JSON.stringify(userProfile?.role ?? null)}</p>
+                                <p>globalRole: {JSON.stringify(userProfile?.globalRole ?? null)}</p>
+                                <p>department: {JSON.stringify(userProfile?.department ?? null)}</p>
+                                <p>departments: {JSON.stringify(userProfile?.departments ?? null)}</p>
+                                <p>positions: {JSON.stringify(userProfile?.positions ?? null)}</p>
+                              </div>
+                              <p className="text-[10px] text-slate-400">Screenshot or copy the box above and send it back so this can be fixed for good.</p>
                             </div>
                           ) : (() => {
                             const q = cellMemberVisitorSearch.trim().toLowerCase()
