@@ -1,12 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
-  getPeople,
-  getDelightVisitors,
-  getAllCellGroupMembers,
-  getPCSEntries,
-  getAllDepartmentTeamMembers,
-  getAllWorshipTeamMembers,
-  getCellGroups,
+  getMergedPeopleDirectory,
   addPerson,
   updatePerson,
   updatePCSEntry,
@@ -15,7 +9,6 @@ import {
   updateDepartmentTeamMember,
   updateWorshipTeamMember,
   updateDelightVisitor,
-  getAllPersonSundayAttendance,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { isFounder } from '../utils/access'
@@ -486,199 +479,8 @@ export default function PeopleDirectory() {
   }, [])
 
   useEffect(() => {
-    Promise.all([
-      getPeople().catch(() => []),
-      getAllCellGroupMembers().catch(() => []),
-      getPCSEntries().catch(() => []),
-      getAllDepartmentTeamMembers().catch(() => []),
-      getAllWorshipTeamMembers().catch(() => []),
-      getCellGroups('Cell').catch(() => []),
-      getDelightVisitors().catch(() => []),
-      getAllPersonSundayAttendance().catch(() => []),
-    ]).then(([people, cellMembers, pcsEntries, deptTeams, worshipTeams, cellGroups, visitors, sundayAttendance]) => {
-      const cellById = {}
-      cellGroups.forEach(c => { cellById[c.id] = c })
-
-      // Build from people collection (primary source — written by PCS)
-      const byId = {}
-      // Also index by phone for visitor merging (phone is the best legacy key)
-      const byPhone = {}
-      people.forEach(p => {
-        const entry = {
-          _key: p.id,
-          personId: p.id,
-          name: p.name || '',
-          phone: p.phone || '',
-          email: p.email || '',
-          dob: p.dob || '',
-          attendedDate: p.firstVisitDate || '',
-          serviceAttended: p.serviceAttended || '',
-          howKnown: p.howKnown || '',
-          nativity: p.nativity || '',
-          currentPlace: p.currentPlace || '',
-          baptised: p.baptised || '',
-          maritalStatus: p.maritalStatus || '',
-          membershipStatus: p.membershipStatus || '',
-          membershipNumber: p.membershipNumber || '',
-          leadershipPosition: p.leadershipPosition || '',
-          ministries: p.ministries || [],
-          stage: p.stage || 'visitor',
-          cells: [],
-          pcs: null,
-          deptTeams: [],
-          worshipTeams: [],
-          source: 'people',
-          _visitorIds: [],
-          sundayAttendance: [],
-        }
-        byId[p.id] = entry
-        if (p.phone) byPhone[p.phone.replace(/\s+/g, '')] = entry
-      })
-
-      // Attach PCS entries (match by personId, fall back to unlinked)
-      const unlinked = []
-      pcsEntries.forEach(p => {
-        if (p.personId && byId[p.personId]) {
-          byId[p.personId].pcs = p
-        } else if (!p.personId) {
-          unlinked.push(p)
-        }
-      })
-
-      // Start merged from people collection entries
-      const merged = Object.values(byId)
-
-      // Unlinked PCS entries (no personId yet — legacy records)
-      unlinked.forEach(p => {
-        const phone = (p.phone || '').replace(/\s+/g, '')
-        if (phone && byPhone[phone]) {
-          // Matched to an existing People's Directory row by phone — attach the PCS
-          // data to it instead of silently dropping it. Without this, p.pcs stays
-          // null on the merged row, so edits never propagate to this PCS entry.
-          byPhone[phone].pcs = p
-          return
-        }
-        const entry = {
-          _key: 'pcs-' + p.id,
-          personId: null,
-          name: p.name || '',
-          phone: p.phone || '',
-          email: '',
-          dob: '',
-          attendedDate: p.attendedDate || '',
-          serviceAttended: p.serviceAttended || '',
-          howKnown: '',
-          nativity: '',
-          currentPlace: '',
-          baptised: '',
-          maritalStatus: '',
-          membershipStatus: p.membershipStatus || '',
-          membershipNumber: p.membershipNumber || '',
-          leadershipPosition: p.leadershipPosition || '',
-          ministries: p.ministries || [],
-          stage: 'pcs',
-          cells: [],
-          pcs: p,
-          deptTeams: [],
-          worshipTeams: [],
-          source: 'pcs-legacy',
-          _visitorIds: [],
-          sundayAttendance: [],
-        }
-        merged.push(entry)
-        if (phone) byPhone[phone] = entry
-      })
-
-      // D-Light visitors — process BEFORE cell/dept/worship attachment so we can build byVisitorId
-      // byVisitorId maps delight_visitors doc id → merged entry (for legacy linking)
-      const byVisitorId = {}
-      visitors.forEach(v => {
-        const phone = (v.phone || '').replace(/\s+/g, '')
-        if (phone && byPhone[phone]) {
-          const existing = byPhone[phone]
-          if (!existing.attendedDate && v.attendedDate) existing.attendedDate = v.attendedDate
-          if (!existing.serviceAttended && v.serviceAttended) existing.serviceAttended = v.serviceAttended
-          if (!existing.howKnown && v.howKnown) existing.howKnown = v.howKnown
-          existing._visitorIds.push(v.id)
-          byVisitorId[v.id] = existing
-          return
-        }
-        const entry = {
-          _key: 'vis-' + v.id,
-          personId: null,
-          name: v.name || '',
-          phone: v.phone || '',
-          email: v.email || '',
-          dob: v.dob || '',
-          attendedDate: v.attendedDate || '',
-          serviceAttended: v.serviceAttended || '',
-          howKnown: v.howKnown || '',
-          nativity: v.nativity || '',
-          currentPlace: v.currentPlace || '',
-          baptised: '',
-          maritalStatus: '',
-          membershipStatus: '',
-          membershipNumber: '',
-          leadershipPosition: '',
-          ministries: [],
-          stage: 'visitor',
-          cells: [],
-          pcs: null,
-          deptTeams: [],
-          worshipTeams: [],
-          source: 'visitor',
-          _visitorIds: [v.id],
-          sundayAttendance: [],
-        }
-        merged.push(entry)
-        if (phone) byPhone[phone] = entry
-        byVisitorId[v.id] = entry
-      })
-
-      // Attach cell memberships — try personId first, fall back to visitorId (legacy)
-      cellMembers.forEach(m => {
-        const entry = (m.personId && byId[m.personId]) || (m.visitorId && byVisitorId[m.visitorId])
-        if (!entry) return
-        const cell = cellById[m.cellId]
-        entry.cells.push({ ...m, cellName: cell?.cellName || m.cellId, leader: cell?.leader || '', leaderPersonId: cell?.leaderPersonId || '' })
-      })
-
-      // Attach dept teams
-      deptTeams.forEach(t => {
-        const entry = (t.personId && byId[t.personId]) || (t.visitorId && byVisitorId[t.visitorId])
-        if (!entry) return
-        entry.deptTeams.push(t)
-      })
-
-      // Attach worship teams
-      worshipTeams.forEach(t => {
-        const entry = (t.personId && byId[t.personId]) || (t.visitorId && byVisitorId[t.visitorId])
-        if (!entry) return
-        entry.worshipTeams.push(t)
-      })
-
-      // Attach Sunday attendance records (linked from Live Control's "Others" section)
-      sundayAttendance.forEach(a => {
-        const entry = (a.personId && byId[a.personId]) || (a.visitorId && byVisitorId[a.visitorId])
-        if (!entry) return
-        entry.sundayAttendance.push(a.date)
-      })
-
-      // Sort final merged list by date descending
-      merged.sort((a, b) => {
-        const da = a.attendedDate ? new Date(a.attendedDate).getTime() : 0
-        const db2 = b.attendedDate ? new Date(b.attendedDate).getTime() : 0
-        return db2 - da
-      })
-
-      setSourceCounts({
-        people: people.length,
-        cellMembers: cellMembers.length,
-        pcsEntries: pcsEntries.length,
-        deptTeams: deptTeams.length,
-        worshipTeams: worshipTeams.length,
-        visitors: visitors.length,
-      })
+    getMergedPeopleDirectory().then(({ people: merged, cellGroups, sourceCounts: counts }) => {
+      setSourceCounts(counts)
       setPeople(merged)
       setCellGroups(cellGroups)
       setLoading(false)

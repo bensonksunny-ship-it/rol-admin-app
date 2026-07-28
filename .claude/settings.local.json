@@ -132,7 +132,9 @@
       "Bash(java -version)",
       "Bash(where java *)",
       "Bash(npm uninstall *)",
-      "Artifact"
+      "Artifact",
+      "Bash(powershell.exe *)",
+      "Bash(grep -n \"setMeta\\({ title: '', artist: '', key: '', tempo: '' }\\)\" src/pages/worship/SongDesigner.jsx)"
     ]
   }
 }

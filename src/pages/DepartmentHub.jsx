@@ -1560,7 +1560,7 @@ export default function DepartmentHub() {
   if (!department) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
         <p className="mt-4">Department not found.</p>
       </div>
     )
@@ -1576,7 +1576,7 @@ export default function DepartmentHub() {
   if (slug === 'sunday-ministry' && !isSundayMinistryDirector) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
         <p className="mt-4">You do not have access to Sunday Ministry department.</p>
       </div>
     )
@@ -1585,7 +1585,7 @@ export default function DepartmentHub() {
   if (slug !== 'sunday-ministry' && !hasAccess(userProfile, department.name) && !isAccountsEntryPassthrough) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
         <p className="mt-4">
           You do not have access to {department.name === 'Event M' ? 'Event Management' : department.name} department.
         </p>

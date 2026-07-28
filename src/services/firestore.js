@@ -24,6 +24,23 @@ import { db, storage, functions, httpsCallable } from '../lib/firebase'
 import { deriveRoleFromPositions } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
 
+// Firestore's writes reject any `undefined` field value, including ones nested inside
+// array elements (e.g. one row of a dynamically-built assignments array). Recursively
+// drops them so payloads assembled from loosely-typed UI state can't fail the write.
+// Leaves Timestamp/FieldValue instances (anything not a plain object/array) untouched.
+function stripUndefinedDeep(value) {
+  if (Array.isArray(value)) return value.map(stripUndefinedDeep)
+  if (value !== null && typeof value === 'object' && value.constructor === Object) {
+    const out = {}
+    for (const [k, v] of Object.entries(value)) {
+      if (v === undefined) continue
+      out[k] = stripUndefinedDeep(v)
+    }
+    return out
+  }
+  return value
+}
+
 function normalizeGlobalRole(v) {
   const s = v == null ? '' : String(v).trim()
   if (s === 'FOUNDER') return s
@@ -377,6 +394,7 @@ export async function addWorshipSong(data, addedBy) {
     sections: Array.isArray(data.sections) ? data.sections : [],
     blocks: Array.isArray(data.blocks) ? data.blocks : [],
     rawText: data.rawText || '',
+    designedBy: data.designedBy || addedBy || '',
     createdBy: addedBy || '',
     createdAt: serverTimestamp(),
   })
@@ -946,7 +964,9 @@ export async function setWorshipScheduleByDate(department, date, assignments, up
   )
   const snap = await getDocs(q)
   const existing = snap.docs.find((doc) => doc.data().date === date)
-  const payload = { department, date, assignments, updatedBy, updatedAt: Timestamp.now(), ...extra }
+  const payload = stripUndefinedDeep({
+    department, date, assignments, updatedBy: updatedBy || '', updatedAt: Timestamp.now(), ...extra,
+  })
   if (existing) {
     await updateDoc(doc(db, 'worship_schedule', existing.id), payload)
     return existing.id
@@ -4723,6 +4743,210 @@ export async function getAllWorshipTeamMembers() {
   if (!db) return []
   const snap = await getDocs(collection(db, 'worship_team_members'))
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+// ── Merged People Directory ───────────────────────────────────────────────────
+// "Everybody" in this app isn't just the `people` collection — most members only
+// ever show up as a cell_members row, a department/worship team row, or a legacy
+// PCS/D-Light-visitor record. This merges all of those (deduped by phone/personId/
+// visitorId, same as PeopleDirectory.jsx's own list) into one searchable roster,
+// so any "search the People Directory" picker sees the same "everybody" the
+// People Directory page does instead of just the sparse `people` collection.
+export async function getMergedPeopleDirectory() {
+  const [people, cellMembers, pcsEntries, deptTeams, worshipTeams, cellGroups, visitors, sundayAttendance] = await Promise.all([
+    getPeople().catch(() => []),
+    getAllCellGroupMembers().catch(() => []),
+    getPCSEntries().catch(() => []),
+    getAllDepartmentTeamMembers().catch(() => []),
+    getAllWorshipTeamMembers().catch(() => []),
+    getCellGroups('Cell').catch(() => []),
+    getDelightVisitors().catch(() => []),
+    getAllPersonSundayAttendance().catch(() => []),
+  ])
+
+  const cellById = {}
+  cellGroups.forEach(c => { cellById[c.id] = c })
+
+  // Build from people collection (primary source — written by PCS)
+  const byId = {}
+  // Also index by phone for visitor merging (phone is the best legacy key)
+  const byPhone = {}
+  people.forEach(p => {
+    const entry = {
+      _key: p.id,
+      personId: p.id,
+      name: p.name || '',
+      phone: p.phone || '',
+      email: p.email || '',
+      dob: p.dob || '',
+      attendedDate: p.firstVisitDate || '',
+      serviceAttended: p.serviceAttended || '',
+      howKnown: p.howKnown || '',
+      nativity: p.nativity || '',
+      currentPlace: p.currentPlace || '',
+      baptised: p.baptised || '',
+      maritalStatus: p.maritalStatus || '',
+      membershipStatus: p.membershipStatus || '',
+      membershipNumber: p.membershipNumber || '',
+      leadershipPosition: p.leadershipPosition || '',
+      ministries: p.ministries || [],
+      stage: p.stage || 'visitor',
+      cells: [],
+      pcs: null,
+      deptTeams: [],
+      worshipTeams: [],
+      source: 'people',
+      _visitorIds: [],
+      sundayAttendance: [],
+    }
+    byId[p.id] = entry
+    if (p.phone) byPhone[p.phone.replace(/\s+/g, '')] = entry
+  })
+
+  // Attach PCS entries (match by personId, fall back to unlinked)
+  const unlinked = []
+  pcsEntries.forEach(p => {
+    if (p.personId && byId[p.personId]) {
+      byId[p.personId].pcs = p
+    } else if (!p.personId) {
+      unlinked.push(p)
+    }
+  })
+
+  // Start merged from people collection entries
+  const merged = Object.values(byId)
+
+  // Unlinked PCS entries (no personId yet — legacy records)
+  unlinked.forEach(p => {
+    const phone = (p.phone || '').replace(/\s+/g, '')
+    if (phone && byPhone[phone]) {
+      byPhone[phone].pcs = p
+      return
+    }
+    const entry = {
+      _key: 'pcs-' + p.id,
+      personId: null,
+      name: p.name || '',
+      phone: p.phone || '',
+      email: '',
+      dob: '',
+      attendedDate: p.attendedDate || '',
+      serviceAttended: p.serviceAttended || '',
+      howKnown: '',
+      nativity: '',
+      currentPlace: '',
+      baptised: '',
+      maritalStatus: '',
+      membershipStatus: p.membershipStatus || '',
+      membershipNumber: p.membershipNumber || '',
+      leadershipPosition: p.leadershipPosition || '',
+      ministries: p.ministries || [],
+      stage: 'pcs',
+      cells: [],
+      pcs: p,
+      deptTeams: [],
+      worshipTeams: [],
+      source: 'pcs-legacy',
+      _visitorIds: [],
+      sundayAttendance: [],
+    }
+    merged.push(entry)
+    if (phone) byPhone[phone] = entry
+  })
+
+  // D-Light visitors — process BEFORE cell/dept/worship attachment so we can build byVisitorId
+  const byVisitorId = {}
+  visitors.forEach(v => {
+    const phone = (v.phone || '').replace(/\s+/g, '')
+    if (phone && byPhone[phone]) {
+      const existing = byPhone[phone]
+      if (!existing.attendedDate && v.attendedDate) existing.attendedDate = v.attendedDate
+      if (!existing.serviceAttended && v.serviceAttended) existing.serviceAttended = v.serviceAttended
+      if (!existing.howKnown && v.howKnown) existing.howKnown = v.howKnown
+      existing._visitorIds.push(v.id)
+      byVisitorId[v.id] = existing
+      return
+    }
+    const entry = {
+      _key: 'vis-' + v.id,
+      personId: null,
+      name: v.name || '',
+      phone: v.phone || '',
+      email: v.email || '',
+      dob: v.dob || '',
+      attendedDate: v.attendedDate || '',
+      serviceAttended: v.serviceAttended || '',
+      howKnown: v.howKnown || '',
+      nativity: v.nativity || '',
+      currentPlace: v.currentPlace || '',
+      baptised: '',
+      maritalStatus: '',
+      membershipStatus: '',
+      membershipNumber: '',
+      leadershipPosition: '',
+      ministries: [],
+      stage: 'visitor',
+      cells: [],
+      pcs: null,
+      deptTeams: [],
+      worshipTeams: [],
+      source: 'visitor',
+      _visitorIds: [v.id],
+      sundayAttendance: [],
+    }
+    merged.push(entry)
+    if (phone) byPhone[phone] = entry
+    byVisitorId[v.id] = entry
+  })
+
+  // Attach cell memberships — try personId first, fall back to visitorId (legacy)
+  cellMembers.forEach(m => {
+    const entry = (m.personId && byId[m.personId]) || (m.visitorId && byVisitorId[m.visitorId])
+    if (!entry) return
+    const cell = cellById[m.cellId]
+    entry.cells.push({ ...m, cellName: cell?.cellName || m.cellId, leader: cell?.leader || '', leaderPersonId: cell?.leaderPersonId || '' })
+  })
+
+  // Attach dept teams
+  deptTeams.forEach(t => {
+    const entry = (t.personId && byId[t.personId]) || (t.visitorId && byVisitorId[t.visitorId])
+    if (!entry) return
+    entry.deptTeams.push(t)
+  })
+
+  // Attach worship teams
+  worshipTeams.forEach(t => {
+    const entry = (t.personId && byId[t.personId]) || (t.visitorId && byVisitorId[t.visitorId])
+    if (!entry) return
+    entry.worshipTeams.push(t)
+  })
+
+  // Attach Sunday attendance records (linked from Live Control's "Others" section)
+  sundayAttendance.forEach(a => {
+    const entry = (a.personId && byId[a.personId]) || (a.visitorId && byVisitorId[a.visitorId])
+    if (!entry) return
+    entry.sundayAttendance.push(a.date)
+  })
+
+  // Sort final merged list by date descending
+  merged.sort((a, b) => {
+    const da = a.attendedDate ? new Date(a.attendedDate).getTime() : 0
+    const db2 = b.attendedDate ? new Date(b.attendedDate).getTime() : 0
+    return db2 - da
+  })
+
+  return {
+    people: merged,
+    cellGroups,
+    sourceCounts: {
+      people: people.length,
+      cellMembers: cellMembers.length,
+      pcsEntries: pcsEntries.length,
+      deptTeams: deptTeams.length,
+      worshipTeams: worshipTeams.length,
+      visitors: visitors.length,
+    },
+  }
 }
 
 export async function getMemberProfileWithContext(visitorId, phone, personId, name) {

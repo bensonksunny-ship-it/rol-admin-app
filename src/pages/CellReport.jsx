@@ -756,7 +756,7 @@ export default function CellReport() {
   if (!canAccess) {
     return (
       <div className="p-8 text-slate-600">
-        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
         <p className="mt-4">You do not have access to Cell Report. Cell Leaders can only access their own cell; Cell Director and Founder can view all.</p>
       </div>
     )

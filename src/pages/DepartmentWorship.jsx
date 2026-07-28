@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Send, Download } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Send, Download, Pencil, Trash2 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -26,7 +26,7 @@ import {
   addDepartmentSubDepartment,
   updateDepartmentSubDepartment,
   deleteDepartmentSubDepartment,
-  getDelightVisitors,
+  getMergedPeopleDirectory,
   getWorshipSongs,
   addWorshipSong,
   updateWorshipSong,
@@ -46,22 +46,25 @@ import SongViewer from './worship/SongViewer'
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
 
-// Fixed roles on the left of the assign table (master list per service)
-const ASSIGNMENT_ROLES = [
-  'Lead Vocal-1',
-  'Lead Vocal-2',
-  'Lead Vocal-3',
-  'Lead Vocal-4',
-  'Lead Vocal-5',
-  'Lead Vocal-6',
-  'Parts-1',
-  'Parts-2',
-  'Choir member-1',
-  'Choir member-2',
-  'Choir member-3',
-  'Choir member-4',
-  'Choir member-5',
-  'Choir member-6',
+// Song directory cards cycle through these full color themes (gradient wash + title +
+// chip) for distinct, vibrant pops rather than a flat white card with a thin accent line
+const SONG_CARD_THEMES = [
+  { border: 'border-indigo-500',  bg: 'bg-gradient-to-br from-indigo-50 to-white',   title: 'text-indigo-900',  chip: 'bg-indigo-100 text-indigo-700' },
+  { border: 'border-violet-500',  bg: 'bg-gradient-to-br from-violet-50 to-white',   title: 'text-violet-900',  chip: 'bg-violet-100 text-violet-700' },
+  { border: 'border-emerald-500', bg: 'bg-gradient-to-br from-emerald-50 to-white',  title: 'text-emerald-900', chip: 'bg-emerald-100 text-emerald-700' },
+  { border: 'border-amber-500',   bg: 'bg-gradient-to-br from-amber-50 to-white',    title: 'text-amber-900',   chip: 'bg-amber-100 text-amber-700' },
+  { border: 'border-rose-500',    bg: 'bg-gradient-to-br from-rose-50 to-white',     title: 'text-rose-900',    chip: 'bg-rose-100 text-rose-700' },
+  { border: 'border-sky-500',     bg: 'bg-gradient-to-br from-sky-50 to-white',      title: 'text-sky-900',     chip: 'bg-sky-100 text-sky-700' },
+]
+
+// Role categories on the left of the assign table (master list per service). Each
+// category shows exactly 1 row by default; "+ Add" appends another. The first row's
+// key matches the legacy hardcoded slot names exactly (see roleKeyFor) so schedules
+// saved before this became dynamic keep resolving to the same row.
+const ROLE_CATEGORIES = [
+  'Lead Vocal',
+  'Parts',
+  'Choir member',
   'Keyboard',
   'Lead Guitar',
   'Bass Guitar',
@@ -69,6 +72,26 @@ const ASSIGNMENT_ROLES = [
   'Drums',
   'Sound Engineer',
 ]
+
+// Categories whose legacy first-row key already carried a "-1" suffix — everything
+// else's first row was always bare (e.g. "Sound Engineer", not "Sound Engineer-1").
+const LEGACY_DASH_ONE_CATEGORIES = new Set(['Lead Vocal', 'Parts', 'Choir member'])
+
+function roleKeyFor(category, index) {
+  if (index === 1) return LEGACY_DASH_ONE_CATEGORIES.has(category) ? `${category}-1` : category
+  return `${category}-${index}`
+}
+
+// Inverse of roleKeyFor — splits a role key back into its category + row index.
+function parseRoleKey(role) {
+  const m = role.match(/^(.*)-(\d+)$/)
+  if (!m) return { category: role, index: 1 }
+  return { category: m[1], index: parseInt(m[2], 10) }
+}
+
+function countAssignedCategories(list) {
+  return new Set(list.filter((a) => a.memberId).map((a) => parseRoleKey(a.role).category)).size
+}
 
 const MEMBER_POSITIONS = [
   'Lead vocal',
@@ -115,17 +138,20 @@ function isBeforeSundayEvening(sundayDateStr) {
   return new Date() < cutoff
 }
 
+const CATEGORY_POSITION_KEY = {
+  'Lead Vocal': 'Lead vocal',
+  'Parts': 'Parts',
+  'Choir member': 'Choir',
+  'Lead Guitar': 'Lead guitar',
+  'Acoustic guitar': 'Guitar',
+  'Bass Guitar': 'Bass',
+  'Keyboard': 'Keyboard',
+  'Drums': 'Drums',
+  'Sound Engineer': 'Sound engineer',
+}
+
 function positionKeyForRole(role) {
-  if (role.startsWith('Lead Vocal')) return 'Lead vocal'
-  if (role.startsWith('Parts')) return 'Parts'
-  if (role.startsWith('Choir member')) return 'Choir'
-  if (role === 'Lead Guitar') return 'Lead guitar'
-  if (role === 'Acoustic guitar') return 'Guitar'
-  if (role === 'Bass Guitar') return 'Bass'
-  if (role === 'Keyboard') return 'Keyboard'
-  if (role === 'Drums') return 'Drums'
-  if (role === 'Sound Engineer') return 'Sound engineer'
-  return null
+  return CATEGORY_POSITION_KEY[parseRoleKey(role).category] || null
 }
 
 const DEMO_TEAM = [
@@ -327,7 +353,7 @@ export default function DepartmentWorship() {
   if (!hasAccess(userProfile, DEPARTMENT)) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="text-blue-600 hover:underline">← Departments</Link>
+        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
         <p className="mt-4">You do not have access to {DEPARTMENT} department.</p>
       </div>
     )
@@ -364,6 +390,12 @@ export default function DepartmentWorship() {
       .sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || '')),
     [allMembers]
   )
+
+  // Best-effort link from the logged-in user to their own worship team roster entry
+  // (there's no uid field on team members, only a name match) — used to default the
+  // song viewer's "My Role" filter to whichever instrument(s) this person plays.
+  const myName = userProfile?.name?.trim().toLowerCase()
+  const myWorshipMember = myName ? allMembers.find(m => m.name?.trim().toLowerCase() === myName) : null
   const [loadingTeam, setLoadingTeam] = useState(true)
   const [teamError, setTeamError] = useState(null)
   const [worshipMemberLinking, setWorshipMemberLinking] = useState(null)
@@ -400,8 +432,13 @@ export default function DepartmentWorship() {
   const [loadingBudgetItems, setLoadingBudgetItems] = useState(true)
   const [budgetItemsError, setBudgetItemsError] = useState(null)
   const [editingBudgetItem, setEditingBudgetItem] = useState(null)
-  const [structureModal, setStructureModal] = useState(null)
   const [localAssignments, setLocalAssignments] = useState([])
+  // How many rows are currently shown per role category in the assign table — only
+  // ever grows via "+ Add", shrinks via the row delete button. Reset whenever a
+  // different date's schedule loads so a previous date's added-but-unsaved rows don't
+  // linger; any already-saved rows beyond 1 (from before this became dynamic) still
+  // show because rowCountFor below takes the max against what's actually in the data.
+  const [roleRowCounts, setRoleRowCounts] = useState({})
   const [savingAssign, setSavingAssign] = useState(false)
   const [assignStamp, setAssignStamp] = useState(null)
   const [stampOpen, setStampOpen] = useState(false)
@@ -432,6 +469,12 @@ export default function DepartmentWorship() {
   const [songSubPage, setSongSubPage] = useState('directory')
   const [editingSong, setEditingSong] = useState(null)
   const [viewingSong, setViewingSong] = useState(null)
+  const [songSearchOpenRole, setSongSearchOpenRole] = useState(null)
+  // Assign tab's Song Name search only ever surfaces songs this logged-in user
+  // designed/created themselves — same name-match caveat as myWorshipMember above.
+  const myDesignedSongs = myName
+    ? songs.filter(s => (s.designedBy || s.createdBy || '').trim().toLowerCase() === myName)
+    : []
   const [songModal, setSongModal] = useState(null) // null | 'add'
   const [songForm, setSongForm] = useState({ title: '', artist: '', key: '', tempo: '', notes: '' })
   const [savingSong, setSavingSong] = useState(false)
@@ -519,8 +562,10 @@ export default function DepartmentWorship() {
     }
   }
 
+  // Also loaded on the Assign tab — the Song Name field there searches this same
+  // directory to auto-fill from a designed song instead of a free-typed name.
   useEffect(() => {
-    if (activeTab === 'songsDirectory') loadSongs()
+    if (activeTab === 'songsDirectory' || activeTab === 'assign') loadSongs()
   }, [activeTab])
 
   useEffect(() => {
@@ -557,6 +602,7 @@ export default function DepartmentWorship() {
 
   useEffect(() => {
     setLocalAssignments(scheduleForDate.assignments || [])
+    setRoleRowCounts({})
   }, [scheduleForDate])
 
   useEffect(() => {
@@ -626,14 +672,6 @@ export default function DepartmentWorship() {
     return a?.[field] ?? ''
   }
 
-  function getStructureData(role) {
-    const raw = getLocalField(role, 'structure')
-    if (!raw) return null
-    if (typeof raw === 'object') return raw
-    if (typeof raw === 'string' && raw.trim()) return { text: raw, fileName: null }
-    return null
-  }
-
   function updateLocal(role, patch) {
     setLocalAssignments((prev) => {
       const list = [...prev]
@@ -650,10 +688,34 @@ export default function DepartmentWorship() {
     })
   }
 
+  // Rows visible for a category = whichever is bigger: what's already saved for this
+  // date (so pre-existing multi-row data never gets hidden) or what's been added this
+  // session via the "+ Add" button.
+  function rowCountFor(category) {
+    const savedMax = localAssignments.reduce((max, a) => {
+      const parsed = parseRoleKey(a.role)
+      return parsed.category === category ? Math.max(max, parsed.index) : max
+    }, 1)
+    return Math.max(savedMax, roleRowCounts[category] || 1)
+  }
+
+  function addRoleRow(category) {
+    setRoleRowCounts((prev) => ({ ...prev, [category]: rowCountFor(category) + 1 }))
+  }
+
+  // Only removes the last row of a category (mirrors "+ Add" always appending to the
+  // end), clearing whatever was entered for it so no orphaned data lingers.
+  function removeRoleRow(category) {
+    const count = rowCountFor(category)
+    if (count <= 1) return
+    updateLocal(roleKeyFor(category, count), { memberId: '' })
+    setRoleRowCounts((prev) => ({ ...prev, [category]: count - 1 }))
+  }
+
   async function saveAssignPlan() {
     setSavingAssign(true)
     try {
-      await setWorshipScheduleByDate(DEPARTMENT, selectedDate, localAssignments, userProfile?.email)
+      await setWorshipScheduleByDate(DEPARTMENT, selectedDate, localAssignments, userProfile?.email || '')
       setScheduleForDate((s) => ({ ...s, assignments: localAssignments }))
       setAssignStamp({ date: selectedDate, assignments: [...localAssignments], savedAt: new Date() })
       setStampOpen(false)
@@ -700,14 +762,14 @@ export default function DepartmentWorship() {
       } else {
         const id = await addWorshipRehearsal(DEPARTMENT, {
           date: practiceDateStr, time: '', location: '', notes,
-        }, userProfile?.email)
+        }, userProfile?.email || '')
         setRehearsals((prev) =>
           [...prev, { id, department: DEPARTMENT, date: practiceDateStr, time: '', location: '', notes }]
             .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
         )
       }
-    } catch (e) {
-      console.error(e)
+    } catch (err) {
+      console.error('saveAssignPlan failed:', err, { date: selectedDate, assignments: localAssignments })
       alert('Failed to save')
     } finally {
       setSavingAssign(false)
@@ -941,7 +1003,7 @@ export default function DepartmentWorship() {
       title: a.songName,
       key: a.key || '—',
       singer: a.memberName || '—',
-      hasStructure: !!a.structure,
+      hasStructure: !!a.songId,
       _assignment: a,
     }))
 
@@ -1001,7 +1063,7 @@ export default function DepartmentWorship() {
                 {/* Stats row */}
                 <div className="flex divide-x divide-slate-100 border-b border-slate-100">
                   {[
-                    { label: 'Assigned', value: assigned.length, sub: `of ${ASSIGNMENT_ROLES.length} roles`, color: 'text-violet-700' },
+                    { label: 'Assigned', value: countAssignedCategories(assigned), sub: `of ${ROLE_CATEGORIES.length} roles`, color: 'text-violet-700' },
                     { label: 'Songs', value: songs.length, sub: 'in setlist', color: 'text-sky-600' },
                     { label: 'Team Pool', value: activeMembers.length, sub: 'active', color: 'text-emerald-600' },
                   ].map(({ label, value, sub, color }) => (
@@ -1143,8 +1205,8 @@ export default function DepartmentWorship() {
                     <div className="flex flex-wrap gap-3">
                       <div className="bg-violet-50/70 rounded-xl p-3 min-w-[100px]">
                         <p className="text-xs font-semibold text-violet-500">Assigned</p>
-                        <p className="text-2xl font-bold text-violet-700 mt-0.5">{savedAssignments.filter(a => a.memberId).length}</p>
-                        <p className="text-[10px] text-violet-400">of {ASSIGNMENT_ROLES.length} roles</p>
+                        <p className="text-2xl font-bold text-violet-700 mt-0.5">{countAssignedCategories(savedAssignments)}</p>
+                        <p className="text-[10px] text-violet-400">of {ROLE_CATEGORIES.length} roles</p>
                       </div>
                       {setlistSongs.length > 0 && (
                         <div className="bg-sky-50/70 rounded-xl p-3 min-w-[100px]">
@@ -1235,7 +1297,8 @@ export default function DepartmentWorship() {
                                         type="button"
                                         onClick={() => {
                                           const a = song._assignment
-                                          if (a?.structure) setStructureModal({ role: a.role, ...a.structure })
+                                          const linked = a?.songId ? songs.find(s => s.id === a.songId) : null
+                                          if (linked) setViewingSong(linked)
                                         }}
                                         className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
                                       >
@@ -1374,19 +1437,46 @@ export default function DepartmentWorship() {
                 <table key={selectedDate} className="w-full">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[160px]">Role</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[190px]">Assigned to</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[170px]">Song Name</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[70px]">Key</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[160px]">Structure</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[180px]">Role</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[260px]">Assigned to</th>
+                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Song Name</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {ASSIGNMENT_ROLES.map((role) => {
-                      const isLeadVocal = role.startsWith('Lead Vocal')
-                      return (
+                    {ROLE_CATEGORIES.flatMap((category) => {
+                      const count = rowCountFor(category)
+                      return Array.from({ length: count }, (_, i) => i + 1).map((index) => {
+                        const role = roleKeyFor(category, index)
+                        const isLeadVocal = role.startsWith('Lead Vocal')
+                        const isLastRow = index === count
+                        return (
                       <tr key={role} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-2 font-medium text-slate-800 text-sm">{role}</td>
+                        <td className="px-4 py-2 font-medium text-slate-800 text-sm align-top">
+                          <div className="flex flex-col gap-1">
+                            <span>{role}</span>
+                            {isLastRow && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => addRoleRow(category)}
+                                  className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline whitespace-nowrap"
+                                >
+                                  + Add {category}
+                                </button>
+                                {count > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeRoleRow(category)}
+                                    title={`Remove this ${category}`}
+                                    className="text-slate-400 hover:text-red-500 text-sm leading-none"
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-3 py-2">
                           <select
                             value={getLocalField(role, 'memberId')}
@@ -1410,79 +1500,62 @@ export default function DepartmentWorship() {
                           </select>
                         </td>
                         <td className="px-3 py-2">
-                          {isLeadVocal && (
-                            <input
-                              type="text"
-                              value={getLocalField(role, 'songName')}
-                              placeholder="Song name"
-                              onChange={(e) => updateLocal(role, { songName: e.target.value })}
-                              className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
-                            />
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          {isLeadVocal && (
-                            <input
-                              type="text"
-                              value={getLocalField(role, 'key')}
-                              placeholder="Key"
-                              onChange={(e) => updateLocal(role, { key: e.target.value })}
-                              className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
-                            />
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          {isLeadVocal ? (() => {
-                            const sd = getStructureData(role)
-                            return sd ? (
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => setStructureModal({ role, ...sd })}
-                                  className="text-sm text-amber-700 hover:text-amber-900 hover:underline truncate max-w-[120px]"
-                                  title={sd.fileName || 'View structure'}
-                                >
-                                  📄 {sd.fileName || 'View'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => updateLocal(role, { structure: null })}
-                                  className="text-slate-400 hover:text-red-500 text-base leading-none flex-shrink-0"
-                                  title="Remove"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            ) : (
-                              <label className="cursor-pointer inline-block">
-                                <span className="text-xs text-slate-500 hover:text-amber-700 border border-dashed border-slate-300 hover:border-amber-400 rounded px-2 py-1 transition-colors">
-                                  + Upload .docx
-                                </span>
+                          {isLeadVocal && (() => {
+                            const songName = getLocalField(role, 'songName')
+                            const songId = getLocalField(role, 'songId')
+                            const linkedSong = songId ? songs.find(s => s.id === songId) : null
+                            const q = songName.toLowerCase()
+                            const matches = myDesignedSongs
+                              .filter(s => !q || s.title?.toLowerCase().includes(q))
+                              .slice(0, 8)
+                            return (
+                              <div className="relative">
                                 <input
-                                  type="file"
-                                  accept=".docx"
-                                  className="hidden"
-                                  onChange={async (e) => {
-                                    const file = e.target.files[0]
-                                    if (!file) return
-                                    try {
-                                      const mammoth = await import('mammoth')
-                                      const arrayBuffer = await file.arrayBuffer()
-                                      const result = await mammoth.extractRawText({ arrayBuffer })
-                                      updateLocal(role, { structure: { text: result.value, fileName: file.name } })
-                                    } catch (err) {
-                                      console.error(err)
-                                      alert('Failed to read file. Make sure it is a valid .docx file.')
-                                    }
-                                    e.target.value = ''
-                                  }}
+                                  type="text"
+                                  value={songName}
+                                  placeholder="Search my songs or type a name"
+                                  onChange={(e) => updateLocal(role, { songName: e.target.value, songId: '', key: '' })}
+                                  onFocus={() => setSongSearchOpenRole(role)}
+                                  onBlur={() => setTimeout(() => setSongSearchOpenRole(r => (r === role ? null : r)), 150)}
+                                  className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
                                 />
-                              </label>
+                                {songSearchOpenRole === role && matches.length > 0 && (
+                                  <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                                    {matches.map(s => (
+                                      <button
+                                        key={s.id}
+                                        type="button"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                          updateLocal(role, { songName: s.title, key: s.key || '', songId: s.id })
+                                          setSongSearchOpenRole(null)
+                                        }}
+                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-indigo-50 flex items-center justify-between gap-2"
+                                      >
+                                        <span className="truncate font-medium text-slate-700">{s.title}</span>
+                                        {s.key && <span className="text-xs text-indigo-600 font-semibold shrink-0">{s.key}</span>}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                {linkedSong && (
+                                  <div className="flex items-center gap-1.5 mt-1">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-[11px] font-semibold text-indigo-700">
+                                      ✓ Design linked{linkedSong.key ? ` · ${linkedSong.key}` : ''}
+                                    </span>
+                                    <button type="button" onClick={() => setViewingSong(linkedSong)}
+                                      className="text-[11px] font-medium text-indigo-600 hover:underline">View</button>
+                                    <button type="button" onClick={() => updateLocal(role, { songId: '' })}
+                                      className="text-[11px] font-medium text-slate-400 hover:text-slate-600">Unlink</button>
+                                  </div>
+                                )}
+                              </div>
                             )
-                          })() : null}
+                          })()}
                         </td>
                       </tr>
-                      )
+                        )
+                      })
                     })}
                   </tbody>
                 </table>
@@ -1491,34 +1564,6 @@ export default function DepartmentWorship() {
             )}
           </AnimatePresence>
 
-          {structureModal && (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-              onClick={() => setStructureModal(null)}
-            >
-              <div
-                className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-800 truncate">{structureModal.fileName || 'Song Structure'}</p>
-                    <p className="text-xs text-slate-500">{structureModal.role}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setStructureModal(null)}
-                    className="text-slate-400 hover:text-slate-700 text-2xl leading-none flex-shrink-0"
-                  >
-                    ×
-                  </button>
-                </div>
-                <div className="p-5 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-mono">
-                  {structureModal.text || <span className="text-slate-400 italic">No content extracted.</span>}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -1614,41 +1659,6 @@ export default function DepartmentWorship() {
                 <p className="text-xs text-slate-400 mt-0.5">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const XLSX = await import('xlsx')
-                    const rows = activeMembers.map((m, i) => {
-                      const since = m.memberSince ? new Date(m.memberSince) : null
-                      const now = new Date()
-                      const yrs = since ? differenceInYears(now, since) : ''
-                      const mos = since ? differenceInMonths(now, addYears(since, differenceInYears(now, since))) : ''
-                      const totalDays = since ? differenceInDays(now, since) : ''
-                      return {
-                        'SL': i + 1,
-                        'Name': m.name || '',
-                        'Member Since': m.memberSince || '',
-                        'Years': yrs,
-                        'Months': mos,
-                        'Total Days': totalDays,
-                        'Positions': (m.positions || []).join(', '),
-                        'Worship Director': m.isWorshipDirector ? 'Yes' : 'No',
-                      }
-                    })
-                    const ws = XLSX.utils.json_to_sheet(rows)
-                    const wb = XLSX.utils.book_new()
-                    XLSX.utils.book_append_sheet(wb, ws, 'Team Members')
-                    XLSX.writeFile(wb, `Worship_Team_Members_${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-medium hover:bg-emerald-100 transition-colors"
-                >
-                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" className="flex-shrink-0">
-                    <rect x="2" y="2" width="12" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                    <path d="M5 7h6M5 10h6M5 13h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
-                    <path d="M15 11v5m-2-2l2 2 2-2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  Export Excel
-                </button>
                 {canManageWorship && (() => {
                   const unlinked = allMembers.filter(m => !m.visitorId)
                   if (!unlinked.length) return null
@@ -1677,7 +1687,7 @@ export default function DepartmentWorship() {
                       setAddMemberDropdownOpen(false)
                       setAddMemberVisitors([])
                       setAddMemberVisitorsLoading(true)
-                      getDelightVisitors().then(setAddMemberVisitors).catch(() => {}).finally(() => setAddMemberVisitorsLoading(false))
+                      getMergedPeopleDirectory().then(({ people }) => setAddMemberVisitors(people)).catch(() => {}).finally(() => setAddMemberVisitorsLoading(false))
                       setAddMemberModalOpen(true)
                     }}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
@@ -1711,10 +1721,6 @@ export default function DepartmentWorship() {
                           {m.isWorshipDirector && (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] uppercase tracking-wide font-bold">Director</span>
                           )}
-                          {m.visitorId
-                            ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                            : <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                          }
                         </div>
                       </div>
 
@@ -1742,7 +1748,9 @@ export default function DepartmentWorship() {
                       {canManageWorship && (
                         <div className="flex gap-2 pt-1">
                           <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
-                          <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
+                          {!m.visitorId && (
+                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">Link</button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1769,10 +1777,6 @@ export default function DepartmentWorship() {
                     <div key={m.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-col gap-2 shadow-sm">
                       <div className="flex flex-col gap-1">
                         <span className="font-semibold text-slate-700 text-sm leading-snug">{m.name}</span>
-                        {m.visitorId
-                          ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 w-fit">🔗 Linked</span>
-                          : <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 w-fit">Unlinked</span>
-                        }
                       </div>
 
                       <div className="mt-auto pt-1 border-t border-slate-200 text-[10px] text-slate-400 space-y-0.5">
@@ -1789,7 +1793,9 @@ export default function DepartmentWorship() {
                       {canManageWorship && (
                         <div className="flex gap-2 pt-1">
                           <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
-                          <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
+                          {!m.visitorId && (
+                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">Link</button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2092,38 +2098,6 @@ export default function DepartmentWorship() {
                 <p className="text-xs text-slate-400 mt-0.5">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const XLSX = await import('xlsx')
-                    const rows = activeMembers.map((m, i) => {
-                      const since = m.memberSince ? new Date(m.memberSince) : null
-                      const now = new Date()
-                      const yrs = since ? differenceInYears(now, since) : ''
-                      const mos = since ? differenceInMonths(now, addYears(since, differenceInYears(now, since))) : ''
-                      const totalDays = since ? differenceInDays(now, since) : ''
-                      return {
-                        'SL': i + 1, 'Name': m.name || '',
-                        'Member Since': m.memberSince || '',
-                        'Years': yrs, 'Months': mos, 'Total Days': totalDays,
-                        'Positions': (m.positions || []).join(', '),
-                        'Worship Director': m.isWorshipDirector ? 'Yes' : 'No',
-                      }
-                    })
-                    const ws = XLSX.utils.json_to_sheet(rows)
-                    const wb = XLSX.utils.book_new()
-                    XLSX.utils.book_append_sheet(wb, ws, 'The Team')
-                    XLSX.writeFile(wb, `Worship_Team_${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-medium hover:bg-emerald-100 transition-colors"
-                >
-                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" className="flex-shrink-0">
-                    <rect x="2" y="2" width="12" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                    <path d="M5 7h6M5 10h6M5 13h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
-                    <path d="M15 11v5m-2-2l2 2 2-2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  Export Excel
-                </button>
                 {canManageWorship && (() => {
                   const unlinked = allMembers.filter(m => !m.visitorId)
                   if (!unlinked.length) return null
@@ -2152,7 +2126,7 @@ export default function DepartmentWorship() {
                       setAddMemberDropdownOpen(false)
                       setAddMemberVisitors([])
                       setAddMemberVisitorsLoading(true)
-                      getDelightVisitors().then(setAddMemberVisitors).catch(() => {}).finally(() => setAddMemberVisitorsLoading(false))
+                      getMergedPeopleDirectory().then(({ people }) => setAddMemberVisitors(people)).catch(() => {}).finally(() => setAddMemberVisitorsLoading(false))
                       setAddMemberModalOpen(true)
                     }}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
@@ -2185,10 +2159,6 @@ export default function DepartmentWorship() {
                           {m.isWorshipDirector && (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] uppercase tracking-wide font-bold">Director</span>
                           )}
-                          {m.visitorId
-                            ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                            : <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                          }
                         </div>
                       </div>
                       {m.positions?.length > 0 && (
@@ -2210,7 +2180,9 @@ export default function DepartmentWorship() {
                       {canManageWorship && (
                         <div className="flex gap-2 pt-1">
                           <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
-                          <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
+                          {!m.visitorId && (
+                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">Link</button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2239,10 +2211,6 @@ export default function DepartmentWorship() {
                     <div key={m.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-col gap-2 shadow-sm">
                       <div className="flex flex-col gap-1">
                         <span className="font-semibold text-slate-700 text-sm leading-snug">{m.name}</span>
-                        {m.visitorId
-                          ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 w-fit">🔗 Linked</span>
-                          : <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 w-fit">Unlinked</span>
-                        }
                       </div>
                       <div className="mt-auto pt-1 border-t border-slate-200 text-[10px] text-slate-400 space-y-0.5">
                         <p>{formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'}</p>
@@ -2257,7 +2225,9 @@ export default function DepartmentWorship() {
                       {canManageWorship && (
                         <div className="flex gap-2 pt-1">
                           <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
-                          <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">{m.visitorId ? 'Relink' : 'Link'}</button>
+                          {!m.visitorId && (
+                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">Link</button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2283,7 +2253,7 @@ export default function DepartmentWorship() {
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700/50">
                   <div>
                     <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">Add New Team Member</h3>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Must exist in the visitor database</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Must exist in the People Directory</p>
                   </div>
                   <button
                     type="button"
@@ -2346,7 +2316,7 @@ export default function DepartmentWorship() {
                           return (
                             <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-[#1a2d4f] rounded-xl border border-slate-200 dark:border-slate-600 shadow-lg z-10 overflow-hidden max-h-52 overflow-y-auto">
                               {matches.length === 0 ? (
-                                <p className="px-4 py-3 text-sm text-slate-400 dark:text-slate-500">No visitors found — only existing visitors can be added.</p>
+                                <p className="px-4 py-3 text-sm text-slate-400 dark:text-slate-500">No one found in the People Directory — only existing people can be added.</p>
                               ) : matches.map(v => (
                                 <button
                                   key={v.id}
@@ -3017,39 +2987,51 @@ export default function DepartmentWorship() {
                       return !q || s.title?.toLowerCase().includes(q) || s.artist?.toLowerCase().includes(q)
                     })
                     if (filtered.length === 0) return <p className="col-span-full text-center text-slate-400 text-sm py-6">No songs match your search.</p>
-                    return filtered.map((song) => (
-                      <div
-                        key={song.id}
-                        className="bg-white rounded-2xl border border-slate-200 px-4 py-3 shadow-sm active:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => setViewingSong(song)}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="font-semibold text-slate-800 text-sm truncate">{song.title}</p>
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
-                              {song.artist && <span className="text-xs text-slate-500">{song.artist}</span>}
-                              {song.key && <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{song.key}</span>}
-                              {song.tempo && <span className="text-xs text-slate-400">{song.tempo} BPM</span>}
+                    return filtered.map((song, i) => {
+                      const theme = SONG_CARD_THEMES[i % SONG_CARD_THEMES.length]
+                      const designer = song.designedBy || song.createdBy
+                      return (
+                        <div
+                          key={song.id}
+                          className={`rounded-2xl border border-slate-200/60 border-t-4 ${theme.border} ${theme.bg} px-4 py-3 shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer transition-all`}
+                          onClick={() => setViewingSong(song)}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className={`font-bold text-base truncate ${theme.title}`}>{song.title}</p>
+                              {designer && (
+                                <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                                  Designed by <span className="font-medium text-slate-500">{designer}</span>
+                                </p>
+                              )}
+                              {song.key && (
+                                <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full mt-1.5 ${theme.chip}`}>
+                                  {song.key}
+                                </span>
+                              )}
                             </div>
+                            {canManageWorship && (
+                              <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                <button type="button" onClick={() => { setEditingSong(song); setSongSubPage('design') }}
+                                  title="Edit song"
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-white/70 transition-colors">
+                                  <Pencil size={14} />
+                                </button>
+                                <button type="button" disabled={deletingId === song.id} onClick={async () => {
+                                  if (!window.confirm(`Delete "${song.title}"?`)) return
+                                  setDeletingId(song.id)
+                                  try { await deleteWorshipSong(song.id); setSongs((p) => p.filter((s) => s.id !== song.id)) } finally { setDeletingId(null) }
+                                }}
+                                  title="Delete song"
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-white/70 transition-colors disabled:opacity-40">
+                                  {deletingId === song.id ? <span className="text-xs">…</span> : <Trash2 size={14} />}
+                                </button>
+                              </div>
+                            )}
                           </div>
-                          {canManageWorship && (
-                            <div className="flex gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                              <button type="button" onClick={() => { setEditingSong(song); setSongSubPage('design') }} className="text-xs text-indigo-600 hover:underline">Edit</button>
-                              <button type="button" disabled={deletingId === song.id} onClick={async () => {
-                                if (!window.confirm(`Delete "${song.title}"?`)) return
-                                setDeletingId(song.id)
-                                try { await deleteWorshipSong(song.id); setSongs((p) => p.filter((s) => s.id !== song.id)) } finally { setDeletingId(null) }
-                              }} className="text-xs text-red-500 hover:underline disabled:opacity-40">{deletingId === song.id ? '…' : 'Delete'}</button>
-                            </div>
-                          )}
                         </div>
-                        {Array.isArray(song.blocks) && song.blocks.length > 0 && (
-                          <p className="text-[10px] text-slate-400 mt-1.5">
-                            {song.blocks.map(b => b.sectionName).join(' · ')}
-                          </p>
-                        )}
-                      </div>
-                    ))
+                      )
+                    })
                   })()}
                 </div>
               )}
@@ -3064,16 +3046,6 @@ export default function DepartmentWorship() {
               editingSong={editingSong}
               onCancelEdit={() => { setEditingSong(null); setSongSubPage('directory') }}
               onSaved={() => { loadSongs(); if (editingSong) { setEditingSong(null); setSongSubPage('directory') } }}
-            />
-          )}
-
-          {/* Song full-view overlay */}
-          {viewingSong && (
-            <SongViewer
-              song={viewingSong}
-              canManage={canManageWorship}
-              onClose={() => setViewingSong(null)}
-              onEdit={song => { setViewingSong(null); setEditingSong(song); setSongSubPage('design') }}
             />
           )}
 
@@ -3189,6 +3161,18 @@ export default function DepartmentWorship() {
         </div>
       )}
 
+      {/* Song full-view overlay — top-level so it can open from any tab
+          (e.g. the Assign tab's Song Name directory search), not just Song Directory */}
+      {viewingSong && (
+        <SongViewer
+          song={viewingSong}
+          canManage={canManageWorship}
+          myPositions={myWorshipMember?.positions || []}
+          onClose={() => setViewingSong(null)}
+          onEdit={song => { setViewingSong(null); setEditingSong(song); setSongSubPage('design') }}
+        />
+      )}
+
       </div>
     </div>
   )
@@ -3202,8 +3186,8 @@ function WorshipLinkModal({ member, onLink, onClose }) {
   const [linking, setLinking] = useState(false)
 
   useEffect(() => {
-    getDelightVisitors()
-      .then(setVisitors)
+    getMergedPeopleDirectory()
+      .then(({ people }) => setVisitors(people))
       .catch(() => setVisitors([]))
       .finally(() => setLoading(false))
   }, [])

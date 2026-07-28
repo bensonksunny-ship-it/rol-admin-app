@@ -30,6 +30,33 @@ const CARD_COLORS = [
 ]
 const CUSTOM_CARD_COLOR = { accent: '#10b981', light: '#f0fdf4' }
 
+// Worship Team card — standard role hierarchy so entries group by role type in a
+// fixed order (Lead Vocal → Parts → Choir member → Musicians → Sound Engineer)
+// instead of the order they happen to have been saved/added in.
+const WORSHIP_ROLE_ORDER = [
+  'Lead Vocal', 'Parts', 'Choir member',
+  'Keyboard', 'Lead Guitar', 'Bass Guitar', 'Acoustic guitar', 'Drums',
+  'Sound Engineer',
+]
+
+// Splits a role like "Lead Vocal-2" into its category + numeric position ("Lead
+// Vocal", 2); a bare role with no "-N" suffix (e.g. "Sound Engineer") is position 1.
+function worshipRoleSortKey(role) {
+  const m = (role || '').match(/^(.*)-(\d+)$/)
+  const category = m ? m[1] : (role || '')
+  const index = m ? parseInt(m[2], 10) : 1
+  const categoryRank = WORSHIP_ROLE_ORDER.indexOf(category)
+  return [categoryRank === -1 ? WORSHIP_ROLE_ORDER.length : categoryRank, index]
+}
+
+function sortByWorshipRole(assignments) {
+  return [...assignments].sort((a, b) => {
+    const [catA, idxA] = worshipRoleSortKey(a.role)
+    const [catB, idxB] = worshipRoleSortKey(b.role)
+    return catA - catB || idxA - idxB
+  })
+}
+
 const ELEMENT_CATEGORIES = [
   {
     id: 'screen', label: 'Screen & Presentation',
@@ -358,7 +385,7 @@ export default function UpcomingSunday({ slug }) {
             </div>
           ) : (
             <div className="divide-y divide-slate-50">
-              {(worshipPlan.assignments).filter((a) => a.memberId || a.songName).map((a, i) => (
+              {sortByWorshipRole(worshipPlan.assignments.filter((a) => a.memberId || a.songName)).map((a, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-2 px-4 py-2.5">
                   <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-lg text-center" style={{ minWidth: '6rem' }}>
                     {a.role}

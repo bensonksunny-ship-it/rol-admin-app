@@ -135,7 +135,7 @@ export default function DepartmentFolderModal({ label, subpages, initialChildKey
             <button
               type="button"
               onClick={() => setOpenChild(null)}
-              className="inline-flex items-center gap-0.5 self-start text-xs font-medium text-indigo-500 dark:text-indigo-300 hover:underline mb-1 cursor-pointer transition-colors"
+              className="inline-flex items-center gap-0.5 self-start px-2.5 py-1 rounded-lg border border-indigo-200/70 dark:border-indigo-400/25 bg-indigo-50/80 dark:bg-indigo-500/10 text-xs font-medium text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 active:scale-95 mb-1 cursor-pointer transition-all"
             >
               <ChevronLeft size={12} strokeWidth={2.5} />
               Back to Department

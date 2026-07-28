@@ -6,6 +6,17 @@
    activate based on the OS theme and silently ignore the in-app toggle. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Global type system — Inter (a modern, design-focused UI sans) everywhere via the
+   font-sans utility, JetBrains Mono (tight, professional) via font-mono. Chord charts
+   in SongDesigner/SongViewer rely on font-mono for lyrics AND chords sharing one
+   monospace metric (chord positions are a character-grid offset into the lyric
+   string) — swapping the theme token here upgrades that alignment-critical font for
+   both without touching either component's markup. */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 :root {
   /* Offset for sticky elements on mobile — below fixed header + notch */
   --sticky-top: calc(3.5rem + env(safe-area-inset-top, 24px));
@@ -31,7 +42,7 @@
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--rol-bg);
