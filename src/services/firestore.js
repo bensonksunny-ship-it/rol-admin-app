@@ -940,15 +940,15 @@ export async function getWorshipRehearsalByDate(department, date) {
 
 export async function addWorshipRehearsal(department, data, createdBy) {
   if (!db) return null
-  const ref = await addDoc(collection(db, WORSHIP_REHEARSALS_COLLECTION), {
+  const ref = await addDoc(collection(db, WORSHIP_REHEARSALS_COLLECTION), stripUndefinedDeep({
     department, ...data, createdBy, createdAt: Timestamp.now(),
-  })
+  }))
   return ref.id
 }
 
 export async function updateWorshipRehearsal(id, data) {
   if (!db || !id) return
-  await updateDoc(doc(db, WORSHIP_REHEARSALS_COLLECTION, id), data)
+  await updateDoc(doc(db, WORSHIP_REHEARSALS_COLLECTION, id), stripUndefinedDeep(data))
 }
 
 export async function deleteWorshipRehearsal(id) {
@@ -973,6 +973,44 @@ export async function setWorshipScheduleByDate(department, date, assignments, up
   }
   const ref = await addDoc(collection(db, 'worship_schedule'), payload)
   return ref.id
+}
+
+// Worship Ministry applications — a review queue, not a direct write into the
+// People's Directory/PCS. The Worship Director hands the device to the applicant to
+// fill out; submissions land here for the Director to read afterward and manually
+// decide what (if anything) to copy into PD/PCS and the Worship Team roster.
+const WORSHIP_APPLICATIONS_COLLECTION = 'worship_applications'
+
+export async function getWorshipApplications(department) {
+  if (!db) return []
+  const q = query(collection(db, WORSHIP_APPLICATIONS_COLLECTION), where('department', '==', department))
+  const snap = await getDocs(q)
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+}
+
+export async function addWorshipApplication(department, data, submittedBy) {
+  if (!db) return null
+  const payload = stripUndefinedDeep({
+    department,
+    ...data,
+    status: 'pending',
+    submittedBy: submittedBy || '',
+    createdAt: Timestamp.now(),
+  })
+  const ref = await addDoc(collection(db, WORSHIP_APPLICATIONS_COLLECTION), payload)
+  return ref.id
+}
+
+export async function updateWorshipApplication(id, data) {
+  if (!db || !id) return
+  await updateDoc(doc(db, WORSHIP_APPLICATIONS_COLLECTION, id), stripUndefinedDeep(data))
+}
+
+export async function deleteWorshipApplication(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, WORSHIP_APPLICATIONS_COLLECTION, id))
 }
 
 // Attendance (Sunday Ministry)
@@ -3471,13 +3509,16 @@ export async function getRecentSundayReports(numWeeks = 8) {
     })
 }
 
-export async function getSundayReportSummaries(numWeeks = 12) {
+// numWeeks caps how many of the most recent reports to fetch — omit it (as the Sunday
+// Reports history page does) to load the full archive. Weekly reports for one church
+// stay a small collection for many years, so an unbounded query here is still cheap;
+// capping it by default previously made anything older than ~3 months (12 reports)
+// silently vanish from that page even though it was never deleted.
+export async function getSundayReportSummaries(numWeeks = null) {
   if (!db) return []
-  const q = query(
-    collection(db, SUNDAY_REPORTS_COLLECTION),
-    orderBy('date', 'desc'),
-    limit(numWeeks)
-  )
+  const clauses = [collection(db, SUNDAY_REPORTS_COLLECTION), orderBy('date', 'desc')]
+  if (numWeeks) clauses.push(limit(numWeeks))
+  const q = query(...clauses)
   const snap = await getDocs(q)
   return snap.docs.map((docSnap) => {
     const data = docSnap.data()
@@ -4767,10 +4808,15 @@ export async function getMergedPeopleDirectory() {
   const cellById = {}
   cellGroups.forEach(c => { cellById[c.id] = c })
 
+  const nameKey = (n) => String(n || '').trim().toLowerCase()
+
   // Build from people collection (primary source — written by PCS)
   const byId = {}
   // Also index by phone for visitor merging (phone is the best legacy key)
   const byPhone = {}
+  // Last-resort match for records with no personId/visitorId/phone at all (e.g. a
+  // cell member added by typing just a name) — better than silently dropping them.
+  const byName = {}
   people.forEach(p => {
     const entry = {
       _key: p.id,
@@ -4801,6 +4847,8 @@ export async function getMergedPeopleDirectory() {
     }
     byId[p.id] = entry
     if (p.phone) byPhone[p.phone.replace(/\s+/g, '')] = entry
+    const nk = nameKey(entry.name)
+    if (nk && !byName[nk]) byName[nk] = entry
   })
 
   // Attach PCS entries (match by personId, fall back to unlinked)
@@ -4852,6 +4900,8 @@ export async function getMergedPeopleDirectory() {
     }
     merged.push(entry)
     if (phone) byPhone[phone] = entry
+    const nk = nameKey(entry.name)
+    if (nk && !byName[nk]) byName[nk] = entry
   })
 
   // D-Light visitors — process BEFORE cell/dept/worship attachment so we can build byVisitorId
@@ -4897,11 +4947,65 @@ export async function getMergedPeopleDirectory() {
     merged.push(entry)
     if (phone) byPhone[phone] = entry
     byVisitorId[v.id] = entry
+    const nk = nameKey(entry.name)
+    if (nk && !byName[nk]) byName[nk] = entry
   })
 
-  // Attach cell memberships — try personId first, fall back to visitorId (legacy)
+  // Match a cell/dept/worship team record to an existing merged entry (personId →
+  // visitorId → phone → name, in order of reliability) or, failing all of those,
+  // create a standalone entry from the record's own name/phone. Team rosters are
+  // very often filled in by typing a name directly (no personId/visitorId link at
+  // all — cell_members rows in particular never carry a personId, and
+  // worship_team_members never persists a visitorId), so without this fallback
+  // those people were silently missing from the directory entirely instead of
+  // just missing their team tag.
+  function attachTeamRecord(record, { source }) {
+    const phone = (record.phone || '').replace(/\s+/g, '')
+    let entry = (record.personId && byId[record.personId]) || (record.visitorId && byVisitorId[record.visitorId])
+    if (!entry && phone) entry = byPhone[phone]
+    if (!entry) {
+      const nk = nameKey(record.name)
+      if (nk) entry = byName[nk]
+    }
+    if (!entry && record.name) {
+      entry = {
+        _key: `${source}-${record.id}`,
+        personId: null,
+        name: record.name || '',
+        phone: record.phone || '',
+        email: '',
+        dob: '',
+        attendedDate: '',
+        serviceAttended: '',
+        howKnown: '',
+        nativity: '',
+        currentPlace: '',
+        baptised: '',
+        maritalStatus: '',
+        membershipStatus: '',
+        membershipNumber: '',
+        leadershipPosition: '',
+        ministries: [],
+        stage: 'visitor',
+        cells: [],
+        pcs: null,
+        deptTeams: [],
+        worshipTeams: [],
+        source,
+        _visitorIds: [],
+        sundayAttendance: [],
+      }
+      merged.push(entry)
+      if (phone) byPhone[phone] = entry
+      const nk = nameKey(entry.name)
+      if (nk && !byName[nk]) byName[nk] = entry
+    }
+    return entry
+  }
+
+  // Attach cell memberships
   cellMembers.forEach(m => {
-    const entry = (m.personId && byId[m.personId]) || (m.visitorId && byVisitorId[m.visitorId])
+    const entry = attachTeamRecord(m, { source: 'cell-member' })
     if (!entry) return
     const cell = cellById[m.cellId]
     entry.cells.push({ ...m, cellName: cell?.cellName || m.cellId, leader: cell?.leader || '', leaderPersonId: cell?.leaderPersonId || '' })
@@ -4909,14 +5013,14 @@ export async function getMergedPeopleDirectory() {
 
   // Attach dept teams
   deptTeams.forEach(t => {
-    const entry = (t.personId && byId[t.personId]) || (t.visitorId && byVisitorId[t.visitorId])
+    const entry = attachTeamRecord(t, { source: 'dept-team' })
     if (!entry) return
     entry.deptTeams.push(t)
   })
 
   // Attach worship teams
   worshipTeams.forEach(t => {
-    const entry = (t.personId && byId[t.personId]) || (t.visitorId && byVisitorId[t.visitorId])
+    const entry = attachTeamRecord(t, { source: 'worship-team' })
     if (!entry) return
     entry.worshipTeams.push(t)
   })

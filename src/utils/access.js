@@ -1,3 +1,5 @@
+import { basePositionName } from '../constants/roles'
+
 export const GLOBAL_ROLES = {
   FOUNDER: 'FOUNDER',
 }
@@ -32,9 +34,10 @@ export function getDepartmentRole(user, departmentName) {
       if (upper === 'LEADER') return 'COORDINATOR'
     }
 
-    // Legacy schema: position is stored as labels like "Director", "Coordinator", "Cell Leader".
+    // Legacy schema: position is stored as labels like "Director", "Coordinator", "Cell Leader"
+    // (or the display-formatted "Director - {Department}" composite — basePositionName strips it).
     if (positionField) {
-      const pos = positionField.toLowerCase()
+      const pos = basePositionName(positionField).toLowerCase()
       if (pos === 'director') return 'DIRECTOR'
       if (pos === 'coordinator' || pos === 'cell leader') return 'COORDINATOR'
       // A named non-head position (e.g. "Associate") — not a department head.

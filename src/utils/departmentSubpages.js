@@ -8,6 +8,7 @@ import {
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { ACCOUNTS_ENTRY_BASE_PATH } from './accountsEntryAccess'
 import { visibleCellTabs } from './cellTabVisibility'
+import { getAllowedWorshipTabs, shouldBypassWorshipGrid } from './worshipAccess'
 
 /**
  * Single source of truth for "what are this department's subpages, and where do they
@@ -166,11 +167,20 @@ export function getDepartmentSubpages(slug, userProfile) {
   const allTabs = getDepartmentHubTabs(slug)
   const tabs = slug === 'cell'
     ? visibleCellTabs(userProfile).filter((t) => allTabs.includes(t))
+    // Worship Leader/Member: no picker grid at all — DepartmentDock navigates straight
+    // to the department, and DepartmentWorship.jsx's own default-tab logic lands them
+    // on Upcoming Worship. Director/Founder/Admin still get the full grid.
+    : slug === 'worship' && shouldBypassWorshipGrid(userProfile)
+    ? []
+    : slug === 'worship'
+    ? getAllowedWorshipTabs(userProfile, allTabs)
     : allTabs
   return tabs.map((tab) => {
     const base = {
       key: tab,
-      label: getTabLabel(tab),
+      // Worship's own name for the shared "Upcoming Sunday" tab — same page (setlist/
+      // assigned songs for the coming Sunday), just labeled for this department's context.
+      label: (slug === 'worship' && tab === 'upcomingSunday') ? 'Upcoming Worship' : getTabLabel(tab),
       to: getTabPath(slug, tab),
       Icon: getTabIcon(tab),
     }

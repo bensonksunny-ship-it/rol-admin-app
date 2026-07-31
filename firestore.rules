@@ -215,15 +215,20 @@ service cloud.firestore {
       // Cell reads for the "Add Member" People's Directory picker (Cell Groups tab) — only
       // people entered via D Light Visitor Entry can be added to a cell group, so Cell
       // Directors/Leaders need read access here too, not just D Light/Caring/Sunday Ministry.
+      // Worship reads for getMergedPeopleDirectory() — the Worship team "Add Member" search
+      // and the Worship Application Form's "Full legal name" directory search both need
+      // visitor-entry people merged in; without this grant the read silently fails and
+      // those people vanish from the merged directory for anyone signed in as Worship.
       // Deliberately flat/inlined (not routed through canAccessDept/isCellDirector's several
       // layers of helper functions) so this specific grant is trivial to audit on its own.
       allow read: if isSignedIn() && (
         isFullAccess() ||
-        getUserData().get('department', '') in ['D Light', 'Caring', 'Sunday Ministry', 'Cell'] ||
+        getUserData().get('department', '') in ['D Light', 'Caring', 'Sunday Ministry', 'Cell', 'Worship'] ||
         'D Light' in getUserData().get('departments', []) ||
         'Caring' in getUserData().get('departments', []) ||
         'Sunday Ministry' in getUserData().get('departments', []) ||
         'Cell' in getUserData().get('departments', []) ||
+        'Worship' in getUserData().get('departments', []) ||
         getUserData().get('positions', []).hasAny([
           {'department': 'Cell', 'position': 'Director'},
           {'department': 'Cell', 'position': 'Coordinator'},
@@ -261,8 +266,13 @@ service cloud.firestore {
     match /cell_groups/{cellId} {
       // Sunday Ministry and Caring need read access (attendance + PCS cell connections).
       // D-Light needs read access too: the cell-assignment-consult reply modal lets the
-      // D-Light Director pick a recommended cell group by name.
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring') || canAccessDept('D Light'));
+      // D-Light Director pick a recommended cell group by name. Worship needs it too:
+      // the Worship Ministry Application Form's "Which Cell Group do you belong to?"
+      // dropdown (WorshipApplications.jsx) queries this collection directly — without
+      // this, the query silently permission-denies for anyone without Cell/Sunday
+      // Ministry/Caring/D Light access, and the swallowed catch left the dropdown
+      // showing only its empty placeholder with no visible error.
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring') || canAccessDept('D Light') || canAccessDept('Worship'));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || isCellDirector());
       // isCellDirector() added to match the members subcollection below — some Cell
       // Directors are set up via positions[] only (no top-level department/departments
@@ -273,7 +283,12 @@ service cloud.firestore {
     }
 
     match /cell_groups/{cellId}/members/{memberId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring'));
+      // Worship needs read access too — getMergedPeopleDirectory() (used by the Worship
+      // team "Add Member" search and the Worship Application Form's directory search)
+      // queries this via a collectionGroup('members') read, which fails entirely (not
+      // just per-document) if the requester isn't allowed here, silently dropping every
+      // cell member from the merged directory for Worship accounts.
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring') || canAccessDept('Worship'));
       // Write is restricted: Founder/Admin full access; Cell Director can write any cell;
       // Cell Leader can only write members within their own linked cell.
       allow create, update, delete: if isSignedIn() && (
@@ -509,6 +524,18 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    // Auto-created/updated by saveAssignPlan (DepartmentWorship.jsx) right after the
+    // schedule write, and by the Practice & Rehearsals tab — without this rule the
+    // collection has no explicit match, so Firestore denies by default and every
+    // "Save plan" throws on this step even though the schedule itself already saved.
+    match /worship_rehearsals/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /worship_applications/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
     match /sunday_ministry_team_members/{docId} {
       allow read, write: if isSignedIn();
     }
@@ -598,8 +625,10 @@ service cloud.firestore {
     }
 
     // Collection-group query support: allows collectionGroup(db, 'members') used by getAllCellGroupMembers()
+    // Worship included — getMergedPeopleDirectory() (Worship "Add Member" search, Worship
+    // Application Form directory search) relies on this same collection-group read.
     match /{path=**}/members/{memberId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring'));
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Cell') || canAccessDept('Sunday Ministry') || canAccessDept('Caring') || canAccessDept('Worship'));
     }
   }
 }

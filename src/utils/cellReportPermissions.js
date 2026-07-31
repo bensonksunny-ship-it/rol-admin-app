@@ -1,4 +1,4 @@
-import { ROLES } from '../constants/roles'
+import { ROLES, basePositionName } from '../constants/roles'
 
 const CELL = 'cell'
 
@@ -22,7 +22,7 @@ export function isCellDirectorInPositions(user) {
   return positions.some(
     (p) =>
       isCellDepartmentName(p?.department) &&
-      (String(p?.role || '').toUpperCase() === 'DIRECTOR' || p?.position === 'Director')
+      (String(p?.role || '').toUpperCase() === 'DIRECTOR' || basePositionName(p?.position) === 'Director')
   )
 }
 

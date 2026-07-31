@@ -44,7 +44,12 @@ export default function DepartmentSundayMinistry({ defaultTab }) {
   const [editMember, setEditMember] = useState(null)
   const [form, setForm] = useState({ period: format(new Date(), 'yyyy-MM'), plannedBudget: '', spent: '' })
 
-  const canManage = canManageDepartment ? canManageDepartment(DEPARTMENT) : (userProfile?.department === DEPARTMENT || isFounder)
+  // canManageDepartment is scoped to this specific department's position (via
+  // getDepartmentRole) — the old fallback compared the loose top-level
+  // `userProfile.department` field, which is just whichever department happened to
+  // be inserted first into `positions[]` and could wrongly grant this to a Director
+  // of a different department.
+  const canManage = canManageDepartment(DEPARTMENT) || isFounder
 
   useEffect(() => {
     getDepartmentEntries(DEPARTMENT, { limit: 100 }).then(setEntries).catch(() => setEntries([])).finally(() => setLoading(false))

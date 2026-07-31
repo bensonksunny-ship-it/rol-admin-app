@@ -34,6 +34,27 @@ const POSITION_TO_INSTRUMENTS = {
   'Drums':          ['drums'],
 }
 
+function annotationsMatchKeys(annotations, keys) {
+  if (!annotations) return false
+  for (const k of keys) {
+    if ((annotations[k] ?? 0) > 0) return true
+  }
+  return false
+}
+
+// A section is part of "My Part Only" if it's tagged "Full Band" (everyone plays
+// every Full Band section) or if any word/chord in it carries a dynamics annotation
+// for one of this person's instruments — the same annotation data the designer tags
+// section-by-section, so this is exact, not a guess based on the section's label.
+function blockIsVisibleForRole(block, instrumentKeys) {
+  if (block.lead === 'Full Band') return true
+  if (!instrumentKeys || instrumentKeys.size === 0) return false
+  return (block.lines || []).some(line =>
+    (line.words || []).some(w => annotationsMatchKeys(w.annotations, instrumentKeys)) ||
+    (line.chords || []).some(c => annotationsMatchKeys(c.annotations, instrumentKeys))
+  )
+}
+
 function shiftNote(note, semitones, useFlatKey = false) {
   const n = FLAT_TO_SHARP[note] ?? note
   const idx = CHROMATIC.indexOf(n)
@@ -83,11 +104,11 @@ function SongLine({ line, transpose, useFlatKey, visibleInstrumentKeys }) {
   return (
     <div className="mb-4">
       {chordDisplay && (
-        <pre className="font-mono text-sm font-bold tracking-tight text-violet-700 whitespace-pre leading-relaxed m-0 select-none">
+        <pre className="font-mono text-sm font-bold tracking-tight text-indigo-600 whitespace-pre leading-relaxed m-0 select-none">
           {chordDisplay}
         </pre>
       )}
-      <div className="font-mono text-sm font-medium leading-relaxed text-slate-800 flex flex-nowrap">
+      <div className="font-mono text-sm font-medium leading-relaxed text-slate-900 flex flex-nowrap">
         {words.length > 0
           ? words.map((w, wi) =>
               !w.isWord
@@ -120,7 +141,10 @@ function SongLine({ line, transpose, useFlatKey, visibleInstrumentKeys }) {
   )
 }
 
-export default function SongViewer({ song, onClose, onEdit, canManage, myPositions = [] }) {
+// `canManage` is the master-copy gate: Director/Founder always, or a Worship Leader
+// viewing a song they personally designed (see DepartmentWorship's canEditSong) —
+// anyone else only ever sees their own tagged sections via "My Part Only".
+export default function SongViewer({ song, onClose, onEdit, canManage, myPositions = [], initialViewMode = null }) {
   const [transpose, setTranspose] = useState(0)
 
   const myInstrumentKeys = useMemo(() => {
@@ -131,9 +155,19 @@ export default function SongViewer({ song, onClose, onEdit, canManage, myPositio
     return keys
   }, [myPositions])
 
-  // Default to "My Role" whenever we could resolve at least one instrument for this
-  // person, otherwise there's nothing to filter to, so show the full arrangement.
-  const [viewMode, setViewMode] = useState(() => myInstrumentKeys.size > 0 ? 'mine' : 'full')
+  // Whoever holds the master-copy gate (canManage) always gets the complete chart —
+  // the "My Part Only" / "Show Full Song" toggle only exists for everyone else, who
+  // default to "My Part Only" whenever we can resolve at least one instrument for them.
+  const canFilterByRole = !canManage && myInstrumentKeys.size > 0
+
+  // A caller (e.g. Upcoming Worship's "View Song" / "My Part" buttons) can force a
+  // specific mode via initialViewMode; otherwise default to "mine" whenever we
+  // could resolve at least one instrument for this person, else the full arrangement.
+  const [viewMode, setViewMode] = useState(() => {
+    if (canManage) return 'full'
+    if (initialViewMode === 'mine' || initialViewMode === 'full') return initialViewMode
+    return myInstrumentKeys.size > 0 ? 'mine' : 'full'
+  })
 
   const transposedKey = transposeKey(song?.key, transpose)
   const useFlatKey = FLAT_KEYS.has(transposedKey?.replace(/m$/, ''))
@@ -141,23 +175,33 @@ export default function SongViewer({ song, onClose, onEdit, canManage, myPositio
   if (!song) return null
 
   const hasBlocks = Array.isArray(song.blocks) && song.blocks.length > 0
-  const visibleInstrumentKeys = viewMode === 'mine' ? myInstrumentKeys : null
+  const visibleInstrumentKeys = (viewMode === 'mine' && !canManage) ? myInstrumentKeys : null
   const myRoleLabel = INSTRUMENTS.filter(i => myInstrumentKeys.has(i.key)).map(i => i.label).join(' / ')
 
-  const usedInstruments = hasBlocks
-    ? INSTRUMENTS.filter(inst =>
-        (!visibleInstrumentKeys || visibleInstrumentKeys.has(inst.key)) &&
-        song.blocks.some(b => b.lines?.some(l =>
-          l.words?.some(w => (w.annotations?.[inst.key] ?? 0) > 0)
-        ))
-      )
+  // "My Part Only" hides whole sections that aren't tagged for this person's
+  // instrument(s), rather than just dimming the per-word dynamics indicators —
+  // Leaders/Directors (visibleInstrumentKeys always null for them) always see every
+  // section.
+  const displayedBlocks = hasBlocks
+    ? (visibleInstrumentKeys ? song.blocks.filter(b => blockIsVisibleForRole(b, visibleInstrumentKeys)) : song.blocks)
     : []
 
+  const usedInstruments = INSTRUMENTS.filter(inst =>
+    (!visibleInstrumentKeys || visibleInstrumentKeys.has(inst.key)) &&
+    displayedBlocks.some(b => b.lines?.some(l =>
+      l.words?.some(w => (w.annotations?.[inst.key] ?? 0) > 0)
+    ))
+  )
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-50 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-50 overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
 
       {/* ── Sticky top toolbar — back nav, title, transpose, Edit all condensed and
-          muted here so the lyrics/chords below are the only thing fighting for attention ── */}
+          muted here so the lyrics/chords below are the only thing fighting for attention.
+          This is a `fixed inset-0` overlay, so it sits outside MainLayout's own safe-area
+          padding — the inline paddingTop above (not Tailwind, since it needs the raw
+          env() value with no added header-height offset) pushes it below the notch/
+          status bar instead of rendering flush against the physical screen edge. ── */}
       <div className="shrink-0 bg-white/95 backdrop-blur border-b border-slate-200">
         <div className="max-w-4xl mx-auto px-4 py-2 flex items-center gap-2">
           <button type="button" onClick={onClose}
@@ -169,15 +213,16 @@ export default function SongViewer({ song, onClose, onEdit, canManage, myPositio
               {[song.title, song.artist, song.tempo].filter(Boolean).join(' · ')}
             </p>
           </div>
-          <select
-            value={viewMode}
-            onChange={e => setViewMode(e.target.value)}
-            title="Filter arrangement dynamics by role"
-            className="text-xs font-medium text-slate-500 bg-slate-50 border border-slate-200 rounded-lg pl-2 pr-1 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-200 shrink-0"
-          >
-            {myInstrumentKeys.size > 0 && <option value="mine">My role ({myRoleLabel})</option>}
-            <option value="full">Full team view</option>
-          </select>
+          {canFilterByRole && (
+            <button
+              type="button"
+              onClick={() => setViewMode(m => (m === 'mine' ? 'full' : 'mine'))}
+              title={`My role: ${myRoleLabel}`}
+              className="shrink-0 max-w-[45%] sm:max-w-none truncate text-xs font-semibold px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 active:scale-95 transition-all"
+            >
+              {viewMode === 'mine' ? 'Show Full Song' : 'My Part Only'}
+            </button>
+          )}
           {canManage && (
             <button type="button" onClick={() => onEdit(song)}
               className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-400 text-xs font-medium opacity-70 hover:opacity-100 hover:bg-slate-50 hover:text-slate-600 active:scale-95 transition-all shrink-0">
@@ -187,7 +232,7 @@ export default function SongViewer({ song, onClose, onEdit, canManage, myPositio
         </div>
 
         {/* Transpose row — compact, muted, ghost controls */}
-        <div className="max-w-4xl mx-auto px-4 pb-2 flex items-center gap-1.5 text-slate-400 opacity-70">
+        <div className="max-w-4xl mx-auto px-4 pt-1 pb-2 flex items-center gap-1.5 text-slate-400 opacity-70">
           <span className="text-xs font-semibold uppercase tracking-wider shrink-0">Transpose</span>
           <button type="button" onClick={() => setTranspose(t => Math.max(t - 1, -11))}
             className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 active:scale-90 transition-all text-xs font-bold">−</button>
@@ -212,12 +257,24 @@ export default function SongViewer({ song, onClose, onEdit, canManage, myPositio
       <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-4 py-5 flex flex-col gap-5 min-h-full">
 
+        {/* "My Part Only" filtered every section out — nothing in this song is tagged
+            for this person's instrument(s). Distinct from "No content saved". */}
+        {hasBlocks && visibleInstrumentKeys && displayedBlocks.length === 0 && (
+          <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-md px-4 py-10 text-center">
+            <p className="text-sm text-slate-500">No sections are tagged for your role in this song.</p>
+            <button type="button" onClick={() => setViewMode('full')}
+              className="mt-3 text-xs font-semibold text-indigo-600 hover:underline">
+              Show Full Song
+            </button>
+          </div>
+        )}
+
         {/* Unified song card — identical structure to the designer's song document */}
-        {(hasBlocks || song.sections?.length > 0) && (
+        {(hasBlocks || song.sections?.length > 0) && !(visibleInstrumentKeys && displayedBlocks.length === 0) && (
           <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-md overflow-hidden">
 
             {hasBlocks
-              ? song.blocks.map((block, bi) => (
+              ? displayedBlocks.map((block, bi) => (
                   <div key={bi}>
                     {/* Section header — same violet style as SegmentSection */}
                     <div className={`flex items-center justify-between px-4 py-2 bg-slate-50 ${bi > 0 ? 'border-t border-slate-200' : ''}`}>
@@ -246,7 +303,7 @@ export default function SongViewer({ song, onClose, onEdit, canManage, myPositio
                     </div>
                     <div className="px-4 pt-3 pb-4">
                       {sec.lyrics
-                        ? <pre className="font-mono text-sm font-medium leading-relaxed text-slate-800 whitespace-pre-wrap m-0">{sec.lyrics}</pre>
+                        ? <pre className="font-mono text-sm font-medium leading-relaxed text-slate-900 whitespace-pre-wrap m-0">{sec.lyrics}</pre>
                         : <p className="text-xs text-slate-400 italic">No lyrics</p>
                       }
                     </div>

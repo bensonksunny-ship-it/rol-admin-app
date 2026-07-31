@@ -8,6 +8,7 @@ import {
   getDeptProgramInput,
   setDeptProgramInput,
 } from '../services/firestore'
+import { sortByWorshipRole } from '../utils/worshipRoleOrder'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -30,32 +31,6 @@ const CARD_COLORS = [
 ]
 const CUSTOM_CARD_COLOR = { accent: '#10b981', light: '#f0fdf4' }
 
-// Worship Team card — standard role hierarchy so entries group by role type in a
-// fixed order (Lead Vocal → Parts → Choir member → Musicians → Sound Engineer)
-// instead of the order they happen to have been saved/added in.
-const WORSHIP_ROLE_ORDER = [
-  'Lead Vocal', 'Parts', 'Choir member',
-  'Keyboard', 'Lead Guitar', 'Bass Guitar', 'Acoustic guitar', 'Drums',
-  'Sound Engineer',
-]
-
-// Splits a role like "Lead Vocal-2" into its category + numeric position ("Lead
-// Vocal", 2); a bare role with no "-N" suffix (e.g. "Sound Engineer") is position 1.
-function worshipRoleSortKey(role) {
-  const m = (role || '').match(/^(.*)-(\d+)$/)
-  const category = m ? m[1] : (role || '')
-  const index = m ? parseInt(m[2], 10) : 1
-  const categoryRank = WORSHIP_ROLE_ORDER.indexOf(category)
-  return [categoryRank === -1 ? WORSHIP_ROLE_ORDER.length : categoryRank, index]
-}
-
-function sortByWorshipRole(assignments) {
-  return [...assignments].sort((a, b) => {
-    const [catA, idxA] = worshipRoleSortKey(a.role)
-    const [catB, idxB] = worshipRoleSortKey(b.role)
-    return catA - catB || idxA - idxB
-  })
-}
 
 const ELEMENT_CATEGORIES = [
   {
@@ -352,7 +327,7 @@ export default function UpcomingSunday({ slug }) {
           style={{ background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 60%, #7c3aed 100%)' }}
           className="px-5 py-4 text-white"
         >
-          <p className="text-indigo-200 text-xs uppercase tracking-widest mb-0.5">Upcoming Sunday</p>
+          <p className="text-indigo-200 text-xs uppercase tracking-widest mb-0.5">{slug === 'worship' ? 'Upcoming Worship' : 'Upcoming Sunday'}</p>
           <h2 className="text-lg font-bold">{formatDisplay(sundayDate)}</h2>
           <div className="mt-2">
             {notification ? (

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Send, Download, Pencil, Trash2 } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
   addDepartmentEntry,
@@ -27,6 +27,7 @@ import {
   updateDepartmentSubDepartment,
   deleteDepartmentSubDepartment,
   getMergedPeopleDirectory,
+  getWorshipApplications,
   getWorshipSongs,
   addWorshipSong,
   updateWorshipSong,
@@ -36,12 +37,16 @@ import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { format, subMonths, subDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
+import { isWorshipLeader, hasWorshipRoleAccess, getAllowedWorshipTabs } from '../utils/worshipAccess'
+import { getDepartmentRole } from '../utils/access'
+import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import BudgetPage from './accounts/BudgetPage'
-import UpcomingSunday from './UpcomingSunday'
+import UpcomingWorship from './worship/UpcomingWorship'
 import SongDesigner from './worship/SongDesigner'
 import SongViewer from './worship/SongViewer'
+import WorshipApplications from './worship/WorshipApplications'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -348,9 +353,28 @@ function dedupeByName(members) {
   })
 }
 
+// "+ Add New Team Member" must only offer applicants whose screening evaluation
+// explicitly recommended them — not the full church directory. An applicant only
+// qualifies once status === 'screened' AND screening.recommendation === 'Ready for
+// Main Roster'; pending/incomplete applications and 'Needs Training / Sub List' or
+// 'Not Ready' recommendations are excluded, as are people with no application at all.
+async function getApprovedRosterVisitors() {
+  const [{ people }, applications] = await Promise.all([
+    getMergedPeopleDirectory(),
+    getWorshipApplications(DEPARTMENT).catch(() => []),
+  ])
+  const approvedNames = new Set(
+    (applications || [])
+      .filter(a => a.status === 'screened' && a.screening?.recommendation === 'Ready for Main Roster')
+      .map(a => (a.fullName || '').trim().toLowerCase())
+      .filter(Boolean)
+  )
+  return people.filter(p => approvedNames.has((p.name || '').trim().toLowerCase()))
+}
+
 export default function DepartmentWorship() {
   const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
-  if (!hasAccess(userProfile, DEPARTMENT)) {
+  if (!hasAccess(userProfile, DEPARTMENT) && !hasWorshipRoleAccess(userProfile)) {
     return (
       <div className="p-6 text-slate-600">
         <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
@@ -362,13 +386,21 @@ export default function DepartmentWorship() {
   const [loading, setLoading] = useState(true)
   // Tab is URL-driven (?tab=) so the bottom dock's folder popover can deep-link
   // straight into a subpage, same as DepartmentHub's generic hub.
-  const [searchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'summary')
+  const [searchParams, setSearchParams] = useSearchParams()
+  // A role restricted to fewer tabs (e.g. Worship Leader) lands on its first allowed
+  // tab by default instead of Hub — the ?tab= guard further below still returns 403 if
+  // they (or a stale link) explicitly point at a tab outside that set.
+  // Everyone defaults to Upcoming Worship (the setlist/assigned-songs view for the
+  // coming Sunday) rather than Hub — Worship Leader and Worship Member land here via
+  // the dock's bypassed launcher (see shouldBypassWorshipGrid), Director/Founder/Admin
+  // via the picker grid or by just visiting the bare department path.
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'upcomingSunday')
   useEffect(() => {
     const t = searchParams.get('tab')
     if (t) setActiveTab(t)
   }, [searchParams])
   const [operationsSubTab, setOperationsSubTab] = useState('expense')
+  const [teamSubTab, setTeamSubTab] = useState('members')
   const [subDepartments, setSubDepartments] = useState([])
   const [subDeptLoading, setSubDeptLoading] = useState(false)
   const [subDeptError, setSubDeptError] = useState(null)
@@ -421,9 +453,26 @@ export default function DepartmentWorship() {
     activityNotes: '',
   })
 
-  const isDirector = userProfile?.department === DEPARTMENT
+  // Scoped to this specific department's position (not the loose top-level
+  // `userProfile.department` field, which is just whichever department happened to
+  // be inserted first into `positions[]` — a Director of another department who also
+  // holds any lesser position here would otherwise incorrectly pass this check).
+  const isDirector = getDepartmentRole(userProfile, DEPARTMENT) === 'DIRECTOR'
   const isPastor = hasPermission('viewDepartmentInsights')
   const canManageWorship = isDirector || isFounder
+  // Worship Leader gets full edit access to songs/segments/arrangements specifically —
+  // deliberately narrower than canManageWorship (Team/Assign/Budget/Applications stay
+  // Director/Founder-only). Used only by the Song Directory and Song Designer below.
+  const canManageWorshipSongs = canManageWorship || isWorshipLeader(userProfile)
+  // A Worship Leader can only edit or delete songs they personally designed —
+  // Director/Founder still manage anything.
+  const canEditSong = (song) => {
+    if (canManageWorship) return true
+    if (!isWorshipLeader(userProfile)) return false
+    const designer = String(song?.designedBy || song?.createdBy || '').trim().toLowerCase()
+    const myName = String(userProfile?.name || '').trim().toLowerCase()
+    return !!myName && designer === myName
+  }
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [scheduleForDate, setScheduleForDate] = useState({ date: '', assignments: [] })
   const [loadingSchedule, setLoadingSchedule] = useState(false)
@@ -469,14 +518,37 @@ export default function DepartmentWorship() {
   const [songSubPage, setSongSubPage] = useState('directory')
   const [editingSong, setEditingSong] = useState(null)
   const [viewingSong, setViewingSong] = useState(null)
+  // Explicit view mode for the next SongViewer open ('full' | 'mine' | null to let
+  // SongViewer auto-detect) — always set together with viewingSong so a stale mode
+  // from a previous open (e.g. "My Part") never leaks into the next song opened.
+  const [viewSongMode, setViewSongMode] = useState(null)
+  // Overrides myWorshipMember's static profile positions when a caller (e.g. the
+  // Combined Song Design & Parts card on Upcoming Worship) already knows exactly
+  // which role(s) this person is assigned for that specific song this week.
+  const [viewSongPositions, setViewSongPositions] = useState(null)
+  const openSongView = (song, mode = null, positions = null) => {
+    setViewSongMode(mode)
+    setViewSongPositions(positions)
+    setViewingSong(song)
+  }
   const [songSearchOpenRole, setSongSearchOpenRole] = useState(null)
-  // Assign tab's Song Name search only ever surfaces songs this logged-in user
-  // designed/created themselves — same name-match caveat as myWorshipMember above.
-  const myDesignedSongs = myName
-    ? songs.filter(s => (s.designedBy || s.createdBy || '').trim().toLowerCase() === myName)
-    : []
   const [songModal, setSongModal] = useState(null) // null | 'add'
   const [songForm, setSongForm] = useState({ title: '', artist: '', key: '', tempo: '', notes: '' })
+
+  // Deep link from the Upcoming Worship workspace widget's "Design My Song" button
+  // (?tab=songsDirectory&newSong=1) — opens the Add Song modal immediately instead of
+  // requiring a click once they land on the Directory. Consumes/strips the flag so a
+  // refresh or re-visit doesn't keep re-opening it.
+  useEffect(() => {
+    if (activeTab !== 'songsDirectory' || !canManageWorshipSongs) return
+    if (searchParams.get('newSong') !== '1') return
+    setSongForm({ title: '', artist: '', key: '', tempo: '', notes: '' })
+    setSongModal('add')
+    const next = new URLSearchParams(searchParams)
+    next.delete('newSong')
+    setSearchParams(next, { replace: true })
+  }, [activeTab, searchParams, canManageWorshipSongs])
+
   const [savingSong, setSavingSong] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
 
@@ -562,10 +634,10 @@ export default function DepartmentWorship() {
     }
   }
 
-  // Also loaded on the Assign tab — the Song Name field there searches this same
-  // directory to auto-fill from a designed song instead of a free-typed name.
+  // Also loaded on the Assign tab (Song Name search) and Upcoming Worship (looking up
+  // each assigned song's key/link so the setlist can offer a "View" into SongViewer).
   useEffect(() => {
-    if (activeTab === 'songsDirectory' || activeTab === 'assign') loadSongs()
+    if (activeTab === 'songsDirectory' || activeTab === 'assign' || activeTab === 'upcomingSunday') loadSongs()
   }, [activeTab])
 
   useEffect(() => {
@@ -672,6 +744,21 @@ export default function DepartmentWorship() {
     return a?.[field] ?? ''
   }
 
+  // Reconstructs each assignment with exactly the fields the schema expects, coerced
+  // to plain strings — guards the save payload against anything malformed slipping in
+  // (e.g. songId ending up as an object/number instead of a directory doc id string,
+  // or an undefined value the Firestore SDK would otherwise reject the whole write for).
+  function sanitizeAssignment(a) {
+    return {
+      role: String(a?.role ?? ''),
+      memberId: String(a?.memberId ?? ''),
+      memberName: String(a?.memberName ?? ''),
+      songName: String(a?.songName ?? ''),
+      key: String(a?.key ?? ''),
+      songId: String(a?.songId ?? ''),
+    }
+  }
+
   function updateLocal(role, patch) {
     setLocalAssignments((prev) => {
       const list = [...prev]
@@ -715,12 +802,13 @@ export default function DepartmentWorship() {
   async function saveAssignPlan() {
     setSavingAssign(true)
     try {
-      await setWorshipScheduleByDate(DEPARTMENT, selectedDate, localAssignments, userProfile?.email || '')
-      setScheduleForDate((s) => ({ ...s, assignments: localAssignments }))
-      setAssignStamp({ date: selectedDate, assignments: [...localAssignments], savedAt: new Date() })
+      const sanitizedAssignments = localAssignments.map(sanitizeAssignment)
+      await setWorshipScheduleByDate(DEPARTMENT, selectedDate, sanitizedAssignments, userProfile?.email || '')
+      setScheduleForDate((s) => ({ ...s, assignments: sanitizedAssignments }))
+      setAssignStamp({ date: selectedDate, assignments: [...sanitizedAssignments], savedAt: new Date() })
       setStampOpen(false)
       if (selectedDate === getForthcomingSunday()) {
-        setForthcomingSchedule(prev => ({ ...(prev || {}), date: selectedDate, assignments: [...localAssignments] }))
+        setForthcomingSchedule(prev => ({ ...(prev || {}), date: selectedDate, assignments: [...sanitizedAssignments] }))
       }
 
       // Update the Schedule box to show only this Sunday; move old box to Records
@@ -733,7 +821,7 @@ export default function DepartmentWorship() {
         schedule: {
           ...(prevBox?.sundayDate === selectedDate ? prevBox.schedule : scheduleForDate) || {},
           date: selectedDate,
-          assignments: localAssignments,
+          assignments: sanitizedAssignments,
         },
       }
       setWeekBoxSchedules([newBox])
@@ -746,7 +834,7 @@ export default function DepartmentWorship() {
 
       // Auto-create or update practice session for the Saturday before this Sunday
       const practiceDateStr = format(subDays(new Date(selectedDate + 'T12:00:00'), 1), 'yyyy-MM-dd')
-      const songLines = localAssignments
+      const songLines = sanitizedAssignments
         .filter((a) => a.songName)
         .map((a) => `${a.role}: ${a.songName}${a.key ? ` (${a.key})` : ''}`)
       const notes = [
@@ -768,8 +856,8 @@ export default function DepartmentWorship() {
             .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
         )
       }
-    } catch (err) {
-      console.error('saveAssignPlan failed:', err, { date: selectedDate, assignments: localAssignments })
+    } catch (error) {
+      console.error('Error saving assignment:', error, { date: selectedDate, assignments: localAssignments })
       alert('Failed to save')
     } finally {
       setSavingAssign(false)
@@ -837,7 +925,7 @@ export default function DepartmentWorship() {
 
   const canViewInsights = isPastor
 
-  if (!canManageWorship && !canViewInsights) {
+  if (!canManageWorship && !canViewInsights && !hasWorshipRoleAccess(userProfile)) {
     return (
       <div className="p-8 text-slate-600">
         You don't have access to the Worship department page. Ask an admin to set your <strong>department</strong> to &quot;Worship&quot; in Firestore (users collection) to plan and enter data, or use a role that can view insights.
@@ -845,11 +933,34 @@ export default function DepartmentWorship() {
     )
   }
 
+  // Route guard: a Worship Leader is restricted to the Songs tab (Song Design lives
+  // inside it via a song's Edit button) — this blocks direct/typed ?tab= navigation to
+  // any hidden tab, not just what's hidden from the nav grid in departmentSubpages.js.
+  const allowedWorshipTabs = getAllowedWorshipTabs(userProfile, getDepartmentHubTabs('worship'))
+  if (!allowedWorshipTabs.includes(activeTab)) {
+    // Songs (Directory + Design) is Worship Leader/Director only. A Worship Member (or
+    // anyone else without access) hitting ?tab=songsDirectory directly — a stale link,
+    // a bookmark, hand-typed URL — gets bounced to Upcoming Worship, their actual home
+    // tab, instead of a dead-end 403 message.
+    if (activeTab === 'songsDirectory') {
+      return <Navigate to="/department/worship?tab=upcomingSunday" replace />
+    }
+    return (
+      <div className="p-8 text-slate-600">
+        <p className="font-semibold text-slate-800 mb-2">403 — Unauthorized Access</p>
+        <p>Your Worship Leader role only has access to the Songs module. Contact your Worship Director or Admin for broader access.</p>
+      </div>
+    )
+  }
+
   async function generateAndSharePlan() {
     setDistributing(true)
     try {
-      const sunday = getForthcomingSunday()
-      const fas = forthcomingSchedule?.assignments || []
+      // Use whichever Sunday is currently selected in the "Coming Sundays" strip
+      // (scheduleForDate is kept in sync with selectedDate via the loadScheduleForDate
+      // effect) — not always the immediately forthcoming one.
+      const sunday = selectedDate
+      const fas = scheduleForDate?.assignments || []
       const assigned = fas.filter(a => a.memberId)
       const songs    = fas.filter(a => a.songName)
       const vocals   = assigned.filter(a => /vocal|parts|choir/i.test(a.role))
@@ -1012,7 +1123,7 @@ export default function DepartmentWorship() {
       <div className="space-y-4 p-4">
       <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Worship</h1>
       {activeTab === 'upcomingSunday' && (
-        <UpcomingSunday slug="worship" />
+        <UpcomingWorship myWorshipMember={myWorshipMember} songs={songs} onViewSong={openSongView} canViewFullSong={canEditSong} />
       )}
 
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
@@ -1298,7 +1409,7 @@ export default function DepartmentWorship() {
                                         onClick={() => {
                                           const a = song._assignment
                                           const linked = a?.songId ? songs.find(s => s.id === a.songId) : null
-                                          if (linked) setViewingSong(linked)
+                                          if (linked) openSongView(linked)
                                         }}
                                         className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
                                       >
@@ -1505,7 +1616,10 @@ export default function DepartmentWorship() {
                             const songId = getLocalField(role, 'songId')
                             const linkedSong = songId ? songs.find(s => s.id === songId) : null
                             const q = songName.toLowerCase()
-                            const matches = myDesignedSongs
+                            // Full directory, not just songs this user designed — assigning
+                            // Lead Vocal needs to find any song so each instrumentalist/
+                            // vocalist can later view their own part in read-only mode.
+                            const matches = songs
                               .filter(s => !q || s.title?.toLowerCase().includes(q))
                               .slice(0, 8)
                             return (
@@ -1543,7 +1657,7 @@ export default function DepartmentWorship() {
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-[11px] font-semibold text-indigo-700">
                                       ✓ Design linked{linkedSong.key ? ` · ${linkedSong.key}` : ''}
                                     </span>
-                                    <button type="button" onClick={() => setViewingSong(linkedSong)}
+                                    <button type="button" onClick={() => openSongView(linkedSong)}
                                       className="text-[11px] font-medium text-indigo-600 hover:underline">View</button>
                                     <button type="button" onClick={() => updateLocal(role, { songId: '' })}
                                       className="text-[11px] font-medium text-slate-400 hover:text-slate-600">Unlink</button>
@@ -1687,7 +1801,7 @@ export default function DepartmentWorship() {
                       setAddMemberDropdownOpen(false)
                       setAddMemberVisitors([])
                       setAddMemberVisitorsLoading(true)
-                      getMergedPeopleDirectory().then(({ people }) => setAddMemberVisitors(people)).catch(() => {}).finally(() => setAddMemberVisitorsLoading(false))
+                      getApprovedRosterVisitors().then(setAddMemberVisitors).catch(() => setAddMemberVisitors([])).finally(() => setAddMemberVisitorsLoading(false))
                       setAddMemberModalOpen(true)
                     }}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
@@ -2090,6 +2204,34 @@ export default function DepartmentWorship() {
       {activeTab === 'theTeam' && (
         <div className="space-y-6">
 
+          {/* The Team sub-tab toggle */}
+          <div className="flex flex-wrap items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 mr-2">The Team</span>
+            {[
+              { key: 'members', label: 'Team Members' },
+              { key: 'applications', label: 'Applications' },
+            ].map(o => (
+              <button
+                key={o.key}
+                type="button"
+                onClick={() => setTeamSubTab(o.key)}
+                className={`px-3 py-1.5 text-sm font-medium rounded border transition ${
+                  teamSubTab === o.key
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-indigo-700'
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+
+          {teamSubTab === 'applications' && (
+            <WorshipApplications canManageWorship={canManageWorship} userProfile={userProfile} />
+          )}
+
+          {teamSubTab === 'members' && (
+          <>
           {/* Active members */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
@@ -2126,7 +2268,7 @@ export default function DepartmentWorship() {
                       setAddMemberDropdownOpen(false)
                       setAddMemberVisitors([])
                       setAddMemberVisitorsLoading(true)
-                      getMergedPeopleDirectory().then(({ people }) => setAddMemberVisitors(people)).catch(() => {}).finally(() => setAddMemberVisitorsLoading(false))
+                      getApprovedRosterVisitors().then(setAddMemberVisitors).catch(() => setAddMemberVisitors([])).finally(() => setAddMemberVisitorsLoading(false))
                       setAddMemberModalOpen(true)
                     }}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
@@ -2316,7 +2458,7 @@ export default function DepartmentWorship() {
                           return (
                             <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-[#1a2d4f] rounded-xl border border-slate-200 dark:border-slate-600 shadow-lg z-10 overflow-hidden max-h-52 overflow-y-auto">
                               {matches.length === 0 ? (
-                                <p className="px-4 py-3 text-sm text-slate-400 dark:text-slate-500">No one found in the People Directory — only existing people can be added.</p>
+                                <p className="px-4 py-3 text-sm text-slate-400 dark:text-slate-500">No matching applicants — only people whose worship screening was marked "Ready for Main Roster" can be added.</p>
                               ) : matches.map(v => (
                                 <button
                                   key={v.id}
@@ -2410,6 +2552,9 @@ export default function DepartmentWorship() {
                 </form>
               </div>
             </div>
+          )}
+
+          </>
           )}
 
         </div>
@@ -2956,7 +3101,7 @@ export default function DepartmentWorship() {
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs text-slate-400">{songs.length} song{songs.length !== 1 ? 's' : ''}</p>
-                {canManageWorship && (
+                {canManageWorshipSongs && (
                   <button
                     type="button"
                     onClick={() => { setSongForm({ title: '', artist: '', key: '', tempo: '', notes: '' }); setSongModal('add') }}
@@ -2994,7 +3139,7 @@ export default function DepartmentWorship() {
                         <div
                           key={song.id}
                           className={`rounded-2xl border border-slate-200/60 border-t-4 ${theme.border} ${theme.bg} px-4 py-3 shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer transition-all`}
-                          onClick={() => setViewingSong(song)}
+                          onClick={() => openSongView(song)}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
@@ -3010,7 +3155,7 @@ export default function DepartmentWorship() {
                                 </span>
                               )}
                             </div>
-                            {canManageWorship && (
+                            {canEditSong(song) && (
                               <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                                 <button type="button" onClick={() => { setEditingSong(song); setSongSubPage('design') }}
                                   title="Edit song"
@@ -3041,7 +3186,7 @@ export default function DepartmentWorship() {
           {/* ── Design your song sub-page ── */}
           {songSubPage === 'design' && (
             <SongDesigner
-              canManageWorship={canManageWorship}
+              canManageWorship={canManageWorshipSongs}
               userProfile={userProfile}
               editingSong={editingSong}
               onCancelEdit={() => { setEditingSong(null); setSongSubPage('directory') }}
@@ -3166,8 +3311,9 @@ export default function DepartmentWorship() {
       {viewingSong && (
         <SongViewer
           song={viewingSong}
-          canManage={canManageWorship}
-          myPositions={myWorshipMember?.positions || []}
+          canManage={canEditSong(viewingSong)}
+          myPositions={viewSongPositions || myWorshipMember?.positions || []}
+          initialViewMode={viewSongMode}
           onClose={() => setViewingSong(null)}
           onEdit={song => { setViewingSong(null); setEditingSong(song); setSongSubPage('design') }}
         />

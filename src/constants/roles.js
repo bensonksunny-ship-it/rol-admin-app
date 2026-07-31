@@ -18,20 +18,44 @@ export const POSITION_OPTIONS = [
   { value: 'Cell Leader', label: 'Cell Leader' },
   { value: 'Associate', label: 'Associate' },
   { value: 'Weekly Expense Manager', label: 'Weekly Expense Manager' },
+  { value: 'Worship Leader', label: 'Worship Leader' },
+  { value: 'Worship Member', label: 'Worship Member' },
 ]
+
+/** Strips a display-formatted " - {Department}" suffix off a position value
+ *  (e.g. "Director - Worship" → "Director"), so exact-match permission checks
+ *  work whether a position was saved as the bare enum value or the composite
+ *  display string produced by `formatPositionLabel`. */
+export function basePositionName(position) {
+  const raw = String(position || '').trim()
+  const idx = raw.indexOf(' - ')
+  return idx === -1 ? raw : raw.slice(0, idx).trim()
+}
+
+/** Human-readable label for a department position. "Director" is suffixed with
+ *  its department (e.g. "Director - Worship", "Director - Accounts") so a
+ *  person who directs more than one department reads unambiguously wherever
+ *  positions are listed. Other positions render as before. */
+export function formatPositionLabel(department, position) {
+  const dept = String(department || '').trim()
+  const pos = basePositionName(position)
+  if (!pos) return dept
+  if (pos.toLowerCase() === 'director' && dept) return `Director - ${dept}`
+  return dept ? `${dept} (${pos})` : pos
+}
 
 /** Derive app role from positions array (highest wins). Used for permissions. */
 export function deriveRoleFromPositions(positions) {
   if (!Array.isArray(positions) || positions.length === 0) return ROLES.VIEWER
   const hasDirector = positions.some((p) => {
     if (!p) return false
-    const pos = String(p.position || '').trim().toLowerCase()
+    const pos = basePositionName(p.position).toLowerCase()
     const role = String(p.role || '').trim().toUpperCase()
     return pos === 'director' || role === 'DIRECTOR'
   })
   const hasCoordinator = positions.some((p) => {
     if (!p) return false
-    const pos = String(p.position || '').trim().toLowerCase()
+    const pos = basePositionName(p.position).toLowerCase()
     const role = String(p.role || '').trim().toUpperCase()
     return pos === 'coordinator' || pos === 'cell leader' || role === 'COORDINATOR' || role === 'LEADER'
   })

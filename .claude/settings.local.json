@@ -134,7 +134,11 @@
       "Bash(npm uninstall *)",
       "Artifact",
       "Bash(powershell.exe *)",
-      "Bash(grep -n \"setMeta\\({ title: '', artist: '', key: '', tempo: '' }\\)\" src/pages/worship/SongDesigner.jsx)"
+      "Bash(grep -n \"setMeta\\({ title: '', artist: '', key: '', tempo: '' }\\)\" src/pages/worship/SongDesigner.jsx)",
+      "Bash(grep -n \"to=\\\\\"/\\\\|Link to\\\\|NavLink to\\\\|quickLink\\\\|QuickLink\" src/pages/MyWorkspace.jsx)",
+      "Bash(grep -n \"const handleSave\\\\|^  }$\" src/pages/AdminUserManagement.jsx)",
+      "Bash(find 'C:\\\\Users\\\\User/.config/configstore' -iname *firebase*)",
+      "Bash(grep -E \"^\\(C:|/\\).*\\\\.jsx$\")"
     ]
   }
 }

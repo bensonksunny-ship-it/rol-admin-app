@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Home, Menu, Moon, Sun } from 'lucide-react'
+import { Home, Menu, Moon, Sun, UserCog } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import RailTooltip from '../RailTooltip'
 import ProfileDrawer from '../ProfileDrawer'
@@ -17,15 +17,18 @@ function getInitials(profile) {
 // Sidebar is just two small chrome pieces — MobileHeader (a slim top bar: hamburger +
 // logo on the left, profile avatar on the right, opening a narrow mobile drawer or the
 // full-detail ProfileDrawer respectively) and IconRail (desktop's icon strip: profile,
-// My Workspace, theme, sign out). Department/report/admin navigation lives entirely in
-// the global floating dock (DepartmentDock, rendered from MainLayout) and My Workspace
-// itself — neither surface here duplicates that as a per-role nav-item list; the mobile
-// drawer is a slim w-16 icon-only rail carrying the same four account-level actions as
-// IconRail (profile, home, theme, sign out) — no text labels, no full-width nav-list
-// panel. Notifications/messages live on WorkspaceHeader (My Workspace's page-level
-// header) so they render in exactly one place, not here.
+// My Workspace, theme, sign out). Department/report navigation lives entirely in the
+// global floating dock (DepartmentDock, rendered from MainLayout) and My Workspace
+// itself — neither surface here duplicates that as a per-role nav-item list. The one
+// exception is User Management (`/admin/users`): it's Founder-only, has no department
+// tile of its own, and isn't linked from anywhere else, so both rails render it — gated
+// on `isFounder` — right after My Workspace. The mobile drawer is otherwise a slim w-16
+// icon-only rail carrying the same account-level actions as IconRail (profile, home,
+// theme, sign out) — no text labels, no full-width nav-list panel. Notifications/
+// messages live on WorkspaceHeader (My Workspace's page-level header) so they render in
+// exactly one place, not here.
 export default function Sidebar() {
-  const { user, userProfile } = useAuth()
+  const { user, userProfile, isFounder } = useAuth()
   const { pathname } = useLocation()
   const [profileOpen, setProfileOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -180,8 +183,8 @@ export default function Sidebar() {
 
           <NavLink
             to="/"
-            title="My Workspace"
-            aria-label="My Workspace"
+            title={isFounder ? 'Eden Garden' : 'My Workspace'}
+            aria-label={isFounder ? 'Eden Garden' : 'My Workspace'}
             onClick={() => setDrawerOpen(false)}
             className={({ isActive }) =>
               `${mobileRailBtnClass} w-12 h-12 ${isActive ? navLinkActive : navLinkInactive}`
@@ -189,6 +192,20 @@ export default function Sidebar() {
           >
             <Home size={22} strokeWidth={1.75} />
           </NavLink>
+
+          {isFounder && (
+            <NavLink
+              to="/admin/users"
+              title="User Management"
+              aria-label="User Management"
+              onClick={() => setDrawerOpen(false)}
+              className={({ isActive }) =>
+                `${mobileRailBtnClass} w-12 h-12 ${isActive ? navLinkActive : navLinkInactive}`
+              }
+            >
+              <UserCog size={22} strokeWidth={1.75} />
+            </NavLink>
+          )}
 
           <div className="flex-1" />
 
@@ -231,7 +248,7 @@ export default function Sidebar() {
 
       <div className="w-8 border-t border-white/10 my-1 flex-shrink-0" />
 
-      <RailTooltip label="My Workspace">
+      <RailTooltip label={isFounder ? 'Eden Garden' : 'My Workspace'}>
         <NavLink
           to="/"
           className={({ isActive }) =>
@@ -243,6 +260,22 @@ export default function Sidebar() {
           <Home size={20} strokeWidth={1.75} />
         </NavLink>
       </RailTooltip>
+
+      {isFounder && (
+        <RailTooltip label="User Management">
+          <NavLink
+            to="/admin/users"
+            aria-label="User Management"
+            className={({ isActive }) =>
+              `relative w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
+                isActive ? navLinkActive : navLinkInactive
+              }`
+            }
+          >
+            <UserCog size={20} strokeWidth={1.75} />
+          </NavLink>
+        </RailTooltip>
+      )}
 
       <div className="flex-1" />
 

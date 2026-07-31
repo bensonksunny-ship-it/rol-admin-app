@@ -2,6 +2,8 @@ import { useAuth } from '../context/AuthContext'
 import useActionNotifications from '../hooks/useActionNotifications'
 import WorkspaceHeader from '../components/workspace/WorkspaceHeader'
 import ToDoListCard from '../components/workspace/ToDoListCard'
+import EdenGardenGrid from '../components/workspace/EdenGardenGrid'
+import WorshipWorkspaceWidget from '../components/workspace/WorshipWorkspaceWidget'
 
 function greeting() {
   const h = new Date().getHours()
@@ -41,8 +43,12 @@ export default function MyWorkspace() {
               letterSpacing: '-0.005em',
             }}
           >
-            Welcome back, {userProfile?.displayName?.split(' ')[0] || 'there'}{' '}
-            <span className="inline-block animate-greeting-wave" style={{ transformOrigin: '70% 70%' }}>👋</span>
+            {isFounder ? 'Eden Garden' : (
+              <>
+                Welcome back, {userProfile?.displayName?.split(' ')[0] || 'there'}{' '}
+                <span className="inline-block animate-greeting-wave" style={{ transformOrigin: '70% 70%' }}>👋</span>
+              </>
+            )}
           </h1>
         </div>
         <WorkspaceHeader
@@ -53,7 +59,9 @@ export default function MyWorkspace() {
         />
       </div>
 
+      {isFounder && <EdenGardenGrid />}
       <ToDoListCard />
+      <WorshipWorkspaceWidget />
     </div>
   )
 }

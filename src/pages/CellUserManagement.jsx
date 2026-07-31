@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { ROLES } from '../constants/roles'
+import { getDepartmentRole } from '../utils/access'
 import { getAllUsers, updateUserByAdmin, setUserStatus, getDelightVisitors, getCellGroups } from '../services/firestore'
 
 export default function CellUserManagement() {
@@ -25,10 +26,12 @@ export default function CellUserManagement() {
 
   const isAdminOrFounder =
     userProfile?.role === ROLES.ADMIN || userProfile?.role === ROLES.FOUNDER
-  const isCellDirector =
-    userProfile?.role === ROLES.DIRECTOR && userProfile?.department === 'Cell'
-  const isCellLeader =
-    userProfile?.role === ROLES.COORDINATOR && userProfile?.department === 'Cell'
+  // Scoped to the Cell position specifically (via getDepartmentRole) — the old check
+  // compared the loose top-level `userProfile.department` field, which is just
+  // whichever department happened to be inserted first into `positions[]` and could
+  // wrongly grant this to a Director/Coordinator of a different department.
+  const isCellDirector = getDepartmentRole(userProfile, 'Cell') === 'DIRECTOR'
+  const isCellLeader = getDepartmentRole(userProfile, 'Cell') === 'COORDINATOR'
 
   useEffect(() => {
     setLoading(true)

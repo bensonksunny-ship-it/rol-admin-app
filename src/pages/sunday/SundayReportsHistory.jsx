@@ -656,7 +656,7 @@ export default function SundayReportsHistory() {
 
   const loadRows = () => {
     setLoading(true)
-    getSundayReportSummaries(12)
+    getSundayReportSummaries()
       .then(setRows)
       .catch(() => setRows([]))
       .finally(() => setLoading(false))
