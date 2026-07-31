@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronLeft, Check, Star } from 'lucide-react'
+import { format } from 'date-fns'
+import { ChevronLeft, ChevronDown, Check, Star, Download } from 'lucide-react'
+import rolccLogo from '../../assets/rolcc_logo BW.JPG'
 import {
   getWorshipApplications,
   addWorshipApplication,
@@ -18,6 +20,17 @@ const INSTRUMENT_OPTIONS = [
 ]
 const READING_OPTIONS = ['Standard notation', 'Nashville Number System', 'Chord charts / lead sheets', 'By ear only']
 const MINISTRY_AREA_OPTIONS = ['Worship Ministry', 'Other Ministry Area']
+
+// Resolves a searchable display name off a directory entry regardless of which shape
+// it arrived in — getMergedPeopleDirectory() always sets `name`, but this stays
+// defensive against `fullName` or split `firstName`/`lastName` fields in case a future
+// source (or a hand-edited record) doesn't follow that convention.
+function directoryEntryName(person) {
+  if (person?.name) return person.name
+  if (person?.fullName) return person.fullName
+  const combined = [person?.firstName, person?.lastName].filter(Boolean).join(' ').trim()
+  return combined
+}
 
 // Wizard steps — Sections I-IV map one-to-one; the last two sections (Availability &
 // Commitment, Heart for Worship & Alignment) share one final step since both are
@@ -316,9 +329,31 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
   // firestore.js) so search here matches everyone registered in the system, not
   // just the `people` collection + D-Light visitors. Same source PeopleDirectory.jsx
   // and the Worship team "Add Member" search use — no role/department/status
-  // filtering, since anyone in the directory should be selectable here.
+  // filtering, since anyone in the directory should be selectable here (deliberately
+  // no active-tab, stage, or role filtering — `people` here is already every entry
+  // getMergedPeopleDirectory merged, unfiltered).
   useEffect(() => {
-    getMergedPeopleDirectory().then(({ people }) => setMembersList(people)).catch(() => setMembersList([]))
+    getMergedPeopleDirectory()
+      .then(({ people }) => {
+        const withNames = []
+        const malformed = []
+        for (const p of people) {
+          const name = directoryEntryName(p)
+          if (!name) { malformed.push(p); continue }
+          withNames.push(name === p.name ? p : { ...p, name })
+        }
+        if (malformed.length > 0) {
+          console.error(
+            `Worship application directory search: ${malformed.length} record(s) had no usable name (checked name/fullName/firstName+lastName) and were excluded from search.`,
+            malformed
+          )
+        }
+        setMembersList(withNames)
+      })
+      .catch(err => {
+        console.error('Failed to load the People Directory for the application form:', err)
+        setMembersList([])
+      })
   }, [])
 
   // Cell group list for the "Which Cell Group do you belong to?" dropdown — active
@@ -455,8 +490,12 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
                     onChange={e => {
                       const q = e.target.value
                       set('fullName', q)
-                      const hits = q.trim().length >= 1
-                        ? membersList.filter(m => m.name && m.name.toLowerCase().includes(q.toLowerCase())).slice(0, 25)
+                      // Case-insensitive substring match against the resolved name (see
+                      // directoryEntryName above) — matches anywhere in the name, not just
+                      // the start, so "ronald" finds "Ronald" and "J. Ronald Smith" alike.
+                      const needle = q.trim().toLowerCase()
+                      const hits = needle
+                        ? membersList.filter(m => m.name.toLowerCase().includes(needle)).slice(0, 25)
                         : []
                       setNameSuggestions(hits)
                       setShowNameSuggestions(hits.length > 0)
@@ -828,12 +867,14 @@ function ScreeningModal({ app, onClose, onSubmit }) {
 }
 
 // Read-only summary of a completed screening evaluation, for the Director's review view.
+// Just the row list (no wrapper/title) — ApplicationDetail wraps this in its own
+// CollapsibleSection so it participates in the same per-section + global collapse/
+// expand behavior as every other part of the application.
 function ScreeningSummary({ screening }) {
   if (!screening) return null
   const scale = (n) => n ? `${n} / 5` : '—'
   return (
-    <div className="bg-white rounded-xl border border-emerald-200 p-4">
-      <h3 className="text-sm font-bold text-emerald-700 mb-1">Screening Evaluation</h3>
+    <>
       <Row label="Pitch accuracy & vocal control" value={scale(screening.pitchAccuracy)} />
       <Row label="Rhythm & timing" value={scale(screening.rhythmTiming)} />
       <Row label="Live play & sing assessment" value={`${screening.livePlaySingDone ? 'Completed' : 'Not completed'} — ${scale(screening.livePlaySingScore)}`} />
@@ -846,19 +887,442 @@ function ScreeningSummary({ screening }) {
       <Row label="Overall recommendation" value={screening.recommendation} />
       <Row label="Evaluation notes" value={screening.notes} />
       <Row label="Screened by" value={screening.screenedBy} />
+    </>
+  )
+}
+
+// ── Collapsible accordion card for each section of the application detail view —
+// the whole header row (not just the chevron) is the click target, and the content
+// panel animates open/closed via a grid-template-rows transition (0fr → 1fr) rather
+// than toggling display/height directly, so it animates smoothly without needing to
+// measure the content's height in JS.
+function CollapsibleSection({ header, defaultOpen = true, borderClassName = 'border-slate-200', children }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className={`bg-white rounded-xl border overflow-hidden ${borderClassName}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-slate-50 transition-colors"
+      >
+        <div className="flex-1 min-w-0">{header}</div>
+        <ChevronDown
+          size={18}
+          className={`shrink-0 text-slate-400 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      <div
+        className="grid transition-[grid-template-rows] duration-300 ease-in-out"
+        style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
+      >
+        <div className="overflow-hidden">
+          <div className="px-4 pb-4">{children}</div>
+        </div>
+      </div>
     </div>
   )
 }
 
+const scaleOf5 = (n) => n ? `${n} / 5` : '—'
+
+function safeFileNamePart(name) {
+  return (name || 'applicant').trim().replace(/[^\w\- ]/g, '').replace(/\s+/g, '-') || 'applicant'
+}
+
+// Renders the full application form + (if present) the 10-point screening evaluation
+// as a formal church-letterhead document and hands it to the browser's native print
+// dialog (same "self-contained HTML string in a new window, @page CSS, window.print()
+// on load" pattern DepartmentHub.jsx's PCS profile export uses) — no PDF library
+// dependency, and "Save as PDF" in the print dialog produces the actual download.
+const NAVY = '#1a365d'
+const GOLD = '#c9a961'
+
+// The project's actual church logo (src/assets, already used in Sidebar.jsx) —
+// converted to a base64 data URI and cached, rather than referenced by its bundled
+// URL, since a print window opened via window.open('') + document.write() can't
+// reliably resolve an ordinary <img src> against the popup's own (blank) document,
+// and a data URI sidesteps that entirely — same reason the Welcome Card canvas draws
+// it as a pre-loaded Image element instead of setting a plain URL as its src.
+let logoDataUrlPromise = null
+function getLogoDataUrl() {
+  if (!logoDataUrlPromise) {
+    logoDataUrlPromise = fetch(rolccLogo)
+      .then(res => res.blob())
+      .then(blob => new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(blob)
+      }))
+  }
+  return logoDataUrlPromise
+}
+
+// Loads an image source (a data URI here) into an HTMLImageElement the canvas can
+// drawImage() — a data URI never taints the canvas the way a cross-origin URL could,
+// so the later toBlob('image/jpeg') call stays safe regardless of hosting.
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Failed to load image'))
+    img.src = src
+  })
+}
+
+async function downloadApplicationPDF(app) {
+  const logoDataUrl = await getLogoDataUrl()
+  const fmtDate = (d) => {
+    if (!d) return null
+    const parsed = new Date(d)
+    return isNaN(parsed.getTime()) ? null : format(parsed, 'd MMM yyyy')
+  }
+
+  const field = (label, value) => (value === '' || value === null || value === undefined) ? '' : `
+    <div style="padding:3px 0;border-bottom:1px solid #eef1f4;page-break-inside:avoid;break-inside:avoid">
+      <div style="font-size:6.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#8a94a6;margin-bottom:1px">${label}</div>
+      <div style="font-size:9px;color:#1f2937;font-weight:500;line-height:1.25">${value}</div>
+    </div>`
+
+  const subGroup = (title, contentHtml) => !contentHtml ? '' : `
+    <div style="margin-bottom:6px;page-break-inside:avoid;break-inside:avoid">
+      <div style="font-size:7.5px;font-weight:700;color:${NAVY};margin-bottom:2px">${title}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">${contentHtml}</div>
+    </div>`
+
+  const sectionHeader = (numeral, title) => `
+    <div style="display:flex;align-items:baseline;gap:6px;border-bottom:1.5px solid ${NAVY};padding-bottom:3px;margin:10px 0 6px;page-break-inside:avoid;break-inside:avoid">
+      <span style="font-size:10px;font-weight:800;color:${GOLD}">${numeral}.</span>
+      <span style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:${NAVY}">${title}</span>
+    </div>`
+
+  const statusLabel = app.status === 'screened' ? 'Screening Completed' : app.status === 'reviewed' ? 'Reviewed' : 'Pending Review'
+  const submissionDate = fmtDate(app.applicationDate) || '—'
+  const evaluatorEmail = app.screening?.screenedBy || 'Not yet evaluated'
+
+  const personalInfo = subGroup('Personal Information',
+    field('Date of Birth', fmtDate(app.dob)) +
+    field('Phone', app.phone) +
+    field('Email', app.email) +
+    field('Current Place', app.currentPlace) +
+    field('Coming From', app.comingFrom)
+  )
+  const churchBackground = subGroup('Church Background',
+    field('Cell Group', app.cellGroup) +
+    field('Regular Cell Attendee', app.regularCellAttendee) +
+    field('Permanent Member', app.permanentMember) +
+    field('Attending the Church For', app.churchAttendanceDuration) +
+    field('Worship Rating', app.worshipRating ? `${app.worshipRating} / 5` : '') +
+    field('Best Part of Our Worship', app.worshipBestPart)
+  )
+  const spiritualJourney = subGroup('Spiritual Journey',
+    field('Testimony', app.testimony) +
+    field('Baptised', app.baptised) +
+    field('Anointed by the Holy Spirit', app.anointedByHolySpirit) +
+    field('Ministry Experience', app.ministryExperience) +
+    field('Duration', app.ministryDuration) +
+    field('Area of Ministry', app.ministryArea === 'Other Ministry Area' ? app.ministryAreaOther : app.ministryArea) +
+    field('Inspiration for Worship Ministry', app.worshipInspiration)
+  )
+  const musicalProfile = subGroup('Musical &amp; Technical Profile',
+    field('Instrument(s) or Vocal Part(s)', (app.primaryInstruments || []).join(', ')) +
+    field('Reading Ability', (app.readingAbility || []).join(', ')) +
+    field('Years of Experience', app.yearsExperience) +
+    field('Formal Training', app.formalTraining) +
+    field('Portfolio Link', app.portfolioLink) +
+    field('Vocal Range / Key', app.vocalRange)
+  )
+
+  const availabilityCommitment =
+    field('Special Events', app.specialEvents) +
+    field('Will Attend All Practices', app.attendPractices ? 'Yes' : 'No') +
+    field('Will Attend Rehearsals', app.attendRehearsals ? 'Yes' : 'No')
+
+  const alignmentCovenant =
+    field('Definition of Worship', app.worshipDefinition) +
+    field('Response to Feedback', app.feedbackResponse) +
+    field('Covenant Agreed', app.covenantAgree ? 'Yes' : 'No')
+  const signatureBlock = app.signatureDataUrl ? `
+    <div style="margin-top:4px;page-break-inside:avoid;break-inside:avoid">
+      <div style="font-size:6.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#8a94a6;margin-bottom:2px">Signature</div>
+      <img src="${app.signatureDataUrl}" style="height:32px;border-bottom:1px solid #d1d5db" />
+    </div>` : ''
+
+  let screeningSectionHtml = ''
+  if (app.screening) {
+    const s = app.screening
+    screeningSectionHtml = sectionHeader('IV', 'Screening Evaluation Report') + `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">
+        ${field('Pitch Accuracy &amp; Vocal Control', scaleOf5(s.pitchAccuracy))}
+        ${field('Rhythm &amp; Timing', scaleOf5(s.rhythmTiming))}
+        ${field('Live Play &amp; Sing Assessment', `${s.livePlaySingDone ? 'Completed' : 'Not completed'} — ${scaleOf5(s.livePlaySingScore)}`)}
+        ${field('Ear Training &amp; Harmony', s.earTraining)}
+        ${field('Instrumental Proficiency', scaleOf5(s.instrumentalProficiency))}
+        ${field('Dynamic Sensitivity', s.dynamicSensitivity)}
+        ${field('Sight-Reading / Chart Following', s.chartFollowing)}
+        ${field('Stage Presence &amp; Expression', scaleOf5(s.stagePresence))}
+        ${field('Coachability &amp; Feedback Response', s.coachability)}
+      </div>
+      <div style="margin-top:4px;padding:6px 8px;background:#f7f5ef;border:1px solid ${GOLD};border-radius:4px;page-break-inside:avoid;break-inside:avoid">
+        <div style="font-size:6.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#8a6d1f;margin-bottom:1px">Overall Recommendation</div>
+        <div style="font-size:10px;font-weight:800;color:${NAVY}">${s.recommendation || '—'}</div>
+      </div>
+      ${field('Evaluation Notes', s.notes)}
+      ${field('Screened By', s.screenedBy)}
+    `
+  }
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${safeFileNamePart(app.fullName)}-application</title>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    @page { size:A4 portrait; margin:12mm; }
+    html,body { font-family:'Segoe UI',Arial,sans-serif; font-size:9.5pt; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; color-adjust:exact !important; }
+    body { color:#1f2937; max-width:180mm; margin:0 auto; }
+    @media print { .no-print{display:none!important} * {-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important} }
+  </style></head><body>
+
+    <!-- Formal letterhead header -->
+    <div style="display:flex;align-items:center;gap:10px;background:${NAVY};padding:8px 14px;border-radius:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+      <img src="${logoDataUrl}" alt="River Of Life Christian Church" style="height:34px;width:auto;max-width:34px;object-fit:contain;flex-shrink:0;display:block" />
+      <div>
+        <div style="font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#ffffff;line-height:1.1">River Of Life Christian Church</div>
+        <div style="font-size:8.5px;font-weight:500;color:${GOLD};margin-top:1px;letter-spacing:.02em">Worship Ministry Candidate Application &amp; Evaluation</div>
+      </div>
+    </div>
+
+    <!-- Candidate summary highlight box -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;background:#f8fafc;border:1px solid #dbe2ea;border-radius:4px;padding:6px 12px;margin-top:6px;page-break-inside:avoid;break-inside:avoid">
+      ${field('Candidate Name', app.fullName || '—')}
+      ${field('Form Status', statusLabel)}
+      ${field('Submission Date', submissionDate)}
+      ${field('Evaluator Email', evaluatorEmail)}
+    </div>
+
+    ${sectionHeader('I', 'Personal Information')}
+    ${personalInfo}
+    ${churchBackground}
+    ${spiritualJourney}
+    ${musicalProfile}
+
+    ${sectionHeader('II', 'Availability &amp; Commitment')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">${availabilityCommitment}</div>
+
+    ${sectionHeader('III', 'Alignment &amp; Covenant')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">${alignmentCovenant}</div>
+    ${signatureBlock}
+
+    ${screeningSectionHtml}
+
+    <!-- Formal footer -->
+    <div style="margin-top:8px;padding-top:4px;border-top:1px solid #d1d5db;display:flex;justify-content:space-between;align-items:center;page-break-inside:avoid;break-inside:avoid">
+      <span style="font-size:6.5px;color:#9ca3af">River Of Life Christian Church &bull; Confidential Ministry Application Document</span>
+      <span style="font-size:6.5px;color:#9ca3af">Generated ${format(new Date(), 'd MMM yyyy, h:mm a')}</span>
+    </div>
+
+    <script>window.onload=function(){window.print()}<\/script>
+  </body></html>`
+
+  const win = window.open('', '_blank', 'width=900,height=750')
+  if (!win) throw new Error('Pop-up blocked — please allow pop-ups for this site to download the PDF.')
+  win.document.write(html)
+  win.document.close()
+}
+
+// Draws a shareable "welcome to the team" image card straight onto a canvas (same
+// raw Canvas 2D + toBlob('image/jpeg') pattern already used for the worship plan
+// export elsewhere in this file) — no DOM screenshot library needed since every
+// element here is drawn directly, giving full control over layout without the
+// fidelity/async-font quirks html2canvas can introduce.
+async function downloadWelcomeCardJPEG(app) {
+  const logoImg = await loadImageElement(await getLogoDataUrl())
+  const s = app.screening || {}
+  const W = 800, HEADER_H = 230, PAD = 56
+  const summaryRows = [
+    ['Pitch accuracy & vocal control', scaleOf5(s.pitchAccuracy)],
+    ['Rhythm & timing', scaleOf5(s.rhythmTiming)],
+    ['Instrumental proficiency', scaleOf5(s.instrumentalProficiency)],
+    ['Stage presence & expression', scaleOf5(s.stagePresence)],
+  ].filter(([, v]) => v !== '—')
+  const ROW_H = 40
+  const H = HEADER_H + 180 + summaryRows.length * ROW_H + (s.recommendation ? 70 : 20) + 60
+
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d')
+  ctx.textBaseline = 'alphabetic'
+
+  // Background
+  ctx.fillStyle = '#f0fdf4'
+  ctx.fillRect(0, 0, W, H)
+
+  // Header gradient banner
+  const grad = ctx.createLinearGradient(0, 0, W, HEADER_H)
+  grad.addColorStop(0, '#059669')
+  grad.addColorStop(1, '#065f46')
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, W, HEADER_H)
+
+  // Official church logo — left-aligned, scaled to a fixed height with its natural
+  // aspect ratio preserved so it isn't stretched/clipped.
+  const logoH = 40
+  const logoW = logoH * (logoImg.naturalWidth / logoImg.naturalHeight || 1)
+  ctx.drawImage(logoImg, PAD, 22, logoW, logoH)
+
+  ctx.textAlign = 'center'
+  ctx.fillStyle = 'rgba(255,255,255,0.65)'
+  ctx.font = 'bold 15px Arial, sans-serif'
+  ctx.fillText('RIVER OF LIFE CHURCH · WORSHIP MINISTRY', W / 2, 46)
+
+  ctx.fillStyle = '#ffffff'
+  ctx.font = 'bold 30px Arial, sans-serif'
+  ctx.fillText('WELCOME TO THE TEAM', W / 2, 92)
+
+  // Avatar initial
+  ctx.beginPath()
+  ctx.arc(W / 2, 155, 38, 0, Math.PI * 2)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
+  ctx.fillStyle = '#059669'
+  ctx.font = 'bold 32px Arial, sans-serif'
+  ctx.fillText((app.fullName || '?').trim().charAt(0).toUpperCase(), W / 2, 167)
+
+  // Name, role, date joined
+  ctx.fillStyle = '#064e3b'
+  ctx.font = 'bold 30px Arial, sans-serif'
+  ctx.fillText(app.fullName || '', W / 2, HEADER_H + 50)
+
+  ctx.fillStyle = '#059669'
+  ctx.font = '600 17px Arial, sans-serif'
+  ctx.fillText((app.primaryInstruments || []).join(' · ') || 'Worship Team Member', W / 2, HEADER_H + 80)
+
+  ctx.fillStyle = '#6b7280'
+  ctx.font = '14px Arial, sans-serif'
+  ctx.fillText(`Joined ${format(new Date(), 'd MMMM yyyy')}`, W / 2, HEADER_H + 106)
+
+  // Divider
+  ctx.strokeStyle = '#d1fae5'
+  ctx.beginPath()
+  ctx.moveTo(PAD, HEADER_H + 130)
+  ctx.lineTo(W - PAD, HEADER_H + 130)
+  ctx.stroke()
+
+  // Screening summary rows
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#065f46'
+  ctx.font = 'bold 14px Arial, sans-serif'
+  ctx.fillText('SCREENING SUMMARY', PAD, HEADER_H + 160)
+
+  let y = HEADER_H + 190
+  summaryRows.forEach(([label, val], i) => {
+    ctx.fillStyle = i % 2 === 0 ? '#ecfdf5' : '#ffffff'
+    ctx.fillRect(PAD - 14, y - 24, W - 2 * (PAD - 14), ROW_H)
+    ctx.fillStyle = '#374151'
+    ctx.font = '14px Arial, sans-serif'
+    ctx.textAlign = 'left'
+    ctx.fillText(label, PAD, y)
+    ctx.fillStyle = '#059669'
+    ctx.font = 'bold 14px Arial, sans-serif'
+    ctx.textAlign = 'right'
+    ctx.fillText(val, W - PAD, y)
+    y += ROW_H
+  })
+
+  if (s.recommendation) {
+    ctx.fillStyle = '#d1fae5'
+    ctx.fillRect(PAD - 14, y - 22, W - 2 * (PAD - 14), 46)
+    ctx.fillStyle = '#065f46'
+    ctx.font = 'bold 15px Arial, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(s.recommendation, W / 2, y + 8)
+    y += 46
+  }
+
+  // Footer
+  ctx.fillStyle = '#059669'
+  ctx.fillRect(0, H - 44, W, 44)
+  ctx.fillStyle = 'rgba(255,255,255,0.75)'
+  ctx.font = '12px Arial, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText('Generated by ROL Admin App', W / 2, H - 18)
+
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92))
+  const filename = `${safeFileNamePart(app.fullName)}-welcome-card.jpg`
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Read-only detail view for a submitted application (Director-only) ──
 function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreening }) {
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const [exportingCard, setExportingCard] = useState(false)
+  const readyForRoster = app.screening?.recommendation === 'Ready for Main Roster'
+
+  // Global "Collapse All / Expand All" — each CollapsibleSection below is remounted
+  // (via `key`) whenever this fires, forcing it back to `defaultOpen={allOpen}` and
+  // discarding whatever any individual section's own header click had set. Between
+  // global toggles, each section's header still opens/closes just itself as normal —
+  // this only resets everything back to one shared state on demand, it doesn't lock
+  // sections into moving together permanently.
+  const [allOpen, setAllOpen] = useState(true)
+  const [toggleVersion, setToggleVersion] = useState(0)
+  const toggleAll = () => {
+    setAllOpen(o => !o)
+    setToggleVersion(v => v + 1)
+  }
+
+  const handleDownloadPdf = async () => {
+    setExportingPdf(true)
+    try {
+      await downloadApplicationPDF(app)
+    } catch (err) {
+      console.error('Application PDF export failed:', err)
+      alert('Failed to generate the application PDF. Please try again.')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
+  const handleDownloadCard = async () => {
+    setExportingCard(true)
+    try {
+      await downloadWelcomeCardJPEG(app)
+    } catch (err) {
+      console.error('Welcome card export failed:', err)
+      alert('Failed to generate the welcome card. Please try again.')
+    } finally {
+      setExportingCard(false)
+    }
+  }
+
   return (
     <div className="space-y-4 pb-10">
-      <div className="flex items-center justify-between">
-        <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
-          <ChevronLeft size={16} /> Back to list
-        </button>
-        <div className="flex gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
+            <ChevronLeft size={16} /> Back to list
+          </button>
+          <button type="button" onClick={toggleAll}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700">
+            <ChevronDown size={14} className={`transition-transform duration-300 ${allOpen ? 'rotate-180' : ''}`} />
+            {allOpen ? 'Collapse All' : 'Expand All'}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={handleDownloadPdf} disabled={exportingPdf}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+            <Download size={13} /> {exportingPdf ? 'Generating…' : 'Download Application PDF'}
+          </button>
+          {readyForRoster && (
+            <button type="button" onClick={handleDownloadCard} disabled={exportingCard}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+              <Download size={13} /> {exportingCard ? 'Generating…' : 'Download Welcome Card (JPEG)'}
+            </button>
+          )}
           {app.screening ? (
             <button type="button" onClick={() => onEditScreening(app)}
               className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700">
@@ -883,34 +1347,37 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="flex items-start justify-between mb-2">
-          <h2 className="text-lg font-bold text-slate-800">{app.fullName}</h2>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-            app.status === 'screened' ? 'bg-violet-50 text-violet-700' : app.status === 'reviewed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-          }`}>
-            {app.status === 'screened' ? 'Screening Completed' : app.status === 'reviewed' ? 'Reviewed' : 'Pending review'}
-          </span>
-        </div>
+      <CollapsibleSection
+        key={`personal-${toggleVersion}`}
+        defaultOpen={allOpen}
+        header={
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-slate-800 truncate">{app.fullName}</h2>
+            <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${
+              app.status === 'screened' ? 'bg-violet-50 text-violet-700' : app.status === 'reviewed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+            }`}>
+              {app.status === 'screened' ? 'Screening Completed' : app.status === 'reviewed' ? 'Reviewed' : 'Pending review'}
+            </span>
+          </div>
+        }
+      >
         <Row label="Date of birth" value={app.dob} />
         <Row label="Phone" value={app.phone} />
         <Row label="Email" value={app.email} />
         <Row label="Current Place" value={app.currentPlace} />
         <Row label="Coming From" value={app.comingFrom} />
-      </div>
+      </CollapsibleSection>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="text-sm font-bold text-slate-800 mb-1">About Our Church</h3>
+      <CollapsibleSection key={`church-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">About Our Church</h3>}>
         <Row label="Cell group" value={app.cellGroup} />
         <Row label="Regular cell attendee" value={app.regularCellAttendee} />
         <Row label="Permanent member" value={app.permanentMember} />
         <Row label="Attending the church for" value={app.churchAttendanceDuration} />
         <Row label="Worship rating" value={app.worshipRating ? `${app.worshipRating} / 5` : ''} />
         <Row label="Best part of our worship" value={app.worshipBestPart} />
-      </div>
+      </CollapsibleSection>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="text-sm font-bold text-slate-800 mb-1">Spiritual Journey</h3>
+      <CollapsibleSection key={`spiritual-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">Spiritual Journey</h3>}>
         <Row label="Testimony" value={app.testimony} />
         <Row label="Baptised" value={app.baptised} />
         <Row label="Anointed by the Holy Spirit" value={app.anointedByHolySpirit} />
@@ -918,10 +1385,9 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
         <Row label="Duration" value={app.ministryDuration} />
         <Row label="Area of ministry" value={app.ministryArea === 'Other Ministry Area' ? app.ministryAreaOther : app.ministryArea} />
         <Row label="Inspiration for Worship Ministry" value={app.worshipInspiration} />
-      </div>
+      </CollapsibleSection>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="text-sm font-bold text-slate-800 mb-1">Musical &amp; Technical Profile</h3>
+      <CollapsibleSection key={`musical-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">Musical &amp; Technical Profile</h3>}>
         <Row label="Instrument(s) or vocal part(s)" value={app.primaryInstruments} />
         {(app.primaryInstruments || []).map(inst => (
           <InstrumentDetailRow key={inst} instrument={inst} details={app.instrumentDetails?.[inst]} />
@@ -931,17 +1397,15 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
         <Row label="Formal training" value={app.formalTraining} />
         <Row label="Portfolio link" value={app.portfolioLink} />
         <Row label="Vocal range / key" value={app.vocalRange} />
-      </div>
+      </CollapsibleSection>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="text-sm font-bold text-slate-800 mb-1">Availability &amp; Commitment</h3>
+      <CollapsibleSection key={`availability-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">Availability &amp; Commitment</h3>}>
         <Row label="Special events" value={app.specialEvents} />
         <Row label="Will attend all practices" value={app.attendPractices ? 'Yes' : 'No'} />
         <Row label="Will attend rehearsals" value={app.attendRehearsals ? 'Yes' : 'No'} />
-      </div>
+      </CollapsibleSection>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="text-sm font-bold text-slate-800 mb-1">Heart for Worship &amp; Alignment</h3>
+      <CollapsibleSection key={`heart-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">Heart for Worship &amp; Alignment</h3>}>
         <Row label="Definition of worship" value={app.worshipDefinition} />
         <Row label="Response to feedback" value={app.feedbackResponse} />
         <Row label="Covenant agreed" value={app.covenantAgree ? 'Yes' : 'No'} />
@@ -951,9 +1415,18 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
             <img src={app.signatureDataUrl} alt="Applicant signature" className="max-w-[280px] border border-slate-200 rounded-lg bg-white" />
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
-      <ScreeningSummary screening={app.screening} />
+      {app.screening && (
+        <CollapsibleSection
+          key={`screening-${toggleVersion}`}
+          defaultOpen={allOpen}
+          borderClassName="border-emerald-200"
+          header={<h3 className="text-sm font-bold text-emerald-700">Screening Evaluation</h3>}
+        >
+          <ScreeningSummary screening={app.screening} />
+        </CollapsibleSection>
+      )}
     </div>
   )
 }

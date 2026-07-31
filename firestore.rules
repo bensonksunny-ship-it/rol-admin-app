@@ -23,6 +23,9 @@ service cloud.firestore {
     function userDepartments() {
       return isSignedIn() ? getUserData().get('departments', []) : [];
     }
+    function userPositions() {
+      return isSignedIn() ? getUserData().get('positions', []) : [];
+    }
     function isFullAccess() {
       // Super admin override (prioritize Auth custom claim), with legacy fallback.
       return isSignedIn() && (
@@ -32,11 +35,35 @@ service cloud.firestore {
         getUserRole() == 'founder'
       );
     }
+    // Same enumeration approach as hasAnyCellPosition() below, generalized to any
+    // department: rules language has no generic "any element has field X" check,
+    // so this builds one literal map per position/role value the app actually
+    // writes (see AdminUserManagement.jsx's position dropdown) and asks whether
+    // `positions[]` contains an exact match for this department.
+    function hasAnyPositionInDept(departmentId) {
+      return isSignedIn() && userPositions().hasAny([
+        {'department': departmentId, 'position': 'Director'},
+        {'department': departmentId, 'position': 'Coordinator'},
+        {'department': departmentId, 'position': 'Cell Leader'},
+        {'department': departmentId, 'position': 'Associate'},
+        {'department': departmentId, 'role': 'DIRECTOR'},
+        {'department': departmentId, 'role': 'COORDINATOR'},
+        {'department': departmentId, 'role': 'LEADER'},
+        {'department': departmentId, 'role': 'MEMBER'}
+      ]);
+    }
     function canAccessDept(departmentId) {
+      // `departments[]` is written back to the user doc by the client's own
+      // AuthContext sync-on-login effect, so a role just assigned in
+      // AdminUserManagement can lag behind until that user's next session load.
+      // `positions[]` is the immediate source of truth (same one the client's
+      // getDepartmentRole/canManageDepartment check first) — checking it here too
+      // means a freshly assigned Director/Coordinator isn't blocked by that lag.
       return isSignedIn() && (
         isFullAccess() ||
         userDepartment() == departmentId ||
-        (departmentId in userDepartments())
+        (departmentId in userDepartments()) ||
+        hasAnyPositionInDept(departmentId)
       );
     }
 

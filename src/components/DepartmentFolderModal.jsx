@@ -18,8 +18,13 @@ const TILE_COLORS = [
 ]
 
 function TileGrid({ items, onTap }) {
+  // Fixed-width tiles in a wrapping flex row (not a CSS grid) so every row — including
+  // a partial last row (e.g. Worship's 10 tabs wrapping to 3+3+3+1, or Operations' grid
+  // with Team removed) — centers itself via justify-center instead of the last row's
+  // lone tile sitting stuck on the grid's left edge. ~3 columns fit per row at this
+  // modal's width (max-w-sm), same as before; a short list of 1-2 tiles centers too.
   return (
-    <div className="grid grid-cols-3 gap-x-3 gap-y-5">
+    <div className="flex flex-wrap justify-center gap-x-3 gap-y-5">
       {items.map((item, i) => {
         const Icon = item.Icon
         return (
@@ -27,7 +32,7 @@ function TileGrid({ items, onTap }) {
             key={item.key}
             type="button"
             onClick={() => onTap(item)}
-            className="group flex flex-col items-center gap-1.5"
+            className="group flex flex-col items-center gap-1.5 basis-24 shrink-0"
           >
             <span
               className="relative w-14 h-14 rounded-2xl flex items-center justify-center transition-[transform,filter] duration-150 group-hover:-translate-y-0.5 group-hover:brightness-110 group-active:scale-95"

@@ -273,6 +273,17 @@ const RK_CLASS_GROUPS = [
 ]
 const rkClassGroupLabel = (key) => RK_CLASS_GROUPS.find(g => g.key === key)?.label || key
 
+// Firestore's permission-denied error is a dead end for the person clicking the
+// button — "Missing or insufficient permissions" gives them nothing actionable.
+// Most real-world cases are a stale `departments[]` sync (see canAccessDept in
+// firestore.rules) that clears itself on next login, so say that instead.
+function rkPermissionErrorMessage(error) {
+  if (error?.code === 'permission-denied') {
+    return "Failed to save: you don't have permission to update River Kids attendance. If you were just assigned to this department, signing out and back in usually fixes this — otherwise contact an admin."
+  }
+  return `Failed to save: ${error?.message || 'unknown error'}`
+}
+
 // Multi-select pill toggle for a kid's Class/Group — a child can belong to more than
 // one (e.g. Sunday School + River Kids-1), so this toggles membership in the array
 // rather than picking a single value like a native <select> would.
@@ -7508,16 +7519,21 @@ export default function DepartmentHub() {
                                 await patchSundayReportRiverKids(rkDate, newReportNames, userProfile?.email || userProfile?.displayName || 'unknown')
                               } catch (error) {
                                 console.error('Attendance Save Error (Sunday report River Kids sync):', error)
-                                alert(`Failed to save: ${error?.message || 'unknown error'}`)
+                                alert(rkPermissionErrorMessage(error))
                               }
                               if (!isSundaySchool) {
+                                const previous = rkPresent
                                 const next = { ...rkPresent, [c.id]: !isPresent }
                                 setRkAttendanceByGroup(prev => ({ ...prev, [rkAttendanceGroup]: next }))
                                 try {
                                   await setDepartmentChildAttendance(department.name, rkDate, rkAttendanceGroup, next, userProfile?.email || userProfile?.displayName || 'unknown')
                                 } catch (error) {
                                   console.error('Attendance Save Error:', error)
-                                  alert(`Failed to save: ${error?.message || 'unknown error'}`)
+                                  // Roll the optimistic toggle back — otherwise a failed write (e.g.
+                                  // permission-denied) leaves the badge showing the new state even
+                                  // though nothing was actually saved.
+                                  setRkAttendanceByGroup(prev => ({ ...prev, [rkAttendanceGroup]: previous }))
+                                  alert(rkPermissionErrorMessage(error))
                                 }
                               }
                             }}

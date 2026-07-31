@@ -138,7 +138,9 @@
       "Bash(grep -n \"to=\\\\\"/\\\\|Link to\\\\|NavLink to\\\\|quickLink\\\\|QuickLink\" src/pages/MyWorkspace.jsx)",
       "Bash(grep -n \"const handleSave\\\\|^  }$\" src/pages/AdminUserManagement.jsx)",
       "Bash(find 'C:\\\\Users\\\\User/.config/configstore' -iname *firebase*)",
-      "Bash(grep -E \"^\\(C:|/\\).*\\\\.jsx$\")"
+      "Bash(grep -E \"^\\(C:|/\\).*\\\\.jsx$\")",
+      "Bash(grep -n \"setNewMember\\({ name: '', visitorId: '', memberSince\" src/pages/DepartmentWorship.jsx)",
+      "Bash(grep -n \"^          </>\\\\|^        </div>\\\\s*$\" src/pages/DepartmentWorship.jsx)"
     ]
   }
 }

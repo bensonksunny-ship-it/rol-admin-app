@@ -527,6 +527,12 @@ export async function addWorshipTeamMember(department, data, addedBy) {
   const ref = await addDoc(collection(db, 'worship_team_members'), {
     department,
     name: data.name,
+    // Foreign-key binding to the People Directory — previously dropped entirely even
+    // when the caller supplied them (the Add Member picker always passed a visitorId),
+    // leaving every newly-added team member permanently disconnected from their
+    // underlying directory record, matched only by name string thereafter.
+    visitorId: data.visitorId || '',
+    personId: data.personId || '',
     memberSince: data.memberSince || new Date().toISOString().slice(0, 10),
     isFormer: data.isFormer ?? false,
     positions: Array.isArray(data.positions) ? data.positions : [],

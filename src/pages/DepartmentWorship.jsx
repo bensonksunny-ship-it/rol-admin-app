@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Send, Download, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Send, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -22,10 +22,6 @@ import {
   addWorshipBudgetItem,
   updateWorshipBudgetItem,
   deleteWorshipBudgetItem,
-  getDepartmentSubDepartments,
-  addDepartmentSubDepartment,
-  updateDepartmentSubDepartment,
-  deleteDepartmentSubDepartment,
   getMergedPeopleDirectory,
   getWorshipApplications,
   getWorshipSongs,
@@ -43,10 +39,9 @@ import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import BudgetPage from './accounts/BudgetPage'
-import UpcomingWorship from './worship/UpcomingWorship'
+import UpcomingSunday from './UpcomingSunday'
 import SongDesigner from './worship/SongDesigner'
 import SongViewer from './worship/SongViewer'
-import WorshipApplications from './worship/WorshipApplications'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -353,6 +348,113 @@ function dedupeByName(members) {
   })
 }
 
+// A team member's card, collapsed to just Name + Duration by default — position
+// tags, the Director badge, and management actions all stay hidden until the card
+// itself is clicked to expand. Shared by both places member cards render (the
+// standalone Team tab and Operations > Team), so the collapse/expand and ⋮ actions
+// menu behavior stays identical between them.
+function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEdit, onDelete, onLink }) {
+  const [expanded, setExpanded] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const since = new Date(m.memberSince)
+  const till = isFormer && m.formerSince ? new Date(m.formerSince) : new Date()
+  const yrs = differenceInYears(till, since)
+  const mos = differenceInMonths(till, addYears(since, yrs))
+  const totalDays = isFormer ? differenceInDays(till, since) : null
+
+  return (
+    <div
+      className={`relative rounded-xl border p-3 flex flex-col gap-2 shadow-sm transition-colors cursor-pointer ${
+        isFormer
+          ? 'border-slate-200 bg-slate-50'
+          : m.isWorshipDirector ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white hover:border-indigo-200'
+      }`}
+      role="button"
+      tabIndex={0}
+      onClick={() => setExpanded(v => !v)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v) } }}
+    >
+      {/* Collapsed surface — Name + Duration only */}
+      <span className={`font-semibold text-sm leading-snug ${isFormer ? 'text-slate-700' : 'text-slate-800'}`}>{m.name}</span>
+      <div className="mt-auto pt-1 border-t border-slate-100">
+        {isFormer ? (
+          <p className="text-[10px] text-slate-400">{formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'}</p>
+        ) : (
+          <p className="text-[10px] text-slate-400">Since {formatDMY(m.memberSince)}</p>
+        )}
+        <p className="text-xs font-semibold text-slate-600">
+          <span className="text-violet-700">{yrs}</span>
+          <span className="text-slate-400 font-normal">yr </span>
+          <span className="text-indigo-700">{mos}</span>
+          <span className="text-slate-400 font-normal">mo</span>
+          {isFormer && <span className="font-normal text-slate-400"> · {totalDays.toLocaleString()} days</span>}
+        </p>
+      </div>
+
+      {/* Expanded details — positions, Director badge, ⋮ actions menu */}
+      {expanded && (
+        <div className="pt-2 mt-1 border-t border-slate-100 flex flex-col gap-2" onClick={(e) => e.stopPropagation()} role="presentation">
+          {(m.isWorshipDirector || m.positions?.length > 0) && (
+            <div className="flex flex-wrap gap-1">
+              {m.isWorshipDirector && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] uppercase tracking-wide font-bold">Director</span>
+              )}
+              {(m.positions || []).map(p => (
+                <span key={p} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{p}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ⋮ actions menu — only in the expanded view, top-right corner */}
+      {expanded && canManageWorship && (
+        <div className="absolute top-2 right-2" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(v => !v)}
+            className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+            aria-label="Member actions"
+          >
+            <MoreVertical size={16} />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
+              <div className="absolute right-0 top-full mt-1 z-20 w-36 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onEdit(m) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  <Pencil size={13} /> Edit
+                </button>
+                {!m.visitorId && !m.personId && onLink && (
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); onLink(m) }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition-colors"
+                  >
+                    Link
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onDelete(m) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 size={13} /> Delete
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // "+ Add New Team Member" must only offer applicants whose screening evaluation
 // explicitly recommended them — not the full church directory. An applicant only
 // qualifies once status === 'screened' AND screening.recommendation === 'Ready for
@@ -399,12 +501,21 @@ export default function DepartmentWorship() {
     const t = searchParams.get('tab')
     if (t) setActiveTab(t)
   }, [searchParams])
-  const [operationsSubTab, setOperationsSubTab] = useState('expense')
-  const [teamSubTab, setTeamSubTab] = useState('members')
-  const [subDepartments, setSubDepartments] = useState([])
-  const [subDeptLoading, setSubDeptLoading] = useState(false)
-  const [subDeptError, setSubDeptError] = useState(null)
-  const [subDeptForm, setSubDeptForm] = useState({ name: '' })
+  const [operationsSubTab, setOperationsSubTab] = useState('')
+  // Expense is always the base Finance view now — Budget/Payout Request are drawers
+  // layered on top rather than sibling tabs, so this only ever tracks which drawer (if
+  // any) is open: null | 'budget' | 'payout'. Still deep-linkable the same way as
+  // before (?tab=finance&financeSub=budget, see getFinanceChildren in
+  // utils/departmentSubpages.js) so the dock's Finance popover still opens the right
+  // drawer instead of just landing on plain Expense.
+  const [financeOverlay, setFinanceOverlay] = useState(() => {
+    const f = searchParams.get('financeSub')
+    return f === 'budget' || f === 'payout' ? f : null
+  })
+  useEffect(() => {
+    const f = searchParams.get('financeSub')
+    if (f === 'budget' || f === 'payout') setFinanceOverlay(f)
+  }, [searchParams])
   const [editingSubDept, setEditingSubDept] = useState(null)
   const [subDeptModalOpen, setSubDeptModalOpen] = useState(false)
   const [allMembers, setAllMembers] = useState([])
@@ -434,6 +545,7 @@ export default function DepartmentWorship() {
   const [newMember, setNewMember] = useState({
     name: '',
     visitorId: '',
+    personId: '',
     memberSince: new Date().toISOString().slice(0, 10),
     isFormer: false,
     positions: [],
@@ -587,6 +699,19 @@ export default function DepartmentWorship() {
     loadTeam()
   }, [])
 
+  // Direct delete from a member card's ⋮ menu — same confirm/delete/state-update
+  // shape as the Edit modal's own Delete button, just reachable without opening it.
+  async function handleDeleteMember(m) {
+    if (!window.confirm(`Delete ${m.name} permanently?`)) return
+    try {
+      await deleteWorshipTeamMember(m.id, { department: DEPARTMENT, name: m.name })
+      setAllMembers(prev => prev.filter(x => x.id !== m.id))
+    } catch (e) {
+      console.error(e)
+      alert('Failed to delete')
+    }
+  }
+
   async function loadBudgetItems() {
     setLoadingBudgetItems(true)
     setBudgetItemsError(null)
@@ -651,24 +776,6 @@ export default function DepartmentWorship() {
       .catch(() => setForthcomingSchedule(null))
       .finally(() => setLoadingForthcoming(false))
   }, [activeTab])
-
-  async function loadSubDepartments() {
-    setSubDeptLoading(true)
-    setSubDeptError(null)
-    try {
-      const list = await getDepartmentSubDepartments(DEPARTMENT)
-      setSubDepartments(list)
-    } catch (e) {
-      setSubDeptError(e?.message || 'Could not load sub departments.')
-      setSubDepartments([])
-    } finally {
-      setSubDeptLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (activeTab === 'operations' && operationsSubTab === 'subDepartment') loadSubDepartments()
-  }, [activeTab, operationsSubTab])
 
   useEffect(() => {
     setLocalAssignments(scheduleForDate.assignments || [])
@@ -1118,10 +1225,18 @@ export default function DepartmentWorship() {
 
   return (
     <div>
-      <div className="space-y-4 p-4">
-      <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Worship</h1>
+      <div className="flex items-center h-10 py-1.5 px-4 mb-2">
+        <h1 className="text-sm font-semibold text-slate-900">Worship</h1>
+      </div>
+      <div className="space-y-4 px-4 pb-4 pt-1">
+      {/* Shared multi-department Sunday-service programme grid (same component D
+          Light/Media/Administration use) — order-of-service cards, "+ Add Programme
+          Item", "Manage Custom Elements", Save. Keeps this tab's layout modular and
+          consistent with every other department's Upcoming Sunday view instead of a
+          Worship-only page. The personal "am I serving this week + song design" view
+          (formerly here) still lives in My Workspace's Upcoming Worship widget. */}
       {activeTab === 'upcomingSunday' && (
-        <UpcomingWorship myWorshipMember={myWorshipMember} songs={songs} onViewSong={openSongView} canViewFullSong={canEditSong} />
+        <UpcomingSunday slug="worship" />
       )}
 
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
@@ -1679,244 +1794,81 @@ export default function DepartmentWorship() {
         </div>
       )}
 
-      {activeTab === 'operations' && (canManageWorship || canViewInsights) && (
+      {activeTab === 'finance' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
 
-          {/* Operations sub-tab toggle */}
-          <div className="flex flex-wrap items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 mr-2">Operations</span>
-            {[
-              { key: 'expense', label: 'Expense' },
-              { key: 'subDepartment', label: 'Sub Department' },
-              { key: 'team', label: 'Team' },
-              { key: 'budget', label: 'Budget' },
-              { key: 'payout', label: 'Payout Request' },
-            ].map(o => (
+          {/* Expense is the permanent base view — Budget and Payout Request are
+              drawers layered on top via these two icon buttons, not sibling tabs, so
+              switching between them never navigates away from the expense breakdown
+              underneath. */}
+          <div className="flex items-center justify-between gap-2 p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Expense</span>
+            {/* Icon-only, top-right utility buttons — same small rounded-icon-button
+                shape/hover convention as the notifications/chat icons in the main
+                dashboard header (WorkspaceHeader), just kept in Worship's own indigo
+                accent instead of that page's warm palette. */}
+            <div className="flex items-center gap-1">
               <button
-                key={o.key}
                 type="button"
-                onClick={() => setOperationsSubTab(o.key)}
-                className={`px-3 py-1.5 text-sm font-medium rounded border transition ${
-                  operationsSubTab === o.key
-                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-indigo-700'
-                }`}
+                onClick={() => setFinanceOverlay('budget')}
+                title="Budget"
+                aria-label="Open Budget"
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
               >
-                {o.label}
+                <Wallet size={17} />
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => setFinanceOverlay('payout')}
+                title="Payout Request"
+                aria-label="Open Payout Request"
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+              >
+                <Banknote size={17} />
+              </button>
+            </div>
           </div>
 
-          {operationsSubTab === 'expense' && <DeptExpenseTab department="Worship" />}
+          <DeptExpenseTab department="Worship" />
 
-          {operationsSubTab === 'budget' && <BudgetPage department="Worship" />}
-
-          {operationsSubTab === 'payout' && <AdvancePayoutTab departmentSlug="worship" departmentName="Worship" />}
-
-          {operationsSubTab === 'subDepartment' && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-3">
-              <h3 className="font-semibold text-slate-700 text-sm">Sub Departments</h3>
-              {subDeptLoading ? (
-                <p className="text-sm text-slate-400">Loading…</p>
-              ) : subDeptError ? (
-                <p className="text-sm text-red-500">{subDeptError}</p>
-              ) : subDepartments.length === 0 ? (
-                <p className="text-sm text-slate-400">No sub-departments yet.</p>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {subDepartments.map(sd => (
-                    <li key={sd.id} className="py-2 flex items-center justify-between gap-2">
-                      <span className="text-sm text-slate-700">{sd.name}</span>
-                      <button
-                        type="button"
-                        onClick={async () => { await deleteDepartmentSubDepartment(sd.id); loadSubDepartments() }}
-                        className="text-xs text-red-400 hover:text-red-600 hover:underline"
-                      >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault()
-                  if (!subDeptForm.name.trim()) return
-                  await addDepartmentSubDepartment({ name: subDeptForm.name.trim(), department: DEPARTMENT })
-                  setSubDeptForm({ name: '' })
-                  loadSubDepartments()
-                }}
-                className="flex gap-2 pt-2"
+          {financeOverlay && (
+            <div
+              className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+              onClick={() => setFinanceOverlay(null)}
+            >
+              <div
+                className="bg-white w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[85vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
               >
-                <input
-                  type="text"
-                  value={subDeptForm.name}
-                  onChange={e => setSubDeptForm({ name: e.target.value })}
-                  placeholder="Sub-department name"
-                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                />
-                <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
-                  Add
-                </button>
-              </form>
-            </div>
-          )}
-
-          {operationsSubTab === 'team' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="font-semibold text-slate-800">Team members</h2>
-                <p className="text-xs text-slate-400 mt-0.5">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {canManageWorship && (() => {
-                  const unlinked = allMembers.filter(m => !m.visitorId)
-                  if (!unlinked.length) return null
-                  return (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!window.confirm(`Remove ${unlinked.length} unlinked member${unlinked.length !== 1 ? 's' : ''}?\n\n${unlinked.map(m => m.name).join(', ')}`)) return
-                        try {
-                          await Promise.all(unlinked.map(m => deleteWorshipTeamMember(m.id, { department: DEPARTMENT, name: m.name })))
-                          setAllMembers(prev => prev.filter(m => m.visitorId))
-                        } catch (e) { console.error(e); alert('Failed to remove unlinked members') }
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-50 text-red-600 border border-red-200 text-sm font-medium hover:bg-red-100 transition-colors"
-                    >
-                      Remove {unlinked.length} Unlinked
-                    </button>
-                  )
-                })()}
-                {canManageWorship && (
+                <div className="sticky top-0 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between z-10">
+                  <h3 className="font-semibold text-slate-800">{financeOverlay === 'budget' ? 'Budget' : 'Payout Request'}</h3>
                   <button
                     type="button"
-                    onClick={() => {
-                      setNewMember({ name: '', visitorId: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
-                      setAddMemberVisitors([])
-                      setAddMemberVisitorsLoading(true)
-                      getApprovedRosterVisitors().then(setAddMemberVisitors).catch(() => setAddMemberVisitors([])).finally(() => setAddMemberVisitorsLoading(false))
-                      setAddMemberModalOpen(true)
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
+                    onClick={() => setFinanceOverlay(null)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                    aria-label="Close"
                   >
-                    <span className="text-lg leading-none">+</span>
-                    Add New Team Member
+                    <X size={18} />
                   </button>
-                )}
+                </div>
+                <div className="p-4">
+                  {financeOverlay === 'budget' && <BudgetPage department="Worship" />}
+                  {financeOverlay === 'payout' && <AdvancePayoutTab departmentSlug="worship" departmentName="Worship" />}
+                </div>
               </div>
             </div>
-            {loadingTeam ? (
-              <div className="p-5 text-center text-slate-500">Loading...</div>
-            ) : activeMembers.length === 0 ? (
-              <div className="p-5 text-center text-slate-500">No team members yet. Add above or use "Add demo team".</div>
-            ) : (
-              <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {activeMembers.map((m) => {
-                  const since = new Date(m.memberSince)
-                  const now = new Date()
-                  const yrs = differenceInYears(now, since)
-                  const mos = differenceInMonths(now, addYears(since, yrs))
-                  return (
-                    <div
-                      key={m.id}
-                      className={`rounded-xl border p-3 flex flex-col gap-2 shadow-sm ${m.isWorshipDirector ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}
-                    >
-                      {/* Name + badges */}
-                      <div className="flex flex-col gap-1">
-                        <span className="font-semibold text-slate-800 text-sm leading-snug">{m.name}</span>
-                        <div className="flex flex-wrap gap-1">
-                          {m.isWorshipDirector && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] uppercase tracking-wide font-bold">Director</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Positions */}
-                      {m.positions?.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {m.positions.map(p => (
-                            <span key={p} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{p}</span>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Duration */}
-                      <div className="mt-auto pt-1 border-t border-slate-100">
-                        <p className="text-[10px] text-slate-400">Since {formatDMY(m.memberSince)}</p>
-                        <p className="text-xs font-semibold text-slate-600">
-                          <span className="text-violet-700">{yrs}</span>
-                          <span className="text-slate-400 font-normal">yr </span>
-                          <span className="text-indigo-700">{mos}</span>
-                          <span className="text-slate-400 font-normal">mo</span>
-                        </p>
-                      </div>
-
-                      {/* Actions */}
-                      {canManageWorship && (
-                        <div className="flex gap-2 pt-1">
-                          <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
-                          {!m.visitorId && (
-                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">Link</button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <h2 className="px-5 py-4 font-semibold text-slate-800 border-b border-slate-200">Former members</h2>
-            {loadingTeam ? (
-              <div className="p-5 text-center text-slate-500">Loading...</div>
-            ) : formerMembers.length === 0 ? (
-              <div className="p-5 text-center text-slate-500">No former members.</div>
-            ) : (
-              <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {formerMembers.map((m) => {
-                  const since = new Date(m.memberSince)
-                  const till = m.formerSince ? new Date(m.formerSince) : new Date()
-                  const yrs = differenceInYears(till, since)
-                  const mos = differenceInMonths(till, addYears(since, yrs))
-                  const totalDays = differenceInDays(till, since)
-                  return (
-                    <div key={m.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-col gap-2 shadow-sm">
-                      <div className="flex flex-col gap-1">
-                        <span className="font-semibold text-slate-700 text-sm leading-snug">{m.name}</span>
-                      </div>
-
-                      <div className="mt-auto pt-1 border-t border-slate-200 text-[10px] text-slate-400 space-y-0.5">
-                        <p>{formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'}</p>
-                        <p className="text-xs font-semibold text-slate-500">
-                          <span className="text-violet-600">{yrs}</span>
-                          <span className="font-normal text-slate-400">yr </span>
-                          <span className="text-indigo-600">{mos}</span>
-                          <span className="font-normal text-slate-400">mo</span>
-                          <span className="font-normal text-slate-400"> · {totalDays.toLocaleString()} days</span>
-                        </p>
-                      </div>
-
-                      {canManageWorship && (
-                        <div className="flex gap-2 pt-1">
-                          <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
-                          {!m.visitorId && (
-                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">Link</button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
           )}
 
+        </div>
+      )}
+
+      {/* Operations — Sub Department and Team management have their own dedicated tabs;
+          financial pipelines (Expense/Budget/Payout) live under Finance above, not here. */}
+      {activeTab === 'operations' && (canManageWorship || canViewInsights) && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 text-center text-sm text-slate-400">
+            Nothing to configure here yet.
+          </div>
 
           {false && (
             <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setAddMemberModalOpen(false)}>
@@ -2037,7 +1989,16 @@ export default function DepartmentWorship() {
         <WorshipLinkModal
           member={worshipMemberLinking}
           onLink={async (visitor) => {
-            const updated = { name: visitor.name, phone: visitor.phone || '', visitorId: visitor.id }
+            // `visitor` is a getMergedPeopleDirectory() entry — it has `personId` (real
+            // people-collection id) and `_visitorIds` (linked D-Light visitor doc ids),
+            // never a plain `.id`. Persisting `visitor.id` here silently wrote `visitorId:
+            // undefined`, leaving the member just as disconnected as before "linking".
+            const updated = {
+              name: visitor.name,
+              phone: visitor.phone || '',
+              visitorId: visitor._visitorIds?.[0] || '',
+              personId: visitor.personId || '',
+            }
             await updateWorshipTeamMember(worshipMemberLinking.id, updated)
             setAllMembers(prev => prev.map(m => m.id === worshipMemberLinking.id ? { ...m, ...updated } : m))
             setWorshipMemberLinking(null)
@@ -2198,46 +2159,18 @@ export default function DepartmentWorship() {
 
       {/* ── The Team tab ── */}
       {activeTab === 'theTeam' && (
-        <div className="space-y-6">
+        <div className="space-y-6 pb-24">
 
-          {/* The Team sub-tab toggle */}
-          <div className="flex flex-wrap items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 mr-2">The Team</span>
-            {[
-              { key: 'members', label: 'Team Members' },
-              { key: 'applications', label: 'Applications' },
-            ].map(o => (
-              <button
-                key={o.key}
-                type="button"
-                onClick={() => setTeamSubTab(o.key)}
-                className={`px-3 py-1.5 text-sm font-medium rounded border transition ${
-                  teamSubTab === o.key
-                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-indigo-700'
-                }`}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
-
-          {teamSubTab === 'applications' && (
-            <WorshipApplications canManageWorship={canManageWorship} userProfile={userProfile} />
-          )}
-
-          {teamSubTab === 'members' && (
-          <>
           {/* Active members */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+            <div className="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <h2 className="font-semibold text-slate-800">The Team</h2>
                 <p className="text-xs text-slate-400 mt-0.5">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {canManageWorship && (() => {
-                  const unlinked = allMembers.filter(m => !m.visitorId)
+                  const unlinked = allMembers.filter(m => !m.visitorId && !m.personId)
                   if (!unlinked.length) return null
                   return (
                     <button
@@ -2246,7 +2179,7 @@ export default function DepartmentWorship() {
                         if (!window.confirm(`Remove ${unlinked.length} unlinked member${unlinked.length !== 1 ? 's' : ''}?\n\n${unlinked.map(m => m.name).join(', ')}`)) return
                         try {
                           await Promise.all(unlinked.map(m => deleteWorshipTeamMember(m.id, { department: DEPARTMENT, name: m.name })))
-                          setAllMembers(prev => prev.filter(m => m.visitorId))
+                          setAllMembers(prev => prev.filter(m => m.visitorId || m.personId))
                         } catch (e) { console.error(e); alert('Failed to remove unlinked members') }
                       }}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-50 text-red-600 border border-red-200 text-sm font-medium hover:bg-red-100 transition-colors"
@@ -2259,16 +2192,17 @@ export default function DepartmentWorship() {
                   <button
                     type="button"
                     onClick={() => {
-                      setNewMember({ name: '', visitorId: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
+                      setNewMember({ name: '', visitorId: '', personId: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
                       setAddMemberVisitors([])
                       setAddMemberVisitorsLoading(true)
                       getApprovedRosterVisitors().then(setAddMemberVisitors).catch(() => setAddMemberVisitors([])).finally(() => setAddMemberVisitorsLoading(false))
                       setAddMemberModalOpen(true)
                     }}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm"
+                    aria-label="Add New Team Member"
+                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm shrink-0"
                   >
                     <span className="text-lg leading-none">+</span>
-                    Add New Team Member
+                    <span className="hidden sm:inline">Add New Team Member</span>
                   </button>
                 )}
               </div>
@@ -2278,52 +2212,17 @@ export default function DepartmentWorship() {
             ) : activeMembers.length === 0 ? (
               <div className="p-5 text-center text-slate-500">No team members yet.</div>
             ) : (
-              <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {activeMembers.map((m) => {
-                  const since = new Date(m.memberSince)
-                  const now = new Date()
-                  const yrs = differenceInYears(now, since)
-                  const mos = differenceInMonths(now, addYears(since, yrs))
-                  return (
-                    <div
-                      key={m.id}
-                      className={`rounded-xl border p-3 flex flex-col gap-2 shadow-sm ${m.isWorshipDirector ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}
-                    >
-                      <div className="flex flex-col gap-1">
-                        <span className="font-semibold text-slate-800 text-sm leading-snug">{m.name}</span>
-                        <div className="flex flex-wrap gap-1">
-                          {m.isWorshipDirector && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] uppercase tracking-wide font-bold">Director</span>
-                          )}
-                        </div>
-                      </div>
-                      {m.positions?.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {m.positions.map(p => (
-                            <span key={p} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{p}</span>
-                          ))}
-                        </div>
-                      )}
-                      <div className="mt-auto pt-1 border-t border-slate-100">
-                        <p className="text-[10px] text-slate-400">Since {formatDMY(m.memberSince)}</p>
-                        <p className="text-xs font-semibold text-slate-600">
-                          <span className="text-violet-700">{yrs}</span>
-                          <span className="text-slate-400 font-normal">yr </span>
-                          <span className="text-indigo-700">{mos}</span>
-                          <span className="text-slate-400 font-normal">mo</span>
-                        </p>
-                      </div>
-                      {canManageWorship && (
-                        <div className="flex gap-2 pt-1">
-                          <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
-                          {!m.visitorId && (
-                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">Link</button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {activeMembers.map((m) => (
+                  <WorshipMemberCard
+                    key={m.id}
+                    member={m}
+                    canManageWorship={canManageWorship}
+                    onEdit={(mm) => setEditMember({ ...mm })}
+                    onDelete={handleDeleteMember}
+                    onLink={!m.personId ? (mm) => setWorshipMemberLinking(mm) : undefined}
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -2336,39 +2235,18 @@ export default function DepartmentWorship() {
             ) : formerMembers.length === 0 ? (
               <div className="p-5 text-center text-slate-500">No former members.</div>
             ) : (
-              <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {formerMembers.map((m) => {
-                  const since = new Date(m.memberSince)
-                  const till = m.formerSince ? new Date(m.formerSince) : new Date()
-                  const yrs = differenceInYears(till, since)
-                  const mos = differenceInMonths(till, addYears(since, yrs))
-                  const totalDays = differenceInDays(till, since)
-                  return (
-                    <div key={m.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-col gap-2 shadow-sm">
-                      <div className="flex flex-col gap-1">
-                        <span className="font-semibold text-slate-700 text-sm leading-snug">{m.name}</span>
-                      </div>
-                      <div className="mt-auto pt-1 border-t border-slate-200 text-[10px] text-slate-400 space-y-0.5">
-                        <p>{formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'}</p>
-                        <p className="text-xs font-semibold text-slate-500">
-                          <span className="text-violet-600">{yrs}</span>
-                          <span className="font-normal text-slate-400">yr </span>
-                          <span className="text-indigo-600">{mos}</span>
-                          <span className="font-normal text-slate-400">mo</span>
-                          <span className="font-normal text-slate-400"> · {totalDays.toLocaleString()} days</span>
-                        </p>
-                      </div>
-                      {canManageWorship && (
-                        <div className="flex gap-2 pt-1">
-                          <button type="button" onClick={() => setEditMember({ ...m })} className="flex-1 text-center text-blue-600 hover:underline text-xs font-medium">Edit</button>
-                          {!m.visitorId && (
-                            <button type="button" onClick={() => setWorshipMemberLinking(m)} className="flex-1 text-center text-indigo-600 hover:underline text-xs font-medium">Link</button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {formerMembers.map((m) => (
+                  <WorshipMemberCard
+                    key={m.id}
+                    member={m}
+                    isFormer
+                    canManageWorship={canManageWorship}
+                    onEdit={(mm) => setEditMember({ ...mm })}
+                    onDelete={handleDeleteMember}
+                    onLink={!m.personId ? (mm) => setWorshipMemberLinking(mm) : undefined}
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -2401,27 +2279,35 @@ export default function DepartmentWorship() {
                 <form
                   onSubmit={async (e) => {
                     e.preventDefault()
-                    if (!newMember.visitorId) return
+                    if (!newMember.visitorId && !newMember.personId) return
                     try {
                       await addWorshipTeamMember(DEPARTMENT, {
-                        name: newMember.name.trim(), visitorId: newMember.visitorId,
+                        name: newMember.name.trim(), visitorId: newMember.visitorId, personId: newMember.personId,
                         memberSince: newMember.memberSince,
                         isFormer: newMember.isFormer, positions: newMember.positions,
                         isWorshipDirector: newMember.isWorshipDirector,
                       }, userProfile?.email)
-                      setNewMember({ name: '', visitorId: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
+                      setNewMember({ name: '', visitorId: '', personId: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
                       setAddMemberModalOpen(false)
                       await loadTeam()
                     } catch (err) { console.error(err); alert('Failed to add member') }
                   }}
                   className="px-6 py-5 space-y-4"
                 >
-                  {/* Person picker */}
+                  {/* Person picker — keyed/matched on the merged directory entry's `_key`
+                      (always present and unique), not `.id` (getMergedPeopleDirectory's
+                      entries never have a plain `.id` — only `personId` for a real people-
+                      collection record and `_visitorIds` for linked D-Light visitor docs).
+                      Matching on `.id` here silently resolved to `undefined` for every
+                      candidate, which made the browser fall back to each <option>'s text
+                      content (the person's name) as its value — so a pick only ever
+                      "matched" by display-name string and never actually bound a real
+                      personId/visitorId onto the new team member record. */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">
                       Person <span className="text-red-400">*</span>
                     </label>
-                    {newMember.visitorId ? (
+                    {(newMember.visitorId || newMember.personId) ? (
                       <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-emerald-200 dark:border-emerald-700/50 bg-emerald-50 dark:bg-emerald-900/20">
                         <span className="w-8 h-8 rounded-full bg-emerald-500 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
                           {newMember.name.charAt(0).toUpperCase()}
@@ -2429,7 +2315,7 @@ export default function DepartmentWorship() {
                         <span className="flex-1 text-sm font-semibold text-emerald-900 dark:text-emerald-300">{newMember.name}</span>
                         <button
                           type="button"
-                          onClick={() => setNewMember(m => ({ ...m, name: '', visitorId: '' }))}
+                          onClick={() => setNewMember(m => ({ ...m, name: '', visitorId: '', personId: '' }))}
                           className="text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-200 text-xl leading-none transition-colors"
                         >×</button>
                       </div>
@@ -2438,8 +2324,8 @@ export default function DepartmentWorship() {
                         value=""
                         disabled={addMemberVisitorsLoading || addMemberVisitors.length === 0}
                         onChange={e => {
-                          const v = addMemberVisitors.find(x => x.id === e.target.value)
-                          if (v) setNewMember(m => ({ ...m, name: v.name, visitorId: v.id }))
+                          const v = addMemberVisitors.find(x => x._key === e.target.value)
+                          if (v) setNewMember(m => ({ ...m, name: v.name, visitorId: v._visitorIds?.[0] || '', personId: v.personId || '' }))
                         }}
                         className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800/60 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500/40 focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors disabled:opacity-50"
                       >
@@ -2451,7 +2337,7 @@ export default function DepartmentWorship() {
                               : 'Select an approved candidate…'}
                         </option>
                         {addMemberVisitors.map(v => (
-                          <option key={v.id} value={v.id}>{v.name}</option>
+                          <option key={v._key} value={v._key}>{v.name}</option>
                         ))}
                       </select>
                     )}
@@ -2509,7 +2395,7 @@ export default function DepartmentWorship() {
                   <div className="flex gap-2 pt-1">
                     <button
                       type="submit"
-                      disabled={!newMember.visitorId}
+                      disabled={!newMember.visitorId && !newMember.personId}
                       className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >Add Member</button>
                     <button
@@ -2521,9 +2407,6 @@ export default function DepartmentWorship() {
                 </form>
               </div>
             </div>
-          )}
-
-          </>
           )}
 
         </div>
@@ -3353,10 +3236,14 @@ function WorshipLinkModal({ member, onLink, onClose }) {
             ) : filtered.length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-sm">No matches found.</div>
             ) : filtered.map(v => {
-              const isCurrent = v.id === member.visitorId
+              // Same `.id`-doesn't-exist issue as the Add Member picker below —
+              // getMergedPeopleDirectory() entries only carry `_key`/`personId`/
+              // `_visitorIds`, never a plain `.id`.
+              const isCurrent = (!!member.personId && v.personId === member.personId) ||
+                (!!member.visitorId && (v._visitorIds || []).includes(member.visitorId))
               return (
                 <button
-                  key={v.id}
+                  key={v._key}
                   type="button"
                   disabled={linking}
                   onClick={async () => {

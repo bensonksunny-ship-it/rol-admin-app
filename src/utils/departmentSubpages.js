@@ -52,6 +52,7 @@ function getTabLabel(tab) {
     case 'liveControl':       return 'Live Control'
     case 'upcomingSunday':    return 'Upcoming Sunday'
     case 'sundayCrew':        return 'Crew'
+    case 'applications':      return 'Applications'
     default:                  return tab
   }
 }
@@ -93,6 +94,7 @@ function getTabIcon(tab) {
     case 'liveControl':        return Tv
     case 'upcomingSunday':     return CalendarClock
     case 'sundayCrew':         return Users
+    case 'applications':       return ClipboardList
     default:                   return Sparkles
   }
 }
@@ -115,6 +117,11 @@ const DEFAULT_OPS_CHILDREN = [
 function getOperationsChildren(slug) {
   if (slug === 'd-light') {
     return DEFAULT_OPS_CHILDREN.map((c) => (c.key === 'subDepartment' ? { ...c, label: 'Sub Dept' } : c))
+  }
+  // Worship already has its own top-level "The Team" tab (theTeam), so Operations'
+  // Team tile here would just be a second way to land on the same Team Members page.
+  if (slug === 'worship') {
+    return DEFAULT_OPS_CHILDREN.filter((c) => c.key !== 'team')
   }
   return DEFAULT_OPS_CHILDREN
 }
@@ -153,6 +160,7 @@ function getTabPath(slug, tab) {
   if (tab === 'sundayReportsHistory') return '/department/sunday-ministry/reports'
   if (tab === 'sundayProgram')        return '/department/sunday-ministry/sunday-program'
   if (tab === 'sundayCrew')           return '/department/sunday-ministry/crew'
+  if (tab === 'applications' && slug === 'worship') return '/department/worship/applications'
   return `/department/${slug}?tab=${encodeURIComponent(tab)}`
 }
 
@@ -178,9 +186,13 @@ export function getDepartmentSubpages(slug, userProfile) {
   return tabs.map((tab) => {
     const base = {
       key: tab,
-      // Worship's own name for the shared "Upcoming Sunday" tab — same page (setlist/
-      // assigned songs for the coming Sunday), just labeled for this department's context.
-      label: (slug === 'worship' && tab === 'upcomingSunday') ? 'Upcoming Worship' : getTabLabel(tab),
+      // Labeled "Upcoming Sunday" like every other department's same tab (not "Upcoming
+      // Worship" — that name is reserved for the distinct My Workspace widget/page that
+      // answers "am I serving this week", so the two don't read as duplicates of
+      // each other). This tile routes to the shared setlist/assigned-songs planning
+      // view for the coming Sunday, same page every department's Upcoming Sunday tile
+      // opens, just scoped to Worship's own tab set.
+      label: getTabLabel(tab),
       to: getTabPath(slug, tab),
       Icon: getTabIcon(tab),
     }
@@ -192,6 +204,14 @@ export function getDepartmentSubpages(slug, userProfile) {
           to: `/department/${slug}?tab=operations&opsSub=${encodeURIComponent(c.key)}`,
         })),
       }
+    }
+    // Worship's Finance tile skips the Expense/Budget/Payout drill-down grid other
+    // departments get — Expense is the page's own permanent base view there, with
+    // Budget/Payout Request already reachable as icon buttons on that page's header
+    // (see DepartmentWorship.jsx), so an intermediate 3-choice popup here would just
+    // be a redundant extra tap in front of the same destination.
+    if (tab === 'finance' && slug === 'worship') {
+      return { ...base, to: `/department/worship?tab=finance&financeSub=expense` }
     }
     if (tab === 'finance') {
       return {

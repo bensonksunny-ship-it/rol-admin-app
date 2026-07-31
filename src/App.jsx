@@ -14,6 +14,7 @@ import SundayPlanning from './pages/SundayPlanning'
 import Finance from './pages/Finance'
 import Reports from './pages/Reports'
 import DepartmentWorship from './pages/DepartmentWorship'
+import WorshipApplicationsPage from './pages/worship/WorshipApplicationsPage'
 import SundayReport from './pages/SundayReport'
 import SundayProgram from './pages/SundayProgram'
 import SundayCrew from './pages/SundayCrew'
@@ -59,6 +60,7 @@ function App() {
               <Route path="people" element={<PeopleDirectory />} />
               <Route path="cell/users" element={<CellUserManagement />} />
               <Route path="department/worship" element={<DepartmentWorship />} />
+              <Route path="department/worship/applications" element={<WorshipApplicationsPage />} />
               <Route path="department/sunday-ministry/sunday" element={<Sunday />} />
               <Route path="department/sunday-ministry/sunday-report" element={<SundayReport />} />
               <Route path="department/sunday-ministry/sunday-program" element={<SundayProgram />} />
