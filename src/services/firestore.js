@@ -739,6 +739,7 @@ export async function getDepartmentChildren(department) {
     dob: d.data().dob || '',
     fatherName: d.data().fatherName || '',
     motherName: d.data().motherName || '',
+    currentPlace: d.data().currentPlace || '',
     // Legacy docs only ever had a single `group` string — normalize those into a
     // one-item array here so every consumer can treat classGroups as the one true
     // shape regardless of when the record was created.
@@ -760,6 +761,7 @@ export async function addDepartmentChild(department, childData, addedBy) {
     dob: childData.dob || '',
     fatherName: (childData.fatherName || '').trim(),
     motherName: (childData.motherName || '').trim(),
+    currentPlace: (childData.currentPlace || '').trim(),
     classGroups: Array.isArray(childData.classGroups) ? childData.classGroups : [],
     joinedDate: childData.joinedDate || '',
     joinedVia: childData.joinedVia || '',
@@ -778,6 +780,7 @@ export async function updateDepartmentChild(id, data) {
   if (data.dob !== undefined) payload.dob = data.dob || ''
   if (data.fatherName !== undefined) payload.fatherName = (data.fatherName || '').trim()
   if (data.motherName !== undefined) payload.motherName = (data.motherName || '').trim()
+  if (data.currentPlace !== undefined) payload.currentPlace = (data.currentPlace || '').trim()
   if (data.classGroups !== undefined) payload.classGroups = Array.isArray(data.classGroups) ? data.classGroups : []
   if (data.joinedDate !== undefined) payload.joinedDate = data.joinedDate || ''
   if (data.joinedVia !== undefined) payload.joinedVia = data.joinedVia || ''
@@ -789,7 +792,10 @@ export async function deleteDepartmentChild(id) {
   await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), { active: false })
 }
 
-// Daily attendance: present[childId] = true/false
+// Daily attendance: present[classGroup][childId] = true/false — nested by class/
+// group (not a single flat childId map) because a child can now belong to more
+// than one classGroup (e.g. Sunday School + River Kids-1); a flat map would have
+// conflated the same child's presence across every group tab they appear under.
 const DEPARTMENT_CHILD_ATTENDANCE_COLLECTION = 'department_child_attendance'
 
 export async function getDepartmentChildAttendance(department, dateStr) {
@@ -813,14 +819,20 @@ export async function getDepartmentChildAttendance(department, dateStr) {
   }
 }
 
-export async function setDepartmentChildAttendance(department, dateStr, present, updatedBy) {
-  if (!db || !department || !dateStr) return
+// `classGroup` scopes the write to that one group's sub-map inside the shared
+// department+date doc (read-fresh-merge-write) — every other group's attendance
+// already saved for this date is preserved untouched.
+export async function setDepartmentChildAttendance(department, dateStr, classGroup, presentForGroup, updatedBy) {
+  if (!db || !department || !dateStr || !classGroup) return
   const date = String(dateStr).slice(0, 10)
   const existing = await getDepartmentChildAttendance(department, date)
   const payload = {
     department,
     date,
-    present: present && typeof present === 'object' ? present : {},
+    present: {
+      ...existing.present,
+      [classGroup]: presentForGroup && typeof presentForGroup === 'object' ? presentForGroup : {},
+    },
     updatedBy: updatedBy || 'unknown',
     updatedAt: Timestamp.now(),
   }

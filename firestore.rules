@@ -548,8 +548,12 @@ service cloud.firestore {
       allow read: if isSignedIn();
       // D Light additionally writes second/third/fourth week comer names onto the report
       // for a given Sunday (Follow-Up panel on the Visitors page) — same cross-department
-      // write pattern already used by River Kids for the riverKids field.
-      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() || canAccessDept('D Light'));
+      // write pattern already used by River Kids for the riverKids field. River Kids
+      // itself was missing from this list despite the comment above referencing it as
+      // precedent — every attendance toggle in River Kids' Attendance tab calls
+      // patchSundayReportRiverKids(), which was permission-denied for a River Kids
+      // account, surfacing as a generic "Failed to save" alert with no detail.
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() || canAccessDept('D Light') || canAccessDept('River Kids'));
     }
 
     // Mid-week Ministry: prayer points per cell per date
