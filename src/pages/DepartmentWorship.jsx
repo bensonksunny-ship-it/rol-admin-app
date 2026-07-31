@@ -440,9 +440,7 @@ export default function DepartmentWorship() {
     isWorshipDirector: false,
   })
   const [addMemberVisitors, setAddMemberVisitors] = useState([])
-  const [addMemberSearch, setAddMemberSearch] = useState('')
   const [addMemberVisitorsLoading, setAddMemberVisitorsLoading] = useState(false)
-  const [addMemberDropdownOpen, setAddMemberDropdownOpen] = useState(false)
   const [form, setForm] = useState({
     type: 'team',
     period: PERIOD,
@@ -1797,8 +1795,6 @@ export default function DepartmentWorship() {
                     type="button"
                     onClick={() => {
                       setNewMember({ name: '', visitorId: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
-                      setAddMemberSearch('')
-                      setAddMemberDropdownOpen(false)
                       setAddMemberVisitors([])
                       setAddMemberVisitorsLoading(true)
                       getApprovedRosterVisitors().then(setAddMemberVisitors).catch(() => setAddMemberVisitors([])).finally(() => setAddMemberVisitorsLoading(false))
@@ -2264,8 +2260,6 @@ export default function DepartmentWorship() {
                     type="button"
                     onClick={() => {
                       setNewMember({ name: '', visitorId: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
-                      setAddMemberSearch('')
-                      setAddMemberDropdownOpen(false)
                       setAddMemberVisitors([])
                       setAddMemberVisitorsLoading(true)
                       getApprovedRosterVisitors().then(setAddMemberVisitors).catch(() => setAddMemberVisitors([])).finally(() => setAddMemberVisitorsLoading(false))
@@ -2435,56 +2429,31 @@ export default function DepartmentWorship() {
                         <span className="flex-1 text-sm font-semibold text-emerald-900 dark:text-emerald-300">{newMember.name}</span>
                         <button
                           type="button"
-                          onClick={() => { setNewMember(m => ({ ...m, name: '', visitorId: '' })); setAddMemberSearch(''); setAddMemberDropdownOpen(false) }}
+                          onClick={() => setNewMember(m => ({ ...m, name: '', visitorId: '' }))}
                           className="text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-200 text-xl leading-none transition-colors"
                         >×</button>
                       </div>
                     ) : (
-                      <div className="relative">
-                        <input
-                          type="text"
-                          placeholder={addMemberVisitorsLoading ? 'Loading visitors…' : 'Search by name…'}
-                          value={addMemberSearch}
-                          disabled={addMemberVisitorsLoading}
-                          autoComplete="off"
-                          onChange={e => { setAddMemberSearch(e.target.value); setAddMemberDropdownOpen(true) }}
-                          onFocus={() => setAddMemberDropdownOpen(true)}
-                          onBlur={() => setTimeout(() => setAddMemberDropdownOpen(false), 150)}
-                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800/60 text-slate-800 dark:text-slate-100 text-sm placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500/40 focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors disabled:opacity-50"
-                        />
-                        {addMemberDropdownOpen && addMemberSearch.trim().length > 0 && (() => {
-                          const q = addMemberSearch.trim().toLowerCase()
-                          const matches = addMemberVisitors.filter(v => v.name && v.name.toLowerCase().includes(q)).slice(0, 8)
-                          return (
-                            <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-[#1a2d4f] rounded-xl border border-slate-200 dark:border-slate-600 shadow-lg z-10 overflow-hidden max-h-52 overflow-y-auto">
-                              {matches.length === 0 ? (
-                                <p className="px-4 py-3 text-sm text-slate-400 dark:text-slate-500">No matching applicants — only people whose worship screening was marked "Ready for Main Roster" can be added.</p>
-                              ) : matches.map(v => (
-                                <button
-                                  key={v.id}
-                                  type="button"
-                                  onMouseDown={() => {
-                                    setNewMember(m => ({ ...m, name: v.name, visitorId: v.id }))
-                                    setAddMemberSearch('')
-                                    setAddMemberDropdownOpen(false)
-                                  }}
-                                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-left transition-colors"
-                                >
-                                  <span className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-800/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                                    {v.name.charAt(0).toUpperCase()}
-                                  </span>
-                                  <div className="min-w-0">
-                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{v.name}</p>
-                                    {(v.phone || v.nativity) && (
-                                      <p className="text-xs text-slate-400 dark:text-slate-500 truncate">{[v.phone, v.nativity].filter(Boolean).join(' · ')}</p>
-                                    )}
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          )
-                        })()}
-                      </div>
+                      <select
+                        value=""
+                        disabled={addMemberVisitorsLoading || addMemberVisitors.length === 0}
+                        onChange={e => {
+                          const v = addMemberVisitors.find(x => x.id === e.target.value)
+                          if (v) setNewMember(m => ({ ...m, name: v.name, visitorId: v.id }))
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800/60 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500/40 focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors disabled:opacity-50"
+                      >
+                        <option value="" disabled>
+                          {addMemberVisitorsLoading
+                            ? 'Loading candidates…'
+                            : addMemberVisitors.length === 0
+                              ? 'No candidates ready for main roster'
+                              : 'Select an approved candidate…'}
+                        </option>
+                        {addMemberVisitors.map(v => (
+                          <option key={v.id} value={v.id}>{v.name}</option>
+                        ))}
+                      </select>
                     )}
                   </div>
 
