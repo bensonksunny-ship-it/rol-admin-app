@@ -262,6 +262,39 @@ const isFillFieldMissing = (baseline, liveForm, field) => {
   return v === '' || v === null || v === undefined || v === false
 }
 
+// River Kids Class/Group options — shared by the register form's multi-select and
+// the Attendance tab's group tabs, so a kid's classGroups array and the attendance
+// sub-page keys always speak the same vocabulary.
+const RK_CLASS_GROUPS = [
+  { key: 'sunday-school', label: 'Sunday School' },
+  { key: 'river-kids-1',  label: 'River Kids-1'  },
+  { key: 'river-kids-2',  label: 'River Kids-2'  },
+]
+const rkClassGroupLabel = (key) => RK_CLASS_GROUPS.find(g => g.key === key)?.label || key
+
+// Multi-select pill toggle for a kid's Class/Group — a child can belong to more than
+// one (e.g. Sunday School + River Kids-1), so this toggles membership in the array
+// rather than picking a single value like a native <select> would.
+function ClassGroupPicker({ value, onChange }) {
+  const selected = Array.isArray(value) ? value : []
+  const toggle = (key) => onChange(selected.includes(key) ? selected.filter(k => k !== key) : [...selected, key])
+  return (
+    <div className="flex flex-wrap gap-2">
+      {RK_CLASS_GROUPS.map(g => (
+        <button key={g.key} type="button" onClick={() => toggle(g.key)}
+          className={`py-1.5 px-3 rounded-xl border text-xs font-medium transition ${
+            selected.includes(g.key)
+              ? 'bg-indigo-600 text-white border-indigo-700'
+              : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+          }`}
+        >
+          {g.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function DepartmentHub() {
   const { slug } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -712,7 +745,7 @@ export default function DepartmentHub() {
   const [rkLoading, setRkLoading] = useState(false)
   const [rkDate, setRkDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [rkPresent, setRkPresent] = useState({})
-  const [rkChildForm, setRkChildForm] = useState({ name: '', dob: '', fatherName: '', motherName: '', group: '', joinedDate: '', joinedVia: '' })
+  const [rkChildForm, setRkChildForm] = useState({ name: '', dob: '', fatherName: '', motherName: '', classGroups: [], joinedDate: '', joinedVia: '' })
   const [rkEditChild, setRkEditChild] = useState(null)
   const [rkSavingEdit, setRkSavingEdit] = useState(false)
   // Full people + D-Light visitor records (name -> join date), kept separately from rkAllUsers
@@ -5421,7 +5454,7 @@ export default function DepartmentHub() {
                                               className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 flex items-center gap-2">
                                               <span className="font-semibold text-slate-800 flex-1">{k.name}</span>
                                               <span className="text-[9px] font-bold text-teal-500 bg-teal-50 border border-teal-200 rounded-full px-1.5 py-0.5 flex-shrink-0">
-                                                {k.group === 'sunday-school' ? 'Sunday School' : k.group || 'River Kids'}
+                                                {(k.classGroups || []).length ? k.classGroups.map(rkClassGroupLabel).join(', ') : 'River Kids'}
                                               </span>
                                             </button>
                                           ))}
@@ -6997,7 +7030,7 @@ export default function DepartmentHub() {
                       if (!rkChildForm.name.trim() || !department) return
                       try {
                         await addDepartmentChild(department.name, rkChildForm, userProfile?.email || userProfile?.displayName || 'unknown')
-                        setRkChildForm({ name: '', dob: '', fatherName: '', motherName: '', group: '', joinedDate: '', joinedVia: '' })
+                        setRkChildForm({ name: '', dob: '', fatherName: '', motherName: '', classGroups: [], joinedDate: '', joinedVia: '' })
                         const list = await getDepartmentChildren(department.name)
                         setRkChildren(list.filter((c) => c.active !== false))
                       } catch { alert('Failed to add kid') }
@@ -7027,13 +7060,7 @@ export default function DepartmentHub() {
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-600 mb-1">Class / Group</label>
-                        <select value={rkChildForm.group} onChange={e => setRkChildForm(p => ({ ...p, group: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
-                          <option value="">— Unassigned —</option>
-                          <option value="sunday-school">Sunday School</option>
-                          <option value="river-kids-1">River Kids-1</option>
-                          <option value="river-kids-2">River Kids-2</option>
-                        </select>
+                        <ClassGroupPicker value={rkChildForm.classGroups} onChange={v => setRkChildForm(p => ({ ...p, classGroups: v }))} />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-600 mb-2">How They Joined</label>
@@ -7115,11 +7142,11 @@ export default function DepartmentHub() {
                             </p>
                           )}
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                            {c.group && (
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-100">
-                                {c.group === 'sunday-school' ? 'Sunday School' : c.group === 'river-kids-1' ? 'River Kids-1' : 'River Kids-2'}
+                            {(c.classGroups || []).map(g => (
+                              <span key={g} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-100">
+                                {rkClassGroupLabel(g)}
                               </span>
-                            )}
+                            ))}
                             {c.joinedVia && (
                               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                                 c.joinedVia === 'born'
@@ -7194,13 +7221,7 @@ export default function DepartmentHub() {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Class / Group</label>
-                        <select value={rkEditChild.group || ''} onChange={e => setRkEditChild(p => ({ ...p, group: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                          <option value="">— Unassigned —</option>
-                          <option value="sunday-school">Sunday School</option>
-                          <option value="river-kids-1">River Kids-1</option>
-                          <option value="river-kids-2">River Kids-2</option>
-                        </select>
+                        <ClassGroupPicker value={rkEditChild.classGroups} onChange={v => setRkEditChild(p => ({ ...p, classGroups: v }))} />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-slate-900 dark:text-white mb-2">How They Joined</label>
@@ -7254,7 +7275,7 @@ export default function DepartmentHub() {
                           await updateDepartmentChild(rkEditChild.id, {
                             name: rkEditChild.name, dob: rkEditChild.dob || '',
                             fatherName: rkEditChild.fatherName || '', motherName: rkEditChild.motherName || '',
-                            group: rkEditChild.group || '',
+                            classGroups: rkEditChild.classGroups || [],
                             joinedDate: rkEditChild.joinedDate || '',
                             joinedVia: rkEditChild.joinedVia || '',
                           })
@@ -7274,13 +7295,11 @@ export default function DepartmentHub() {
 
           {/* ── Attendance tab ── */}
           {slug === 'river-kids' && activeTab === 'attendance' && department && (() => {
-            const RK_GROUPS = [
-              { key: 'sunday-school', label: 'Sunday School' },
-              { key: 'river-kids-1',  label: 'River Kids-1'  },
-              { key: 'river-kids-2',  label: 'River Kids-2'  },
-            ]
             const isSundaySchool = rkAttendanceGroup === 'sunday-school'
-            const groupKids = rkChildren.filter(c => !c.group || c.group === rkAttendanceGroup)
+            // A kid with no class/group assigned yet still shows up everywhere (same as
+            // before); a kid with classGroups now correctly appears under every tab
+            // they're assigned to, not just one — that's the point of multi-select.
+            const groupKids = rkChildren.filter(c => !(c.classGroups || []).length || c.classGroups.includes(rkAttendanceGroup))
             const isKidPresent = (c) => isSundaySchool
               ? rkReportKidsNames.some(n => (n || '').trim().toLowerCase() === c.name.trim().toLowerCase())
               : !!rkPresent[c.id]
@@ -7299,7 +7318,7 @@ export default function DepartmentHub() {
 
                 {/* Sub-page switcher */}
                 <div className="flex gap-2 bg-slate-100 rounded-2xl p-1">
-                  {RK_GROUPS.map(g => (
+                  {RK_CLASS_GROUPS.map(g => (
                     <button key={g.key} type="button" onClick={() => setRkAttendanceGroup(g.key)}
                       className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${rkAttendanceGroup === g.key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                       {g.label}

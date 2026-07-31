@@ -1491,7 +1491,7 @@ export default function SundayReport({ embedded = false }) {
     getDepartmentChildren('River Kids').then(kids => {
       const active = kids.filter(k => k.active !== false)
       setAllRkKids(active)
-      setRkSchoolKids(active.filter(k => k.group === 'sunday-school'))
+      setRkSchoolKids(active.filter(k => (k.classGroups || []).includes('sunday-school')))
     }).catch(() => {})
   }, [])
 

@@ -739,7 +739,10 @@ export async function getDepartmentChildren(department) {
     dob: d.data().dob || '',
     fatherName: d.data().fatherName || '',
     motherName: d.data().motherName || '',
-    group: d.data().group || '',
+    // Legacy docs only ever had a single `group` string — normalize those into a
+    // one-item array here so every consumer can treat classGroups as the one true
+    // shape regardless of when the record was created.
+    classGroups: Array.isArray(d.data().classGroups) ? d.data().classGroups : (d.data().group ? [d.data().group] : []),
     joinedDate: d.data().joinedDate || '',
     joinedVia: d.data().joinedVia || '',
     active: d.data().active !== false,
@@ -757,7 +760,7 @@ export async function addDepartmentChild(department, childData, addedBy) {
     dob: childData.dob || '',
     fatherName: (childData.fatherName || '').trim(),
     motherName: (childData.motherName || '').trim(),
-    group: childData.group || '',
+    classGroups: Array.isArray(childData.classGroups) ? childData.classGroups : [],
     joinedDate: childData.joinedDate || '',
     joinedVia: childData.joinedVia || '',
     active: true,
@@ -775,7 +778,7 @@ export async function updateDepartmentChild(id, data) {
   if (data.dob !== undefined) payload.dob = data.dob || ''
   if (data.fatherName !== undefined) payload.fatherName = (data.fatherName || '').trim()
   if (data.motherName !== undefined) payload.motherName = (data.motherName || '').trim()
-  if (data.group !== undefined) payload.group = data.group || ''
+  if (data.classGroups !== undefined) payload.classGroups = Array.isArray(data.classGroups) ? data.classGroups : []
   if (data.joinedDate !== undefined) payload.joinedDate = data.joinedDate || ''
   if (data.joinedVia !== undefined) payload.joinedVia = data.joinedVia || ''
   if (Object.keys(payload).length) await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), payload)

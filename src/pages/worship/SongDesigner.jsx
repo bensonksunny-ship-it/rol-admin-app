@@ -1105,7 +1105,14 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
   }
 
   const removeSegment = id => {
-    setSegments(prev => prev.filter(s => s.id !== id))
+    setSegments(prev => {
+      const next = prev.filter(s => s.id !== id)
+      // Clamp the focused section index so it never points past the end of the
+      // shrunken array — e.g. deleting the last/currently-focused segment left
+      // activeIdx unchanged, so segments[activeIdx] below read .id off undefined.
+      setActiveIdx(i => Math.min(i, Math.max(next.length - 1, 0)))
+      return next
+    })
   }
 
   const buildPayload = () => {
@@ -1386,8 +1393,9 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
               </div>
             )}
 
+            {segments[activeIdx] && (
             <SegmentSection
-              key={segments[activeIdx].id}
+              key={segments[activeIdx]?.id}
               seg={segments[activeIdx]}
               onUpdate={updateSegment}
               onDuplicate={duplicateSegment}
@@ -1397,6 +1405,7 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
               beatsPerBar={beatsPerBar}
               isLast
             />
+            )}
 
             {/* Step-by-step flow */}
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-slate-100 bg-slate-50 opacity-80">
