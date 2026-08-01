@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
-import { CheckCircle2, Music2, PenSquare, X, Search } from 'lucide-react'
+import { CheckCircle2, Music2, PenSquare, X, Search, Send } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import {
   getWorshipTeamMembers,
@@ -69,6 +69,11 @@ export default function WorshipWorkspaceWidget() {
   // Worship Leader who also happened to have full access (e.g. also Founder/Admin),
   // which meant some Worship Leader accounts never saw the shortcut at all.
   const isWorshipLeaderAccount = isWorshipLeader(userProfile)
+  // "Distribute Plan to Team" (relocated here from the department page's Summary tab)
+  // is a real distribution action, not a self-service one like Share Setlist — scoped
+  // to who could actually manage the department page's Summary tab before (Director/
+  // Founder/Admin) plus Worship Leader, not every rostered team member.
+  const canDistributePlan = hasFullWorshipAccess(userProfile) || isWorshipLeaderAccount
 
   // Always collapsed on launch/reload — only the header banner ("Hello X, you're
   // assigned...") + "More" toggle shows until the user explicitly opens it, regardless
@@ -92,6 +97,7 @@ export default function WorshipWorkspaceWidget() {
   // off into the full Song Designer builder, a heavier flow this widget doesn't own.
   const [songDirectoryOpen, setSongDirectoryOpen] = useState(false)
   const [songDirectoryQuery, setSongDirectoryQuery] = useState('')
+  const [distributing, setDistributing] = useState(false)
 
   // "Share Your Song Setlist" state — a self-service prompt for whoever is scheduled
   // as Lead Vocal (any Lead Vocal-N slot) on an upcoming Sunday, regardless of their
@@ -108,17 +114,15 @@ export default function WorshipWorkspaceWidget() {
   const [loadingSetlistRows, setLoadingSetlistRows] = useState(false)
   const [searchOpenIdx, setSearchOpenIdx] = useState(null)
   const [sharingSetlist, setSharingSetlist] = useState(false)
-  // `setlistShared` is the brief post-share "✓ Setlist Shared!" moment only — true for
-  // a short window right after a successful share, then it flips back off on its own.
+  // `setlistShared` is the brief post-save "✓ Setlist Shared!" moment only — true for
+  // a short window right after a successful save, then it flips back off on its own.
   const [setlistShared, setSetlistShared] = useState(false)
-  // The {role: {songName, key}} shape actually saved on the last successful share for
-  // this date — null until the first share this session. The panel auto-collapses once
-  // this is set and nothing in setlistRows differs from it, and re-expands the instant
-  // a song name or key is edited away from it (see hasChangedSinceShare below).
-  const [sharedSnapshot, setSharedSnapshot] = useState(null)
-  // Manual escape hatch — lets a leader reopen the panel from its collapsed "✓ Setlist
-  // Shared!" summary even without having changed anything yet.
-  const [manuallyExpanded, setManuallyExpanded] = useState(false)
+  // View-only by default — the song title/key rows render as plain text/badges, not
+  // inputs, until this is explicitly toggled on via "Edit Setlist". `originalSetlistRows`
+  // is a snapshot taken the moment editing starts, so "Cancel" can discard any
+  // in-progress changes and restore exactly what was last loaded/saved.
+  const [editingSetlist, setEditingSetlist] = useState(false)
+  const [originalSetlistRows, setOriginalSetlistRows] = useState([])
 
   // Loaded for every signed-in user, not just accounts with a special Worship
   // position — an ordinary rostered team member needs this data just to find out
@@ -160,12 +164,22 @@ export default function WorshipWorkspaceWidget() {
   // icon can't flicker away when toggling dates or switching card views.
   const showSongsAccess = isWorshipLeaderAccount
 
-  // Every date selectable in the pill bar — the actual coming Sunday always included
-  // (so that view is never unreachable) plus every Sunday this person leads, deduped
-  // and sorted so the pills read chronologically.
+  // Every consecutive Sunday selectable in the pill bar, from the earliest relevant
+  // date through the furthest Sunday this person leads — calendar math (+7 days), not
+  // just whichever dates happen to already have a saved schedule doc. Previously this
+  // only included the coming Sunday plus whatever's in myLeadingDates, which silently
+  // skipped an in-between Sunday (e.g. 9 Aug) if nobody had been assigned to it yet.
   const selectableDates = useMemo(() => {
-    const set = new Set([forthcomingSunday, ...myLeadingDates])
-    return Array.from(set).sort()
+    const known = [forthcomingSunday, ...myLeadingDates]
+    const earliest = known.reduce((min, d) => (d < min ? d : min), known[0])
+    const furthest = known.reduce((max, d) => (d > max ? d : max), known[0])
+    const dates = []
+    const cursor = new Date(earliest + 'T12:00:00')
+    while (format(cursor, 'yyyy-MM-dd') <= furthest) {
+      dates.push(format(cursor, 'yyyy-MM-dd'))
+      cursor.setDate(cursor.getDate() + 7)
+    }
+    return dates
   }, [forthcomingSunday, myLeadingDates])
 
   // Re-fetch fresh (not the possibly-stale bulk `schedules` snapshot) whenever the
@@ -180,8 +194,7 @@ export default function WorshipWorkspaceWidget() {
         const mine = (sch.assignments || []).filter(a => a.memberId === myWorshipMember.id && isLeadVocalRole(a.role))
         setSetlistRows(mine.map(a => ({ ...a })))
         setSetlistShared(false)
-        setSharedSnapshot(null)
-        setManuallyExpanded(false)
+        setEditingSetlist(false)
       })
       .finally(() => { if (alive) setLoadingSetlistRows(false) })
     return () => { alive = false }
@@ -229,29 +242,159 @@ export default function WorshipWorkspaceWidget() {
         return mine ? { ...a, songName: mine.songName || '', songId: mine.songId || '', key: mine.key || '', notes: mine.notes || '' } : a
       })
       await setWorshipScheduleByDate('Worship', selectedDate, assignments, userProfile?.email)
-      const snapshot = {}
-      setlistRows.forEach(r => { snapshot[r.role] = { songName: r.songName || '', key: r.key || '' } })
-      setSharedSnapshot(snapshot)
-      setManuallyExpanded(false)
+      setEditingSetlist(false)
       setSetlistShared(true)
-      // Brief confirmation, then the panel auto-collapses (see panelExpanded below) —
-      // it only reappears on its own if a song name or key is edited away from what
-      // was just shared.
-      setTimeout(() => setSetlistShared(false), 1400)
+      setTimeout(() => setSetlistShared(false), 2500)
     } finally {
       setSharingSetlist(false)
     }
   }
 
-  const hasChangedSinceShare = sharedSnapshot
-    ? setlistRows.some(r => {
-        const saved = sharedSnapshot[r.role]
-        return !saved || (r.songName || '') !== saved.songName || (r.key || '') !== saved.key
-      })
-    : true
-  const panelExpanded = manuallyExpanded || setlistShared || hasChangedSinceShare
+  // Explicit Edit Setlist / Save Changes / Cancel toggle — view-only by default;
+  // Cancel discards any in-progress edits by restoring the snapshot taken the moment
+  // editing started, rather than re-fetching.
+  const startEditingSetlist = () => {
+    setOriginalSetlistRows(setlistRows.map(r => ({ ...r })))
+    setEditingSetlist(true)
+  }
+  const cancelEditingSetlist = () => {
+    setSetlistRows(originalSetlistRows.map(r => ({ ...r })))
+    setEditingSetlist(false)
+  }
 
   const highlighted = isScheduledThisSunday || canShareSetlist
+
+  // "Distribute Plan to Team" — relocated from DepartmentWorship.jsx's Summary tab
+  // (same canvas-drawn JPEG + download + WhatsApp-open flow, unchanged) so a Director/
+  // Leader can share the formatted plan straight from My Workspace instead of having
+  // to open the department page. Always fetches the selected date's plan fresh rather
+  // than reusing the bulk `schedules` snapshot, matching the original's behavior.
+  const generateAndSharePlan = async () => {
+    setDistributing(true)
+    try {
+      const sunday = selectedDate
+      const sch = await getWorshipScheduleByDate('Worship', sunday)
+      const fas = sch?.assignments || []
+      const assigned = fas.filter(a => a.memberId)
+      const songLines = fas.filter(a => a.songName)
+      const vocals = assigned.filter(a => /vocal|parts|choir/i.test(a.role))
+      const band = assigned.filter(a => /guitar|bass|drum|keyboard/i.test(a.role))
+      const tech = assigned.filter(a => /sound|media/i.test(a.role))
+      const groups = [
+        { label: 'VOCALS & CHOIR', items: vocals },
+        { label: 'BAND', items: band },
+        { label: 'TECH', items: tech },
+        { label: 'SETLIST', items: songLines, isSongs: true },
+      ].filter(g => g.items.length)
+
+      const W = 800, PAD = 48
+      const HEADER_H = 168, SECTION_H = 44, ROW_H = 38, GAP = 20, FOOTER_H = 60
+      let contentH = GAP
+      groups.forEach(g => { contentH += SECTION_H + g.items.length * ROW_H + GAP })
+      const H = HEADER_H + contentH + FOOTER_H
+
+      const canvas = document.createElement('canvas')
+      canvas.width = W
+      canvas.height = H
+      const ctx = canvas.getContext('2d')
+
+      ctx.fillStyle = '#f5f3ff'
+      ctx.fillRect(0, 0, W, H)
+
+      const grad = ctx.createLinearGradient(0, 0, W, HEADER_H)
+      grad.addColorStop(0, '#7c3aed')
+      grad.addColorStop(1, '#5b21b6')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, W, HEADER_H)
+
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'
+      ctx.font = 'bold 18px Arial, sans-serif'
+      ctx.textAlign = 'left'
+      ctx.fillText('ROL CHURCH', PAD, 52)
+
+      ctx.fillStyle = '#ffffff'
+      ctx.font = 'bold 34px Arial, sans-serif'
+      ctx.fillText('SUNDAY WORSHIP PLAN', PAD, 100)
+
+      ctx.fillStyle = 'rgba(255,255,255,0.82)'
+      ctx.font = '22px Arial, sans-serif'
+      ctx.fillText(format(new Date(sunday + 'T12:00:00'), 'EEEE, d MMMM yyyy'), PAD, 140)
+
+      let y = HEADER_H + GAP
+      groups.forEach((group, gi) => {
+        if (gi > 0) y += GAP
+
+        ctx.fillStyle = '#ede9fe'
+        ctx.fillRect(0, y, W, SECTION_H - 6)
+        ctx.fillStyle = '#6d28d9'
+        ctx.font = 'bold 13px Arial, sans-serif'
+        ctx.textAlign = 'left'
+        ctx.fillText(group.label, PAD, y + SECTION_H - 18)
+        y += SECTION_H
+
+        group.items.forEach((a, idx) => {
+          ctx.fillStyle = idx % 2 === 0 ? '#fafafe' : '#ffffff'
+          ctx.fillRect(0, y, W, ROW_H)
+
+          if (group.isSongs) {
+            ctx.fillStyle = '#a78bfa'
+            ctx.font = 'bold 14px Arial, sans-serif'
+            ctx.textAlign = 'right'
+            ctx.fillText(String(idx + 1) + '.', PAD + 18, y + ROW_H - 11)
+            ctx.fillStyle = '#1e1b4b'
+            ctx.font = '600 16px Arial, sans-serif'
+            ctx.textAlign = 'left'
+            ctx.fillText(a.songName || '', PAD + 28, y + ROW_H - 11)
+            if (a.key) {
+              const sw = ctx.measureText(a.songName || '').width
+              ctx.fillStyle = '#94a3b8'
+              ctx.font = '13px Arial, sans-serif'
+              ctx.fillText(`(${a.key})`, PAD + 28 + sw + 8, y + ROW_H - 11)
+            }
+          } else {
+            ctx.fillStyle = '#7c3aed'
+            ctx.font = '13px Arial, sans-serif'
+            ctx.textAlign = 'left'
+            ctx.fillText(a.role.replace(/-\d+$/, ''), PAD, y + ROW_H - 11)
+            ctx.fillStyle = '#111827'
+            ctx.font = '600 16px Arial, sans-serif'
+            ctx.fillText(a.memberName || '—', PAD + 220, y + ROW_H - 11)
+          }
+          y += ROW_H
+        })
+      })
+
+      ctx.fillStyle = '#7c3aed'
+      ctx.fillRect(0, H - FOOTER_H, W, FOOTER_H)
+      ctx.fillStyle = 'rgba(255,255,255,0.7)'
+      ctx.font = '14px Arial, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('Generated by ROL Admin App', W / 2, H - FOOTER_H + 36)
+
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92))
+      const filename = `worship-plan-${sunday}.jpg`
+
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.click()
+      URL.revokeObjectURL(url)
+
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      setTimeout(() => {
+        if (isMobile) {
+          window.location.href = 'whatsapp://'
+        } else {
+          window.open('https://web.whatsapp.com', '_blank')
+        }
+      }, 600)
+    } catch (err) {
+      if (err?.name !== 'AbortError') alert('Could not generate plan image.')
+    }
+    setDistributing(false)
+  }
 
   return (
     <>
@@ -339,52 +482,44 @@ export default function WorshipWorkspaceWidget() {
               </div>
             )}
 
-            {/* Share Your Song Setlist — same card window, own bordered section rather
-                than a separate stacked banner. No title header: once it's been shared
-                and nothing's changed since, this shows the shared songs/keys/roles as
-                read-only cards (not just a bare confirmation banner) instead of hiding
-                what was actually shared — editing a song name/key (or tapping "Edit")
-                brings back the full editing form. */}
+            {/* Your Song Setlist — view-only by default (formatted text/badges, never a
+                stray editable input someone could accidentally type into); an explicit
+                "Edit Setlist" toggle unlocks the song-name/key inputs, and the header
+                button becomes "Save Changes"/"Cancel" while editing. */}
             {canShareSetlist && (
-              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-3">
-              {!panelExpanded ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600">
-                      <CheckCircle2 size={16} /> Setlist Shared!
-                    </span>
+              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Your Song Setlist</p>
+                  {!editingSetlist ? (
                     <button
                       type="button"
-                      onClick={() => setManuallyExpanded(true)}
-                      className="text-xs font-medium text-violet-600 hover:underline"
+                      onClick={startEditingSetlist}
+                      className="text-xs font-semibold text-violet-600 hover:underline"
                     >
-                      Edit
+                      Edit Setlist
                     </button>
-                  </div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                    {selectedDate === forthcomingSunday ? 'Coming Sunday' : format(new Date(selectedDate + 'T12:00:00'), 'EEE d MMM')}
-                  </p>
-                  <div className="space-y-1.5">
-                    {setlistRows.filter(row => row.songName).map(row => (
-                      <div
-                        key={row.role}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={cancelEditingSetlist}
+                        disabled={sharingSetlist}
+                        className="text-xs font-medium text-slate-500 hover:underline disabled:opacity-50"
                       >
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-600">{row.role}</p>
-                          <p className="text-sm font-semibold text-slate-800 truncate">{row.songName}</p>
-                        </div>
-                        {row.key && (
-                          <span className="shrink-0 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
-                            {row.key}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={sharingSetlist || loadingSetlistRows || setlistRows.length === 0}
+                        onClick={handleShareSetlist}
+                        className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 px-3 py-1 rounded-full transition-colors"
+                      >
+                        {sharingSetlist ? 'Saving…' : 'Save Changes'}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              ) : (
-              <div className="space-y-3">
+
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 shrink-0">Viewing</span>
                   {selectableDates.map(d => (
@@ -405,6 +540,29 @@ export default function WorshipWorkspaceWidget() {
 
                 {loadingSetlistRows ? (
                   <p className="text-sm text-slate-400 text-center py-4">Loading…</p>
+                ) : !editingSetlist ? (
+                  /* View-only: formatted text cards — role badge, song title, key badge.
+                     No inputs at all, so nothing here can be accidentally modified. */
+                  <div className="space-y-1.5">
+                    {setlistRows.map(row => (
+                      <div
+                        key={row.role}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-600">{row.role}</p>
+                          <p className={`text-sm truncate ${row.songName ? 'font-semibold text-slate-800' : 'italic text-slate-400 font-normal'}`}>
+                            {row.songName || 'No song set yet'}
+                          </p>
+                        </div>
+                        {row.key && (
+                          <span className="shrink-0 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
+                            {row.key}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div className="space-y-3">
                     {setlistRows.map((row, idx) => {
@@ -468,22 +626,17 @@ export default function WorshipWorkspaceWidget() {
                         </div>
                       )
                     })}
+                    <p className="text-[11px] text-slate-400 text-center">
+                      The team will see this on the Assign page next time they open it.
+                    </p>
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  disabled={sharingSetlist || loadingSetlistRows || setlistRows.length === 0}
-                  onClick={handleShareSetlist}
-                  className="w-full py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 disabled:opacity-40 transition-all active:scale-[0.98]"
-                >
-                  {sharingSetlist ? 'Sharing…' : setlistShared ? '✓ Setlist Shared!' : 'Share Setlist'}
-                </button>
-                <p className="text-[11px] text-slate-400 text-center">
-                  The team will see this on the Assign page next time they open it.
-                </p>
-              </div>
-              )}
+                {setlistShared && (
+                  <p className="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-600">
+                    <CheckCircle2 size={14} /> Setlist Shared!
+                  </p>
+                )}
               </div>
             )}
 
@@ -493,7 +646,22 @@ export default function WorshipWorkspaceWidget() {
               onViewSong={openSongView}
               canViewFullSong={canViewFullSong}
               selectedDate={selectedDate}
+              canAssignTeam={canDistributePlan}
             />
+
+            {/* Distribute Plan to Team — footer action, placed below the full roster so
+                leaders review every song/team assignment before sending it out. */}
+            {canDistributePlan && (
+              <button
+                type="button"
+                disabled={distributing}
+                onClick={generateAndSharePlan}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-semibold shadow-sm transition"
+              >
+                <Send size={14} />
+                {distributing ? 'Generating…' : 'Distribute Plan to Team'}
+              </button>
+            )}
           </div>
         )}
       </div>

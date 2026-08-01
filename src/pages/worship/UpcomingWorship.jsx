@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
-import { CheckCircle2, CalendarDays } from 'lucide-react'
+import { CheckCircle2, CalendarDays, UserPlus } from 'lucide-react'
 import { getWorshipScheduleByDate } from '../../services/firestore'
 import { sortByWorshipRole } from '../../utils/worshipRoleOrder'
 
@@ -56,8 +57,9 @@ function formatDisplay(iso) {
 // `selectedDate` lets a caller (e.g. the "Share Your Song Setlist" date-pill selector
 // in WorshipWorkspaceWidget) drive which Sunday's roster/status/setlist this shows —
 // falls back to the forthcoming Sunday when no date is picked, same as before.
-export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, canViewFullSong, selectedDate }) {
+export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, canViewFullSong, selectedDate, canAssignTeam }) {
   const sundayDate = selectedDate || getForthcomingSunday()
+  const navigate = useNavigate()
   const [schedule, setSchedule] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -191,64 +193,6 @@ export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, ca
         </div>
       )}
 
-      {/* Combined Song Design & Parts — one card per song this person needs to
-          prepare, carrying every role badge tied to it (e.g. Parts-1 + Lead Guitar
-          on the same song) and a single "My Part" filter that's the union of both,
-          instead of forcing them to hop between separate rows/roles below. */}
-      {mySongGroups.length > 0 && (
-        <div className="rounded-2xl overflow-hidden shadow-sm border border-indigo-100 bg-white">
-          <div className="px-4 py-3 border-b border-indigo-50 bg-indigo-50/60">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">Your Song Design & Parts</p>
-            <p className="text-xs text-slate-500 mt-0.5">Combined across all your assigned roles for this date.</p>
-          </div>
-          <div className="divide-y divide-slate-50">
-            {mySongGroups.map((group, i) => {
-              const canOpen = !!group.song
-              return (
-                <div
-                  key={i}
-                  role={canOpen ? 'button' : undefined}
-                  tabIndex={canOpen ? 0 : undefined}
-                  onClick={canOpen ? () => onViewSong(group.song, 'mine', Array.from(group.positions)) : undefined}
-                  onKeyDown={canOpen ? (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onViewSong(group.song, 'mine', Array.from(group.positions)) }
-                  } : undefined}
-                  className={`flex flex-wrap items-center gap-2 px-4 py-3 transition-colors ${canOpen ? 'cursor-pointer hover:bg-indigo-50/60' : ''}`}
-                >
-                  <div className="flex flex-wrap gap-1.5">
-                    {group.roles.map((r, ri) => (
-                      <span
-                        key={ri}
-                        title={r === 'Choir (auto)' ? 'Not an explicit assignment — added automatically since you\'re leading elsewhere in this setlist' : undefined}
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${
-                          r === 'Choir (auto)'
-                            ? 'text-slate-500 bg-slate-50 border border-dashed border-slate-300'
-                            : 'text-indigo-700 bg-indigo-50 border border-indigo-100'
-                        }`}
-                      >
-                        {r}
-                      </span>
-                    ))}
-                  </div>
-                  {group.songName && (
-                    <span className="text-sm font-semibold tracking-tight text-slate-800 truncate">
-                      "{group.songName}"{group.key && <span className="font-medium text-violet-500"> ({group.key})</span>}
-                    </span>
-                  )}
-                  {canOpen ? (
-                    <span className="ml-auto shrink-0 text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
-                      Open My Part
-                    </span>
-                  ) : (
-                    <span className="ml-auto shrink-0 text-xs text-slate-400 italic">No song details linked</span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Full team roster — song name + View Song/My Part actions live inline on each
           assigned vocalist's own row rather than a separate setlist card. */}
       {assignments.filter(a => a.memberId).length > 0 && (
@@ -325,6 +269,26 @@ export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, ca
               )
             })}
           </div>
+        </div>
+      )}
+
+      {/* Placeholder for a selectable Sunday (see selectableDates in
+          WorshipWorkspaceWidget) that has no roster or setlist created yet — e.g. an
+          in-between Sunday nobody's been assigned to. Without this, picking such a
+          date just showed an empty page with no explanation. */}
+      {assignments.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 px-5 py-6 text-center">
+          <p className="text-sm text-slate-500">No team assignments or setlist created for this date yet.</p>
+          {canAssignTeam && (
+            <button
+              type="button"
+              onClick={() => navigate(`/department/worship?tab=assign&assignDate=${sundayDate}`)}
+              className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-sm transition"
+            >
+              <UserPlus size={14} />
+              Assign Team for {format(new Date(sundayDate + 'T12:00:00'), 'd MMM')}
+            </button>
+          )}
         </div>
       )}
     </div>

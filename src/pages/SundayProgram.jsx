@@ -909,6 +909,11 @@ function DesignProgramTab({ canEdit, userProfile }) {
   const [newProgram, setNewProgram] = useState('')
   const [newCustomEl, setNewCustomEl] = useState('')
   const [showCustomMgmt, setShowCustomMgmt] = useState(false)
+  // Default Timer / Duration per program name (minutes) — the same field Default
+  // Program's own timeline uses (SundayProgramDefault.items[].duration), edited here
+  // too so a program's allotted time can be set right where its elements are
+  // designed. Live Control presets its countdown/progress target from this same value.
+  const [durations, setDurations] = useState({})
 
   useEffect(() => {
     setLoading(true)
@@ -921,10 +926,18 @@ function DesignProgramTab({ canEdit, userProfile }) {
         setDesigns(designDoc?.designs || {})
         setCustomElements(designDoc?.customElements || [])
         setCustomPrograms(designDoc?.customPrograms || [])
+        const durMap = {}
+        items.forEach((i) => { durMap[i.programName] = i.duration || 0 })
+        setDurations(durMap)
       })
       .catch(() => setPrograms(DEFAULT_SEED.map((i) => i.programName)))
       .finally(() => setLoading(false))
   }, [])
+
+  const setProgramDuration = (programName, val) => {
+    const mins = Math.max(0, Math.min(300, Number(val) || 0))
+    setDurations((prev) => ({ ...prev, [programName]: mins }))
+  }
 
   const toggleElement = (programName, element) => {
     if (!canEdit) return
@@ -989,6 +1002,24 @@ function DesignProgramTab({ canEdit, userProfile }) {
     setSavedOk(false)
     try {
       await setSundayProgramDesign({ designs, customElements, customPrograms }, userProfile?.email || 'unknown')
+      // Read-fresh-merge-write onto the Default Program doc so a duration edited here
+      // lands in the same items[] Default Program's own timeline reads/writes,
+      // without clobbering whatever order/startTime/serviceStartTime it has set
+      // concurrently. A program that only exists here (not yet placed in Default
+      // Program's timeline) gets appended as a new, unordered item so its duration
+      // isn't lost — but only if a real duration was actually set for it.
+      const fresh = await getSundayProgramDefault()
+      const existingNames = new Set(fresh.items.map((i) => i.programName))
+      const updatedItems = fresh.items.map((i) =>
+        durations[i.programName] !== undefined ? { ...i, duration: durations[i.programName] } : i
+      )
+      let nextOrder = updatedItems.length
+      Object.entries(durations).forEach(([name, mins]) => {
+        if (!existingNames.has(name) && mins > 0) {
+          updatedItems.push({ programName: name, order: nextOrder++, duration: mins, startTime: '' })
+        }
+      })
+      await setSundayProgramDefault(updatedItems, userProfile?.email || 'unknown', fresh.serviceStartTime, fresh.parallelPrograms)
       setSavedOk(true)
       setTimeout(() => setSavedOk(false), 2500)
     } catch (e) {
@@ -1106,6 +1137,36 @@ function DesignProgramTab({ canEdit, userProfile }) {
                 ) : (
                   <p style={{ fontSize: 10, color: '#94a3b8', marginBottom: 10 }}>No elements yet</p>
                 )}
+
+                {/* Default Timer / Duration — the same field Default Program's own
+                    timeline reads, editable right here so a program's allotted time
+                    can be set alongside its designed elements. Live Control presets
+                    its countdown/progress target from this once saved. */}
+                {canEdit ? (
+                  <div
+                    className="flex items-center gap-1.5 mb-2.5"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span style={{ fontSize: 11 }}>⏱</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={300}
+                      value={durations[name] || ''}
+                      onChange={(e) => setProgramDuration(name, e.target.value)}
+                      placeholder="0"
+                      className="text-center"
+                      style={{
+                        width: 44, height: 22, padding: '0 4px', borderRadius: 6,
+                        border: `1.5px solid ${color.accent}55`, fontSize: 10, fontWeight: 700,
+                        color: color.accent, background: '#fff', outline: 'none',
+                      }}
+                    />
+                    <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600 }}>min default</span>
+                  </div>
+                ) : durations[name] > 0 ? (
+                  <p style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600, marginBottom: 10 }}>⏱ {durations[name]} min default</p>
+                ) : null}
 
                 {/* Footer */}
                 <div className="flex items-center justify-between">
@@ -1349,8 +1410,10 @@ function DesignProgramTab({ canEdit, userProfile }) {
         </div>
       )}
 
-      {/* Save — only visible when a program is selected or a custom program has been added */}
-      {canEdit && (expandedProgram !== null || customPrograms.length > 0) && (
+      {/* Save — always visible for an editor: a duration can now be changed directly
+          from any closed grid card, not just when a program is expanded or a custom
+          one added. */}
+      {canEdit && (
         <div className="flex items-center gap-3 pt-1">
           <button
             type="button"

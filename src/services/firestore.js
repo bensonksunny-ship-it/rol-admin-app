@@ -3042,6 +3042,24 @@ export async function getProgramNotification(date) {
   }
 }
 
+// Live counterpart to getProgramNotification — every department's Upcoming Sunday
+// page (UpcomingSunday.jsx, shared by Worship/Media/D-Light/Administration) uses this
+// so a programme Sunday Ministry publishes/edits after the page has already loaded
+// still shows up immediately, with no manual refresh needed.
+export function subscribeProgramNotification(date, onChange) {
+  if (!db || !date) return () => {}
+  const ref = doc(db, SUNDAY_NOTIFICATIONS_COLLECTION, date)
+  return onSnapshot(ref, (snap) => {
+    if (!snap.exists()) { onChange(null); return }
+    const data = snap.data()
+    onChange({
+      programs: Array.isArray(data.programs) ? data.programs : [],
+      sentAt: toDate(data.sentAt),
+      sentBy: data.sentBy || '',
+    })
+  }, () => {})
+}
+
 // Department programme inputs (elements + custom programmes per dept per date)
 const SUNDAY_DEPT_INPUTS_COLLECTION = 'sunday_dept_inputs'
 

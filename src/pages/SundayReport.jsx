@@ -23,6 +23,7 @@ import {
   patchSundayReportNameField,
   subscribeSundayReportNameField,
   patchSundayReportCellAttendance,
+  getSundayProgramDefault,
 } from '../services/firestore'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
@@ -1127,6 +1128,11 @@ export default function SundayReport({ embedded = false }) {
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [programLogs, setProgramLogs] = useState([])
   const [showProgramConfirm, setShowProgramConfirm] = useState(false)
+  // Default duration per program name (minutes), configured in Sunday Ministry's
+  // Program design (Default Program tab, and Design Program's per-card timer too) —
+  // a single global doc, not per-date, so this loads once on mount rather than
+  // refetching alongside the date-scoped report/log data below.
+  const [programDurations, setProgramDurations] = useState({})
   /** True once this report has been saved — shows a read-only "filed" summary instead of
    *  the edit form, until "Edit" is tapped. Synced from report.filed when the date loads. */
   const [filedView, setFiledView] = useState(false)
@@ -1256,6 +1262,16 @@ export default function SundayReport({ embedded = false }) {
   const attendanceProgressPct = attendanceProgressTotal
     ? Math.round((attendanceProgressDone / attendanceProgressTotal) * 100)
     : 0
+
+  useEffect(() => {
+    getSundayProgramDefault()
+      .then((doc) => {
+        const map = {}
+        ;(doc?.items || []).forEach((item) => { if (item.programName) map[item.programName] = item.duration || 0 })
+        setProgramDurations(map)
+      })
+      .catch(() => setProgramDurations({}))
+  }, [])
 
   useEffect(() => {
     const dateFromUrl = searchParams.get('date')
@@ -2509,7 +2525,14 @@ export default function SundayReport({ embedded = false }) {
                   {runningStartMs && (
                     <div className="flex flex-col items-center gap-1 pt-1">
                       <p className="text-xs text-slate-500 font-medium">Now running: <strong>{runningProgramItem?.programName}</strong></p>
-                      <LiveElapsedTimer startedAtMs={runningStartMs} />
+                      {/* Presets the countdown/progress target from this program's
+                          configured default duration (Program → Design Program), so
+                          activating a segment automatically shows how much of its
+                          allotted time remains instead of a bare elapsed count. */}
+                      <LiveElapsedTimer
+                        startedAtMs={runningStartMs}
+                        plannedMinutes={programDurations[runningProgramItem?.programName] || null}
+                      />
                     </div>
                   )}
 

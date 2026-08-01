@@ -2,20 +2,14 @@ import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import {
-  getProgramNotification,
+  subscribeProgramNotification,
   getSundayProgramDefault,
   getWorshipScheduleByDate,
   getDeptProgramInput,
   setDeptProgramInput,
 } from '../services/firestore'
-import { sortByWorshipRole } from '../utils/worshipRoleOrder'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const DEFAULT_SEED = [
-  'Pre Worship Talk', 'Worship', 'Leader Prayer',
-  'Announcements', 'Sermon', 'Prayer & Benediction',
-]
 
 const SLUG_TO_DEPT = {
   media: 'Media', worship: 'Worship', 'd-light': 'D Light', administration: 'Administration',
@@ -119,6 +113,7 @@ export default function UpcomingSunday({ slug }) {
 
   const [notification, setNotification] = useState(null)
   const [notifPrograms, setNotifPrograms] = useState([])
+  const [defaultProgramDoc, setDefaultProgramDoc] = useState(null)
   const [worshipPlan, setWorshipPlan] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -138,41 +133,71 @@ export default function UpcomingSunday({ slug }) {
   const [newCustomEl, setNewCustomEl] = useState('')
   const [editingEl, setEditingEl] = useState(null)
 
-  const [worshipLoading, setWorshipLoading] = useState(slug === 'worship')
-
   // ── Load ─────────────────────────────────────────────────────────────────────
 
+  // The default programme template and this department's own saved element picks
+  // are one-time loads — only the notification (what Sunday Ministry actually
+  // published for this date) needs to be live, see below.
+  //
+  // Settled independently (not Promise.all) so a failure fetching this department's
+  // OWN customizations (getDeptProgramInput) can never blank out the shared central
+  // template (getSundayProgramDefault) too — that was the actual cause of Worship
+  // sometimes rendering only the 6-item hardcoded seed while D-Light showed its full
+  // programme: one rejected promise inside Promise.all skips the whole .then(), so
+  // defaultProgramDoc silently never got set for whichever department's dept-input
+  // fetch happened to fail, even though the central template loaded fine.
   useEffect(() => {
     setLoading(true)
-    Promise.all([
-      getProgramNotification(sundayDate),
+    Promise.allSettled([
       getSundayProgramDefault(),
       getDeptProgramInput(sundayDate, slug),
     ])
-      .then(([notif, defaultDoc, deptInput]) => {
-        setNotification(notif)
-        const base = notif?.programs?.length
-          ? notif.programs
-          : (defaultDoc?.items?.length
-              ? defaultDoc.items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((i) => i.programName)
-              : [...DEFAULT_SEED])
-        setNotifPrograms(base)
+      .then(([defaultResult, deptResult]) => {
+        if (defaultResult.status === 'rejected') {
+          console.error('Failed to load the central Sunday programme template:', defaultResult.reason)
+        }
+        setDefaultProgramDoc(defaultResult.status === 'fulfilled' ? defaultResult.value : null)
+
+        if (deptResult.status === 'rejected') {
+          console.error(`Failed to load ${slug}'s own programme customizations:`, deptResult.reason)
+        }
+        const deptInput = deptResult.status === 'fulfilled' ? deptResult.value : null
         setProgramElements(deptInput?.programElements || {})
         setProgramDurations(deptInput?.programDurations || {})
         setCustomPrograms(deptInput?.customPrograms || [])
         setCustomElements(deptInput?.customElements || [])
       })
-      .catch(() => { setNotifPrograms([...DEFAULT_SEED]) })
       .finally(() => setLoading(false))
   }, [sundayDate, slug])
 
+  // Live subscription to the published programme outline — whatever Sunday Ministry
+  // sends via SundayProgram.jsx's "Push" action (sendProgramNotification) shows up
+  // here immediately, with no manual refresh, same as D-Light's other live feeds.
+  useEffect(() => {
+    const unsub = subscribeProgramNotification(sundayDate, setNotification)
+    return unsub
+  }, [sundayDate])
+
+  // Recomputed whenever the live notification (or the one-time default template)
+  // changes — falls back to the central default template's ordered items if Sunday
+  // Ministry hasn't pushed a live notification for this date yet. No hardcoded seed
+  // fallback below that: every department reflects the exact same central pipeline,
+  // full stop, rather than silently substituting a stale local placeholder list if
+  // the central template happens to be empty/still loading.
+  useEffect(() => {
+    const base = notification?.programs?.length
+      ? notification.programs
+      : (defaultProgramDoc?.items?.length
+          ? defaultProgramDoc.items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((i) => i.programName)
+          : [])
+    setNotifPrograms(base)
+  }, [notification, defaultProgramDoc])
+
   useEffect(() => {
     if (slug !== 'worship') return
-    setWorshipLoading(true)
     getWorshipScheduleByDate('Worship', sundayDate)
       .then(setWorshipPlan)
       .catch(() => setWorshipPlan(null))
-      .finally(() => setWorshipLoading(false))
   }, [sundayDate, slug])
 
   const leadVocals = slug === 'worship'
@@ -345,38 +370,12 @@ export default function UpcomingSunday({ slug }) {
         </div>
       </div>
 
-      {/* ── Worship Schedule (worship dept only) ── */}
-      {slug === 'worship' && (
-        <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-amber-100">
-          <div className="px-4 py-3 border-b border-amber-100" style={{ background: '#fffbeb' }}>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-0.5">Worship Team – This Sunday</p>
-          </div>
-          {worshipLoading ? (
-            <div className="px-4 py-5 text-sm text-slate-400 text-center">Loading schedule…</div>
-          ) : (worshipPlan?.assignments || []).filter((a) => a.memberId).length === 0 ? (
-            <div className="px-4 py-5 text-center">
-              <p className="text-sm text-slate-500">No worship schedule assigned yet.</p>
-              <p className="text-xs text-slate-400 mt-1">Use the Assign tab to set up the team for this Sunday.</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-50">
-              {sortByWorshipRole(worshipPlan.assignments.filter((a) => a.memberId || a.songName)).map((a, i) => (
-                <div key={i} className="flex flex-wrap items-center gap-2 px-4 py-2.5">
-                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-lg text-center" style={{ minWidth: '6rem' }}>
-                    {a.role}
-                  </span>
-                  {a.memberName && <span className="text-sm font-medium text-slate-800">{a.memberName}</span>}
-                  {a.songName && <span className="text-sm italic text-slate-500">{a.songName}</span>}
-                  {a.key && <span className="text-xs font-bold bg-violet-50 text-violet-700 border border-violet-100 px-1.5 py-0.5 rounded">{a.key}</span>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {loading ? (
         <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
+      ) : allPrograms.length === 0 ? (
+        <div className="py-10 text-center text-slate-400 text-sm">
+          No programme configured yet — check back once Sunday Ministry publishes it.
+        </div>
       ) : (
         <>
           {/* ── Programme grid ── */}

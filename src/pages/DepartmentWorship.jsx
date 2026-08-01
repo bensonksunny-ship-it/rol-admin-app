@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Send, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -30,7 +30,7 @@ import {
   deleteWorshipSong,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, ReferenceLine, Cell } from 'recharts'
 import { format, subMonths, subDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import { isWorshipLeader, hasWorshipRoleAccess, getAllowedWorshipTabs } from '../utils/worshipAccess'
@@ -93,6 +93,60 @@ function countAssignedCategories(list) {
   return new Set(list.filter((a) => a.memberId).map((a) => parseRoleKey(a.role).category)).size
 }
 
+// Friendlier display names for a couple of role categories — everything else in
+// ROLE_CATEGORIES already reads fine as-is.
+const ROLE_CATEGORY_LABELS = {
+  'Choir member': 'Choir / Backup',
+  'Bass Guitar': 'Bass',
+  'Acoustic guitar': 'Acoustic Guitar',
+  'Sound Engineer': 'Sound',
+}
+function roleCategoryLabel(category) {
+  return ROLE_CATEGORY_LABELS[category] || category
+}
+
+// Cumulative per-member song/role history across every published Sunday setlist.
+// Only a Lead Vocal row carries its own song directly (see the Assign tab's Song Name
+// field) — every other role's assignment that same Sunday applies across the whole
+// service, so it's credited with every distinct song that Sunday actually had (the
+// same "service-wide" convention UpcomingWorship.jsx's combined song groups use),
+// not just a flat "1 service = 1 song".
+function computeMemberSongStats(schedules) {
+  const stats = {}
+  const ensure = (id) => {
+    if (!stats[id]) stats[id] = { total: 0, byCategory: {}, history: [] }
+    return stats[id]
+  }
+  for (const s of schedules || []) {
+    const assignments = (s.assignments || []).filter((a) => a.memberId)
+    if (assignments.length === 0) continue
+    const serviceSongs = []
+    const seenSongs = new Set()
+    for (const a of assignments) {
+      if (!a.songId && !a.songName) continue
+      const key = a.songId || `name:${a.songName}`
+      if (seenSongs.has(key)) continue
+      seenSongs.add(key)
+      serviceSongs.push({ songName: a.songName || '(untitled)', key: a.key || '' })
+    }
+    for (const a of assignments) {
+      const { category } = parseRoleKey(a.role)
+      const bucket = ensure(a.memberId)
+      const songsForThisRole = (a.songId || a.songName)
+        ? [{ songName: a.songName || '(untitled)', key: a.key || '' }]
+        : serviceSongs
+      if (songsForThisRole.length === 0) continue
+      bucket.total += songsForThisRole.length
+      bucket.byCategory[category] = (bucket.byCategory[category] || 0) + songsForThisRole.length
+      for (const song of songsForThisRole) {
+        bucket.history.push({ date: s.date, songName: song.songName, key: song.key, role: a.role, category })
+      }
+    }
+  }
+  Object.values(stats).forEach((b) => b.history.sort((x, y) => (y.date || '').localeCompare(x.date || '')))
+  return stats
+}
+
 const MEMBER_POSITIONS = [
   'Lead vocal',
   'Parts',
@@ -150,12 +204,6 @@ function snapToSunday(dateStr) {
   const diff = (7 - d.getDay()) % 7
   d.setDate(d.getDate() + diff)
   return format(d, 'yyyy-MM-dd')
-}
-
-// True only while the plan card should be shown (up to Sunday 18:00)
-function isBeforeSundayEvening(sundayDateStr) {
-  const cutoff = new Date(sundayDateStr + 'T18:00:00')
-  return new Date() < cutoff
 }
 
 const CATEGORY_POSITION_KEY = {
@@ -263,7 +311,30 @@ function WorshipStamp({ stamp, isOpen, onToggle, onEdit }) {
   )
 }
 
-function ArchiveStamp({ stamp, isOpen, onToggle }) {
+// Official practice start benchmark — 8:00 PM. Arriving at or before this is
+// Punctual; anything after is Late by however many minutes past it.
+const PRACTICE_START_MINUTES = 20 * 60
+
+function punctualityFor(arrivedAt) {
+  const m = String(arrivedAt || '').match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return null
+  const minutes = parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
+  const diff = minutes - PRACTICE_START_MINUTES
+  return diff <= 0 ? { late: false, label: 'Punctual' } : { late: true, label: `Late by ${diff} min${diff === 1 ? '' : 's'}` }
+}
+
+// First-name-only display, used throughout the Archive report's roster table to keep
+// rows compact — falls back to the full string if it's somehow already just one word.
+function firstNameOf(fullName) {
+  return String(fullName || '').trim().split(/\s+/)[0] || fullName
+}
+
+// A single Sunday's complete weekly report — the published setlist/assignments
+// (read-only, unchanged) plus that week's Friday/Saturday practice attendance
+// (viewable by everyone, editable by canManageWorship — this used to be its own
+// "Records" sub-tab under Practice & Rehearsals; it now lives here so a Sunday's
+// setlist and its practice record are one report instead of two places to check).
+function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }) {
   const assignedRoles = (stamp.assignments || []).filter((a) => a.memberId)
   let formattedDate = stamp.date
   try { formattedDate = format(new Date(stamp.date + 'T12:00:00'), 'EEE d MMM yyyy') } catch {}
@@ -273,8 +344,99 @@ function ArchiveStamp({ stamp, isOpen, onToggle }) {
     if (ts) savedAt = format(ts, 'd MMM yyyy, h:mm a')
   } catch {}
 
-  const vocalAssignments = assignedRoles.filter((a) => a.role?.startsWith('Lead Vocal'))
-  const otherAssignments = assignedRoles.filter((a) => !a.role?.startsWith('Lead Vocal'))
+  // Status badge — Archives no longer only holds history, so "Published" can't be a
+  // constant anymore. The forthcoming Sunday (same cutoff as the Summary tab's plan
+  // card: today until 6pm if today is Sunday, otherwise the next Sunday) is the one
+  // "live" active week; anything further out is merely on the calendar; anything at
+  // or before today (including the forthcoming Sunday once its 6pm cutoff passes) is
+  // done.
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
+  const forthcomingSunday = getForthcomingSunday()
+  let statusLabel = 'Published'
+  let statusClass = 'bg-emerald-50 text-emerald-700 border-emerald-100'
+  if (stamp.date === forthcomingSunday) {
+    statusLabel = 'In Progress'
+    statusClass = 'bg-amber-50 text-amber-700 border-amber-200'
+  } else if (stamp.date > todayStr) {
+    statusLabel = 'Scheduled'
+    statusClass = 'bg-sky-50 text-sky-700 border-sky-200'
+  }
+
+  // Practice & Rehearsal Attendance — same practiceAttendance field, same
+  // read/edit shape the old Records sub-tab used, just scoped locally to this card
+  // instead of a separate list. `assignedMembers` dedupes the same roster used for
+  // the setlist above so the check-in list lines up with who was actually assigned.
+  const pa = stamp.practiceAttendance || {}
+  const assignedMembers = assignedRoles.filter((a, i, arr) => arr.findIndex((x) => x.memberId === a.memberId) === i)
+  const fridayArrived = Object.values(pa.friday || {}).filter((v) => v.arrivedAt).length
+  const satArrived = Object.values(pa.saturday || {}).filter((v) => v.arrivedAt).length
+
+  const [editingTimes, setEditingTimes] = useState(false)
+  const [timesDraft, setTimesDraft] = useState(null)
+  const [savingTimes, setSavingTimes] = useState(false)
+
+  // Seeds the draft from whatever's currently saved — blank "—" placeholders become
+  // empty <input type="time"> fields, ready for a backdated/missed time to be typed
+  // in, rather than starting from scratch.
+  const openTimesEdit = () => {
+    const draft = {
+      friday: {}, saturday: {},
+      fridaySession: { endOfPractice: pa.fridaySession?.endOfPractice || '' },
+      saturdaySession: {
+        endOfPractice: pa.saturdaySession?.endOfPractice || '',
+        beginRehearsal: pa.saturdaySession?.beginRehearsal || '',
+        endRehearsal: pa.saturdaySession?.endRehearsal || '',
+      },
+    }
+    assignedMembers.forEach((a) => {
+      draft.friday[a.memberId] = { arrivedAt: pa.friday?.[a.memberId]?.arrivedAt || '', memberName: a.memberName }
+      draft.saturday[a.memberId] = { arrivedAt: pa.saturday?.[a.memberId]?.arrivedAt || '', memberName: a.memberName }
+    })
+    setTimesDraft(draft)
+    setEditingTimes(true)
+  }
+
+  const cancelTimesEdit = () => { setEditingTimes(false); setTimesDraft(null) }
+
+  // One roster-table cell for a single day's arrival — exact time plus its
+  // punctuality status against the 8:00 PM practice start benchmark, kept together
+  // so neither reads ambiguously on its own. This is the one place practice
+  // attendance shows per member now; the old separate "Practice & Rehearsal
+  // Attendance" name list further down was a second, duplicate rendering of the same
+  // roster this table already covers.
+  const arrivalCell = (arrivedAt) => {
+    if (!arrivedAt) return <span className="text-xs text-slate-300">—</span>
+    const p = punctualityFor(arrivedAt)
+    return (
+      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full border ${p?.late ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
+        {arrivedAt}
+        {p && <span className="font-medium opacity-80">{p.label}</span>}
+      </span>
+    )
+  }
+
+  const saveTimesEdit = async () => {
+    setSavingTimes(true)
+    try {
+      const friday = {}
+      Object.entries(timesDraft.friday).forEach(([mid, v]) => { if (v.arrivedAt) friday[mid] = { arrivedAt: v.arrivedAt, memberName: v.memberName } })
+      const saturday = {}
+      Object.entries(timesDraft.saturday).forEach(([mid, v]) => { if (v.arrivedAt) saturday[mid] = { arrivedAt: v.arrivedAt, memberName: v.memberName } })
+      const fridaySession = {}
+      if (timesDraft.fridaySession.endOfPractice) fridaySession.endOfPractice = timesDraft.fridaySession.endOfPractice
+      const saturdaySession = {}
+      if (timesDraft.saturdaySession.endOfPractice) saturdaySession.endOfPractice = timesDraft.saturdaySession.endOfPractice
+      if (timesDraft.saturdaySession.beginRehearsal) saturdaySession.beginRehearsal = timesDraft.saturdaySession.beginRehearsal
+      if (timesDraft.saturdaySession.endRehearsal) saturdaySession.endRehearsal = timesDraft.saturdaySession.endRehearsal
+      await onSaveTimes(stamp.id, { friday, saturday, fridaySession, saturdaySession })
+      cancelTimesEdit()
+    } catch (err) {
+      console.error('Failed to save practice attendance edit:', err)
+      alert('Failed to save changes')
+    } finally {
+      setSavingTimes(false)
+    }
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -284,9 +446,9 @@ function ArchiveStamp({ stamp, isOpen, onToggle }) {
         className="w-full flex items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
       >
         <div className="flex items-center gap-3 min-w-0">
-          <CheckCircle2 size={17} className="text-emerald-500 flex-shrink-0" />
+          <CheckCircle2 size={17} className={`flex-shrink-0 ${statusLabel === 'Published' ? 'text-emerald-500' : statusLabel === 'In Progress' ? 'text-amber-500' : 'text-sky-500'}`} />
           <span className="font-semibold text-slate-800 text-sm">{formattedDate}</span>
-          <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2 py-0.5 flex-shrink-0">Published</span>
+          <span className={`text-xs border rounded-full px-2 py-0.5 flex-shrink-0 ${statusClass}`}>{statusLabel}</span>
           {savedAt && <span className="text-xs text-slate-400 hidden sm:inline truncate">Saved {savedAt}</span>}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -311,45 +473,177 @@ function ArchiveStamp({ stamp, isOpen, onToggle }) {
               {assignedRoles.length === 0 ? (
                 <p className="text-sm text-slate-400 italic py-3">No members assigned for this date.</p>
               ) : (
-                <div className="space-y-4">
-                  {vocalAssignments.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Songs / Vocals</p>
-                      <div className="space-y-2">
-                        {vocalAssignments.map((a) => (
-                          <div key={a.role} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
-                            <span className="text-slate-400 text-xs w-28 flex-shrink-0">{a.role}</span>
-                            <span className="font-medium text-slate-800">{a.memberName}</span>
-                            {a.songName && (
-                              <>
-                                <span className="text-slate-300">·</span>
-                                <span className="text-slate-600 italic">{a.songName}</span>
-                                {a.key && <span className="text-xs bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 font-medium">{a.key}</span>}
-                              </>
-                            )}
-                          </div>
+                <div className="space-y-3">
+                  <div className="overflow-x-auto -mx-1">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200">
+                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 pb-2">Role / Assignment</th>
+                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 pb-2">Member</th>
+                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 pb-2">Friday Practice Arrival</th>
+                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 pb-2">Saturday Practice Arrival</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {assignedRoles.map((a) => (
+                          <tr key={a.role}>
+                            <td className="px-1 py-2 text-xs text-slate-500 whitespace-nowrap align-top">{a.role}</td>
+                            <td className="px-1 py-2 align-top">
+                              <span className="text-sm font-medium text-slate-800 whitespace-nowrap">{firstNameOf(a.memberName)}</span>
+                              {a.songName && (
+                                <span className="block text-xs italic text-slate-500 font-normal">
+                                  {a.songName}{a.key && <span className="not-italic font-medium text-violet-600"> ({a.key})</span>}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-1 py-2 align-top">{arrivalCell(pa.friday?.[a.memberId]?.arrivedAt)}</td>
+                            <td className="px-1 py-2 align-top">{arrivalCell(pa.saturday?.[a.memberId]?.arrivedAt)}</td>
+                          </tr>
                         ))}
-                      </div>
-                    </div>
-                  )}
-                  {otherAssignments.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Team</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        {otherAssignments.map((a) => (
-                          <div key={a.role} className="flex items-center gap-2 text-sm">
-                            <span className="text-slate-400 text-xs w-36 flex-shrink-0 truncate">{a.role}</span>
-                            <span className="font-medium text-slate-800">{a.memberName}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                      </tbody>
+                    </table>
+                  </div>
                   {stamp.updatedBy && (
                     <p className="text-xs text-slate-400">Saved by {stamp.updatedBy}</p>
                   )}
                 </div>
               )}
+
+              {/* Practice & Rehearsal Attendance — Friday/Saturday check-in timestamps,
+                  arrival times, and session completion times for this same week.
+                  Read-only for everyone; canManageWorship gets a "Modify Times" trigger
+                  to add/backdate a missed check-in or fix a session time, same editor
+                  the old standalone Records sub-tab used. */}
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Practice &amp; Rehearsal Attendance</p>
+                  {canManageWorship && !editingTimes && (
+                    <button
+                      type="button"
+                      onClick={openTimesEdit}
+                      title="Modify Times"
+                      aria-label="Modify Times"
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-violet-50 hover:text-violet-600 transition-colors"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {editingTimes ? (
+                  <div className="space-y-4">
+                    {assignedMembers.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Check-In Times</p>
+                        {assignedMembers.map((a) => (
+                          <div key={a.memberId} className="flex flex-wrap items-center gap-3">
+                            <span className="flex-1 min-w-[7rem] text-sm text-slate-700 truncate">{firstNameOf(a.memberName)}</span>
+                            <label className="flex items-center gap-1.5">
+                              <span className="text-[10px] text-slate-400 w-7">Fri</span>
+                              <input
+                                type="time"
+                                value={timesDraft.friday[a.memberId]?.arrivedAt || ''}
+                                onChange={(e) => setTimesDraft((d) => ({ ...d, friday: { ...d.friday, [a.memberId]: { ...d.friday[a.memberId], arrivedAt: e.target.value } } }))}
+                                className="px-2 py-1 text-xs rounded border border-slate-300 w-24"
+                              />
+                            </label>
+                            <label className="flex items-center gap-1.5">
+                              <span className="text-[10px] text-slate-400 w-7">Sat</span>
+                              <input
+                                type="time"
+                                value={timesDraft.saturday[a.memberId]?.arrivedAt || ''}
+                                onChange={(e) => setTimesDraft((d) => ({ ...d, saturday: { ...d.saturday, [a.memberId]: { ...d.saturday[a.memberId], arrivedAt: e.target.value } } }))}
+                                className="px-2 py-1 text-xs rounded border border-slate-300 w-24"
+                              />
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Friday</p>
+                        <label className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-500">End of Practice</span>
+                          <input
+                            type="time"
+                            value={timesDraft.fridaySession.endOfPractice}
+                            onChange={(e) => setTimesDraft((d) => ({ ...d, fridaySession: { endOfPractice: e.target.value } }))}
+                            className="px-2 py-1 rounded border border-slate-300 w-28"
+                          />
+                        </label>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Saturday</p>
+                        <label className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-500">End of Practice</span>
+                          <input
+                            type="time"
+                            value={timesDraft.saturdaySession.endOfPractice}
+                            onChange={(e) => setTimesDraft((d) => ({ ...d, saturdaySession: { ...d.saturdaySession, endOfPractice: e.target.value } }))}
+                            className="px-2 py-1 rounded border border-slate-300 w-28"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-500">Begin Rehearsal</span>
+                          <input
+                            type="time"
+                            value={timesDraft.saturdaySession.beginRehearsal}
+                            onChange={(e) => setTimesDraft((d) => ({ ...d, saturdaySession: { ...d.saturdaySession, beginRehearsal: e.target.value } }))}
+                            className="px-2 py-1 rounded border border-slate-300 w-28"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-500">End of Rehearsal</span>
+                          <input
+                            type="time"
+                            value={timesDraft.saturdaySession.endRehearsal}
+                            onChange={(e) => setTimesDraft((d) => ({ ...d, saturdaySession: { ...d.saturdaySession, endRehearsal: e.target.value } }))}
+                            className="px-2 py-1 rounded border border-slate-300 w-28"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={savingTimes}
+                        onClick={saveTimesEdit}
+                        className="flex-1 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 disabled:opacity-40 transition-colors"
+                      >
+                        {savingTimes ? 'Saving…' : 'Save Changes'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelTimesEdit}
+                        disabled={savingTimes}
+                        className="px-4 py-2 rounded-lg border border-slate-200 text-slate-500 text-sm font-medium hover:bg-slate-50 transition-colors disabled:opacity-40"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // Per-member check-in times no longer repeat here — they're inline on
+                  // each person's own roster row above (see attendanceBadges) — this is
+                  // just the aggregate counts and the session-level (not per-member)
+                  // timing fields.
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Friday {assignedMembers.length > 0 && `· ${fridayArrived}/${assignedMembers.length} arrived`}</p>
+                      <div className="flex justify-between text-xs"><span className="text-slate-500">End of Practice</span><span className="font-semibold text-slate-800">{pa.fridaySession?.endOfPractice || '—'}</span></div>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Saturday {assignedMembers.length > 0 && `· ${satArrived}/${assignedMembers.length} arrived`}</p>
+                      <div className="flex justify-between text-xs"><span className="text-slate-500">End of Practice</span><span className="font-semibold text-slate-800">{pa.saturdaySession?.endOfPractice || '—'}</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-slate-500">Begin Rehearsal</span><span className="font-semibold text-slate-800">{pa.saturdaySession?.beginRehearsal || '—'}</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-slate-500">End of Rehearsal</span><span className="font-semibold text-slate-800">{pa.saturdaySession?.endRehearsal || '—'}</span></div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </motion.div>
         )}
@@ -368,14 +662,315 @@ function dedupeByName(members) {
   })
 }
 
+// ─── Team Performance & Growth Analytics ───────────────────────────────────────
+
+// Matches the app's established violet/indigo worship palette (see TILE_COLORS,
+// gradient banners, etc. throughout this file) plus status green/amber for
+// on-time/late signaling — no new color language introduced.
+const ANALYTICS_COLORS = {
+  violet: '#7c3aed',
+  violetLight: '#ede9fe',
+  indigo: '#6366f1',
+  slate: '#94a3b8',
+  emerald: '#10b981',
+  amber: '#f59e0b',
+  sky: '#0ea5e9',
+}
+const ANALYTICS_BAR_PALETTE = ['#7c3aed', '#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899', '#14b8a6', '#f97316']
+
+const ANALYTICS_RANGE_OPTIONS = [
+  { key: '4w', label: 'Last 4 Weeks', days: 28 },
+  { key: '3m', label: 'Last 3 Months', days: 90 },
+  { key: 'ytd', label: 'Year to Date', days: null },
+]
+
+function analyticsMinsToLabel(mins) {
+  const h = Math.floor(mins / 60) % 24
+  const m = mins % 60
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
+function AnalyticsCard({ title, subtitle, children }) {
+  return (
+    <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-5">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">{title}</p>
+      {subtitle && <p className="text-xs text-slate-400 mt-0.5 mb-3">{subtitle}</p>}
+      {!subtitle && <div className="mb-3" />}
+      {children}
+    </div>
+  )
+}
+
+function AnalyticsEmpty({ label }) {
+  return <p className="text-sm text-slate-400 text-center py-10">{label}</p>
+}
+
+// Self-contained: fetches its own schedule history (rather than depending on
+// whichever other tab happens to have already loaded it) so it works correctly
+// whether or not the Practice/Archives tabs have been visited this session.
+function WorshipAnalyticsDashboard() {
+  const [schedules, setSchedules] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [range, setRange] = useState('4w')
+
+  useEffect(() => {
+    getAllWorshipSchedules(DEPARTMENT)
+      .then(setSchedules)
+      .catch(() => setSchedules([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const filtered = useMemo(() => {
+    const today = new Date()
+    let cutoff
+    if (range === 'ytd') {
+      cutoff = new Date(today.getFullYear(), 0, 1)
+    } else {
+      const opt = ANALYTICS_RANGE_OPTIONS.find((o) => o.key === range)
+      cutoff = new Date(today)
+      cutoff.setDate(cutoff.getDate() - (opt?.days || 28))
+    }
+    const cutoffStr = format(cutoff, 'yyyy-MM-dd')
+    const todayStr = format(today, 'yyyy-MM-dd')
+    return schedules
+      .filter((s) => s.date && isSundayDateStr(s.date) && s.date >= cutoffStr && s.date <= todayStr && (s.assignments || []).some((a) => a.memberId))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [schedules, range])
+
+  // 1. Team Punctuality Trend — weekly average Friday practice arrival time vs the
+  // 8:00 PM benchmark, from the same practiceAttendance.friday check-in data the
+  // Practice/Archives tabs record.
+  const BENCHMARK_MINS = 20 * 60
+  const punctualityData = useMemo(() => {
+    return filtered
+      .map((s) => {
+        const pa = s.practiceAttendance || {}
+        const times = Object.values(pa.friday || {}).map((v) => v.arrivedAt).filter(Boolean)
+        if (!times.length) return null
+        const avgMins = Math.round(
+          times.reduce((sum, t) => {
+            const [h, m] = t.split(':').map(Number)
+            return sum + h * 60 + m
+          }, 0) / times.length
+        )
+        let dateLabel = s.date
+        try { dateLabel = format(new Date(s.date + 'T12:00:00'), 'd MMM') } catch { /* keep raw date */ }
+        return { date: dateLabel, avgMins, checkIns: times.length }
+      })
+      .filter(Boolean)
+  }, [filtered])
+
+  // 2. Role / Song Load Distribution — how many times each member was assigned a
+  // role this period, colored by category (Lead Vocal / Choir / Instruments /
+  // Other) so an over- or under-used member is obvious at a glance.
+  const loadDistribution = useMemo(() => {
+    const counts = {}
+    filtered.forEach((s) => {
+      (s.assignments || []).filter((a) => a.memberId).forEach((a) => {
+        const name = a.memberName || 'Unknown'
+        if (!counts[name]) counts[name] = { name, count: 0, category: roleCategoryLabel(parseRoleKey(a.role).category) }
+        counts[name].count += 1
+      })
+    })
+    return Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 10)
+  }, [filtered])
+
+  // 3. Rehearsal Attendance Rate — per week, the share of that week's assigned
+  // members who checked in (Friday or Saturday) at all; averaged for the headline
+  // percentage across the selected range.
+  const attendanceData = useMemo(() => {
+    return filtered
+      .map((s) => {
+        const pa = s.practiceAttendance || {}
+        const assigned = (s.assignments || [])
+          .filter((a) => a.memberId)
+          .filter((a, i, arr) => arr.findIndex((x) => x.memberId === a.memberId) === i)
+        if (!assigned.length) return null
+        const arrivedIds = new Set([...Object.keys(pa.friday || {}), ...Object.keys(pa.saturday || {})])
+        const arrivedCount = assigned.filter((a) => arrivedIds.has(a.memberId)).length
+        let dateLabel = s.date
+        try { dateLabel = format(new Date(s.date + 'T12:00:00'), 'd MMM') } catch { /* keep raw date */ }
+        return { date: dateLabel, pct: Math.round((arrivedCount / assigned.length) * 100) }
+      })
+      .filter(Boolean)
+  }, [filtered])
+  const overallAttendancePct = attendanceData.length
+    ? Math.round(attendanceData.reduce((sum, d) => sum + d.pct, 0) / attendanceData.length)
+    : null
+
+  // 4. Song Rotation & Frequency — most-played songs (by Lead Vocal assignment
+  // songName) across the setlist history in this period, to spot what needs a rest.
+  const songFrequency = useMemo(() => {
+    const counts = {}
+    filtered.forEach((s) => {
+      (s.assignments || []).filter((a) => a.songName?.trim()).forEach((a) => {
+        const name = a.songName.trim()
+        counts[name] = (counts[name] || 0) + 1
+      })
+    })
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+  }, [filtered])
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="font-semibold text-slate-800 text-base">Team Performance &amp; Growth Analytics</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Punctuality, workload balance, attendance, and setlist variety over time</p>
+        </div>
+        <div className="flex gap-1.5">
+          {ANALYTICS_RANGE_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setRange(opt.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                range === opt.key
+                  ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                  : 'bg-white text-slate-500 border-slate-300 hover:border-violet-400 hover:text-violet-700'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="py-12 text-center text-slate-400 text-sm">Loading analytics…</div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          {/* Team Punctuality Trend */}
+          <AnalyticsCard title="Team Punctuality Trend" subtitle="Avg. Friday practice arrival vs 8:00 PM benchmark">
+            {punctualityData.length === 0 ? (
+              <AnalyticsEmpty label="No practice check-ins recorded in this period." />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={punctualityData} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: ANALYTICS_COLORS.slate }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: ANALYTICS_COLORS.slate }}
+                    axisLine={false}
+                    tickLine={false}
+                    domain={['dataMin - 15', 'dataMax + 15']}
+                    tickFormatter={analyticsMinsToLabel}
+                    width={68}
+                  />
+                  <Tooltip
+                    formatter={(value) => analyticsMinsToLabel(value)}
+                    contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }}
+                  />
+                  <ReferenceLine y={BENCHMARK_MINS} stroke={ANALYTICS_COLORS.amber} strokeDasharray="4 4" label={{ value: '8:00 PM benchmark', fontSize: 10, fill: ANALYTICS_COLORS.amber, position: 'insideTopLeft' }} />
+                  <Line type="monotone" dataKey="avgMins" name="Avg arrival" stroke={ANALYTICS_COLORS.violet} strokeWidth={2.5} dot={{ r: 3, fill: ANALYTICS_COLORS.violet }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </AnalyticsCard>
+
+          {/* Role / Song Load Distribution */}
+          <AnalyticsCard title="Role / Song Load Distribution" subtitle="Assignments per team member this period">
+            {loadDistribution.length === 0 ? (
+              <AnalyticsEmpty label="No assignments recorded in this period." />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={loadDistribution} margin={{ top: 5, right: 12, left: 0, bottom: 24 }}>
+                  <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 9, fill: ANALYTICS_COLORS.slate }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-35} textAnchor="end" interval={0} height={50} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: ANALYTICS_COLORS.slate }} axisLine={false} tickLine={false} width={24} />
+                  <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Bar dataKey="count" name="Assignments" radius={[6, 6, 0, 0]}>
+                    {loadDistribution.map((_, i) => (
+                      <Cell key={i} fill={ANALYTICS_BAR_PALETTE[i % ANALYTICS_BAR_PALETTE.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </AnalyticsCard>
+
+          {/* Rehearsal Attendance Rate */}
+          <AnalyticsCard title="Rehearsal Attendance Rate" subtitle="Share of assigned members who checked in, per week">
+            {attendanceData.length === 0 ? (
+              <AnalyticsEmpty label="No practice check-ins recorded in this period." />
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <span
+                    className="text-3xl font-black shrink-0"
+                    style={{ color: overallAttendancePct >= 80 ? ANALYTICS_COLORS.emerald : overallAttendancePct >= 60 ? ANALYTICS_COLORS.amber : '#ef4444' }}
+                  >
+                    {overallAttendancePct}%
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-xs text-slate-500 font-medium">Average attendance across {attendanceData.length} week{attendanceData.length !== 1 ? 's' : ''}</p>
+                    <div className="w-full h-2.5 rounded-full bg-slate-100 mt-1.5 overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${overallAttendancePct}%`,
+                          background: overallAttendancePct >= 80 ? ANALYTICS_COLORS.emerald : overallAttendancePct >= 60 ? ANALYTICS_COLORS.amber : '#ef4444',
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {attendanceData.map((d, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-400 w-12 shrink-0">{d.date}</span>
+                      <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${d.pct}%`, background: d.pct >= 80 ? ANALYTICS_COLORS.emerald : d.pct >= 60 ? ANALYTICS_COLORS.amber : '#ef4444' }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-semibold text-slate-500 w-9 text-right shrink-0">{d.pct}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </AnalyticsCard>
+
+          {/* Song Rotation & Frequency */}
+          <AnalyticsCard title="Song Rotation & Frequency" subtitle="Most-played songs in this period's setlists">
+            {songFrequency.length === 0 ? (
+              <AnalyticsEmpty label="No songs recorded in this period's setlists." />
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(220, songFrequency.length * 32)}>
+                <BarChart data={songFrequency} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#f1f5f9" horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: ANALYTICS_COLORS.slate }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#1e293b' }} axisLine={false} tickLine={false} width={140} />
+                  <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Bar dataKey="count" name="Times played" fill={ANALYTICS_COLORS.violet} radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </AnalyticsCard>
+
+        </div>
+      )}
+    </div>
+  )
+}
+
 // A team member's card, collapsed to just Name + Duration by default — position
 // tags, the Director badge, and management actions all stay hidden until the card
 // itself is clicked to expand. Shared by both places member cards render (the
 // standalone Team tab and Operations > Team), so the collapse/expand and ⋮ actions
 // menu behavior stays identical between them.
-function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEdit, onDelete, onLink }) {
+function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEdit, onDelete, onLink, stats }) {
   const [expanded, setExpanded] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   const since = new Date(m.memberSince)
   const till = isFormer && m.formerSince ? new Date(m.formerSince) : new Date()
@@ -384,6 +979,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
   const totalDays = isFormer ? differenceInDays(till, since) : null
 
   return (
+    <>
     <div
       className={`relative rounded-xl border p-3 flex flex-col gap-2 shadow-sm transition-colors cursor-pointer ${
         isFormer
@@ -412,7 +1008,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
         </p>
       </div>
 
-      {/* Expanded details — positions, Director badge, ⋮ actions menu */}
+      {/* Expanded details — positions, Director badge, individual record, ⋮ actions menu */}
       {expanded && (
         <div className="pt-2 mt-1 border-t border-slate-100 flex flex-col gap-2" onClick={(e) => e.stopPropagation()} role="presentation">
           {(m.isWorshipDirector || m.positions?.length > 0) && (
@@ -423,6 +1019,30 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
               {(m.positions || []).map(p => (
                 <span key={p} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{p}</span>
               ))}
+            </div>
+          )}
+
+          {/* Individual Record / Performance Summary — cumulative song counts by role
+              across every published Sunday setlist, computed in the parent component
+              (computeMemberSongStats) from all worship_schedule assignments. */}
+          {stats && stats.total > 0 && (
+            <div className="rounded-lg bg-violet-50/60 border border-violet-100 px-2.5 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700 mb-1">
+                Total Songs: {stats.total}
+              </p>
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                {Object.entries(stats.byCategory)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([cat, count]) => `${roleCategoryLabel(cat)}: ${count} song${count === 1 ? '' : 's'}`)
+                  .join(' | ')}
+              </p>
+              <button
+                type="button"
+                onClick={() => setDetailOpen(true)}
+                className="mt-1.5 text-[10px] font-semibold text-violet-600 hover:text-violet-800 hover:underline"
+              >
+                Individual Record →
+              </button>
             </div>
           )}
         </div>
@@ -472,6 +1092,77 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
         </div>
       )}
     </div>
+
+    {/* Individual Record detail modal — full role breakdown + historical services/
+        songs, newest first. Rendered outside the card's own click-to-expand div so
+        it isn't affected by that handler. */}
+    {detailOpen && (
+      <div
+        className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        onClick={() => setDetailOpen(false)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${m.name} — Individual Record`}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-md max-h-[85vh] flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden"
+        >
+          <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-violet-500">Individual Record</p>
+              <h3 className="text-base font-bold text-slate-800 truncate">{m.name}</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDetailOpen(false)}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors shrink-0"
+              aria-label="Close"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            <div>
+              <p className="text-sm font-bold text-slate-800 mb-2">Total Songs: {stats?.total || 0}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(stats?.byCategory || {})
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([cat, count]) => (
+                    <span key={cat} className="text-xs font-medium px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      {roleCategoryLabel(cat)}: {count}
+                    </span>
+                  ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Service History</p>
+              {(stats?.history || []).length === 0 ? (
+                <p className="text-sm text-slate-400 italic">No recorded services yet.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {stats.history.map((h, i) => {
+                    let fmtDate = h.date
+                    try { fmtDate = format(new Date(h.date + 'T12:00:00'), 'd MMM yyyy') } catch {}
+                    return (
+                      <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{h.songName}{h.key && <span className="text-violet-600 font-semibold"> ({h.key})</span>}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">{fmtDate} · {roleCategoryLabel(h.category)}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 
@@ -621,6 +1312,7 @@ export default function DepartmentWorship() {
   const [archiveSchedules, setArchiveSchedules] = useState([])
   const [loadingArchives, setLoadingArchives] = useState(false)
   const [openArchiveIds, setOpenArchiveIds] = useState({})
+  const [teamStatsSchedules, setTeamStatsSchedules] = useState([])
   const [rehearsals, setRehearsals] = useState([])
   const [loadingRehearsals, setLoadingRehearsals] = useState(false)
   const [rehearsalModalOpen, setRehearsalModalOpen] = useState(false)
@@ -639,21 +1331,7 @@ export default function DepartmentWorship() {
   const [selectedPracticeSunday, setSelectedPracticeSunday] = useState(null)
   const [practiceSundayOptions, setPracticeSundayOptions] = useState([])
   const [allPracticeSchedules, setAllPracticeSchedules] = useState([])
-  const [forthcomingSchedule, setForthcomingSchedule] = useState(null)
-  const [loadingForthcoming, setLoadingForthcoming] = useState(false)
-  const [distributing, setDistributing] = useState(false)
   const [loadingWeekBoxes, setLoadingWeekBoxes] = useState(false)
-  const [practiceSubPage, setPracticeSubPage] = useState('schedule')
-  const [recordsSchedules, setRecordsSchedules] = useState([])
-  const [loadingRecords, setLoadingRecords] = useState(false)
-  // Manual time entry/editing in the Records tab — `editingRecordId` is the schedule
-  // doc currently in edit mode (only one at a time), `recordEditDraft` holds the
-  // in-progress {friday, saturday, fridaySession, saturdaySession} edits for it until
-  // Save writes them back to the same practiceAttendance field the Schedule sub-page
-  // reads/writes, so both tabs always agree on the same data.
-  const [editingRecordId, setEditingRecordId] = useState(null)
-  const [recordEditDraft, setRecordEditDraft] = useState(null)
-  const [savingRecord, setSavingRecord] = useState(false)
 
   // Songs Directory
   const [songs, setSongs] = useState([])
@@ -692,6 +1370,20 @@ export default function DepartmentWorship() {
     next.delete('newSong')
     setSearchParams(next, { replace: true })
   }, [activeTab, searchParams, canManageWorshipSongs])
+
+  // Deep link from the Upcoming Worship workspace widget's "Assign Team for {date}"
+  // placeholder button (?tab=assign&assignDate=yyyy-mm-dd) — jumps straight to that
+  // Sunday instead of landing on whatever selectedDate defaulted to. Consumes/strips
+  // the flag, same as newSong above.
+  useEffect(() => {
+    if (activeTab !== 'assign') return
+    const d = searchParams.get('assignDate')
+    if (!d || !isSundayDateStr(d)) return
+    setSelectedDate(d)
+    const next = new URLSearchParams(searchParams)
+    next.delete('assignDate')
+    setSearchParams(next, { replace: true })
+  }, [activeTab, searchParams])
 
   const [savingSong, setSavingSong] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
@@ -802,16 +1494,6 @@ export default function DepartmentWorship() {
   }, [activeTab, selectedDate])
 
   useEffect(() => {
-    if (activeTab !== 'summary') return
-    const sunday = getForthcomingSunday()
-    setLoadingForthcoming(true)
-    getWorshipScheduleByDate(DEPARTMENT, sunday)
-      .then(setForthcomingSchedule)
-      .catch(() => setForthcomingSchedule(null))
-      .finally(() => setLoadingForthcoming(false))
-  }, [activeTab])
-
-  useEffect(() => {
     setLocalAssignments(scheduleForDate.assignments || [])
     setRoleRowCounts({})
   }, [scheduleForDate])
@@ -859,38 +1541,35 @@ export default function DepartmentWorship() {
   }, [selectedPracticeSunday, allPracticeSchedules])
 
   useEffect(() => {
-    if (activeTab !== 'practiceRehearsal' || practiceSubPage !== 'records') return
-    setLoadingRecords(true)
-    getAllWorshipSchedules(DEPARTMENT)
-      .then(all => {
-        // Records = every week except the one currently shown in the Schedule sub-page's
-        // box, that has at least one assigned member. Service records are Sunday-only —
-        // a stray non-Sunday date (e.g. from the "pick a custom date" input before it
-        // was constrained) must never surface here as if it were a service week.
-        const records = all
-          .filter(s => isSundayDateStr(s.date) && s.date !== selectedPracticeSunday && (s.assignments || []).some(a => a.memberId))
-          .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-        setRecordsSchedules(records)
-      })
-      .catch(() => setRecordsSchedules([]))
-      .finally(() => setLoadingRecords(false))
-  }, [activeTab, practiceSubPage, selectedPracticeSunday])
-
-  useEffect(() => {
     if (activeTab !== 'archives') return
     setLoadingArchives(true)
     getAllWorshipSchedules(DEPARTMENT)
       .then((all) => {
-        const today = format(new Date(), 'yyyy-MM-dd')
-        // Archives are Sunday-only service records — see isSundayDateStr above.
-        const past = all
-          .filter((s) => s.date && s.date < today && isSundayDateStr(s.date) && (s.assignments || []).some((a) => a.memberId))
+        // Archives are Sunday-only service records — see isSundayDateStr above. No
+        // longer waits for the date to pass (or for a full publish step, which this
+        // data model doesn't have anyway) — an upcoming assigned Sunday shows here
+        // right alongside history, with whatever live/partial setlist and practice
+        // attendance data it already has.
+        const withData = all
+          .filter((s) => s.date && isSundayDateStr(s.date) && (s.assignments || []).some((a) => a.memberId))
           .sort((a, b) => b.date.localeCompare(a.date))
-        setArchiveSchedules(past)
+        setArchiveSchedules(withData)
       })
       .catch(() => setArchiveSchedules([]))
       .finally(() => setLoadingArchives(false))
   }, [activeTab])
+
+  // Every published Sunday setlist with at least one assigned member — the source
+  // data for each team member's Individual Record / Performance Summary in The Team
+  // tab (see computeMemberSongStats above and WorshipMemberCard's `stats` prop).
+  useEffect(() => {
+    if (activeTab !== 'theTeam') return
+    getAllWorshipSchedules(DEPARTMENT)
+      .then((all) => setTeamStatsSchedules(all.filter((s) => (s.assignments || []).some((a) => a.memberId))))
+      .catch(() => setTeamStatsSchedules([]))
+  }, [activeTab])
+
+  const memberSongStats = useMemo(() => computeMemberSongStats(teamStatsSchedules), [teamStatsSchedules])
 
   function getLocalField(role, field) {
     const a = localAssignments.find((x) => x.role === role)
@@ -960,9 +1639,6 @@ export default function DepartmentWorship() {
       setScheduleForDate((s) => ({ ...s, assignments: sanitizedAssignments }))
       setAssignStamp({ date: selectedDate, assignments: [...sanitizedAssignments], savedAt: new Date() })
       setStampOpen(false)
-      if (selectedDate === getForthcomingSunday()) {
-        setForthcomingSchedule(prev => ({ ...(prev || {}), date: selectedDate, assignments: [...sanitizedAssignments] }))
-      }
 
       // Update the Schedule box to show only this Sunday; move old box to Records
       const prevBox = weekBoxSchedules[0]
@@ -985,12 +1661,6 @@ export default function DepartmentWorship() {
       setSelectedPracticeSunday(selectedDate)
       setAllPracticeSchedules(prev => [...prev.filter(s => s.date !== selectedDate), newBox.schedule])
       setPracticeSundayOptions(prev => Array.from(new Set([...prev, selectedDate])).sort())
-      if (prevBox && prevBox.sundayDate !== selectedDate && (prevBox.schedule?.assignments || []).some(a => a.memberId)) {
-        setRecordsSchedules(prev =>
-          [prevBox.schedule, ...prev.filter(s => s.date !== prevBox.sundayDate)]
-            .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-        )
-      }
 
       // Auto-create or update practice session for the Saturday before this Sunday
       const practiceDateStr = format(subDays(new Date(selectedDate + 'T12:00:00'), 1), 'yyyy-MM-dd')
@@ -1113,144 +1783,6 @@ export default function DepartmentWorship() {
     )
   }
 
-  async function generateAndSharePlan() {
-    setDistributing(true)
-    try {
-      // Use whichever Sunday is currently selected in the "Coming Sundays" strip
-      // (scheduleForDate is kept in sync with selectedDate via the loadScheduleForDate
-      // effect) — not always the immediately forthcoming one.
-      const sunday = selectedDate
-      const fas = scheduleForDate?.assignments || []
-      const assigned = fas.filter(a => a.memberId)
-      const songs    = fas.filter(a => a.songName)
-      const vocals   = assigned.filter(a => /vocal|parts|choir/i.test(a.role))
-      const band     = assigned.filter(a => /guitar|bass|drum|keyboard/i.test(a.role))
-      const tech     = assigned.filter(a => /sound|media/i.test(a.role))
-      const groups   = [
-        { label: 'VOCALS & CHOIR', items: vocals },
-        { label: 'BAND', items: band },
-        { label: 'TECH', items: tech },
-        { label: 'SETLIST', items: songs, isSongs: true },
-      ].filter(g => g.items.length)
-
-      const W = 800, PAD = 48
-      const HEADER_H = 168, SECTION_H = 44, ROW_H = 38, GAP = 20, FOOTER_H = 60
-      let contentH = GAP
-      groups.forEach(g => { contentH += SECTION_H + g.items.length * ROW_H + GAP })
-      const H = HEADER_H + contentH + FOOTER_H
-
-      const canvas = document.createElement('canvas')
-      canvas.width = W
-      canvas.height = H
-      const ctx = canvas.getContext('2d')
-
-      // Background
-      ctx.fillStyle = '#f5f3ff'
-      ctx.fillRect(0, 0, W, H)
-
-      // Header gradient
-      const grad = ctx.createLinearGradient(0, 0, W, HEADER_H)
-      grad.addColorStop(0, '#7c3aed')
-      grad.addColorStop(1, '#5b21b6')
-      ctx.fillStyle = grad
-      ctx.fillRect(0, 0, W, HEADER_H)
-
-      ctx.textBaseline = 'alphabetic'
-      ctx.fillStyle = 'rgba(255,255,255,0.6)'
-      ctx.font = 'bold 18px Arial, sans-serif'
-      ctx.textAlign = 'left'
-      ctx.fillText('ROL CHURCH', PAD, 52)
-
-      ctx.fillStyle = '#ffffff'
-      ctx.font = 'bold 34px Arial, sans-serif'
-      ctx.fillText('SUNDAY WORSHIP PLAN', PAD, 100)
-
-      ctx.fillStyle = 'rgba(255,255,255,0.82)'
-      ctx.font = '22px Arial, sans-serif'
-      ctx.fillText(format(new Date(sunday + 'T12:00:00'), 'EEEE, d MMMM yyyy'), PAD, 140)
-
-      // Content rows
-      let y = HEADER_H + GAP
-      groups.forEach((group, gi) => {
-        if (gi > 0) y += GAP
-
-        // Section label bar
-        ctx.fillStyle = '#ede9fe'
-        ctx.fillRect(0, y, W, SECTION_H - 6)
-        ctx.fillStyle = '#6d28d9'
-        ctx.font = 'bold 13px Arial, sans-serif'
-        ctx.textAlign = 'left'
-        ctx.fillText(group.label, PAD, y + SECTION_H - 18)
-        y += SECTION_H
-
-        group.items.forEach((a, idx) => {
-          ctx.fillStyle = idx % 2 === 0 ? '#fafafe' : '#ffffff'
-          ctx.fillRect(0, y, W, ROW_H)
-
-          if (group.isSongs) {
-            ctx.fillStyle = '#a78bfa'
-            ctx.font = 'bold 14px Arial, sans-serif'
-            ctx.textAlign = 'right'
-            ctx.fillText(String(idx + 1) + '.', PAD + 18, y + ROW_H - 11)
-            ctx.fillStyle = '#1e1b4b'
-            ctx.font = '600 16px Arial, sans-serif'
-            ctx.textAlign = 'left'
-            ctx.fillText(a.songName || '', PAD + 28, y + ROW_H - 11)
-            if (a.key) {
-              const sw = ctx.measureText(a.songName || '').width
-              ctx.fillStyle = '#94a3b8'
-              ctx.font = '13px Arial, sans-serif'
-              ctx.fillText(`(${a.key})`, PAD + 28 + sw + 8, y + ROW_H - 11)
-            }
-          } else {
-            ctx.fillStyle = '#7c3aed'
-            ctx.font = '13px Arial, sans-serif'
-            ctx.textAlign = 'left'
-            ctx.fillText(a.role.replace(/-\d+$/, ''), PAD, y + ROW_H - 11)
-            ctx.fillStyle = '#111827'
-            ctx.font = '600 16px Arial, sans-serif'
-            ctx.fillText(a.memberName || '—', PAD + 220, y + ROW_H - 11)
-          }
-          y += ROW_H
-        })
-      })
-
-      // Footer bar
-      ctx.fillStyle = '#7c3aed'
-      ctx.fillRect(0, H - FOOTER_H, W, FOOTER_H)
-      ctx.fillStyle = 'rgba(255,255,255,0.7)'
-      ctx.font = '14px Arial, sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText('Generated by ROL Admin App', W / 2, H - FOOTER_H + 36)
-
-      // Convert to JPEG blob
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92))
-      const filename = `worship-plan-${sunday}.jpg`
-      const file = new File([blob], filename, { type: 'image/jpeg' })
-
-      // Download the image first
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      link.click()
-      URL.revokeObjectURL(url)
-
-      // Then open WhatsApp directly
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-      setTimeout(() => {
-        if (isMobile) {
-          window.location.href = 'whatsapp://'
-        } else {
-          window.open('https://web.whatsapp.com', '_blank')
-        }
-      }, 600)
-    } catch (err) {
-      if (err?.name !== 'AbortError') alert('Could not generate plan image.')
-    }
-    setDistributing(false)
-  }
-
   const savedAssignments = scheduleForDate.assignments || []
 
   const anniversaryAlerts = activeMembers.flatMap(m => {
@@ -1297,143 +1829,40 @@ export default function DepartmentWorship() {
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">
 
-          {/* ── Forthcoming Sunday plan card ── */}
-          {(() => {
-            const sunday = getForthcomingSunday()
-            const visible = isBeforeSundayEvening(sunday)
-            if (!visible) return null
-            if (loadingForthcoming) return (
-              <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-violet-100 shadow-sm px-5 py-4 text-sm text-slate-400">
-                Loading this Sunday's plan…
-              </div>
-            )
-            const fas = forthcomingSchedule?.assignments || []
-            const assigned = fas.filter(a => a.memberId)
-            const songs = fas.filter(a => a.songName)
-            if (assigned.length === 0) return (
-              <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-violet-100 shadow-sm px-5 py-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-violet-400">Forthcoming Sunday</p>
-                  <p className="text-sm font-semibold text-slate-700 mt-0.5">{format(new Date(sunday + 'T12:00:00'), 'EEEE, d MMMM yyyy')}</p>
-                  <p className="text-xs text-slate-400 mt-1">No plan saved yet — go to the Assign tab to set up.</p>
-                </div>
-              </div>
-            )
-            // Group assigned roles by category
-            const vocals  = assigned.filter(a => /vocal|parts|choir/i.test(a.role))
-            const band    = assigned.filter(a => /guitar|bass|drum|keyboard/i.test(a.role))
-            const tech    = assigned.filter(a => /sound|media/i.test(a.role))
-            return (
-              <div className="bg-white/90 backdrop-blur-sm rounded-2xl border border-violet-200 shadow-md overflow-hidden">
-                {/* Card header */}
-                <div className="px-5 py-4 bg-gradient-to-r from-violet-600 to-violet-700 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-violet-200">This Sunday's Worship Plan</p>
-                    <p className="text-lg font-black text-white mt-0.5">
-                      {format(new Date(sunday + 'T12:00:00'), 'EEEE, d MMMM yyyy')}
-                    </p>
-                  </div>
-                  <span className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 text-white text-xs font-bold">
-                    <CheckCircle2 size={11} />
-                    Plan Ready
-                  </span>
-                </div>
+          {/* ── Team Performance & Growth Analytics — leads the Hub so it opens on
+              performance insights rather than a repeat of the Assign tab's plan. ── */}
+          <WorshipAnalyticsDashboard />
 
-                {/* Stats row */}
-                <div className="flex divide-x divide-slate-100 border-b border-slate-100">
-                  {[
-                    { label: 'Assigned', value: countAssignedCategories(assigned), sub: `of ${ROLE_CATEGORIES.length} roles`, color: 'text-violet-700' },
-                    { label: 'Songs', value: songs.length, sub: 'in setlist', color: 'text-sky-600' },
-                    { label: 'Team Pool', value: activeMembers.length, sub: 'active', color: 'text-emerald-600' },
-                  ].map(({ label, value, sub, color }) => (
-                    <div key={label} className="flex-1 px-4 py-3 text-center">
-                      <p className={`text-xl font-black ${color}`}>{value}</p>
-                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">{label}</p>
-                      <p className="text-[10px] text-slate-400">{sub}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Role groups */}
-                <div className="px-5 py-4 space-y-3">
-                  {[
-                    { label: 'Vocals & Choir', items: vocals },
-                    { label: 'Band', items: band },
-                    { label: 'Tech', items: tech },
-                  ].filter(g => g.items.length > 0).map(group => (
-                    <div key={group.label}>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">{group.label}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {group.items.map(a => (
-                          <span key={a.role} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-50 border border-violet-100 text-xs font-medium text-violet-800">
-                            <span className="text-[10px] text-violet-400">{a.role.replace(/-\d+$/, '')}</span>
-                            <span className="font-bold">{a.memberName || '—'}</span>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Setlist */}
-                  {songs.length > 0 && (
-                    <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Setlist</p>
-                      <ol className="space-y-0.5">
-                        {songs.map((a, i) => (
-                          <li key={i} className="flex items-center gap-2 text-sm">
-                            <span className="text-[10px] text-slate-400 w-4 text-right">{i + 1}.</span>
-                            <span className="text-slate-800 font-medium">{a.songName}</span>
-                            {a.key && <span className="text-[10px] text-slate-400">({a.key})</span>}
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Header strip: Coming Sundays + Distribute button */}
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400 shrink-0">Coming Sundays</span>
-              {upcomingSundays(2).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setSelectedDate(d)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                    selectedDate === d
-                      ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
-                      : 'bg-white text-slate-600 border-slate-300 hover:border-violet-400 hover:text-violet-700'
-                  }`}
-                >
-                  {format(new Date(d), 'd MMM')}
-                </button>
-              ))}
-              <input
-                type="date"
-                value={selectedDate}
-                // Service dates are Sunday-only — min anchored to a known Sunday with
-                // step=7 makes Chromium's calendar UI grey out every non-Sunday day;
-                // onChange snaps forward to the nearest Sunday as a fallback for
-                // browsers that don't enforce step visually (e.g. a typed/pasted date).
-                min="2024-01-07"
-                step={7}
-                onChange={(e) => { if (e.target.value) setSelectedDate(snapToSunday(e.target.value)) }}
-                className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
-              />
-            </div>
-            <button
-              type="button"
-              disabled={distributing}
-              onClick={generateAndSharePlan}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-semibold shadow-sm transition"
-            >
-              <Send size={14} />
-              {distributing ? 'Generating…' : 'Distribute Plan to Team'}
-            </button>
+          {/* Header strip: Coming Sundays — "Distribute Plan to Team" moved to My
+              Workspace's Worship card, alongside Share Setlist. */}
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm px-4 py-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-widest text-slate-400 shrink-0">Coming Sundays</span>
+            {upcomingSundays(2).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setSelectedDate(d)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                  selectedDate === d
+                    ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                    : 'bg-white text-slate-600 border-slate-300 hover:border-violet-400 hover:text-violet-700'
+                }`}
+              >
+                {format(new Date(d), 'd MMM')}
+              </button>
+            ))}
+            <input
+              type="date"
+              value={selectedDate}
+              // Service dates are Sunday-only — min anchored to a known Sunday with
+              // step=7 makes Chromium's calendar UI grey out every non-Sunday day;
+              // onChange snaps forward to the nearest Sunday as a fallback for
+              // browsers that don't enforce step visually (e.g. a typed/pasted date).
+              min="2024-01-07"
+              step={7}
+              onChange={(e) => { if (e.target.value) setSelectedDate(snapToSunday(e.target.value)) }}
+              className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
+            />
           </div>
 
           {/* Anniversary alerts */}
@@ -1517,29 +1946,9 @@ export default function DepartmentWorship() {
                 </div>
               </div>
 
-              {/* Row 2: Full Team Roster */}
-              <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-md p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Full Team Roster</p>
-                  <span className="text-xs text-slate-400">{savedAssignments.filter(a => a.memberId).length} confirmed</span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-                  {savedAssignments.filter(a => a.memberId).map((a) => (
-                    <div key={a.role} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-50/80 border border-slate-100">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                        {a.memberName?.charAt(0)?.toUpperCase() || '?'}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-slate-800 truncate">{a.memberName}</p>
-                        <p className="text-[10px] text-slate-500 truncate">{a.role}</p>
-                      </div>
-                      <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Row 3: Setlist + Files & Contacts */}
+              {/* Row 3: Setlist + Files & Contacts — the roster breakdown that used to
+                  sit here (Row 2: Full Team Roster) is dropped; the same breakdown
+                  already exists in My Workspace's Upcoming Worship widget. */}
               <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
                 {/* Music Setlist — only shown when there are songs */}
@@ -2162,6 +2571,7 @@ export default function DepartmentWorship() {
                     onEdit={(mm) => setEditMember({ ...mm })}
                     onDelete={handleDeleteMember}
                     onLink={!m.personId ? (mm) => setWorshipMemberLinking(mm) : undefined}
+                    stats={memberSongStats[m.id]}
                   />
                 ))}
               </div>
@@ -2186,6 +2596,7 @@ export default function DepartmentWorship() {
                     onEdit={(mm) => setEditMember({ ...mm })}
                     onDelete={handleDeleteMember}
                     onLink={!m.personId ? (mm) => setWorshipMemberLinking(mm) : undefined}
+                    stats={memberSongStats[m.id]}
                   />
                 ))}
               </div>
@@ -2561,8 +2972,8 @@ export default function DepartmentWorship() {
               )}
             </div>
 
-          {/* ── Custom Sessions (schedule view only) ── */}
-          {practiceSubPage === 'schedule' && (loadingRehearsals || rehearsals.length > 0) && (
+          {/* ── Custom Sessions ── */}
+          {(loadingRehearsals || rehearsals.length > 0) && (
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Custom Sessions</p>
 
@@ -3060,6 +3471,14 @@ export default function DepartmentWorship() {
                   stamp={stamp}
                   isOpen={!!openArchiveIds[stamp.id]}
                   onToggle={() => setOpenArchiveIds((prev) => ({ ...prev, [stamp.id]: !prev[stamp.id] }))}
+                  canManageWorship={canManageWorship}
+                  onSaveTimes={async (scheduleId, updatedPA) => {
+                    await updateWorshipScheduleById(scheduleId, { practiceAttendance: updatedPA })
+                    setArchiveSchedules((prev) => prev.map((s) => (s.id === scheduleId ? { ...s, practiceAttendance: updatedPA } : s)))
+                    // Keep the live Schedule sub-page's cached box in sync too, in case
+                    // this same week happens to be showing there.
+                    setWeekBoxSchedules((prev) => prev.map((w) => (w.schedule?.id === scheduleId ? { ...w, schedule: { ...w.schedule, practiceAttendance: updatedPA } } : w)))
+                  }}
                 />
               ))}
             </div>
