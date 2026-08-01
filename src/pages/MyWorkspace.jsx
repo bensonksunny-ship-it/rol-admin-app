@@ -1,5 +1,5 @@
+import { useOutletContext } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import useActionNotifications from '../hooks/useActionNotifications'
 import WorkspaceHeader from '../components/workspace/WorkspaceHeader'
 import ToDoListCard from '../components/workspace/ToDoListCard'
 import EdenGardenGrid from '../components/workspace/EdenGardenGrid'
@@ -15,8 +15,11 @@ function greeting() {
 // Universal landing page ('/') for every signed-in user — the single home base for
 // someone who manages one or several departments/ministries. Department navigation
 // lives in the global bottom dock (rendered once from MainLayout, not this page).
-// WorkspaceHeader keeps notifications/messages (top bar) — only the sidebar rail was
-// simplified down to just the My Workspace shortcut + profile avatar.
+// On mobile, the bell/messages/board icons WorkspaceHeader renders now live inline in
+// Sidebar's top bar (next to the logo/menu) instead of in the greeting row below — so
+// this page only shows its own WorkspaceHeader copy at lg+ (`hidden lg:flex`), reading
+// the same lifted notifications data via Outlet context (see MainLayout) rather than
+// subscribing a second time.
 //
 // Visual language ("Modern Soft Warmth"): a warm serif greeting over the app's plain
 // background, no boxed container around it — see the design review at
@@ -26,18 +29,18 @@ function greeting() {
 // single unified surface (ToDoListCard's own soft glass panel) with no outer box,
 // so content rests directly on the page background instead.
 export default function MyWorkspace() {
-  const { user, userProfile, isFounder } = useAuth()
+  const { userProfile, isFounder } = useAuth()
   const {
     notifications, handleNotifAction, dismissNotification, addNotificationToTodo,
-  } = useActionNotifications(userProfile, isFounder, user?.uid)
+  } = useOutletContext()
 
   return (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-3 sm:space-y-6 pb-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-[#8a8377] dark:text-slate-400">{greeting()}</p>
           <h1
-            className="text-[26px] sm:text-[30px] mt-1 leading-tight text-[#2b2620] dark:text-slate-50"
+            className="text-lg sm:text-2xl font-semibold mt-0.5 leading-tight text-[#2b2620] dark:text-slate-50"
             style={{
               fontFamily: 'Constantia, "Iowan Old Style", "Palatino Linotype", Georgia, serif',
               letterSpacing: '-0.005em',
@@ -51,12 +54,14 @@ export default function MyWorkspace() {
             )}
           </h1>
         </div>
-        <WorkspaceHeader
-          notifications={notifications}
-          onNotifAction={handleNotifAction}
-          onDismissNotification={dismissNotification}
-          onAddNotificationToTodo={addNotificationToTodo}
-        />
+        <div className="hidden lg:flex">
+          <WorkspaceHeader
+            notifications={notifications}
+            onNotifAction={handleNotifAction}
+            onDismissNotification={dismissNotification}
+            onAddNotificationToTodo={addNotificationToTodo}
+          />
+        </div>
       </div>
 
       {isFounder && <EdenGardenGrid />}

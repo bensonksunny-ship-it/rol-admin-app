@@ -977,16 +977,35 @@ export async function deleteWorshipRehearsal(id) {
   await deleteDoc(doc(db, WORSHIP_REHEARSALS_COLLECTION, id))
 }
 
+// A worship_schedule doc's `date` is always a Sunday service date — snaps any other
+// weekday forward to its nearest Sunday so a stray caller (a free-typed date input, a
+// timezone-shifted date string, etc.) can never persist a non-Sunday "service" record
+// that Archives/Records would then have to filter back out. Anchored to noon so the
+// day-of-week check itself is never off by one from a timezone shift.
+function normalizeToSunday(dateStr) {
+  const d = new Date(String(dateStr).slice(0, 10) + 'T12:00:00')
+  if (isNaN(d.getTime())) return dateStr
+  const diff = (7 - d.getDay()) % 7
+  d.setDate(d.getDate() + diff)
+  // Local date components, not toISOString() (which converts to UTC and can shift
+  // the calendar date near midnight in timezones far from UTC).
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export async function setWorshipScheduleByDate(department, date, assignments, updatedBy, extra = {}) {
   if (!db) return null
+  const normalizedDate = normalizeToSunday(date)
   const q = query(
     collection(db, 'worship_schedule'),
     where('department', '==', department)
   )
   const snap = await getDocs(q)
-  const existing = snap.docs.find((doc) => doc.data().date === date)
+  const existing = snap.docs.find((doc) => doc.data().date === normalizedDate)
   const payload = stripUndefinedDeep({
-    department, date, assignments, updatedBy: updatedBy || '', updatedAt: Timestamp.now(), ...extra,
+    department, date: normalizedDate, assignments, updatedBy: updatedBy || '', updatedAt: Timestamp.now(), ...extra,
   })
   if (existing) {
     await updateDoc(doc(db, 'worship_schedule', existing.id), payload)

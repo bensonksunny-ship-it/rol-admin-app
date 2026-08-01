@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { PenLine } from 'lucide-react'
+import { PenLine, LayoutGrid } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { DEPARTMENT_LIST, getDepartmentByName, getDepartmentPath, getDepartmentIcon } from '../../constants/departments'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
@@ -43,23 +43,24 @@ function myDepartmentNames(userProfile, isFounder) {
   })
 }
 
-// Floating, iPhone-style dock of the user's departments, fixed bottom-center — the
-// sole navigation surface on every screen size. There is no separate mobile bottom
-// tab bar anymore (Sidebar's MobileHeader is just the logo + profile avatar), so this
-// dock is what carries department navigation on phones too, with room for the home
-// indicator via safe-area-inset-bottom.
+// Floating, single nameless launcher button, fixed bottom-center — the sole
+// navigation surface on every screen size. There is no separate mobile bottom tab bar
+// anymore (Sidebar's MobileHeader is just the logo + profile avatar), so this is what
+// carries department navigation on phones too, with room for the home indicator via
+// safe-area-inset-bottom.
 //
-// Tapping a department tile opens a centered, iOS-Home-Screen-style folder modal
-// (DepartmentFolderModal) listing its subpages (from getDepartmentSubpages) instead
-// of navigating straight to the hub — this is what replaced the old per-page
-// DepartmentTabBar pill row.
+// Previously this rendered one labeled tile per accessible department; now it's a
+// single icon-only floating action button. Tapping it opens the unified menu
+// (DepartmentFolderModal) — one flat overlay listing every accessible department's
+// icon and subpages simultaneously, with no per-department drill-down popup and no
+// collapse/toggle step to reveal a department's own tiles.
 export default function DepartmentDock() {
   const { userProfile, isFounder } = useAuth()
   const navigate = useNavigate()
   const { pathname, search } = useLocation()
-  const [openKey, setOpenKey] = useState(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
-  useEffect(() => { setOpenKey(null) }, [pathname])
+  useEffect(() => { setMenuOpen(false) }, [pathname])
 
   const tiles = myDepartmentNames(userProfile, isFounder).map((name) => {
     const dept = getDepartmentByName(name)
@@ -78,15 +79,18 @@ export default function DepartmentDock() {
 
   if (tiles.length === 0) return null
 
-  const activeTile = tiles.find((t) => pathname === t.to || pathname.startsWith(t.to + '/') || pathname.startsWith(t.to + '?'))
-  const openTile = tiles.find((t) => t.key === openKey)
+  // A tile with no subpages of its own (e.g. Weekly Entry) still gets its own section
+  // in the flat menu, synthesized down to a single tile that navigates straight there
+  // — so every accessible destination is reachable from this one overlay.
+  const menuDepartments = tiles.map((t) =>
+    t.subpages.length > 0 ? t : { ...t, subpages: [{ key: t.key, label: t.label, to: t.to, Icon: t.Icon }] }
+  )
 
-  // If the tile being opened is also the one the user is currently on, drop them
-  // straight into whichever nested category (Operations, Cell's Leader Entry) they're
-  // actually viewing instead of the top-level department grid — "tapping the dock icon
-  // while inside a sub-category shows that sub-category's nested pages".
+  // Whichever department/nested category the user is currently viewing, so opening
+  // the menu drills that one section straight into the matching child grid instead of
+  // its own top-level tiles.
+  const activeTile = tiles.find((t) => pathname === t.to || pathname.startsWith(t.to + '/') || pathname.startsWith(t.to + '?'))
   const currentTab = new URLSearchParams(search).get('tab')
-  const initialChildKey = openTile && activeTile?.key === openTile.key ? currentTab : null
 
   return (
     <nav
@@ -94,65 +98,31 @@ export default function DepartmentDock() {
       style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
       aria-label="Department shortcuts"
     >
-      {openTile && openTile.subpages.length > 0 && (
+      {menuOpen && (
         <DepartmentFolderModal
-          key={openTile.key}
-          label={openTile.label}
-          subpages={openTile.subpages}
-          initialChildKey={initialChildKey}
-          onClose={() => setOpenKey(null)}
-          onNavigate={(to) => { setOpenKey(null); navigate(to) }}
+          departments={menuDepartments}
+          activeKey={activeTile?.key}
+          activeChildKey={currentTab}
+          onClose={() => setMenuOpen(false)}
+          onNavigate={(to) => { setMenuOpen(false); navigate(to) }}
         />
       )}
 
-      <div
-        className="flex items-center gap-2 px-3 py-2.5 rounded-3xl max-w-[calc(100vw-4rem)] overflow-x-auto scrollbar-hide"
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        title="Departments"
+        aria-label="Open departments menu"
+        className="group flex items-center justify-center w-14 h-14 rounded-full transition-transform duration-150 hover:-translate-y-0.5 active:scale-95"
         style={{
-          background: 'rgba(255,255,255,0.88)',
-          backdropFilter: 'blur(24px) saturate(200%)',
-          WebkitBackdropFilter: 'blur(24px) saturate(200%)',
-          border: '1px solid rgba(255,255,255,0.95)',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,1)',
+          background: 'linear-gradient(135deg, #6357c9 0%, #8b7ff0 100%)',
+          boxShadow: menuOpen
+            ? '0 4px 18px rgba(99,87,201,0.55), 0 0 0 2px rgba(99,87,201,0.5)'
+            : '0 8px 24px rgba(99,87,201,0.4)',
         }}
       >
-        {tiles.map((tile) => {
-          const TileIcon = tile.Icon
-          const isActive = activeTile?.key === tile.key
-          const hasFolder = tile.subpages.length > 0
-          return (
-            <button
-              key={tile.key}
-              type="button"
-              onClick={() => {
-                if (hasFolder) setOpenKey((k) => (k === tile.key ? null : tile.key))
-                else navigate(tile.to)
-              }}
-              title={tile.label}
-              className="group flex flex-col items-center gap-1 flex-shrink-0 w-16"
-            >
-              <span
-                className="relative w-12 h-12 rounded-2xl flex items-center justify-center transition-transform duration-150 group-hover:-translate-y-0.5 group-active:scale-95"
-                style={{
-                  background: 'linear-gradient(135deg, #6357c9 0%, #8b7ff0 100%)',
-                  boxShadow: isActive
-                    ? '0 4px 14px rgba(99,87,201,0.55), 0 0 0 2px rgba(99,87,201,0.5)'
-                    : '0 4px 14px rgba(99,87,201,0.35)',
-                }}
-              >
-                <TileIcon size={20} className="text-white" strokeWidth={1.75} />
-                {hasFolder && (
-                  <span
-                    className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white transition-opacity ${openKey === tile.key ? 'opacity-100' : 'opacity-60'}`}
-                  />
-                )}
-              </span>
-              <span className="text-[10px] font-semibold text-slate-600 leading-none truncate w-full text-center">
-                {tile.label}
-              </span>
-            </button>
-          )
-        })}
-      </div>
+        <LayoutGrid size={24} className="text-white" strokeWidth={1.75} />
+      </button>
     </nav>
   )
 }

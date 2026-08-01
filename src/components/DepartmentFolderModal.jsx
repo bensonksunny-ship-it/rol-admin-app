@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, X } from 'lucide-react'
 
 // Rotating palette for the grid tiles — subpages aren't separate "apps" with their
 // own brand color, so each tile's color comes from its position rather than a fixed
@@ -19,10 +19,9 @@ const TILE_COLORS = [
 
 function TileGrid({ items, onTap }) {
   // Fixed-width tiles in a wrapping flex row (not a CSS grid) so every row — including
-  // a partial last row (e.g. Worship's 10 tabs wrapping to 3+3+3+1, or Operations' grid
-  // with Team removed) — centers itself via justify-center instead of the last row's
-  // lone tile sitting stuck on the grid's left edge. ~3 columns fit per row at this
-  // modal's width (max-w-sm), same as before; a short list of 1-2 tiles centers too.
+  // a partial last row — centers itself via justify-center instead of a lone leftover
+  // tile sitting stuck on the grid's left edge. ~3 columns fit per row at this menu's
+  // width; a short list of 1-2 tiles centers too.
   return (
     <div className="flex flex-wrap justify-center gap-x-3 gap-y-5">
       {items.map((item, i) => {
@@ -45,7 +44,9 @@ function TileGrid({ items, onTap }) {
               {/* Nested-folder indicator — same dot BottomTabBar/DepartmentDock use to
                   mark a tile that opens another grid instead of navigating straight there. */}
               {item.children?.length > 0 && (
-                <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white opacity-70" />
+                <span
+                  className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white opacity-70"
+                />
               )}
             </span>
             <span className="text-[11px] font-medium text-slate-700 dark:text-slate-200 text-center leading-tight line-clamp-2">
@@ -58,29 +59,70 @@ function TileGrid({ items, onTap }) {
   )
 }
 
-// Centered "iOS App Folder" modal — a true centered card over the page, styled after
-// Apple's Liquid Glass: highly translucent, thin glass border with an inner highlight,
-// and a soft (not opaque) backdrop tint, rather than the earlier heavy frosted-white
-// fill that fully masked whatever was behind it. Used by DepartmentDock (the single
-// nav dock at every screen size, mobile included) so there's one folder look across
-// the app regardless of screen size.
+// One department's section within the unified menu — no card, no background panel,
+// no border box around it; just an inline icon+text divider followed directly by its
+// icon grid, flush with every other section in the same single flat container.
+// Drilling into a tile that carries its own `children` (Operations →
+// Expense/Team/Planning/...; Cell's Leader Entry → Shepherd Care/Mid-week; Finance →
+// Expense/Budget/Payout) swaps this section's grid for that child grid plus a
+// "← Back" row, scoped to just this department so other sections are unaffected.
+function DepartmentSection({ dept, openChild, onOpenChild, onNavigate }) {
+  const DeptIcon = dept.Icon
+  const gridItems = openChild ? openChild.children : dept.subpages
+
+  const handleTap = (item) => {
+    if (item.children?.length > 0) onOpenChild(item)
+    else onNavigate(item.to)
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 pb-2.5 mb-3.5 border-b border-slate-300/60 dark:border-white/15">
+        <span
+          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{ background: 'linear-gradient(135deg, #6357c9 0%, #8b7ff0 100%)', boxShadow: '0 2px 8px rgba(99,87,201,0.4)' }}
+        >
+          <DeptIcon size={15} className="text-white" strokeWidth={2} />
+        </span>
+        <span className="text-sm font-extrabold uppercase tracking-wide text-slate-800 dark:text-slate-100">{dept.label}</span>
+      </div>
+      {openChild && (
+        <button
+          type="button"
+          onClick={() => onOpenChild(null)}
+          className="inline-flex items-center gap-0.5 px-2.5 py-1 rounded-lg border border-indigo-200/70 dark:border-indigo-400/25 bg-indigo-50/80 dark:bg-indigo-500/10 text-xs font-medium text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 active:scale-95 mb-3 transition-all"
+        >
+          <ChevronLeft size={12} strokeWidth={2.5} />
+          Back to {dept.label}
+        </button>
+      )}
+      <TileGrid items={gridItems} onTap={handleTap} />
+    </div>
+  )
+}
+
+// Unified, single flat "master menu" — one centered overlay, one container, no nested
+// per-department cards/panels/borders inside it. Every accessible department is just
+// an inline icon+text divider followed directly by its icon grid, all sharing the
+// same flat surface — no collapse arrows, no subpage-count badges, no per-department
+// box to open/close. This is the single destination the dock's one nameless launcher
+// button opens (no more separate isolated popup per department either).
 //
-// Two levels deep: the top-level grid is this department's tabs (Hub, Cell Groups,
-// Reports, Leader Entry, Operations, ...); tapping a tile whose subpage carries its own
-// `children` (Operations → Expense/Team/Planning/...; Cell's Leader Entry → Shepherd
-// Care/Mid-week) drills into that tile's own grid instead of navigating away, with a
-// "← Back to Department" control to return. `initialChildKey` lets the caller open the
-// modal already drilled into whichever category the user is currently viewing, so
-// tapping the dock icon while on e.g. Operations → Team shows Operations' grid
-// immediately rather than the top-level department grid.
+// `activeKey`/`activeChildKey` let the caller (DepartmentDock) pass in whichever
+// department/nested category the user is currently viewing, so that department's
+// section opens already drilled into that child grid (Operations, Leader Entry, ...)
+// instead of its own top-level tiles.
 //
 // `dark:` classes here are real — the app wires Tailwind's dark variant to its own
 // .dark toggle via @custom-variant in index.css, so this needs no isDay prop; the OS/
 // in-app theme flips it automatically.
-export default function DepartmentFolderModal({ label, subpages, initialChildKey, onClose, onNavigate }) {
-  const [openChild, setOpenChild] = useState(
-    () => subpages.find((sp) => sp.key === initialChildKey && sp.children?.length > 0) || null
-  )
+export default function DepartmentFolderModal({ departments, activeKey, activeChildKey, onClose, onNavigate }) {
+  const [openChildByDept, setOpenChildByDept] = useState(() => {
+    if (!activeKey || !activeChildKey) return {}
+    const dept = departments.find((d) => d.key === activeKey)
+    const child = dept?.subpages.find((sp) => sp.key === activeChildKey && sp.children?.length > 0)
+    return child ? { [activeKey]: child } : {}
+  })
 
   // Drives the enter/exit transition: false → true right after mount (so the CSS
   // transition actually has a starting frame to animate from), then false again on
@@ -106,13 +148,6 @@ export default function DepartmentFolderModal({ label, subpages, initialChildKey
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleTap = (item) => {
-    if (item.children?.length > 0) setOpenChild(item)
-    else onNavigate(item.to)
-  }
-
-  const gridLabel = openChild ? openChild.label : label
-  const gridItems = openChild ? openChild.children : subpages
   const shown = visible && !closing
 
   return createPortal(
@@ -125,33 +160,37 @@ export default function DepartmentFolderModal({ label, subpages, initialChildKey
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={gridLabel}
+        aria-label="Departments"
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-sm p-6 rounded-3xl border border-white/70 dark:border-white/14
-          bg-gradient-to-b from-white/70 to-white/40 dark:from-slate-900/55 dark:to-slate-900/30 backdrop-blur-md
-          shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.6)]
-          dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.1)]
+        className={`w-full max-w-sm p-5 rounded-3xl border border-white/40 dark:border-white/15
+          bg-white/25 dark:bg-white/10 backdrop-blur-2xl shadow-2xl
           transition-all duration-200 ease-out ${
           shown ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
         }`}
       >
-        <div className="flex flex-col pt-2 pb-3 px-2 mb-2">
-          {openChild && (
-            <button
-              type="button"
-              onClick={() => setOpenChild(null)}
-              className="inline-flex items-center gap-0.5 self-start px-2.5 py-1 rounded-lg border border-indigo-200/70 dark:border-indigo-400/25 bg-indigo-50/80 dark:bg-indigo-500/10 text-xs font-medium text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 active:scale-95 mb-1 cursor-pointer transition-all"
-            >
-              <ChevronLeft size={12} strokeWidth={2.5} />
-              Back to Department
-            </button>
-          )}
-          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">
-            {gridLabel}
-          </h2>
+        <div className="flex items-center justify-between px-1 pb-3">
+          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Departments</h2>
+          <button
+            type="button"
+            onClick={requestClose}
+            className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-900/5 dark:hover:bg-white/10 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
         </div>
 
-        <TileGrid items={gridItems} onTap={handleTap} />
+        <div className="space-y-6 max-h-[70vh] overflow-y-auto -mx-1 px-1 scrollbar-hide">
+          {departments.map((dept) => (
+            <DepartmentSection
+              key={dept.key}
+              dept={dept}
+              openChild={openChildByDept[dept.key] || null}
+              onOpenChild={(child) => setOpenChildByDept((prev) => ({ ...prev, [dept.key]: child }))}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
       </div>
     </div>,
     document.body

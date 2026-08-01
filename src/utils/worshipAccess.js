@@ -64,7 +64,7 @@ export function hasFullWorshipAccess(userProfile) {
  * (Song Directory — Song Design/SongDesigner lives inside it, opened via a song's Edit
  * button, so it doesn't need its own tab entry) and Upcoming Worship (the setlist/
  * assigned-songs view for the coming Sunday). Everything else (Assign, The Team,
- * Practice, Archives, Finance, Operations) stays Director/Founder/Admin-only. */
+ * Practice, Archives, Finance) stays Director/Founder/Admin-only. */
 export const RESTRICTED_WORSHIP_TABS = ['songsDirectory', 'upcomingSunday']
 
 /** Worship Member is restricted further still — Songs (Directory + Design) is Worship

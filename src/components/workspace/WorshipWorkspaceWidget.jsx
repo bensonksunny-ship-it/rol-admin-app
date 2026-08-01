@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
+import { CheckCircle2, Music2, PenSquare, X, Search } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import {
   getWorshipTeamMembers,
@@ -62,10 +63,12 @@ export default function WorshipWorkspaceWidget() {
   const { userProfile } = useAuth()
   const navigate = useNavigate()
   const hasAccountWorshipAccess = hasFullWorshipAccess(userProfile) || hasWorshipRoleAccess(userProfile)
-  // Worship Leader (not already a Director/Founder/Admin) gets quick links straight
-  // into the Song Directory and a fresh Design flow — the dock icon stays hidden for
-  // this role, so this widget is their only path in without going through My Workspace.
-  const isLeaderOnly = isWorshipLeader(userProfile) && !hasFullWorshipAccess(userProfile)
+  // Any Worship Leader gets quick links straight into the Song Directory and a fresh
+  // Design flow — the dock icon stays hidden for this role, so this widget is their
+  // only path in without going through My Workspace. Previously this excluded a
+  // Worship Leader who also happened to have full access (e.g. also Founder/Admin),
+  // which meant some Worship Leader accounts never saw the shortcut at all.
+  const isWorshipLeaderAccount = isWorshipLeader(userProfile)
 
   // Always collapsed on launch/reload — only the header banner ("Hello X, you're
   // assigned...") + "More" toggle shows until the user explicitly opens it, regardless
@@ -82,6 +85,13 @@ export default function WorshipWorkspaceWidget() {
   // Combined Song Design & Parts card) already knows exactly which role(s) this
   // person is assigned for that specific song this week.
   const [viewSongPositions, setViewSongPositions] = useState(null)
+  // "SONGS" header action menu (Worship Leader only) — Song Directory + Design My Song.
+  const [songsMenuOpen, setSongsMenuOpen] = useState(false)
+  // Song Directory now opens in-place as a full-screen overlay instead of navigating
+  // away to /department/worship — Design My Song still deep-links there since it hands
+  // off into the full Song Designer builder, a heavier flow this widget doesn't own.
+  const [songDirectoryOpen, setSongDirectoryOpen] = useState(false)
+  const [songDirectoryQuery, setSongDirectoryQuery] = useState('')
 
   // "Share Your Song Setlist" state — a self-service prompt for whoever is scheduled
   // as Lead Vocal (any Lead Vocal-N slot) on an upcoming Sunday, regardless of their
@@ -98,7 +108,17 @@ export default function WorshipWorkspaceWidget() {
   const [loadingSetlistRows, setLoadingSetlistRows] = useState(false)
   const [searchOpenIdx, setSearchOpenIdx] = useState(null)
   const [sharingSetlist, setSharingSetlist] = useState(false)
+  // `setlistShared` is the brief post-share "✓ Setlist Shared!" moment only — true for
+  // a short window right after a successful share, then it flips back off on its own.
   const [setlistShared, setSetlistShared] = useState(false)
+  // The {role: {songName, key}} shape actually saved on the last successful share for
+  // this date — null until the first share this session. The panel auto-collapses once
+  // this is set and nothing in setlistRows differs from it, and re-expands the instant
+  // a song name or key is edited away from it (see hasChangedSinceShare below).
+  const [sharedSnapshot, setSharedSnapshot] = useState(null)
+  // Manual escape hatch — lets a leader reopen the panel from its collapsed "✓ Setlist
+  // Shared!" summary even without having changed anything yet.
+  const [manuallyExpanded, setManuallyExpanded] = useState(false)
 
   // Loaded for every signed-in user, not just accounts with a special Worship
   // position — an ordinary rostered team member needs this data just to find out
@@ -131,6 +151,14 @@ export default function WorshipWorkspaceWidget() {
       .sort()
   }, [schedules, myWorshipMember])
   const canShareSetlist = myLeadingDates.length > 0
+  // Song Directory access is purely the account-level Worship Leader role — a static
+  // profile check, independent of this week's schedule/roster data entirely. Neither
+  // "assigned Lead Vocal this Sunday" nor "is a Director/Founder/Admin" grants it on
+  // their own: a Director only sees it if they *also* hold the Worship Leader role,
+  // and a plain Worship Team Member never does, no matter what they're assigned this
+  // week. Being independent of selectedDate/isScheduledThisSunday/etc. also means the
+  // icon can't flicker away when toggling dates or switching card views.
+  const showSongsAccess = isWorshipLeaderAccount
 
   // Every date selectable in the pill bar — the actual coming Sunday always included
   // (so that view is never unreachable) plus every Sunday this person leads, deduped
@@ -152,10 +180,20 @@ export default function WorshipWorkspaceWidget() {
         const mine = (sch.assignments || []).filter(a => a.memberId === myWorshipMember.id && isLeadVocalRole(a.role))
         setSetlistRows(mine.map(a => ({ ...a })))
         setSetlistShared(false)
+        setSharedSnapshot(null)
+        setManuallyExpanded(false)
       })
       .finally(() => { if (alive) setLoadingSetlistRows(false) })
     return () => { alive = false }
   }, [selectedDate, myWorshipMember])
+
+  // Song Directory overlay — Esc closes it, same as clicking the backdrop or the X.
+  useEffect(() => {
+    if (!songDirectoryOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') setSongDirectoryOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [songDirectoryOpen])
 
   const canSeeWidget = hasAccountWorshipAccess || isScheduledThisSunday || canShareSetlist
   if (!canSeeWidget) return null
@@ -191,12 +229,27 @@ export default function WorshipWorkspaceWidget() {
         return mine ? { ...a, songName: mine.songName || '', songId: mine.songId || '', key: mine.key || '', notes: mine.notes || '' } : a
       })
       await setWorshipScheduleByDate('Worship', selectedDate, assignments, userProfile?.email)
+      const snapshot = {}
+      setlistRows.forEach(r => { snapshot[r.role] = { songName: r.songName || '', key: r.key || '' } })
+      setSharedSnapshot(snapshot)
+      setManuallyExpanded(false)
       setSetlistShared(true)
-      setTimeout(() => setSetlistShared(false), 3000)
+      // Brief confirmation, then the panel auto-collapses (see panelExpanded below) —
+      // it only reappears on its own if a song name or key is edited away from what
+      // was just shared.
+      setTimeout(() => setSetlistShared(false), 1400)
     } finally {
       setSharingSetlist(false)
     }
   }
+
+  const hasChangedSinceShare = sharedSnapshot
+    ? setlistRows.some(r => {
+        const saved = sharedSnapshot[r.role]
+        return !saved || (r.songName || '') !== saved.songName || (r.key || '') !== saved.key
+      })
+    : true
+  const panelExpanded = manuallyExpanded || setlistShared || hasChangedSinceShare
 
   const highlighted = isScheduledThisSunday || canShareSetlist
 
@@ -205,10 +258,12 @@ export default function WorshipWorkspaceWidget() {
       <div className={`rounded-2xl border shadow-sm overflow-hidden max-w-2xl ${
         highlighted ? 'border-violet-300' : 'border-slate-200 bg-white'
       }`}>
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => setExpanded(!expanded)}
-          className={`w-full flex items-center justify-between gap-3 px-4 py-3 transition-colors ${
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }}
+          className={`w-full flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
             isScheduledThisSunday
               ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700'
               : 'text-slate-800 hover:bg-slate-50'
@@ -218,42 +273,118 @@ export default function WorshipWorkspaceWidget() {
             {isScheduledThisSunday ? `Hello ${myFirstName || 'there'}, you are assigned for the worship team this week` : 'Upcoming Worship'}
           </span>
           <span className="flex items-center gap-2 shrink-0">
-            {/* "Share Your Song Setlist" — surfaced as a badge right in the shared header
-                instead of its own separate banner above this card. */}
-            {canShareSetlist && (
-              <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full ${
-                isScheduledThisSunday ? 'bg-white/20 text-white' : 'bg-violet-100 text-violet-700'
-              }`}>
-                Share Setlist
-              </span>
+            {/* "SONGS" — quick access to both the Song Directory and the Design My Song
+                flow for the Worship Leader position OR whoever is assigned Lead Vocal
+                this coming Sunday, surfaced right in the shared header next to "More".
+                Replaces the old "Share Setlist" badge here; the Share Your Song Setlist
+                feature itself is unchanged and still lives in the expanded body below. */}
+            {showSongsAccess && (
+              <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  onClick={() => setSongsMenuOpen(v => !v)}
+                  className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full transition-colors ${
+                    isScheduledThisSunday ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-violet-100 text-violet-700 hover:bg-violet-200'
+                  }`}
+                >
+                  Songs
+                </button>
+                {songsMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setSongsMenuOpen(false)} aria-hidden />
+                    <div className="absolute right-0 top-full mt-1 z-20 flex items-center gap-1 p-1 bg-white rounded-xl border border-slate-200 shadow-lg">
+                      <button
+                        type="button"
+                        onClick={() => { setSongsMenuOpen(false); setSongDirectoryOpen(true) }}
+                        title="Song Directory"
+                        aria-label="Song Directory"
+                        className="w-9 h-9 flex items-center justify-center rounded-lg text-indigo-700 hover:bg-indigo-50 transition-colors"
+                      >
+                        <Music2 size={17} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSongsMenuOpen(false); navigate('/department/worship?tab=songsDirectory&newSong=1') }}
+                        title="Design My Song"
+                        aria-label="Design My Song"
+                        className="w-9 h-9 flex items-center justify-center rounded-lg text-violet-700 hover:bg-violet-50 transition-colors"
+                      >
+                        <PenSquare size={17} />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
             <span className={`flex items-center gap-1 text-xs ${isScheduledThisSunday ? 'text-white/90 font-semibold' : 'text-slate-400'}`}>
               {isScheduledThisSunday && 'More'}
               <span className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}>▾</span>
             </span>
           </span>
-        </button>
+        </div>
         {expanded && (
           <div className="border-t border-slate-100 bg-white p-4 space-y-4">
-            {isLeaderOnly && (
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => navigate('/department/worship?tab=songsDirectory')}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition-colors">
-                  Song Directory
+            {showSongsAccess && (
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setSongDirectoryOpen(true)}
+                  title="Song Directory" aria-label="Song Directory"
+                  className="w-10 h-10 flex items-center justify-center rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 transition-colors">
+                  <Music2 size={18} />
                 </button>
                 <button type="button" onClick={() => navigate('/department/worship?tab=songsDirectory&newSong=1')}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-50 border border-violet-100 text-violet-700 text-xs font-semibold hover:bg-violet-100 transition-colors">
-                  <span className="text-sm leading-none">+</span> Design My Song
+                  title="Design My Song" aria-label="Design My Song"
+                  className="w-10 h-10 flex items-center justify-center rounded-xl bg-violet-50 border border-violet-100 text-violet-700 hover:bg-violet-100 transition-colors">
+                  <PenSquare size={18} />
                 </button>
               </div>
             )}
 
             {/* Share Your Song Setlist — same card window, own bordered section rather
-                than a separate stacked banner. */}
+                than a separate stacked banner. No title header: once it's been shared
+                and nothing's changed since, this shows the shared songs/keys/roles as
+                read-only cards (not just a bare confirmation banner) instead of hiding
+                what was actually shared — editing a song name/key (or tapping "Edit")
+                brings back the full editing form. */}
             {canShareSetlist && (
-              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-3 space-y-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Share Your Song Setlist</p>
-
+              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-3">
+              {!panelExpanded ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600">
+                      <CheckCircle2 size={16} /> Setlist Shared!
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setManuallyExpanded(true)}
+                      className="text-xs font-medium text-violet-600 hover:underline"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    {selectedDate === forthcomingSunday ? 'Coming Sunday' : format(new Date(selectedDate + 'T12:00:00'), 'EEE d MMM')}
+                  </p>
+                  <div className="space-y-1.5">
+                    {setlistRows.filter(row => row.songName).map(row => (
+                      <div
+                        key={row.role}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-600">{row.role}</p>
+                          <p className="text-sm font-semibold text-slate-800 truncate">{row.songName}</p>
+                        </div>
+                        {row.key && (
+                          <span className="shrink-0 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
+                            {row.key}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+              <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 shrink-0">Viewing</span>
                   {selectableDates.map(d => (
@@ -346,11 +477,13 @@ export default function WorshipWorkspaceWidget() {
                   onClick={handleShareSetlist}
                   className="w-full py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 disabled:opacity-40 transition-all active:scale-[0.98]"
                 >
-                  {sharingSetlist ? 'Sharing…' : setlistShared ? '✓ Shared with the team' : 'Share Setlist'}
+                  {sharingSetlist ? 'Sharing…' : setlistShared ? '✓ Setlist Shared!' : 'Share Setlist'}
                 </button>
                 <p className="text-[11px] text-slate-400 text-center">
                   The team will see this on the Assign page next time they open it.
                 </p>
+              </div>
+              )}
               </div>
             )}
 
@@ -364,6 +497,97 @@ export default function WorshipWorkspaceWidget() {
           </div>
         )}
       </div>
+      {/* Song Directory — opens in place as a full-screen overlay instead of navigating
+          away from My Workspace to /department/worship. Search + browse + "View Song"/
+          "My Part" only; adding/editing a song still hands off to the full Song
+          Designer builder via "Design My Song" (a real page, not duplicated here). */}
+      {songDirectoryOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 sm:p-6"
+          onClick={() => setSongDirectoryOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Song Directory"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full h-full sm:h-auto sm:max-h-[calc(100vh-3rem)] max-w-7xl mx-auto flex flex-col bg-white/95 backdrop-blur-xl shadow-2xl rounded-2xl border border-white/40 overflow-hidden"
+          >
+            <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <Music2 size={18} className="text-indigo-600" />
+                <h2 className="text-base font-bold text-slate-800">Song Directory</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSongDirectoryOpen(false)}
+                className="w-9 h-9 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="shrink-0 px-5 py-3 border-b border-slate-100">
+              <div className="relative max-w-md">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={songDirectoryQuery}
+                  onChange={(e) => setSongDirectoryQuery(e.target.value)}
+                  placeholder="Search songs by title or artist…"
+                  autoFocus
+                  className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {(() => {
+                const q = songDirectoryQuery.trim().toLowerCase()
+                const filtered = songs.filter(s =>
+                  !q || s.title?.toLowerCase().includes(q) || s.artist?.toLowerCase().includes(q)
+                )
+                if (filtered.length === 0) {
+                  return <p className="text-center text-sm text-slate-400 py-10">No songs found.</p>
+                }
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {filtered.map(song => (
+                      <div key={song.id} className="rounded-xl border border-slate-200 bg-white p-3 flex flex-col gap-2 shadow-sm">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">{song.title}</p>
+                          <p className="text-xs text-slate-400 truncate">{[song.artist, song.key].filter(Boolean).join(' · ')}</p>
+                        </div>
+                        <div className="flex items-center gap-2 mt-auto">
+                          {canViewFullSong(song) && (
+                            <button
+                              type="button"
+                              onClick={() => { setSongDirectoryOpen(false); openSongView(song, 'full') }}
+                              className="text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-full hover:bg-indigo-100 transition-colors"
+                            >
+                              View Song
+                            </button>
+                          )}
+                          {myWorshipMember && (
+                            <button
+                              type="button"
+                              onClick={() => { setSongDirectoryOpen(false); openSongView(song, 'mine') }}
+                              className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full hover:bg-emerald-100 transition-colors"
+                            >
+                              My Part
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
       {viewingSong && (
         <SongViewer
           song={viewingSong}

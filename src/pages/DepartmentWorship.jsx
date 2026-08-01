@@ -132,6 +132,26 @@ function getForthcomingSunday() {
   return format(d, 'yyyy-MM-dd')
 }
 
+// True only for a 'yyyy-MM-dd' string that actually falls on a Sunday. Anchored to
+// noon (not midnight) so the day-of-week check is never off by one from a timezone
+// shift — same convention as every other raw-date-string parse in this file.
+function isSundayDateStr(dateStr) {
+  if (!dateStr) return false
+  const d = new Date(dateStr + 'T12:00:00')
+  return !isNaN(d.getTime()) && d.getDay() === 0
+}
+
+// Snaps a possibly-non-Sunday 'yyyy-MM-dd' string forward to the nearest Sunday —
+// used to normalize the "pick a custom date" service-date inputs (Summary/Assign
+// headers) so a stray weekday pick can never get saved as a service record.
+function snapToSunday(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00')
+  if (isNaN(d.getTime())) return dateStr
+  const diff = (7 - d.getDay()) % 7
+  d.setDate(d.getDate() + diff)
+  return format(d, 'yyyy-MM-dd')
+}
+
 // True only while the plan card should be shown (up to Sunday 18:00)
 function isBeforeSundayEvening(sundayDateStr) {
   const cutoff = new Date(sundayDateStr + 'T18:00:00')
@@ -501,7 +521,6 @@ export default function DepartmentWorship() {
     const t = searchParams.get('tab')
     if (t) setActiveTab(t)
   }, [searchParams])
-  const [operationsSubTab, setOperationsSubTab] = useState('')
   // Expense is always the base Finance view now — Budget/Payout Request are drawers
   // layered on top rather than sibling tabs, so this only ever tracks which drawer (if
   // any) is open: null | 'budget' | 'payout'. Still deep-linkable the same way as
@@ -516,8 +535,6 @@ export default function DepartmentWorship() {
     const f = searchParams.get('financeSub')
     if (f === 'budget' || f === 'payout') setFinanceOverlay(f)
   }, [searchParams])
-  const [editingSubDept, setEditingSubDept] = useState(null)
-  const [subDeptModalOpen, setSubDeptModalOpen] = useState(false)
   const [allMembers, setAllMembers] = useState([])
 
   const activeMembers = useMemo(
@@ -613,6 +630,15 @@ export default function DepartmentWorship() {
   const [openAttendanceId, setOpenAttendanceId] = useState(null)
   const [attendanceDraft, setAttendanceDraft] = useState({})
   const [weekBoxSchedules, setWeekBoxSchedules] = useState([])
+  // Practice & Attendance date picker — `selectedPracticeSunday` is the Sunday service
+  // whose Friday/Saturday practice sessions are currently shown; `practiceSundayOptions`
+  // is every date the dropdown offers (the next few Sundays, plus any further-out Sunday
+  // that already has a saved plan); `allPracticeSchedules` caches every schedule doc so
+  // switching dates doesn't refetch. Defaults to the nearest upcoming Sunday — previously
+  // this defaulted to whichever saved plan was furthest in the future.
+  const [selectedPracticeSunday, setSelectedPracticeSunday] = useState(null)
+  const [practiceSundayOptions, setPracticeSundayOptions] = useState([])
+  const [allPracticeSchedules, setAllPracticeSchedules] = useState([])
   const [forthcomingSchedule, setForthcomingSchedule] = useState(null)
   const [loadingForthcoming, setLoadingForthcoming] = useState(false)
   const [distributing, setDistributing] = useState(false)
@@ -620,6 +646,14 @@ export default function DepartmentWorship() {
   const [practiceSubPage, setPracticeSubPage] = useState('schedule')
   const [recordsSchedules, setRecordsSchedules] = useState([])
   const [loadingRecords, setLoadingRecords] = useState(false)
+  // Manual time entry/editing in the Records tab — `editingRecordId` is the schedule
+  // doc currently in edit mode (only one at a time), `recordEditDraft` holds the
+  // in-progress {friday, saturday, fridaySession, saturdaySession} edits for it until
+  // Save writes them back to the same practiceAttendance field the Schedule sub-page
+  // reads/writes, so both tabs always agree on the same data.
+  const [editingRecordId, setEditingRecordId] = useState(null)
+  const [recordEditDraft, setRecordEditDraft] = useState(null)
+  const [savingRecord, setSavingRecord] = useState(false)
 
   // Songs Directory
   const [songs, setSongs] = useState([])
@@ -794,40 +828,53 @@ export default function DepartmentWorship() {
     getAllWorshipSchedules(DEPARTMENT)
       .then((all) => {
         const today = format(new Date(), 'yyyy-MM-dd')
-        const upcomingPlans = all
-          .filter((s) => s.date >= today)
-          .sort((a, b) => b.date.localeCompare(a.date))
-        // Show the latest saved upcoming plan, or fall back to next Sunday if none exists
-        const activeSunday = upcomingPlans[0]?.date || upcomingSundays(1)[0]
-        const sundayObj = new Date(activeSunday + 'T12:00:00')
-        setWeekBoxSchedules([{
-          sundayDate: activeSunday,
-          fridayDate: format(subDays(sundayObj, 2), 'yyyy-MM-dd'),
-          saturdayDate: format(subDays(sundayObj, 1), 'yyyy-MM-dd'),
-          schedule: upcomingPlans[0] || null,
-        }])
+        setAllPracticeSchedules(all)
+        // Dropdown offers the next few Sundays plus any further-out Sunday that already
+        // has a saved plan (e.g. a Director who planned several weeks ahead).
+        const candidates = Array.from(new Set([
+          ...upcomingSundays(5),
+          ...all.filter((s) => s.date >= today).map((s) => s.date),
+        ])).sort()
+        setPracticeSundayOptions(candidates)
+        // Default to the nearest upcoming Sunday, not whichever saved plan happens to be
+        // furthest in the future.
+        setSelectedPracticeSunday(getForthcomingSunday())
       })
-      .catch(() => setWeekBoxSchedules([]))
+      .catch(() => { setAllPracticeSchedules([]); setPracticeSundayOptions([]); setWeekBoxSchedules([]) })
       .finally(() => setLoadingWeekBoxes(false))
   }, [activeTab])
+
+  // Rebuilds the practice/attendance box whenever the selected Sunday (via the dropdown)
+  // or the cached schedule list changes, so switching dates is instant with no refetch.
+  useEffect(() => {
+    if (!selectedPracticeSunday) return
+    const sundayObj = new Date(selectedPracticeSunday + 'T12:00:00')
+    const matched = allPracticeSchedules.find((s) => s.date === selectedPracticeSunday) || null
+    setWeekBoxSchedules([{
+      sundayDate: selectedPracticeSunday,
+      fridayDate: format(subDays(sundayObj, 2), 'yyyy-MM-dd'),
+      saturdayDate: format(subDays(sundayObj, 1), 'yyyy-MM-dd'),
+      schedule: matched,
+    }])
+  }, [selectedPracticeSunday, allPracticeSchedules])
 
   useEffect(() => {
     if (activeTab !== 'practiceRehearsal' || practiceSubPage !== 'records') return
     setLoadingRecords(true)
     getAllWorshipSchedules(DEPARTMENT)
       .then(all => {
-        const today = format(new Date(), 'yyyy-MM-dd')
-        const upcomingPlans = all.filter((s) => s.date >= today).sort((a, b) => b.date.localeCompare(a.date))
-        const activeSunday = upcomingPlans[0]?.date
-        // Records = every week except the currently active one, that has at least one assigned member
+        // Records = every week except the one currently shown in the Schedule sub-page's
+        // box, that has at least one assigned member. Service records are Sunday-only —
+        // a stray non-Sunday date (e.g. from the "pick a custom date" input before it
+        // was constrained) must never surface here as if it were a service week.
         const records = all
-          .filter(s => s.date !== activeSunday && (s.assignments || []).some(a => a.memberId))
+          .filter(s => isSundayDateStr(s.date) && s.date !== selectedPracticeSunday && (s.assignments || []).some(a => a.memberId))
           .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
         setRecordsSchedules(records)
       })
       .catch(() => setRecordsSchedules([]))
       .finally(() => setLoadingRecords(false))
-  }, [activeTab, practiceSubPage])
+  }, [activeTab, practiceSubPage, selectedPracticeSunday])
 
   useEffect(() => {
     if (activeTab !== 'archives') return
@@ -835,8 +882,9 @@ export default function DepartmentWorship() {
     getAllWorshipSchedules(DEPARTMENT)
       .then((all) => {
         const today = format(new Date(), 'yyyy-MM-dd')
+        // Archives are Sunday-only service records — see isSundayDateStr above.
         const past = all
-          .filter((s) => s.date && s.date < today && (s.assignments || []).some((a) => a.memberId))
+          .filter((s) => s.date && s.date < today && isSundayDateStr(s.date) && (s.assignments || []).some((a) => a.memberId))
           .sort((a, b) => b.date.localeCompare(a.date))
         setArchiveSchedules(past)
       })
@@ -930,6 +978,13 @@ export default function DepartmentWorship() {
         },
       }
       setWeekBoxSchedules([newBox])
+      // Keep the Practice & Attendance date picker in sync — the plan just saved for
+      // this Sunday becomes what it shows, and it's added to the cache/options so
+      // re-selecting it (or the derived weekBoxSchedules effect re-running) doesn't
+      // show stale/missing data.
+      setSelectedPracticeSunday(selectedDate)
+      setAllPracticeSchedules(prev => [...prev.filter(s => s.date !== selectedDate), newBox.schedule])
+      setPracticeSundayOptions(prev => Array.from(new Set([...prev, selectedDate])).sort())
       if (prevBox && prevBox.sundayDate !== selectedDate && (prevBox.schedule?.assignments || []).some(a => a.memberId)) {
         setRecordsSchedules(prev =>
           [prevBox.schedule, ...prev.filter(s => s.date !== prevBox.sundayDate)]
@@ -1360,7 +1415,13 @@ export default function DepartmentWorship() {
               <input
                 type="date"
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                // Service dates are Sunday-only — min anchored to a known Sunday with
+                // step=7 makes Chromium's calendar UI grey out every non-Sunday day;
+                // onChange snaps forward to the nearest Sunday as a fallback for
+                // browsers that don't enforce step visually (e.g. a typed/pasted date).
+                min="2024-01-07"
+                step={7}
+                onChange={(e) => { if (e.target.value) setSelectedDate(snapToSunday(e.target.value)) }}
                 className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
               />
             </div>
@@ -1647,9 +1708,12 @@ export default function DepartmentWorship() {
                   <input
                     type="date"
                     value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
+                    // Service dates are Sunday-only — see the matching input above.
+                    min="2024-01-07"
+                    step={7}
+                    onChange={(e) => { if (e.target.value) setSelectedDate(snapToSunday(e.target.value)) }}
                     className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
-                    title="Pick a custom date"
+                    title="Pick a custom Sunday date"
                   />
                 </div>
               </div>
@@ -1855,129 +1919,6 @@ export default function DepartmentWorship() {
                   {financeOverlay === 'budget' && <BudgetPage department="Worship" />}
                   {financeOverlay === 'payout' && <AdvancePayoutTab departmentSlug="worship" departmentName="Worship" />}
                 </div>
-              </div>
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {/* Operations — Sub Department and Team management have their own dedicated tabs;
-          financial pipelines (Expense/Budget/Payout) live under Finance above, not here. */}
-      {activeTab === 'operations' && (canManageWorship || canViewInsights) && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 text-center text-sm text-slate-400">
-            Nothing to configure here yet.
-          </div>
-
-          {false && (
-            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setAddMemberModalOpen(false)}>
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-                <div className="flex items-center justify-between mb-5">
-                  <h3 className="text-lg font-semibold text-slate-800">Add New Team Member</h3>
-                  <button type="button" onClick={() => setAddMemberModalOpen(false)} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
-                </div>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault()
-                    if (!newMember.name.trim()) return
-                    try {
-                      await addWorshipTeamMember(
-                        DEPARTMENT,
-                        {
-                          name: newMember.name.trim(),
-                          memberSince: newMember.memberSince,
-                          isFormer: newMember.isFormer,
-                          positions: newMember.positions,
-                          isWorshipDirector: newMember.isWorshipDirector,
-                        },
-                        userProfile?.email
-                      )
-                      setNewMember({ name: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
-                      setAddMemberModalOpen(false)
-                      await loadTeam()
-                    } catch (err) {
-                      console.error(err)
-                      alert('Failed to add member')
-                    }
-                  }}
-                  className="space-y-4"
-                >
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Name <span className="text-red-400">*</span></label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Full name"
-                      value={newMember.name}
-                      onChange={(e) => setNewMember((m) => ({ ...m, name: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Member since</label>
-                    <input
-                      type="date"
-                      value={newMember.memberSince}
-                      onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Positions</label>
-                    <div className="flex flex-wrap gap-2">
-                      {MEMBER_POSITIONS.map((pos) => (
-                        <label
-                          key={pos}
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs border cursor-pointer transition-colors ${
-                            newMember.positions.includes(pos)
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="hidden"
-                            checked={newMember.positions.includes(pos)}
-                            onChange={(e) =>
-                              setNewMember((m) => ({
-                                ...m,
-                                positions: e.target.checked
-                                  ? [...m.positions, pos]
-                                  : m.positions.filter((p) => p !== pos),
-                              }))
-                            }
-                          />
-                          {pos}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={newMember.isWorshipDirector}
-                        onChange={(e) => setNewMember((m) => ({ ...m, isWorshipDirector: e.target.checked }))}
-                        className="rounded"
-                      />
-                      Set as Worship Director
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={newMember.isFormer}
-                        onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))}
-                        className="rounded"
-                      />
-                      Mark as Former Member
-                    </label>
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <button type="submit" className="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700">Add Member</button>
-                    <button type="button" onClick={() => setAddMemberModalOpen(false)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50">Cancel</button>
-                  </div>
-                </form>
               </div>
             </div>
           )}
@@ -2413,35 +2354,24 @@ export default function DepartmentWorship() {
       )}
 
       {/* ── Practice & Rehearsals tab ── */}
+      {/* Historical review/editing of already-recorded practice attendance now lives
+          in the Archives tab (each Sunday's ArchiveStamp card) alongside that week's
+          published setlist — this tab is just the live Schedule view (marking
+          check-ins/session times as they happen for the currently-selected week), so
+          there's no separate Schedule/Records sub-nav anymore. */}
       {activeTab === 'practiceRehearsal' && (
         <div className="space-y-5">
 
-          {/* Sub-nav */}
-          <div className="flex items-center gap-1 border-b border-slate-200">
-            {[{ key: 'schedule', label: 'Schedule' }, { key: 'records', label: 'Records' }].map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setPracticeSubPage(key)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${practiceSubPage === key ? 'border-violet-600 text-violet-700' : 'border-transparent text-slate-500 hover:text-violet-600'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* ── Schedule sub-page ── */}
-          {practiceSubPage === 'schedule' && (
             <div className="space-y-6">
               {/* 3-Sunday week boxes */}
               {loadingWeekBoxes ? (
                 <div className="py-8 text-center text-slate-400 text-sm">Loading…</div>
               ) : (
                 <div className="grid grid-cols-1 gap-4">
-                  {weekBoxSchedules.slice(0, 1).filter(w => {
-                    const pa = w.schedule?.practiceAttendance || {}
-                    return !(pa.fridaySession?.endOfPractice && pa.saturdaySession?.endOfPractice && pa.saturdaySession?.beginRehearsal && pa.saturdaySession?.endRehearsal)
-                  }).map(({ sundayDate, fridayDate, saturdayDate, schedule }) => {
+                  {/* Always shown for whichever Sunday the dropdown above has selected —
+                      previously this hid itself once a week's practice was fully recorded,
+                      which meant there was no way to navigate back to review/edit it. */}
+                  {weekBoxSchedules.slice(0, 1).map(({ sundayDate, fridayDate, saturdayDate, schedule }) => {
                     const assignments = (schedule?.assignments || []).filter(a => a.memberId).filter((a, i, arr) => arr.findIndex(x => x.memberId === a.memberId) === i)
                     const practiceAtt = schedule?.practiceAttendance || {}
 
@@ -2585,9 +2515,34 @@ export default function DepartmentWorship() {
                     return (
                       <div key={sundayDate} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                         <div className="bg-gradient-to-br from-violet-600 to-indigo-600 px-4 py-3">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Sunday Service</p>
-                          <p className="text-base font-bold text-white mt-0.5">{fmtSunday}</p>
-                          <p className="text-xs text-violet-200 mt-0.5">{assignments.length > 0 ? `${assignments.length} members assigned` : 'No team assigned yet'}</p>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Sunday Service</p>
+                              <p className="text-base font-bold text-white mt-0.5">{fmtSunday}</p>
+                              <p className="text-xs text-violet-200 mt-0.5">{assignments.length > 0 ? `${assignments.length} members assigned` : 'No team assigned yet'}</p>
+                            </div>
+                            {practiceSundayOptions.length > 1 && (
+                              <select
+                                value={sundayDate}
+                                onChange={(e) => setSelectedPracticeSunday(e.target.value)}
+                                className="shrink-0 text-xs font-semibold bg-white/15 text-white border border-white/30 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-white/50"
+                              >
+                                {practiceSundayOptions.map((d) => {
+                                  let label = d
+                                  try { label = format(new Date(d + 'T12:00:00'), 'd MMM yyyy') } catch {}
+                                  return <option key={d} value={d} className="text-slate-800">{label}</option>
+                                })}
+                              </select>
+                            )}
+                          </div>
+                          {/* Pairs the selected service date with its practice/rehearsal dates so
+                              the leader can confirm which roster session they're marking before
+                              tapping any names below (e.g. distinguishing this week's Fri 21 Aug
+                              from last week's Fri 31 Jul). */}
+                          <div className="mt-2 pt-2 border-t border-white/20 flex items-center gap-3 flex-wrap">
+                            <span className="text-[10px] font-semibold text-white bg-white/15 px-2 py-0.5 rounded-full">Practice Fri {fmtFriday}</span>
+                            <span className="text-[10px] font-semibold text-white bg-white/15 px-2 py-0.5 rounded-full">Rehearsal Sat {fmtSaturday}</span>
+                          </div>
                         </div>
                         <div className="flex-1">
                           {renderDay('friday', 'fridaySession', fmtFriday, [
@@ -2605,52 +2560,6 @@ export default function DepartmentWorship() {
                 </div>
               )}
             </div>
-          )}
-
-          {/* ── Records sub-page ── */}
-          {practiceSubPage === 'records' && (
-            <div className="space-y-3">
-              {loadingRecords ? (
-                <div className="py-10 text-center text-slate-400 text-sm">Loading records…</div>
-              ) : recordsSchedules.length === 0 ? (
-                <div className="py-10 text-center text-slate-400 text-sm">No records yet. Previous weeks move here when a new week's plan is saved.</div>
-              ) : recordsSchedules.map(s => {
-                const pa = s.practiceAttendance || {}
-                let fmtSunday = s.date
-                try { fmtSunday = format(new Date(s.date + 'T12:00:00'), 'EEEE, d MMMM yyyy') } catch {}
-                const fridayArrived = Object.values(pa.friday || {}).filter(v => v.arrivedAt).length
-                const satArrived = Object.values(pa.saturday || {}).filter(v => v.arrivedAt).length
-                const total = (s.assignments || []).filter(a => a.memberId).length
-                const isComplete = !!(pa.fridaySession?.endOfPractice && pa.saturdaySession?.endOfPractice && pa.saturdaySession?.beginRehearsal && pa.saturdaySession?.endRehearsal)
-                return (
-                  <div key={s.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-slate-800 text-sm">{fmtSunday}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">Fri: {fridayArrived}/{total} · Sat: {satArrived}/{total}</p>
-                      </div>
-                      {isComplete
-                        ? <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2.5 py-0.5 font-semibold">Complete</span>
-                        : <span className="text-xs bg-slate-100 text-slate-500 border border-slate-200 rounded-full px-2.5 py-0.5 font-medium">Archived</span>
-                      }
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
-                      <div className="px-5 py-4 space-y-1.5">
-                        <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Friday</p>
-                        <div className="flex justify-between text-xs"><span className="text-slate-500">End of Practice</span><span className="font-semibold text-slate-800">{pa.fridaySession?.endOfPractice || '—'}</span></div>
-                      </div>
-                      <div className="px-5 py-4 space-y-1.5">
-                        <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Saturday</p>
-                        <div className="flex justify-between text-xs"><span className="text-slate-500">End of Practice</span><span className="font-semibold text-slate-800">{pa.saturdaySession?.endOfPractice || '—'}</span></div>
-                        <div className="flex justify-between text-xs"><span className="text-slate-500">Begin Rehearsal</span><span className="font-semibold text-slate-800">{pa.saturdaySession?.beginRehearsal || '—'}</span></div>
-                        <div className="flex justify-between text-xs"><span className="text-slate-500">End of Rehearsal</span><span className="font-semibold text-slate-800">{pa.saturdaySession?.endRehearsal || '—'}</span></div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
 
           {/* ── Custom Sessions (schedule view only) ── */}
           {practiceSubPage === 'schedule' && (loadingRehearsals || rehearsals.length > 0) && (

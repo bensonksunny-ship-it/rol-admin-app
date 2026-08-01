@@ -118,11 +118,6 @@ function getOperationsChildren(slug) {
   if (slug === 'd-light') {
     return DEFAULT_OPS_CHILDREN.map((c) => (c.key === 'subDepartment' ? { ...c, label: 'Sub Dept' } : c))
   }
-  // Worship already has its own top-level "The Team" tab (theTeam), so Operations'
-  // Team tile here would just be a second way to land on the same Team Members page.
-  if (slug === 'worship') {
-    return DEFAULT_OPS_CHILDREN.filter((c) => c.key !== 'team')
-  }
   return DEFAULT_OPS_CHILDREN
 }
 
