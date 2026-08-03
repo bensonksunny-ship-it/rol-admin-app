@@ -50,6 +50,12 @@ function formatDisplay(iso) {
   return format(new Date(y, m - 1, d), 'EEEE, d MMMM yyyy')
 }
 
+// Roster cards show only the first name (e.g. "Eric" not "Eric Fernandes") to keep
+// each card compact — the full name is still available via the member roster elsewhere.
+function firstName(name) {
+  return String(name || '').trim().split(/\s+/)[0] || ''
+}
+
 // A focused, personal page — distinct from the shared multi-department "Upcoming
 // Sunday" programme designer: its only job is to answer "am I serving this week?"
 // and "what are we playing?", not to plan screen/video/camera/lighting cues.
@@ -202,7 +208,7 @@ export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, ca
               Worship Team — {format(new Date(sundayDate + 'T12:00:00'), 'EEE, d MMM')}
             </p>
           </div>
-          <div className="divide-y divide-slate-50">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3">
             {assignments.filter(a => a.memberId).map((a, i) => {
               const isMe = myWorshipMember && a.memberId === myWorshipMember.id
               const linkedSong = a.songId ? songs?.find(s => s.id === a.songId) : null
@@ -226,26 +232,46 @@ export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, ca
                   onKeyDown={canViewMine ? (e) => {
                     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onViewSong(myPartGroup.song, 'mine', Array.from(myPartGroup.positions)) }
                   } : undefined}
-                  className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-l-4 transition-colors ${
-                    isMe ? 'bg-emerald-50 border-emerald-400' : 'border-transparent'
+                  className={`flex flex-col gap-1.5 rounded-xl border p-3 transition-colors ${
+                    isMe ? 'bg-emerald-50 border-emerald-300' : 'border-slate-200 bg-white'
                   } ${canViewMine ? 'cursor-pointer hover:bg-emerald-50/80' : ''}`}
                 >
-                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-lg text-center" style={{ minWidth: '6rem' }}>
-                    {a.role}
-                  </span>
-                  <span className="text-sm font-medium text-slate-800">{a.memberName}</span>
-                  {a.songName && (
-                    <span className="text-sm font-semibold tracking-tight text-indigo-600 truncate">
-                      – "{a.songName}"{a.key && <span className="font-medium text-violet-500"> ({a.key})</span>}
+                  {/* Top row: role pill left, first name + YOU badge right — kept on one
+                      line since neither side wraps or grows unpredictably. */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-lg shrink-0">
+                      {a.role}
                     </span>
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-sm font-medium text-slate-800 truncate">{firstName(a.memberName)}</span>
+                      {isMe && <span className="text-[10px] font-bold text-white bg-emerald-500 px-2 py-0.5 rounded-full shrink-0">YOU</span>}
+                    </span>
+                  </div>
+
+                  {/* Bottom row: linked song title, truncated with a hover tooltip so a
+                      long title never crowds or wraps against the key pill. */}
+                  {a.songName && (
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className="text-sm font-semibold tracking-tight text-indigo-600 truncate max-w-[180px]"
+                        title={a.songName}
+                      >
+                        "{a.songName}"
+                      </span>
+                      {a.key && (
+                        <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-purple-100/60 text-purple-700 font-mono rounded-full">
+                          {a.key}
+                        </span>
+                      )}
+                    </div>
                   )}
-                  {isMe && <span className="text-[10px] font-bold text-white bg-emerald-500 px-2 py-0.5 rounded-full shrink-0">YOU</span>}
+
                   {(linkedSong || canViewMine) && (
-                    <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                    <div className="flex items-center gap-1.5">
                       {/* "View Song" is the master copy (full lyrics/chords, every role tag) —
                           restricted to whoever can manage this song (Director/Founder always,
                           or the Worship Leader who personally designed it). It stays its own
-                          button (stopPropagation so it doesn't also trigger the row's "My
+                          button (stopPropagation so it doesn't also trigger the card's "My
                           Part" click) since it's a distinct, narrower-audience action. */}
                       {linkedSong && canViewFullSong?.(linkedSong) && (
                         <button type="button" onClick={(e) => { e.stopPropagation(); onViewSong(linkedSong, 'full') }}
@@ -253,9 +279,9 @@ export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, ca
                           View Song
                         </button>
                       )}
-                      {/* "My Part" — only ever on this person's own ("YOU") row. A real
+                      {/* "My Part" — only ever on this person's own ("YOU") card. A real
                           button (not just a badge) so it's a clear, independently clickable
-                          action even though the whole row is also clickable for the same
+                          action even though the whole card is also clickable for the same
                           result; stopPropagation avoids double-firing onViewSong. */}
                       {canViewMine && (
                         <button type="button" onClick={(e) => { e.stopPropagation(); onViewSong(myPartGroup.song, 'mine', Array.from(myPartGroup.positions)) }}
