@@ -30,7 +30,7 @@ export default function PersonSearchInput({ value, onChange, people = [], placeh
 
   const q = query.trim().toLowerCase()
   const filtered = q.length > 0
-    ? people.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 6)
+    ? people.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 20)
     : []
 
   const handleInput = (val) => {
@@ -67,23 +67,27 @@ export default function PersonSearchInput({ value, onChange, people = [], placeh
         )}
       </div>
 
-      {/* Dropdown */}
+      {/* Dropdown — inner list scrolls on its own (max-h-80) so the "keep typing"
+          footer note stays pinned below it instead of scrolling away with a long
+          match list. */}
       {open && filtered.length > 0 && (
-        <div className="absolute top-full left-0 right-0 z-30 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-          {filtered.map(p => (
-            <button
-              key={p.id}
-              type="button"
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => handleSelect(p)}
-              className="w-full text-left px-3 py-2.5 text-sm text-slate-800 hover:bg-indigo-50 border-b border-slate-100 last:border-0 flex items-center gap-2"
-            >
-              <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center shrink-0">
-                {(p.name || '?')[0].toUpperCase()}
-              </span>
-              {p.name}
-            </button>
-          ))}
+        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+          <div className="max-h-80 overflow-y-auto">
+            {filtered.map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => handleSelect(p)}
+                className="w-full text-left px-3 py-2.5 text-sm text-slate-800 hover:bg-indigo-50 border-b border-slate-100 last:border-0 flex items-center gap-2.5"
+              >
+                <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-bold flex items-center justify-center shrink-0">
+                  {(p.name || '?')[0].toUpperCase()}
+                </span>
+                {p.name}
+              </button>
+            ))}
+          </div>
           <p className="text-[10px] text-slate-400 px-3 py-1.5 border-t border-slate-100">
             Or keep typing to enter a custom name
           </p>
