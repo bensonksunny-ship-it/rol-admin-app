@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
+import { Receipt, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { createFinanceExpense, subscribeFinanceExpenseByDept, deleteFinanceExpense } from '../services/firestore'
 
@@ -10,6 +11,13 @@ function today() {
 function fmtDate(d) {
   if (!d) return '—'
   try { return format(new Date(d), 'dd MMM yyyy') } catch { return '—' }
+}
+
+// Mobile transaction cards show a short "10 Jul" date (no year) to stay compact —
+// the desktop table keeps the full dd MMM yyyy via fmtDate above.
+function fmtDateShort(d) {
+  if (!d) return '—'
+  try { return format(new Date(d), 'd MMM') } catch { return '—' }
 }
 
 function fmtAmt(n) {
@@ -30,6 +38,9 @@ export default function DeptExpenseTab({ department }) {
   const [loadErr, setLoadErr] = useState('')
   const [deletingId, setDeletingId] = useState(null)
   const [retryKey, setRetryKey] = useState(0)
+  // Bill No is a secondary, optional field — hidden by default behind a trigger icon
+  // so the form's default state is just date/amount/description.
+  const [showBillNo, setShowBillNo] = useState(false)
 
   useEffect(() => {
     setLoadingEntries(true)
@@ -62,6 +73,7 @@ export default function DeptExpenseTab({ department }) {
         amount: Number(form.amount),
       }, ...prev])
       setForm(f => ({ ...EMPTY_FORM, date: f.date }))
+      setShowBillNo(false)
     } catch {
       alert('Failed to save expense. Please try again.')
     }
@@ -81,96 +93,103 @@ export default function DeptExpenseTab({ department }) {
   const totalAmt = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 pb-20">
 
-      {/* Bento: stat card + compact form */}
+      {/* Merged total-expense summary — a single sleek horizontal card instead of a
+          separate stat box duplicating whatever "Expense" header the caller renders
+          above this component. Always visible (not gated on canEdit) since everyone
+          who can see this tab should see the running total. */}
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Total Expense</p>
+          <p className="text-2xl font-bold text-slate-800 tabular-nums mt-0.5">{fmtAmt(totalAmt)}</p>
+        </div>
+        <span className="shrink-0 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-100 px-2.5 py-1 rounded-full">
+          {entries.length} {entries.length === 1 ? 'Entry' : 'Entries'}
+        </span>
+      </div>
+
+      {/* Compact entry form */}
       {canEdit && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
-
-          {/* Stat card */}
-          <div className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-rose-300 shadow-sm px-4 py-3 flex flex-col justify-center gap-1">
-            <p className="text-xs font-semibold text-slate-500">Total Expense</p>
-            <p className="text-lg font-bold text-slate-700 tabular-nums">{fmtAmt(totalAmt)}</p>
-            <p className="text-[11px] text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_4px_24px_rgba(99,102,241,0.08)] ring-1 ring-inset ring-slate-100 p-4 space-y-3"
+        >
+          {/* Row 1: date + amount side-by-side */}
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="date"
+              value={form.date}
+              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+              required
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+            />
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-semibold text-sm">₹</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.amount}
+                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                placeholder="0"
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white pl-7 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+              />
+            </div>
           </div>
 
-          {/* Form */}
-          <form
-            onSubmit={handleSubmit}
-            className="sm:col-span-2 bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_4px_24px_rgba(99,102,241,0.08)] ring-1 ring-inset ring-slate-100 p-4"
-          >
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-slate-500">Date</label>
-                <input
-                  type="date"
-                  value={form.date}
-                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                  required
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-slate-500">Amount (₹)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.amount}
-                  onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                  placeholder="0"
-                  required
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
-                />
-              </div>
-              <div className="flex flex-col gap-1 col-span-2">
-                <label className="text-xs font-medium text-slate-500">Item</label>
-                <input
-                  type="text"
-                  value={form.item}
-                  onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
-                  placeholder="Item description"
-                  required
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-slate-500">
-                  Bill No <span className="font-normal text-slate-400">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.billNo}
-                  onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
-                  placeholder="optional"
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
-                />
-              </div>
-              <div className="flex items-end">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="w-full min-h-[40px] px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold disabled:opacity-50 transition-colors shadow-sm"
-                >
-                  {saving ? 'Saving…' : 'Add Expense'}
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
+          {/* Row 2: single-line description */}
+          <input
+            type="text"
+            value={form.item}
+            onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
+            placeholder="What was this for?"
+            required
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+          />
+
+          {/* Bill No — optional, revealed only after tapping the trigger icon below */}
+          {showBillNo && (
+            <input
+              type="text"
+              value={form.billNo}
+              onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
+              placeholder="Bill number (optional)"
+              autoFocus
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+            />
+          )}
+
+          {/* Action bar: Bill No trigger + prominent Add button */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowBillNo(v => !v)}
+              title="Bill No (optional)"
+              aria-label="Toggle bill number"
+              className={`w-11 h-11 shrink-0 rounded-xl border flex items-center justify-center transition-colors active:scale-95 ${
+                showBillNo || form.billNo
+                  ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
+                  : 'border-slate-200 text-slate-400 hover:bg-slate-50'
+              }`}
+            >
+              <Receipt size={18} />
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 active:scale-95 text-white text-sm font-semibold disabled:opacity-50 transition-all shadow-sm"
+            >
+              {saving ? 'Saving…' : 'Add'}
+            </button>
+          </div>
+        </form>
       )}
 
-      {/* Entries list */}
+      {/* Entries list — the merged summary card above already shows the running
+          total, so no separate "Expense Entries" / Total header repeats it here. */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        {!canEdit && entries.length > 0 && (
-          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 bg-slate-50">
-            <p className="text-sm font-semibold text-slate-700">Expense Entries</p>
-            <span className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-100 px-2.5 py-0.5 rounded-full">
-              Total {fmtAmt(totalAmt)}
-            </span>
-          </div>
-        )}
-
         {loadErr ? (
           <div className="px-5 py-4 text-center">
             <p className="text-sm text-red-500">{loadErr}</p>
@@ -182,30 +201,34 @@ export default function DeptExpenseTab({ department }) {
           <div className="px-5 py-5 text-center text-slate-400 text-sm">No expense entries yet.</div>
         ) : (
           <>
-            {/* Mobile cards */}
+            {/* Mobile transaction cards */}
             <div className="divide-y divide-slate-100 sm:hidden">
               {entries.map(e => (
-                <div key={e.id} className="px-4 py-3 space-y-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">{e.item || '—'}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{fmtDate(e.date)}{e.billNo ? ` · ${e.billNo}` : ''}</p>
-                    </div>
-                    <p className="text-sm font-bold text-slate-800 shrink-0">{fmtAmt(e.amount)}</p>
+                <div key={e.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate max-w-[200px]">{e.item || '—'}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{fmtDateShort(e.date)}{e.billNo ? ` · ${e.billNo}` : ''}</p>
                   </div>
-                  {canEdit && (
-                    deletingId === e.id ? (
-                      <div className="flex items-center gap-3 text-xs">
-                        <span className="text-slate-600">Confirm delete?</span>
-                        <button type="button" onClick={() => handleDelete(e.id)} className="text-red-600 font-medium">Yes</button>
-                        <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500">No</button>
-                      </div>
-                    ) : (
-                      <button type="button" onClick={() => setDeletingId(e.id)} className="text-xs text-red-400 hover:text-red-600 font-medium">
-                        Delete
-                      </button>
-                    )
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <p className="text-sm font-bold text-slate-800 tabular-nums">{fmtAmt(e.amount)}</p>
+                    {canEdit && (
+                      deletingId === e.id ? (
+                        <span className="flex items-center gap-1.5 text-xs">
+                          <button type="button" onClick={() => handleDelete(e.id)} className="text-red-600 font-semibold">Yes</button>
+                          <button type="button" onClick={() => setDeletingId(null)} className="text-slate-400">No</button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setDeletingId(e.id)}
+                          aria-label="Delete expense"
+                          className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

@@ -679,10 +679,26 @@ const ANALYTICS_COLORS = {
 const ANALYTICS_BAR_PALETTE = ['#7c3aed', '#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899', '#14b8a6', '#f97316']
 
 const ANALYTICS_RANGE_OPTIONS = [
-  { key: '4w', label: 'Last 4 Weeks', days: 28 },
-  { key: '3m', label: 'Last 3 Months', days: 90 },
-  { key: 'ytd', label: 'Year to Date', days: null },
+  { key: '4w', label: '4 Weeks', days: 28 },
+  { key: '3m', label: '3 Months', days: 90 },
+  { key: 'ytd', label: 'YTD', days: null },
 ]
+
+// Bar-chart labels/tooltips show first name only, so long full names never wrap
+// or overlap on a narrow mobile axis.
+function firstNameOnly(name) {
+  return (name || '').split(' ')[0] || name
+}
+
+function LoadDistributionTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  const value = payload[0].value
+  return (
+    <div className="rounded-[10px] border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-sm">
+      {firstNameOnly(label)}: {value} assignment{value === 1 ? '' : 's'}
+    </div>
+  )
+}
 
 function analyticsMinsToLabel(mins) {
   const h = Math.floor(mins / 60) % 24
@@ -818,21 +834,18 @@ function WorshipAnalyticsDashboard() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 className="font-semibold text-slate-800 text-base">Team Performance &amp; Growth Analytics</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Punctuality, workload balance, attendance, and setlist variety over time</p>
-        </div>
-        <div className="flex gap-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-semibold text-slate-800 text-base shrink-0">Team Analytics</h2>
+        <div className="grid grid-cols-3 gap-1 bg-slate-100 rounded-xl p-1 w-full max-w-[240px]">
           {ANALYTICS_RANGE_OPTIONS.map((opt) => (
             <button
               key={opt.key}
               type="button"
               onClick={() => setRange(opt.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              className={`py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                 range === opt.key
-                  ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
-                  : 'bg-white text-slate-500 border-slate-300 hover:border-violet-400 hover:text-violet-700'
+                  ? 'bg-violet-600 text-white shadow-sm'
+                  : 'text-slate-500 hover:text-violet-700'
               }`}
             >
               {opt.label}
@@ -844,10 +857,10 @@ function WorshipAnalyticsDashboard() {
       {loading ? (
         <div className="py-12 text-center text-slate-400 text-sm">Loading analytics…</div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-20">
 
           {/* Team Punctuality Trend */}
-          <AnalyticsCard title="Team Punctuality Trend" subtitle="Avg. Friday practice arrival vs 8:00 PM benchmark">
+          <AnalyticsCard title="Punctuality Trend">
             {punctualityData.length === 0 ? (
               <AnalyticsEmpty label="No practice check-ins recorded in this period." />
             ) : (
@@ -875,16 +888,16 @@ function WorshipAnalyticsDashboard() {
           </AnalyticsCard>
 
           {/* Role / Song Load Distribution */}
-          <AnalyticsCard title="Role / Song Load Distribution" subtitle="Assignments per team member this period">
+          <AnalyticsCard title="Workload Distribution">
             {loadDistribution.length === 0 ? (
               <AnalyticsEmpty label="No assignments recorded in this period." />
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={loadDistribution} margin={{ top: 5, right: 12, left: 0, bottom: 24 }}>
                   <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 9, fill: ANALYTICS_COLORS.slate }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-35} textAnchor="end" interval={0} height={50} />
+                  <XAxis dataKey="name" tickFormatter={firstNameOnly} tick={{ fontSize: 9, fill: ANALYTICS_COLORS.slate }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-35} textAnchor="end" interval={0} height={50} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: ANALYTICS_COLORS.slate }} axisLine={false} tickLine={false} width={24} />
-                  <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
+                  <Tooltip content={<LoadDistributionTooltip />} />
                   <Bar dataKey="count" name="Assignments" radius={[6, 6, 0, 0]}>
                     {loadDistribution.map((_, i) => (
                       <Cell key={i} fill={ANALYTICS_BAR_PALETTE[i % ANALYTICS_BAR_PALETTE.length]} />
@@ -896,7 +909,7 @@ function WorshipAnalyticsDashboard() {
           </AnalyticsCard>
 
           {/* Rehearsal Attendance Rate */}
-          <AnalyticsCard title="Rehearsal Attendance Rate" subtitle="Share of assigned members who checked in, per week">
+          <AnalyticsCard title="Attendance Rate">
             {attendanceData.length === 0 ? (
               <AnalyticsEmpty label="No practice check-ins recorded in this period." />
             ) : (
@@ -940,7 +953,7 @@ function WorshipAnalyticsDashboard() {
           </AnalyticsCard>
 
           {/* Song Rotation & Frequency */}
-          <AnalyticsCard title="Song Rotation & Frequency" subtitle="Most-played songs in this period's setlists">
+          <AnalyticsCard title="Song Rotation">
             {songFrequency.length === 0 ? (
               <AnalyticsEmpty label="No songs recorded in this period's setlists." />
             ) : (
@@ -1812,9 +1825,6 @@ export default function DepartmentWorship() {
 
   return (
     <div>
-      <div className="flex items-center h-10 py-1.5 px-4 mb-2">
-        <h1 className="text-sm font-semibold text-slate-900">Worship</h1>
-      </div>
       <div className="space-y-4 px-4 pb-4 pt-1">
       {/* Shared multi-department Sunday-service programme grid (same component D
           Light/Media/Administration use) — order-of-service cards, "+ Add Programme
@@ -2273,33 +2283,27 @@ export default function DepartmentWorship() {
           {/* Expense is the permanent base view — Budget and Payout Request are
               drawers layered on top via these two icon buttons, not sibling tabs, so
               switching between them never navigates away from the expense breakdown
-              underneath. */}
-          <div className="flex items-center justify-between gap-2 p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Expense</span>
-            {/* Icon-only, top-right utility buttons — same small rounded-icon-button
-                shape/hover convention as the notifications/chat icons in the main
-                dashboard header (WorkspaceHeader), just kept in Worship's own indigo
-                accent instead of that page's warm palette. */}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setFinanceOverlay('budget')}
-                title="Budget"
-                aria-label="Open Budget"
-                className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-              >
-                <Wallet size={17} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setFinanceOverlay('payout')}
-                title="Payout Request"
-                aria-label="Open Payout Request"
-                className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-              >
-                <Banknote size={17} />
-              </button>
-            </div>
+              underneath. No text label here — DeptExpenseTab's own merged summary
+              card is the page's one "Expense" heading, so this row is icon-only. */}
+          <div className="flex items-center justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => setFinanceOverlay('budget')}
+              title="Budget"
+              aria-label="Open Budget"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-500 bg-white border border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+            >
+              <Wallet size={17} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setFinanceOverlay('payout')}
+              title="Payout Request"
+              aria-label="Open Payout Request"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-500 bg-white border border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+            >
+              <Banknote size={17} />
+            </button>
           </div>
 
           <DeptExpenseTab department="Worship" />
