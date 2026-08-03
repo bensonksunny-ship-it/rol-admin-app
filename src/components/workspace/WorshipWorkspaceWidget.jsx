@@ -398,7 +398,7 @@ export default function WorshipWorkspaceWidget() {
 
   return (
     <>
-      <div className={`rounded-2xl border shadow-sm overflow-hidden max-w-2xl ${
+      <div className={`w-full rounded-xl border shadow-sm overflow-hidden sm:max-w-2xl ${
         highlighted ? 'border-violet-300' : 'border-slate-200 bg-white'
       }`}>
         <div
@@ -406,13 +406,13 @@ export default function WorshipWorkspaceWidget() {
           tabIndex={0}
           onClick={() => setExpanded(!expanded)}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }}
-          className={`w-full flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
+          className={`w-full flex items-center justify-between gap-3 p-3 cursor-pointer transition-colors ${
             isScheduledThisSunday
               ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700'
               : 'text-slate-800 hover:bg-slate-50'
           }`}
         >
-          <span className={`text-sm font-bold truncate ${isScheduledThisSunday ? 'text-white' : 'text-slate-800'}`}>
+          <span className={`min-w-0 text-sm font-bold ${isScheduledThisSunday ? 'text-white' : 'text-slate-800'}`}>
             {isScheduledThisSunday ? `Hello ${myFirstName || 'there'}, you are assigned for the worship team this week` : 'Upcoming Worship'}
           </span>
           <span className="flex items-center gap-2 shrink-0">
@@ -494,17 +494,17 @@ export default function WorshipWorkspaceWidget() {
                     <button
                       type="button"
                       onClick={startEditingSetlist}
-                      className="text-xs font-semibold text-violet-600 hover:underline"
+                      className="text-xs font-semibold text-violet-600 bg-white border border-violet-200 hover:bg-violet-100 px-3 py-1.5 rounded-full transition-colors active:scale-95"
                     >
                       Edit Setlist
                     </button>
                   ) : (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={cancelEditingSetlist}
                         disabled={sharingSetlist}
-                        className="text-xs font-medium text-slate-500 hover:underline disabled:opacity-50"
+                        className="text-xs font-medium text-slate-500 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 px-3 py-1.5 rounded-full transition-colors active:scale-95"
                       >
                         Cancel
                       </button>
@@ -512,7 +512,7 @@ export default function WorshipWorkspaceWidget() {
                         type="button"
                         disabled={sharingSetlist || loadingSetlistRows || setlistRows.length === 0}
                         onClick={handleShareSetlist}
-                        className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 px-3 py-1 rounded-full transition-colors"
+                        className="text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 px-3 py-1.5 rounded-full transition-colors active:scale-95"
                       >
                         {sharingSetlist ? 'Saving…' : 'Save Changes'}
                       </button>
@@ -527,9 +527,9 @@ export default function WorshipWorkspaceWidget() {
                       key={d}
                       type="button"
                       onClick={() => setSelectedDate(d)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                      className={`h-9 px-4 inline-flex items-center justify-center rounded-full text-sm font-semibold border transition-colors active:scale-95 ${
                         selectedDate === d
-                          ? 'bg-violet-600 text-white border-violet-600'
+                          ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
                           : 'bg-white text-slate-600 border-slate-300 hover:border-violet-400 hover:text-violet-700'
                       }`}
                     >
@@ -656,7 +656,7 @@ export default function WorshipWorkspaceWidget() {
                 type="button"
                 disabled={distributing}
                 onClick={generateAndSharePlan}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-semibold shadow-sm transition"
+                className="w-full h-11 flex items-center justify-center gap-2 rounded-full bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-semibold shadow-sm transition active:scale-95"
               >
                 <Send size={14} />
                 {distributing ? 'Generating…' : 'Distribute Plan to Team'}

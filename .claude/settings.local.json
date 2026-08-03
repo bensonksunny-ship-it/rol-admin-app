@@ -142,7 +142,13 @@
       "Bash(grep -n \"setNewMember\\({ name: '', visitorId: '', memberSince\" src/pages/DepartmentWorship.jsx)",
       "Bash(grep -n \"^          </>\\\\|^        </div>\\\\s*$\" src/pages/DepartmentWorship.jsx)",
       "Bash(grep -v \"rules-of-hooks\\\\|Empty block\\\\|set-state-in-effect\\\\|missing dependency\\\\|Effects are intended\\\\|In general\\\\|Update external\\\\|Subscribe for\\\\|Calling setState\\\\|^$\\\\|^\\\\s*[0-9]* |\\\\s*\\\\^\")",
-      "Bash(start *)"
+      "Bash(start *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(echo \"grep exit: $?\")",
+      "Bash(grep -rn *)",
+      "Bash(powershell -NoProfile -Command 'Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '\\\\''*node*'\\\\'' } | Select-Object Id')",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

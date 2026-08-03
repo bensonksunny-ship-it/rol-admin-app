@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -31,7 +31,7 @@ import {
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, ReferenceLine, Cell } from 'recharts'
-import { format, subMonths, subDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
+import { format, subMonths, subDays, addDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import { isWorshipLeader, hasWorshipRoleAccess, getAllowedWorshipTabs } from '../utils/worshipAccess'
 import { getDepartmentRole } from '../utils/access'
@@ -103,6 +103,26 @@ const ROLE_CATEGORY_LABELS = {
 }
 function roleCategoryLabel(category) {
   return ROLE_CATEGORY_LABELS[category] || category
+}
+
+// Compact abbreviations for the Assign tab's row label — full category names
+// (e.g. "Acoustic guitar") eat too much horizontal space next to the member
+// dropdown, especially on mobile cards. Row keys/data are unaffected; this only
+// changes what's displayed (see roleDisplayLabel, which reuses roleKeyFor's own
+// "-N" suffix logic so abbreviated labels still line up with saved assignments).
+const ROLE_LABEL_ABBR = {
+  'Lead Vocal': 'L Vocal',
+  'Choir member': 'Choir',
+  'Lead Guitar': 'L Guitar',
+  'Acoustic guitar': 'A Guitar',
+  'Bass Guitar': 'B Guitar',
+  'Sound Engineer': 'Sound Eng',
+}
+function roleDisplayLabel(role) {
+  const { category, index } = parseRoleKey(role)
+  const abbr = ROLE_LABEL_ABBR[category] || category
+  if (index === 1) return LEGACY_DASH_ONE_CATEGORIES.has(category) ? `${abbr}-1` : abbr
+  return `${abbr}-${index}`
 }
 
 // Cumulative per-member song/role history across every published Sunday setlist.
@@ -311,6 +331,109 @@ function WorshipStamp({ stamp, isOpen, onToggle, onEdit }) {
   )
 }
 
+// One role's assignment as a stacked mobile card (member select on top, song
+// entry below when the role carries one) — the Assign tab's 3-column table
+// squishes unreadably on narrow screens, so this renders instead below `md`.
+// Song entry only ever shows a compact pill or a "Link Song" button here; the
+// actual search happens in a shared bottom-sheet (see SongPickerSheet) opened
+// via onOpenSongPicker, so this card never grows its own cramped input.
+function RoleAssignCard({
+  role, category, count, isLeadVocal, isLastRow,
+  activeMembers, getLocalField, updateLocal, songs, openSongView,
+  addRoleRow, removeRoleRow, onOpenSongPicker,
+}) {
+  const posKey = positionKeyForRole(role)
+  const eligible = posKey ? activeMembers.filter((m) => m.positions?.includes(posKey)) : activeMembers
+
+  const memberId = getLocalField(role, 'memberId')
+  const songName = getLocalField(role, 'songName')
+  const songId = getLocalField(role, 'songId')
+  const songKey = getLocalField(role, 'key')
+  const linkedSong = songId ? songs.find((s) => s.id === songId) : null
+  const hasSong = !!(songName || linkedSong)
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-slate-800">{roleDisplayLabel(role)}</span>
+        {isLastRow && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => addRoleRow(category)}
+              className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline whitespace-nowrap"
+            >
+              + Add {category}
+            </button>
+            {count > 1 && (
+              <button
+                type="button"
+                onClick={() => removeRoleRow(category)}
+                title={`Remove this ${category}`}
+                className="text-slate-400 hover:text-red-500 text-sm leading-none"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <select
+        value={memberId}
+        onChange={(e) => {
+          const val = e.target.value
+          const member = activeMembers.find((m) => m.id === val)
+          updateLocal(role, { memberId: val || '', memberName: member?.name || '' })
+        }}
+        className="mt-2 w-full px-2.5 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+      >
+        <option value="">— Not assigned</option>
+        {eligible.map((m) => (
+          <option key={m.id} value={m.id}>{m.name}</option>
+        ))}
+      </select>
+
+      {/* Song field only appears once someone's actually assigned — an empty
+          role has nothing to attach a song to yet. */}
+      {isLeadVocal && memberId && (
+        <div className="mt-2">
+          {hasSong ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => (linkedSong ? openSongView(linkedSong) : onOpenSongPicker(role))}
+                className="flex-1 min-w-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-semibold text-indigo-700"
+              >
+                <span className="truncate">{songName || linkedSong?.title}</span>
+                {(songKey || linkedSong?.key) && (
+                  <span className="text-indigo-500 shrink-0">[{songKey || linkedSong?.key}]</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => updateLocal(role, { songName: '', songId: '', key: '' })}
+                aria-label="Remove song"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onOpenSongPicker(role)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-indigo-300 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors"
+            >
+              <Music2 size={13} strokeWidth={2.25} /> Link Song
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Official practice start benchmark — 8:00 PM. Arriving at or before this is
 // Punctual; anything after is Late by however many minutes past it.
 const PRACTICE_START_MINUTES = 20 * 60
@@ -338,11 +461,6 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
   const assignedRoles = (stamp.assignments || []).filter((a) => a.memberId)
   let formattedDate = stamp.date
   try { formattedDate = format(new Date(stamp.date + 'T12:00:00'), 'EEE d MMM yyyy') } catch {}
-  let savedAt = ''
-  try {
-    const ts = stamp.updatedAt?.toDate ? stamp.updatedAt.toDate() : stamp.updatedAt ? new Date(stamp.updatedAt) : null
-    if (ts) savedAt = format(ts, 'd MMM yyyy, h:mm a')
-  } catch {}
 
   // Status badge — Archives no longer only holds history, so "Published" can't be a
   // constant anymore. The forthcoming Sunday (same cutoff as the Summary tab's plan
@@ -445,14 +563,12 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
         onClick={onToggle}
         className="w-full flex items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50 transition-colors text-left"
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
           <CheckCircle2 size={17} className={`flex-shrink-0 ${statusLabel === 'Published' ? 'text-emerald-500' : statusLabel === 'In Progress' ? 'text-amber-500' : 'text-sky-500'}`} />
-          <span className="font-semibold text-slate-800 text-sm">{formattedDate}</span>
-          <span className={`text-xs border rounded-full px-2 py-0.5 flex-shrink-0 ${statusClass}`}>{statusLabel}</span>
-          {savedAt && <span className="text-xs text-slate-400 hidden sm:inline truncate">Saved {savedAt}</span>}
+          <span className="font-semibold text-slate-800 text-sm truncate">{formattedDate}</span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-xs text-slate-400">{assignedRoles.length} assigned</span>
+          <span className={`text-xs border rounded-full px-2 py-0.5 flex-shrink-0 ${statusClass}`}>{statusLabel}</span>
           <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
             <ChevronDown size={16} className="text-slate-400" />
           </motion.div>
@@ -1108,10 +1224,14 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
 
     {/* Individual Record detail modal — full role breakdown + historical services/
         songs, newest first. Rendered outside the card's own click-to-expand div so
-        it isn't affected by that handler. */}
+        it isn't affected by that handler.
+        On mobile this renders as a bottom sheet (anchored to the viewport bottom,
+        rounded top corners only) instead of a centered floating card — a centered
+        card with a tall song history list could push its close button off-screen
+        on short mobile viewports. Desktop (sm+) keeps the centered dialog. */}
     {detailOpen && (
       <div
-        className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4"
         onClick={() => setDetailOpen(false)}
       >
         <div
@@ -1119,12 +1239,12 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
           aria-modal="true"
           aria-label={`${m.name} — Individual Record`}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-md max-h-[85vh] flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden"
+          className="w-full sm:max-w-md max-h-[80vh] flex flex-col bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden"
         >
           <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-wide text-violet-500">Individual Record</p>
-              <h3 className="text-base font-bold text-slate-800 truncate">{m.name}</h3>
+              <h3 className="text-base font-bold text-slate-800 truncate">{(m.name || '').trim().split(' ')[0] || m.name}</h3>
             </div>
             <button
               type="button"
@@ -1136,7 +1256,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
             <div>
               <p className="text-sm font-bold text-slate-800 mb-2">Total Songs: {stats?.total || 0}</p>
               <div className="flex flex-wrap gap-1.5">
@@ -1155,7 +1275,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
               {(stats?.history || []).length === 0 ? (
                 <p className="text-sm text-slate-400 italic">No recorded services yet.</p>
               ) : (
-                <div className="space-y-1.5">
+                <div className="max-h-[70vh] overflow-y-auto space-y-1.5 pr-0.5">
                   {stats.history.map((h, i) => {
                     let fmtDate = h.date
                     try { fmtDate = format(new Date(h.date + 'T12:00:00'), 'd MMM yyyy') } catch {}
@@ -1334,6 +1454,7 @@ export default function DepartmentWorship() {
   const [addMemberModalOpen, setAddMemberModalOpen] = useState(false)
   const [openAttendanceId, setOpenAttendanceId] = useState(null)
   const [attendanceDraft, setAttendanceDraft] = useState({})
+  const [openSessionMenuId, setOpenSessionMenuId] = useState(null)
   const [weekBoxSchedules, setWeekBoxSchedules] = useState([])
   // Practice & Attendance date picker — `selectedPracticeSunday` is the Sunday service
   // whose Friday/Saturday practice sessions are currently shown; `practiceSundayOptions`
@@ -1367,6 +1488,15 @@ export default function DepartmentWorship() {
     setViewingSong(song)
   }
   const [songSearchOpenRole, setSongSearchOpenRole] = useState(null)
+  // Which role's "Link Song" button on the mobile Assign card opened the shared
+  // bottom-sheet picker below (null when it's closed) — separate from
+  // songSearchOpenRole above, which only drives the desktop table's inline dropdown.
+  const [songPickerRole, setSongPickerRole] = useState(null)
+  const [songPickerQuery, setSongPickerQuery] = useState('')
+  const openSongPicker = (role) => {
+    setSongPickerQuery(getLocalField(role, 'songName') || '')
+    setSongPickerRole(role)
+  }
   const [songModal, setSongModal] = useState(null) // null | 'add'
   const [songForm, setSongForm] = useState({ title: '', artist: '', key: '', tempo: '', notes: '' })
 
@@ -2083,7 +2213,7 @@ export default function DepartmentWorship() {
       )}
 
       {activeTab === 'assign' && canManageWorship && (
-        <div className="space-y-4">
+        <div className="space-y-4 pb-20">
           <AnimatePresence mode="popLayout">
             {assignStamp ? (
               <WorshipStamp
@@ -2140,8 +2270,37 @@ export default function DepartmentWorship() {
                 <div className="p-5 text-center text-slate-500">Loading...</div>
               ) : activeMembers.length === 0 ? (
                 <div className="p-5 text-center text-slate-500">Add team members in the Team tab first.</div>
-              ) : (
-                <table key={selectedDate} className="w-full">
+              ) : (() => {
+                const assignRows = ROLE_CATEGORIES.flatMap((category) => {
+                  const count = rowCountFor(category)
+                  return Array.from({ length: count }, (_, i) => i + 1).map((index) => {
+                    const role = roleKeyFor(category, index)
+                    return { category, index, count, role, isLeadVocal: role.startsWith('Lead Vocal'), isLastRow: index === count }
+                  })
+                })
+                return (
+                <>
+                {/* Mobile: one vertical card per role — the 3-column table below
+                    (Role | Assigned to | Song Name) squishes unreadably on narrow
+                    screens, so below md this stacked card grid renders instead. */}
+                <div key={selectedDate + '-cards'} className="md:hidden grid grid-cols-1 gap-3 p-4">
+                  {assignRows.map((row) => (
+                    <RoleAssignCard
+                      key={row.role}
+                      {...row}
+                      activeMembers={activeMembers}
+                      getLocalField={getLocalField}
+                      updateLocal={updateLocal}
+                      songs={songs}
+                      openSongView={openSongView}
+                      addRoleRow={addRoleRow}
+                      removeRoleRow={removeRoleRow}
+                      onOpenSongPicker={openSongPicker}
+                    />
+                  ))}
+                </div>
+
+                <table key={selectedDate} className="hidden md:table w-full">
                   <thead className="bg-slate-50">
                     <tr>
                       <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[180px]">Role</th>
@@ -2150,17 +2309,11 @@ export default function DepartmentWorship() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {ROLE_CATEGORIES.flatMap((category) => {
-                      const count = rowCountFor(category)
-                      return Array.from({ length: count }, (_, i) => i + 1).map((index) => {
-                        const role = roleKeyFor(category, index)
-                        const isLeadVocal = role.startsWith('Lead Vocal')
-                        const isLastRow = index === count
-                        return (
+                    {assignRows.map(({ category, count, role, isLeadVocal, isLastRow }) => (
                       <tr key={role} className="hover:bg-slate-50/50">
                         <td className="px-4 py-2 font-medium text-slate-800 text-sm align-top">
                           <div className="flex flex-col gap-1">
-                            <span>{role}</span>
+                            <span>{roleDisplayLabel(role)}</span>
                             {isLastRow && (
                               <div className="flex items-center gap-2">
                                 <button
@@ -2264,12 +2417,12 @@ export default function DepartmentWorship() {
                           })()}
                         </td>
                       </tr>
-                        )
-                      })
-                    })}
+                    ))}
                   </tbody>
                 </table>
-              )}
+                </>
+                )
+              })()}
             </motion.div>
             )}
           </AnimatePresence>
@@ -2338,6 +2491,84 @@ export default function DepartmentWorship() {
 
         </div>
       )}
+
+      {/* Shared bottom-sheet song picker for the Assign tab's mobile "Link Song"
+          button — kept as one global overlay (not per-card state) so opening it
+          never grows the roster card itself. */}
+      {songPickerRole && (() => {
+        const q = songPickerQuery.trim().toLowerCase()
+        const matches = songs.filter((s) => !q || s.title?.toLowerCase().includes(q)).slice(0, 20)
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+            onClick={() => setSongPickerRole(null)}
+          >
+            <div
+              className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+                <h3 className="font-semibold text-slate-800">Link a Song</h3>
+                <button
+                  type="button"
+                  onClick={() => setSongPickerRole(null)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-4 border-b border-slate-100">
+                <div className="relative">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    autoFocus
+                    value={songPickerQuery}
+                    onChange={(e) => setSongPickerQuery(e.target.value)}
+                    placeholder="Search songs or type a name"
+                    className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white"
+                  />
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2">
+                {matches.length === 0 ? (
+                  <p className="text-center text-sm text-slate-400 py-6">No matching songs.</p>
+                ) : (
+                  matches.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        updateLocal(songPickerRole, { songName: s.title, key: s.key || '', songId: s.id })
+                        setSongPickerRole(null)
+                      }}
+                      className="w-full text-left px-3 py-2.5 rounded-lg text-sm hover:bg-indigo-50 flex items-center justify-between gap-2"
+                    >
+                      <span className="truncate font-medium text-slate-700">{s.title}</span>
+                      {s.key && <span className="text-xs text-indigo-600 font-semibold shrink-0">{s.key}</span>}
+                    </button>
+                  ))
+                )}
+              </div>
+              {songPickerQuery.trim() && (
+                <div className="p-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateLocal(songPickerRole, { songName: songPickerQuery.trim(), songId: '', key: '' })
+                      setSongPickerRole(null)
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-indigo-300 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors"
+                  >
+                    <Plus size={13} strokeWidth={2.5} /> Use &quot;{songPickerQuery.trim()}&quot; as song name
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {worshipMemberLinking && (
         <WorshipLinkModal
@@ -3073,7 +3304,7 @@ export default function DepartmentWorship() {
             }
 
             return (
-              <div className="space-y-6">
+              <div className="space-y-6 pb-20">
                 {upcoming.length > 0 && (
                   <div>
                     <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Upcoming</p>
@@ -3081,66 +3312,91 @@ export default function DepartmentWorship() {
                       {upcoming.map((r) => {
                         let fmtDate = r.date
                         try { fmtDate = format(new Date(r.date + 'T12:00:00'), 'EEE, d MMM yyyy') } catch {}
+                        let practiceForLabel = ''
+                        try {
+                          const d = new Date(r.date + 'T12:00:00')
+                          practiceForLabel = format(addDays(d, (7 - d.getDay()) % 7), 'EEE d MMM')
+                        } catch {}
                         const isAttendanceOpen = openAttendanceId === r.id
+                        const isMenuOpen = openSessionMenuId === r.id
                         return (
                           <div key={r.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-                            <div className="flex flex-wrap items-start gap-4">
+                            <div className="flex items-start justify-between gap-3">
                               <div className="flex-1 min-w-0 space-y-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="font-semibold text-slate-800">{fmtDate}</span>
-                                  {r.time && <span className="text-xs bg-violet-50 text-violet-700 border border-violet-100 rounded-full px-2 py-0.5 font-medium">{r.time}</span>}
-                                  {r.done && <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2 py-0.5 font-medium">Done</span>}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-semibold text-slate-800 text-sm whitespace-nowrap">{fmtDate}</span>
+                                  {r.time && <span className="text-xs bg-violet-50 text-violet-700 border border-violet-100 rounded-full px-2 py-0.5 font-medium shrink-0">{r.time}</span>}
+                                  {r.done && <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-2 py-0.5 font-medium shrink-0">Done</span>}
                                   {attendanceSummary(r)}
                                 </div>
-                                {r.location && <p className="text-xs text-slate-500">📍 {r.location}</p>}
+                                {practiceForLabel && <p className="text-xs text-slate-400">Practice for {practiceForLabel}</p>}
+                                {r.location && <p className="text-xs text-slate-500 mt-0.5">📍 {r.location}</p>}
                                 {r.notes && <p className="text-sm text-slate-600 mt-1">{r.notes}</p>}
                               </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
                                 <button
                                   type="button"
                                   onClick={() => isAttendanceOpen ? setOpenAttendanceId(null) : openAttendance(r)}
-                                  className={`text-xs border rounded-lg px-2 py-1 transition-colors ${isAttendanceOpen ? 'bg-violet-600 text-white border-violet-600' : 'text-violet-600 border-violet-200 hover:bg-violet-50'}`}
+                                  className={`text-xs font-semibold rounded-full px-3 py-1.5 whitespace-nowrap transition-colors ${isAttendanceOpen ? 'bg-violet-700 text-white' : 'bg-violet-600 text-white hover:bg-violet-700'}`}
                                 >
-                                  {isAttendanceOpen ? 'Close' : 'Attendance'}
+                                  {isAttendanceOpen ? 'Close' : 'Mark Attendance'}
                                 </button>
-                                {canManageWorship && (
-                                  <>
-                                    {!r.done && (
-                                      <button
-                                        type="button"
-                                        onClick={async () => {
-                                          await updateWorshipRehearsal(r.id, { done: true })
-                                          setRehearsals(prev => prev.map(x => x.id === r.id ? { ...x, done: true } : x))
-                                        }}
-                                        className="text-xs text-emerald-600 border border-emerald-200 rounded-lg px-2 py-1 hover:bg-emerald-50"
-                                      >
-                                        Mark done
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditingRehearsal(r)
-                                        setRehearsalForm({ date: r.date || '', time: r.time || '', location: r.location || '', notes: r.notes || '' })
-                                        setRehearsalModalOpen(true)
-                                      }}
-                                      className="text-xs text-slate-500 border border-slate-200 rounded-lg px-2 py-1 hover:bg-slate-50"
-                                    >
-                                      Edit
-                                    </button>
-                                  </>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (!window.confirm('Remove this practice session?')) return
-                                    await deleteWorshipRehearsal(r.id)
-                                    setRehearsals(prev => prev.filter(x => x.id !== r.id))
-                                  }}
-                                  className="text-xs text-red-500 border border-red-100 rounded-lg px-2 py-1 hover:bg-red-50"
-                                >
-                                  Remove
-                                </button>
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenSessionMenuId(v => v === r.id ? null : r.id)}
+                                    aria-label="Session actions"
+                                    className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                                  >
+                                    <MoreVertical size={16} />
+                                  </button>
+                                  {isMenuOpen && (
+                                    <>
+                                      <div className="fixed inset-0 z-10" onClick={() => setOpenSessionMenuId(null)} aria-hidden />
+                                      <div className="absolute right-0 top-full mt-1 z-20 w-40 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                                        {canManageWorship && !r.done && (
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              setOpenSessionMenuId(null)
+                                              await updateWorshipRehearsal(r.id, { done: true })
+                                              setRehearsals(prev => prev.map(x => x.id === r.id ? { ...x, done: true } : x))
+                                            }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                          >
+                                            <CheckCircle2 size={13} /> Mark done
+                                          </button>
+                                        )}
+                                        {canManageWorship && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setOpenSessionMenuId(null)
+                                              setEditingRehearsal(r)
+                                              setRehearsalForm({ date: r.date || '', time: r.time || '', location: r.location || '', notes: r.notes || '' })
+                                              setRehearsalModalOpen(true)
+                                            }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                                          >
+                                            <Pencil size={13} /> Edit
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            setOpenSessionMenuId(null)
+                                            if (!window.confirm('Remove this practice session?')) return
+                                            await deleteWorshipRehearsal(r.id)
+                                            setRehearsals(prev => prev.filter(x => x.id !== r.id))
+                                          }}
+                                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                                        >
+                                          <Trash2 size={13} /> Remove
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
                               </div>
                             </div>
                             {isAttendanceOpen && <AttendancePanel r={r} />}
@@ -3160,39 +3416,35 @@ export default function DepartmentWorship() {
                         try { fmtDate = format(new Date(r.date + 'T12:00:00'), 'EEE, d MMM yyyy') } catch {}
                         const isAttendanceOpen = openAttendanceId === r.id
                         return (
-                          <div key={r.id} className="bg-slate-50 rounded-xl border border-slate-100 px-4 py-3">
-                            <div className="flex flex-wrap items-center gap-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-sm font-medium text-slate-600">{fmtDate}</span>
-                                  {r.time && <span className="text-xs text-slate-400">{r.time}</span>}
-                                  {r.location && <span className="text-xs text-slate-400">· {r.location}</span>}
-                                  {r.done && <span className="text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-2 py-0.5">Done</span>}
-                                  {attendanceSummary(r)}
-                                </div>
-                                {r.notes && <p className="text-xs text-slate-400 mt-0.5 truncate">{r.notes}</p>}
-                              </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => isAttendanceOpen ? setOpenAttendanceId(null) : openAttendance(r)}
-                                  className={`text-xs border rounded-lg px-2 py-1 transition-colors ${isAttendanceOpen ? 'bg-violet-600 text-white border-violet-600' : 'text-violet-600 border-violet-200 hover:bg-violet-50'}`}
-                                >
-                                  {isAttendanceOpen ? 'Close' : 'Attendance'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (!window.confirm('Remove this practice session?')) return
-                                    await deleteWorshipRehearsal(r.id)
-                                    setRehearsals(prev => prev.filter(x => x.id !== r.id))
-                                  }}
-                                  className="text-xs text-red-400 hover:text-red-600 border border-red-100 rounded-lg px-2 py-1 hover:bg-red-50"
-                                >
-                                  Remove
-                                </button>
-                              </div>
+                          <div key={r.id} className="bg-slate-50 rounded-xl border border-slate-100 px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-slate-600 shrink-0">{fmtDate}</span>
+                              {r.time && <span className="text-xs text-slate-400 shrink-0">{r.time}</span>}
+                              {r.location && <span className="text-xs text-slate-400 truncate min-w-0">· {r.location}</span>}
+                              {r.done && <span className="text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-2 py-0.5 shrink-0">Done</span>}
+                              <div className="flex-1" />
+                              {attendanceSummary(r)}
+                              <button
+                                type="button"
+                                onClick={() => isAttendanceOpen ? setOpenAttendanceId(null) : openAttendance(r)}
+                                className={`text-xs font-medium rounded-full px-2.5 py-1 shrink-0 transition-colors ${isAttendanceOpen ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 border border-violet-100 hover:bg-violet-100'}`}
+                              >
+                                {isAttendanceOpen ? 'Close' : 'Attendance'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!window.confirm('Remove this practice session?')) return
+                                  await deleteWorshipRehearsal(r.id)
+                                  setRehearsals(prev => prev.filter(x => x.id !== r.id))
+                                }}
+                                aria-label="Remove session"
+                                className="w-6 h-6 flex items-center justify-center rounded-full text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors shrink-0"
+                              >
+                                <Trash2 size={13} />
+                              </button>
                             </div>
+                            {r.notes && <p className="text-xs text-slate-400 mt-0.5 truncate">{r.notes}</p>}
                             {isAttendanceOpen && <AttendancePanel r={r} />}
                           </div>
                         )
@@ -3441,13 +3693,9 @@ export default function DepartmentWorship() {
 
       {/* ── Archives tab ── */}
       {activeTab === 'archives' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-semibold text-slate-800 text-base">Worship Archives</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Past published team stamps, newest first</p>
-            </div>
-            {!loadingArchives && archiveSchedules.length > 0 && (
+        <div className="space-y-3 pb-20">
+          {!loadingArchives && archiveSchedules.length > 0 && (
+            <div className="flex items-center justify-end">
               <button
                 type="button"
                 onClick={() => {
@@ -3460,8 +3708,8 @@ export default function DepartmentWorship() {
               >
                 {archiveSchedules.every((s) => openArchiveIds[s.id]) ? 'Collapse all' : 'Expand all'}
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {loadingArchives ? (
             <div className="py-10 text-center text-slate-400 text-sm">Loading archives…</div>

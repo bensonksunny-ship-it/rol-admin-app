@@ -35,7 +35,7 @@ export default function MyWorkspace() {
   } = useOutletContext()
 
   return (
-    <div className="space-y-3 sm:space-y-6 pb-8">
+    <div className="w-full space-y-3 sm:space-y-6 pb-24 sm:pb-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-[#8a8377] dark:text-slate-400">{greeting()}</p>

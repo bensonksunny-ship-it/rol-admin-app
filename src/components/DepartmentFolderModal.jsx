@@ -5,16 +5,18 @@ import { ChevronLeft, X } from 'lucide-react'
 // Rotating palette for the grid tiles — subpages aren't separate "apps" with their
 // own brand color, so each tile's color comes from its position rather than a fixed
 // per-subpage mapping. Keeps the grid visually varied like a real iOS folder.
-const TILE_COLORS = [
-  'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)',
-  'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-  'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-  'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-  'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
-  'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
-  'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-  'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
-  'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+// Bright, saturated gradients (not muted/pastel) so tiles pop against the
+// glassmorphism sheet background, each paired with a matching-hue drop shadow.
+const TILE_STYLES = [
+  { gradient: 'from-blue-500 to-indigo-600', shadow: 'shadow-indigo-500/30' },
+  { gradient: 'from-emerald-400 to-teal-500', shadow: 'shadow-emerald-500/30' },
+  { gradient: 'from-amber-400 to-orange-500', shadow: 'shadow-amber-500/30' },
+  { gradient: 'from-rose-500 to-pink-600', shadow: 'shadow-rose-500/30' },
+  { gradient: 'from-cyan-400 to-sky-600', shadow: 'shadow-cyan-500/30' },
+  { gradient: 'from-violet-500 to-purple-600', shadow: 'shadow-violet-500/30' },
+  { gradient: 'from-red-500 to-rose-600', shadow: 'shadow-red-500/30' },
+  { gradient: 'from-teal-400 to-emerald-600', shadow: 'shadow-teal-500/30' },
+  { gradient: 'from-orange-400 to-amber-600', shadow: 'shadow-orange-500/30' },
 ]
 
 function TileGrid({ items, onTap }) {
@@ -26,6 +28,7 @@ function TileGrid({ items, onTap }) {
     <div className="flex flex-wrap justify-center gap-x-3 gap-y-5">
       {items.map((item, i) => {
         const Icon = item.Icon
+        const style = TILE_STYLES[i % TILE_STYLES.length]
         return (
           <button
             key={item.key}
@@ -34,11 +37,7 @@ function TileGrid({ items, onTap }) {
             className="group flex flex-col items-center gap-1.5 basis-24 shrink-0"
           >
             <span
-              className="relative w-14 h-14 rounded-2xl flex items-center justify-center transition-[transform,filter] duration-150 group-hover:-translate-y-0.5 group-hover:brightness-110 group-active:scale-95"
-              style={{
-                background: TILE_COLORS[i % TILE_COLORS.length],
-                boxShadow: '0 4px 14px rgba(0,0,0,0.2)',
-              }}
+              className={`relative w-14 h-14 rounded-2xl flex items-center justify-center transition-[transform,filter] duration-150 group-hover:-translate-y-0.5 group-hover:brightness-110 group-active:scale-95 bg-gradient-to-br ${style.gradient} shadow-md ${style.shadow}`}
             >
               {Icon && <Icon size={22} className="text-white" strokeWidth={1.75} />}
               {/* Nested-folder indicator — same dot BottomTabBar/DepartmentDock use to
@@ -162,23 +161,20 @@ export default function DepartmentFolderModal({ departments, activeKey, activeCh
         aria-modal="true"
         aria-label="Departments"
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-sm p-5 rounded-3xl border border-white/40 dark:border-white/15
+        className={`relative w-full max-w-sm p-5 rounded-3xl border border-white/40 dark:border-white/15
           bg-white/25 dark:bg-white/10 backdrop-blur-2xl shadow-2xl
           transition-all duration-200 ease-out ${
           shown ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
         }`}
       >
-        <div className="flex items-center justify-between px-1 pb-3">
-          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Departments</h2>
-          <button
-            type="button"
-            onClick={requestClose}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-900/5 dark:hover:bg-white/10 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={requestClose}
+          className="absolute top-3 right-3 z-10 w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-900/5 dark:hover:bg-white/10 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+          aria-label="Close"
+        >
+          <X size={16} />
+        </button>
 
         <div className="space-y-6 max-h-[70vh] overflow-y-auto -mx-1 px-1 scrollbar-hide">
           {departments.map((dept) => (

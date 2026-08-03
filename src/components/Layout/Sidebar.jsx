@@ -71,6 +71,21 @@ export default function Sidebar({ notifications, onNotifAction, onDismissNotific
     boxShadow: '4px 0 32px rgba(0,0,0,0.08)',
   } : {}
 
+  // Solid/glass backing for the fixed mobile top bar so scrolled page content
+  // (cards, lists) can never visually bleed through the logo/icon row.
+  const mobileHeaderStyle = isDay ? {
+    background: 'rgba(255,255,255,0.9)',
+    backdropFilter: 'blur(16px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+    borderBottom: '1px solid rgba(226,232,240,0.8)',
+    boxShadow: '0 1px 12px rgba(0,0,0,0.04)',
+  } : {
+    background: 'rgba(11,18,32,0.9)',
+    backdropFilter: 'blur(16px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  }
+
   const navLinkActive = 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-md'
   const navLinkInactive = isDay
     ? 'text-slate-600 hover:bg-black/5 hover:text-slate-900'
@@ -100,9 +115,9 @@ export default function Sidebar({ notifications, onNotifAction, onDismissNotific
   // Plan/notifications/messages/Director Board) on the right, all on one line. ──
   const MobileHeader = () => (
     <div
-      className="lg:hidden fixed top-0 left-0 right-0 flex items-center justify-between px-2"
+      className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-2"
       style={{
-        zIndex: 40,
+        ...mobileHeaderStyle,
         paddingTop: 'env(safe-area-inset-top, 24px)',
         minHeight: 'calc(3rem + env(safe-area-inset-top, 24px))',
         height: 'calc(3rem + env(safe-area-inset-top, 24px))',
@@ -162,7 +177,7 @@ export default function Sidebar({ notifications, onNotifAction, onDismissNotific
     return (
       <div
         className="lg:hidden fixed inset-0"
-        style={{ zIndex: 45, pointerEvents: drawerOpen ? 'auto' : 'none' }}
+        style={{ zIndex: 60, pointerEvents: drawerOpen ? 'auto' : 'none' }}
       >
         <div
           className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300"
