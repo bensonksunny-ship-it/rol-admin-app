@@ -44,6 +44,14 @@ export default function MainLayout() {
         </div>
       </main>
       <DepartmentDock />
+      {/* Fake iOS home-indicator bar — only rendered when the app is running
+          installed/full-screen (the `standalone:` variant, see index.css), where
+          there's no OS chrome left to hint at the bottom swipe-up gesture. It's
+          purely decorative (pointer-events-none, full-width) so it never blocks
+          that gesture or the FAB sitting just above it. */}
+      <div className="hidden standalone:block fixed inset-x-0 bottom-0 z-40 pointer-events-none">
+        <div className="w-32 h-1 bg-gray-300 dark:bg-gray-600 rounded-full mx-auto my-1.5" />
+      </div>
     </div>
   )
 }

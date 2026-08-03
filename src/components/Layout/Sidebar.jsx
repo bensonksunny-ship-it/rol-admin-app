@@ -128,10 +128,10 @@ export default function Sidebar({ notifications, onNotifAction, onDismissNotific
           type="button"
           onClick={() => setDrawerOpen(true)}
           aria-label="Open menu"
-          className="p-2 rounded-xl"
+          className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 active:scale-95 transition-colors"
           style={{ color: isDay ? '#475569' : '#94a3b8' }}
         >
-          <Menu size={20} strokeWidth={1.75} />
+          <Menu size={24} strokeWidth={1.75} />
         </button>
         <Link to="/" className="flex items-center gap-1.5">
           <img

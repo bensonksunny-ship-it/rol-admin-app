@@ -220,11 +220,16 @@ export default function WorshipWorkspaceWidget() {
   // Matches DepartmentWorship.jsx's canEditSong exactly (Director/Founder/Admin see
   // everything; a Worship Leader only their own designed songs) — gates "View Song"
   // (the full team arrangement) the same way it does on the Worship page itself.
+  // Checks createdBy OR designedBy (either match grants access) rather than letting
+  // the free-text designedBy credit field override a reliable createdBy match — see
+  // canEditSong in DepartmentWorship.jsx for why.
   const canViewFullSong = (song) => {
     if (hasFullWorshipAccess(userProfile)) return true
     if (!isWorshipLeader(userProfile)) return false
-    const designer = String(song?.designedBy || song?.createdBy || '').trim().toLowerCase()
-    return !!myName && designer === myName
+    if (!myName) return false
+    const designer = String(song?.designedBy || '').trim().toLowerCase()
+    const creator = String(song?.createdBy || '').trim().toLowerCase()
+    return myName === designer || myName === creator
   }
 
   const updateSetlistRow = (idx, patch) =>
@@ -570,11 +575,15 @@ export default function WorshipWorkspaceWidget() {
                       // Only suggest songs this person personally designed — everyone can still
                       // type any freeform song name (the <input> below has no such restriction),
                       // but the autocomplete/select-from-catalog path is scoped to their own
-                      // designs so they're never offered another leader's song to pick.
+                      // designs so they're never offered another leader's song to pick. Matches
+                      // on createdBy OR designedBy (either grants access) — see canEditSong in
+                      // DepartmentWorship.jsx for why designedBy alone isn't reliable ownership.
                       const matches = songs
                         .filter(s => {
-                          const designer = String(s?.designedBy || s?.createdBy || '').trim().toLowerCase()
-                          return !!myName && designer === myName
+                          if (!myName) return false
+                          const designer = String(s?.designedBy || '').trim().toLowerCase()
+                          const creator = String(s?.createdBy || '').trim().toLowerCase()
+                          return myName === designer || myName === creator
                         })
                         .filter(s => !q || s.title?.toLowerCase().includes(q))
                         .slice(0, 8)

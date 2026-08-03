@@ -6,6 +6,21 @@
    activate based on the OS theme and silently ignore the in-app toggle. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* True only when the app is running installed/full-screen (iOS "Add to Home
+   Screen", Android PWA, etc.) — a regular mobile browser tab never matches this,
+   so standalone: utilities (e.g. the fake home-indicator bar in MainLayout) stay
+   invisible there and only appear once the OS's own chrome (URL bar, gesture
+   hints) is gone and the app owns the whole screen. */
+@custom-variant standalone (@media (display-mode: standalone));
+
+/* Bottom safe-area padding for sticky/fixed action bars (footers, drawers, the
+   department FAB) — 1rem of normal breathing room plus whatever the device's
+   home-indicator/gesture-bar area actually needs, so content and tap targets
+   never sit under it. Falls back to plain 1rem on a device with no inset. */
+@utility pb-safe {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
 /* Global type system — Inter (a modern, design-focused UI sans) everywhere via the
    font-sans utility, JetBrains Mono (tight, professional) via font-mono. Chord charts
    in SongDesigner/SongViewer rely on font-mono for lyrics AND chords sharing one

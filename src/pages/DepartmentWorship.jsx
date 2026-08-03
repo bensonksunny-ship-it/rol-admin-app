@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -340,12 +340,13 @@ function WorshipStamp({ stamp, isOpen, onToggle, onEdit }) {
 function RoleAssignCard({
   role, category, count, isLeadVocal, isLastRow,
   activeMembers, getLocalField, updateLocal, songs, openSongView,
-  addRoleRow, removeRoleRow, onOpenSongPicker,
+  addRoleRow, removeRoleRow, onOpenSongPicker, isEditing,
 }) {
   const posKey = positionKeyForRole(role)
   const eligible = posKey ? activeMembers.filter((m) => m.positions?.includes(posKey)) : activeMembers
 
   const memberId = getLocalField(role, 'memberId')
+  const memberName = getLocalField(role, 'memberName')
   const songName = getLocalField(role, 'songName')
   const songId = getLocalField(role, 'songId')
   const songKey = getLocalField(role, 'key')
@@ -356,7 +357,7 @@ function RoleAssignCard({
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-slate-800">{roleDisplayLabel(role)}</span>
-        {isLastRow && (
+        {isEditing && isLastRow && (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -379,56 +380,73 @@ function RoleAssignCard({
         )}
       </div>
 
-      <select
-        value={memberId}
-        onChange={(e) => {
-          const val = e.target.value
-          const member = activeMembers.find((m) => m.id === val)
-          updateLocal(role, { memberId: val || '', memberName: member?.name || '' })
-        }}
-        className="mt-2 w-full px-2.5 py-2 text-sm rounded-lg border border-slate-300 bg-white"
-      >
-        <option value="">— Not assigned</option>
-        {eligible.map((m) => (
-          <option key={m.id} value={m.id}>{m.name}</option>
-        ))}
-      </select>
-
-      {/* Song field only appears once someone's actually assigned — an empty
-          role has nothing to attach a song to yet. */}
-      {isLeadVocal && memberId && (
-        <div className="mt-2">
-          {hasSong ? (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => (linkedSong ? openSongView(linkedSong) : onOpenSongPicker(role))}
-                className="flex-1 min-w-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-semibold text-indigo-700"
-              >
-                <span className="truncate">{songName || linkedSong?.title}</span>
-                {(songKey || linkedSong?.key) && (
-                  <span className="text-indigo-500 shrink-0">[{songKey || linkedSong?.key}]</span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => updateLocal(role, { songName: '', songId: '', key: '' })}
-                aria-label="Remove song"
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onOpenSongPicker(role)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-indigo-300 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors"
-            >
-              <Music2 size={13} strokeWidth={2.25} /> Link Song
-            </button>
+      {!isEditing ? (
+        <>
+          {/* Read-only summary — plain text, no form controls. */}
+          <p className={`mt-2 text-sm ${memberId ? 'font-semibold text-slate-800' : 'italic text-slate-400 font-normal'}`}>
+            {memberId ? memberName : '— Not assigned'}
+          </p>
+          {isLeadVocal && hasSong && (
+            <p className="mt-1 text-xs font-medium text-indigo-700">
+              {songName || linkedSong?.title}
+              {(songKey || linkedSong?.key) && <span className="text-indigo-500"> [{songKey || linkedSong?.key}]</span>}
+            </p>
           )}
-        </div>
+        </>
+      ) : (
+        <>
+          <select
+            value={memberId}
+            onChange={(e) => {
+              const val = e.target.value
+              const member = activeMembers.find((m) => m.id === val)
+              updateLocal(role, { memberId: val || '', memberName: member?.name || '' })
+            }}
+            className="mt-2 w-full px-2.5 py-2 text-sm rounded-lg border border-slate-300 bg-white"
+          >
+            <option value="">— Not assigned</option>
+            {eligible.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+
+          {/* Song field only appears once someone's actually assigned — an empty
+              role has nothing to attach a song to yet. */}
+          {isLeadVocal && memberId && (
+            <div className="mt-2">
+              {hasSong ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => (linkedSong ? openSongView(linkedSong) : onOpenSongPicker(role))}
+                    className="flex-1 min-w-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-semibold text-indigo-700"
+                  >
+                    <span className="truncate">{songName || linkedSong?.title}</span>
+                    {(songKey || linkedSong?.key) && (
+                      <span className="text-indigo-500 shrink-0">[{songKey || linkedSong?.key}]</span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateLocal(role, { songName: '', songId: '', key: '' })}
+                    aria-label="Remove song"
+                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onOpenSongPicker(role)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-indigo-300 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors"
+                >
+                  <Music2 size={13} strokeWidth={2.25} /> Link Song
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -516,18 +534,24 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
 
   const cancelTimesEdit = () => { setEditingTimes(false); setTimesDraft(null) }
 
-  // One roster-table cell for a single day's arrival — exact time plus its
-  // punctuality status against the 8:00 PM practice start benchmark, kept together
-  // so neither reads ambiguously on its own. This is the one place practice
+  // One roster-card's Friday/Saturday attendance pill — day label plus exact time
+  // and its punctuality status against the 8:00 PM practice start benchmark, kept
+  // together so neither reads ambiguously on its own. This is the one place practice
   // attendance shows per member now; the old separate "Practice & Rehearsal
   // Attendance" name list further down was a second, duplicate rendering of the same
-  // roster this table already covers.
-  const arrivalCell = (arrivedAt) => {
-    if (!arrivedAt) return <span className="text-xs text-slate-300">—</span>
+  // roster these cards already cover.
+  const arrivalBadge = (dayLabel, arrivedAt) => {
+    if (!arrivedAt) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] text-slate-300 bg-slate-50 border border-slate-100 rounded-full px-2 py-0.5">
+          {dayLabel} —
+        </span>
+      )
+    }
     const p = punctualityFor(arrivedAt)
     return (
-      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full border ${p?.late ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
-        {arrivedAt}
+      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${p?.late ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
+        {dayLabel} {arrivedAt}
         {p && <span className="font-medium opacity-80">{p.label}</span>}
       </span>
     )
@@ -590,34 +614,27 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
                 <p className="text-sm text-slate-400 italic py-3">No members assigned for this date.</p>
               ) : (
                 <div className="space-y-3">
-                  <div className="overflow-x-auto -mx-1">
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-200">
-                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 pb-2">Role / Assignment</th>
-                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 pb-2">Member</th>
-                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 pb-2">Friday Practice Arrival</th>
-                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 pb-2">Saturday Practice Arrival</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {assignedRoles.map((a) => (
-                          <tr key={a.role}>
-                            <td className="px-1 py-2 text-xs text-slate-500 whitespace-nowrap align-top">{a.role}</td>
-                            <td className="px-1 py-2 align-top">
-                              <span className="text-sm font-medium text-slate-800 whitespace-nowrap">{firstNameOf(a.memberName)}</span>
-                              {a.songName && (
-                                <span className="block text-xs italic text-slate-500 font-normal">
-                                  {a.songName}{a.key && <span className="not-italic font-medium text-violet-600"> ({a.key})</span>}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-1 py-2 align-top">{arrivalCell(pa.friday?.[a.memberId]?.arrivedAt)}</td>
-                            <td className="px-1 py-2 align-top">{arrivalCell(pa.saturday?.[a.memberId]?.arrivedAt)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {assignedRoles.map((a) => (
+                      <div key={a.role} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-violet-600 bg-violet-50 border border-violet-100 rounded-full px-2 py-0.5 whitespace-nowrap">
+                            {roleDisplayLabel(a.role)}
+                          </span>
+                          <span className="text-sm font-semibold text-slate-800 truncate">{firstNameOf(a.memberName)}</span>
+                        </div>
+                        {a.songName && (
+                          <div className="mt-2 inline-flex items-center gap-1.5 max-w-full px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-700">
+                            <span className="truncate">{a.songName}</span>
+                            {a.key && <span className="font-semibold text-indigo-500 shrink-0">[{a.key}]</span>}
+                          </div>
+                        )}
+                        <div className="mt-3 pt-2 border-t border-slate-100 flex flex-wrap gap-1.5">
+                          {arrivalBadge('Fri', pa.friday?.[a.memberId]?.arrivedAt)}
+                          {arrivalBadge('Sat', pa.saturday?.[a.memberId]?.arrivedAt)}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                   {stamp.updatedBy && (
                     <p className="text-xs text-slate-400">Saved by {stamp.updatedBy}</p>
@@ -800,8 +817,10 @@ const ANALYTICS_RANGE_OPTIONS = [
   { key: 'ytd', label: 'YTD', days: null },
 ]
 
-// Bar-chart labels/tooltips show first name only, so long full names never wrap
-// or overlap on a narrow mobile axis.
+// Bar-chart X-axis labels show first name only, so long full names never wrap,
+// overlap, or need a steep angle on a narrow mobile axis. The tooltip still gets
+// the untruncated name (see LoadDistributionTooltip) so full detail stays
+// reachable on hover/tap even though the axis itself is abbreviated.
 function firstNameOnly(name) {
   return (name || '').split(' ')[0] || name
 }
@@ -811,7 +830,7 @@ function LoadDistributionTooltip({ active, payload, label }) {
   const value = payload[0].value
   return (
     <div className="rounded-[10px] border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-sm">
-      {firstNameOnly(label)}: {value} assignment{value === 1 ? '' : 's'}
+      {label}: {value} assignment{value === 1 ? '' : 's'}
     </div>
   )
 }
@@ -1009,9 +1028,9 @@ function WorshipAnalyticsDashboard() {
               <AnalyticsEmpty label="No assignments recorded in this period." />
             ) : (
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={loadDistribution} margin={{ top: 5, right: 12, left: 0, bottom: 24 }}>
+                <BarChart data={loadDistribution} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="name" tickFormatter={firstNameOnly} tick={{ fontSize: 9, fill: ANALYTICS_COLORS.slate }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-35} textAnchor="end" interval={0} height={50} />
+                  <XAxis dataKey="name" tickFormatter={firstNameOnly} tick={{ fontSize: 9, fill: ANALYTICS_COLORS.slate }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} interval={0} height={24} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: ANALYTICS_COLORS.slate }} axisLine={false} tickLine={false} width={24} />
                   <Tooltip content={<LoadDistributionTooltip />} />
                   <Bar dataKey="count" name="Assignments" radius={[6, 6, 0, 0]}>
@@ -1091,13 +1110,15 @@ function WorshipAnalyticsDashboard() {
   )
 }
 
-// A team member's card, collapsed to just Name + Duration by default — position
-// tags, the Director badge, and management actions all stay hidden until the card
-// itself is clicked to expand. Shared by both places member cards render (the
-// standalone Team tab and Operations > Team), so the collapse/expand and ⋮ actions
-// menu behavior stays identical between them.
+// A team member's card — fixed, uniform layout with nothing that expands or
+// pushes card height: name + ⋮ menu on top, one-line join/tenure subtext, and
+// a primary-role + total-songs pill row on the bottom. Everything else (full
+// position list, song breakdown, service history) moved into the Individual
+// Record modal, opened either by tapping the card or via the ⋮ menu — never
+// inline — so the grid itself stays perfectly aligned regardless of how much
+// a given member has on record. Shared by both places member cards render (the
+// standalone Team tab and Operations > Team).
 function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEdit, onDelete, onLink, stats }) {
-  const [expanded, setExpanded] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
 
@@ -1107,119 +1128,105 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
   const mos = differenceInMonths(till, addYears(since, yrs))
   const totalDays = isFormer ? differenceInDays(till, since) : null
 
+  // One primary role for the card's compact pill — the full list still shows
+  // in the Individual Record modal. Director outranks any instrument/vocal tag.
+  const primaryRole = m.isWorshipDirector ? 'Director' : (m.positions || [])[0] || null
+  const totalSongs = stats?.total || 0
+
   return (
     <>
     <div
-      className={`relative rounded-xl border p-3 flex flex-col gap-2 shadow-sm transition-colors cursor-pointer ${
+      className={`relative rounded-xl border p-3 flex flex-col justify-between gap-2 shadow-sm transition-colors cursor-pointer min-h-[128px] ${
         isFormer
           ? 'border-slate-200 bg-slate-50'
           : m.isWorshipDirector ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white hover:border-indigo-200'
       }`}
       role="button"
       tabIndex={0}
-      onClick={() => setExpanded(v => !v)}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v) } }}
+      onClick={() => setDetailOpen(true)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailOpen(true) } }}
     >
-      {/* Collapsed surface — Name + Duration only */}
-      <span className={`font-semibold text-sm leading-snug ${isFormer ? 'text-slate-700' : 'text-slate-800'}`}>{m.name}</span>
-      <div className="mt-auto pt-1 border-t border-slate-100">
-        {isFormer ? (
-          <p className="text-[10px] text-slate-400">{formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'}</p>
-        ) : (
-          <p className="text-[10px] text-slate-400">Since {formatDMY(m.memberSince)}</p>
-        )}
-        <p className="text-xs font-semibold text-slate-600">
-          <span className="text-violet-700">{yrs}</span>
-          <span className="text-slate-400 font-normal">yr </span>
-          <span className="text-indigo-700">{mos}</span>
-          <span className="text-slate-400 font-normal">mo</span>
-          {isFormer && <span className="font-normal text-slate-400"> · {totalDays.toLocaleString()} days</span>}
-        </p>
-      </div>
-
-      {/* Expanded details — positions, Director badge, individual record, ⋮ actions menu */}
-      {expanded && (
-        <div className="pt-2 mt-1 border-t border-slate-100 flex flex-col gap-2" onClick={(e) => e.stopPropagation()} role="presentation">
-          {(m.isWorshipDirector || m.positions?.length > 0) && (
-            <div className="flex flex-wrap gap-1">
-              {m.isWorshipDirector && (
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] uppercase tracking-wide font-bold">Director</span>
-              )}
-              {(m.positions || []).map(p => (
-                <span key={p} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{p}</span>
-              ))}
-            </div>
-          )}
-
-          {/* Individual Record / Performance Summary — cumulative song counts by role
-              across every published Sunday setlist, computed in the parent component
-              (computeMemberSongStats) from all worship_schedule assignments. */}
-          {stats && stats.total > 0 && (
-            <div className="rounded-lg bg-violet-50/60 border border-violet-100 px-2.5 py-2">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700 mb-1">
-                Total Songs: {stats.total}
-              </p>
-              <p className="text-[10px] text-slate-500 leading-relaxed">
-                {Object.entries(stats.byCategory)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([cat, count]) => `${roleCategoryLabel(cat)}: ${count} song${count === 1 ? '' : 's'}`)
-                  .join(' | ')}
-              </p>
-              <button
-                type="button"
-                onClick={() => setDetailOpen(true)}
-                className="mt-1.5 text-[10px] font-semibold text-violet-600 hover:text-violet-800 hover:underline"
-              >
-                Individual Record →
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ⋮ actions menu — only in the expanded view, top-right corner */}
-      {expanded && canManageWorship && (
-        <div className="absolute top-2 right-2" onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            onClick={() => setMenuOpen(v => !v)}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-            aria-label="Member actions"
-          >
-            <MoreVertical size={16} />
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
-              <div className="absolute right-0 top-full mt-1 z-20 w-36 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => { setMenuOpen(false); onEdit(m) }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-                >
-                  <Pencil size={13} /> Edit
-                </button>
-                {!m.visitorId && !m.personId && onLink && (
+      {/* Top: name + ⋮ actions menu */}
+      <div className="flex items-start justify-between gap-2">
+        <span className={`font-semibold text-sm leading-snug truncate ${isFormer ? 'text-slate-700' : 'text-slate-800'}`}>{m.name}</span>
+        {canManageWorship && (
+          <div className="relative shrink-0 -mt-1 -mr-1" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(v => !v)}
+              className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              aria-label="Member actions"
+            >
+              <MoreVertical size={16} />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
+                <div className="absolute right-0 top-full mt-1 z-20 w-44 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
                   <button
                     type="button"
-                    onClick={() => { setMenuOpen(false); onLink(m) }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition-colors"
+                    onClick={() => { setMenuOpen(false); setDetailOpen(true) }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
                   >
-                    Link
+                    <Eye size={13} /> View Individual Record
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => { setMenuOpen(false); onDelete(m) }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
-                >
-                  <Trash2 size={13} /> Delete
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); onEdit(m) }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    <Pencil size={13} /> Edit
+                  </button>
+                  {!m.visitorId && !m.personId && onLink && (
+                    <button
+                      type="button"
+                      onClick={() => { setMenuOpen(false); onLink(m) }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition-colors"
+                    >
+                      Link
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); onDelete(m) }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 size={13} /> Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Subtext: join date / tenure, always a single line so cards line up */}
+      <p className="text-[11px] text-slate-400 leading-snug">
+        {isFormer ? (
+          <>{formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'} · {totalDays.toLocaleString()}d</>
+        ) : (
+          <>Since {formatDMY(m.memberSince)}</>
+        )}
+        {' • '}{yrs} yr {mos} mo
+      </p>
+
+      {/* Bottom: compact primary-role + total-songs pills */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {primaryRole && (
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+            m.isWorshipDirector
+              ? 'bg-amber-500 text-white'
+              : 'bg-indigo-50 text-indigo-600 border border-indigo-100'
+          }`}>
+            {primaryRole}
+          </span>
+        )}
+        {totalSongs > 0 && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-violet-50 text-violet-700 border border-violet-100">
+            {totalSongs} Song{totalSongs === 1 ? '' : 's'}
+          </span>
+        )}
+      </div>
     </div>
 
     {/* Individual Record detail modal — full role breakdown + historical services/
@@ -1257,6 +1264,20 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
+            {(m.isWorshipDirector || m.positions?.length > 0) && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Roles</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {m.isWorshipDirector && (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full bg-amber-500 text-white text-xs uppercase tracking-wide font-bold">Director</span>
+                  )}
+                  {(m.positions || []).map(p => (
+                    <span key={p} className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-600 font-medium border border-indigo-100">{p}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div>
               <p className="text-sm font-bold text-slate-800 mb-2">Total Songs: {stats?.total || 0}</p>
               <div className="flex flex-wrap gap-1.5">
@@ -1416,13 +1437,20 @@ export default function DepartmentWorship() {
   // Director/Founder-only). Used only by the Song Directory and Song Designer below.
   const canManageWorshipSongs = canManageWorship || isWorshipLeader(userProfile)
   // A Worship Leader can only edit or delete songs they personally designed —
-  // Director/Founder still manage anything.
+  // Director/Founder still manage anything. Checks createdBy (reliably set to
+  // whoever actually saved the song, never edited by hand) OR designedBy (a
+  // free-text credit field the designer can overwrite, e.g. to credit the
+  // original arranger instead of themselves) — either match grants access, so
+  // typing someone else's name into "Designed By" can't lock the real creator
+  // out of their own song.
   const canEditSong = (song) => {
     if (canManageWorship) return true
     if (!isWorshipLeader(userProfile)) return false
-    const designer = String(song?.designedBy || song?.createdBy || '').trim().toLowerCase()
     const myName = String(userProfile?.name || '').trim().toLowerCase()
-    return !!myName && designer === myName
+    if (!myName) return false
+    const designer = String(song?.designedBy || '').trim().toLowerCase()
+    const creator = String(song?.createdBy || '').trim().toLowerCase()
+    return myName === designer || myName === creator
   }
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [scheduleForDate, setScheduleForDate] = useState({ date: '', assignments: [] })
@@ -1440,6 +1468,10 @@ export default function DepartmentWorship() {
   // show because rowCountFor below takes the max against what's actually in the data.
   const [roleRowCounts, setRoleRowCounts] = useState({})
   const [savingAssign, setSavingAssign] = useState(false)
+  // Assign Worship Team tab: read-only by default (plain text summary of who's
+  // assigned + linked song titles) — the interactive selects/song-search fields and
+  // Save Plan button only mount once this flips true via the "Edit Plan" button.
+  const [isEditing, setIsEditing] = useState(false)
   const [assignStamp, setAssignStamp] = useState(null)
   const [stampOpen, setStampOpen] = useState(false)
   const [archiveSchedules, setArchiveSchedules] = useState([])
@@ -1639,6 +1671,7 @@ export default function DepartmentWorship() {
   useEffect(() => {
     setLocalAssignments(scheduleForDate.assignments || [])
     setRoleRowCounts({})
+    setIsEditing(false)
   }, [scheduleForDate])
 
   useEffect(() => {
@@ -1772,6 +1805,16 @@ export default function DepartmentWorship() {
     if (count <= 1) return
     updateLocal(roleKeyFor(category, count), { memberId: '' })
     setRoleRowCounts((prev) => ({ ...prev, [category]: count - 1 }))
+  }
+
+  // "Cancel" while editing — discards any in-progress, unsaved edits by re-seeding
+  // localAssignments/roleRowCounts from the last-loaded schedule (same reset the
+  // scheduleForDate effect does on a fresh load) rather than refetching, then drops
+  // back to the read-only view.
+  function cancelEditingPlan() {
+    setLocalAssignments(scheduleForDate.assignments || [])
+    setRoleRowCounts({})
+    setIsEditing(false)
   }
 
   async function saveAssignPlan() {
@@ -2231,39 +2274,63 @@ export default function DepartmentWorship() {
               transition={{ type: 'spring', stiffness: 320, damping: 30 }}
             >
               <div className="px-5 py-4 border-b border-slate-200 space-y-3">
+                <h2 className="font-semibold text-slate-800">Assign worship team</h2>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h2 className="font-semibold text-slate-800">Assign worship team</h2>
-                  <button
-                    type="button"
-                    onClick={saveAssignPlan}
-                    disabled={savingAssign}
-                    className="px-4 py-1.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60 shadow-sm"
-                  >
-                    {savingAssign ? 'Saving...' : 'Save plan'}
-                  </button>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-slate-500 font-medium">Coming Sundays:</span>
-                  {upcomingSundays(5).map((d) => (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-slate-500 font-medium">Coming Sundays:</span>
+                    {upcomingSundays(5).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setSelectedDate(d)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${selectedDate === d ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-600 border-slate-300 hover:border-amber-400 hover:text-amber-700'}`}
+                      >
+                        {format(new Date(d), 'd MMM')}
+                      </button>
+                    ))}
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      // Service dates are Sunday-only — see the matching input above.
+                      min="2024-01-07"
+                      step={7}
+                      onChange={(e) => { if (e.target.value) setSelectedDate(snapToSunday(e.target.value)) }}
+                      className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
+                      title="Pick a custom Sunday date"
+                    />
+                  </div>
+
+                  {/* Read-only by default — plain-text summary of who's assigned, with
+                      every select/song-search field and the Save action hidden until
+                      "Edit Plan" is clicked. */}
+                  {isEditing ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={cancelEditingPlan}
+                        disabled={savingAssign}
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveAssignPlan}
+                        disabled={savingAssign}
+                        className="px-4 py-1.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60 shadow-sm"
+                      >
+                        {savingAssign ? 'Saving...' : 'Save plan'}
+                      </button>
+                    </div>
+                  ) : (
                     <button
-                      key={d}
                       type="button"
-                      onClick={() => setSelectedDate(d)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${selectedDate === d ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-600 border-slate-300 hover:border-amber-400 hover:text-amber-700'}`}
+                      onClick={() => setIsEditing(true)}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 text-sm font-semibold hover:bg-amber-100 transition-colors"
                     >
-                      {format(new Date(d), 'd MMM')}
+                      <Pencil size={14} /> Edit Plan
                     </button>
-                  ))}
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    // Service dates are Sunday-only — see the matching input above.
-                    min="2024-01-07"
-                    step={7}
-                    onChange={(e) => { if (e.target.value) setSelectedDate(snapToSunday(e.target.value)) }}
-                    className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
-                    title="Pick a custom Sunday date"
-                  />
+                  )}
                 </div>
               </div>
               {loadingSchedule ? (
@@ -2288,6 +2355,7 @@ export default function DepartmentWorship() {
                     <RoleAssignCard
                       key={row.role}
                       {...row}
+                      isEditing={isEditing}
                       activeMembers={activeMembers}
                       getLocalField={getLocalField}
                       updateLocal={updateLocal}
@@ -2314,7 +2382,7 @@ export default function DepartmentWorship() {
                         <td className="px-4 py-2 font-medium text-slate-800 text-sm align-top">
                           <div className="flex flex-col gap-1">
                             <span>{roleDisplayLabel(role)}</span>
-                            {isLastRow && (
+                            {isEditing && isLastRow && (
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
@@ -2337,6 +2405,40 @@ export default function DepartmentWorship() {
                             )}
                           </div>
                         </td>
+                        {!isEditing ? (
+                          <>
+                            {/* Read-only summary — plain text labels, no form controls. */}
+                            <td className="px-3 py-2 align-top">
+                              {(() => {
+                                const memberId = getLocalField(role, 'memberId')
+                                const memberName = getLocalField(role, 'memberName')
+                                return (
+                                  <span className={`text-sm ${memberId ? 'font-semibold text-slate-800' : 'italic text-slate-400 font-normal'}`}>
+                                    {memberId ? memberName : '— Not assigned'}
+                                  </span>
+                                )
+                              })()}
+                            </td>
+                            <td className="px-3 py-2 align-top">
+                              {isLeadVocal && (() => {
+                                const songName = getLocalField(role, 'songName')
+                                const songId = getLocalField(role, 'songId')
+                                const songKeyVal = getLocalField(role, 'key')
+                                const linkedSong = songId ? songs.find(s => s.id === songId) : null
+                                if (!songName && !linkedSong) return null
+                                return (
+                                  <span className="text-sm font-medium text-indigo-700">
+                                    {songName || linkedSong?.title}
+                                    {(songKeyVal || linkedSong?.key) && (
+                                      <span className="text-indigo-500"> [{songKeyVal || linkedSong?.key}]</span>
+                                    )}
+                                  </span>
+                                )
+                              })()}
+                            </td>
+                          </>
+                        ) : (
+                          <>
                         <td className="px-3 py-2">
                           <select
                             value={getLocalField(role, 'memberId')}
@@ -2416,6 +2518,8 @@ export default function DepartmentWorship() {
                             )
                           })()}
                         </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -2481,7 +2585,7 @@ export default function DepartmentWorship() {
                     <X size={18} />
                   </button>
                 </div>
-                <div className="p-4">
+                <div className="p-4 pb-safe">
                   {financeOverlay === 'budget' && <BudgetPage department="Worship" />}
                   {financeOverlay === 'payout' && <AdvancePayoutTab departmentSlug="worship" departmentName="Worship" />}
                 </div>
@@ -2552,7 +2656,7 @@ export default function DepartmentWorship() {
                 )}
               </div>
               {songPickerQuery.trim() && (
-                <div className="p-3 border-t border-slate-100">
+                <div className="p-3 pb-safe border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => {
@@ -2797,7 +2901,7 @@ export default function DepartmentWorship() {
             ) : activeMembers.length === 0 ? (
               <div className="p-5 text-center text-slate-500">No team members yet.</div>
             ) : (
-              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {activeMembers.map((m) => (
                   <WorshipMemberCard
                     key={m.id}
@@ -2821,7 +2925,7 @@ export default function DepartmentWorship() {
             ) : formerMembers.length === 0 ? (
               <div className="p-5 text-center text-slate-500">No former members.</div>
             ) : (
-              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {formerMembers.map((m) => (
                   <WorshipMemberCard
                     key={m.id}
