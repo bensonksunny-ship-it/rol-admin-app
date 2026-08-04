@@ -3549,7 +3549,15 @@ export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onErr
   const unsubPersonAttendance = onSnapshot(
     collection(db, PERSON_SUNDAY_ATTENDANCE_COLLECTION),
     (snap) => { latestPersonAttendance = snap.docs.map((d) => d.data()); emit() },
-    (err) => { console.error('subscribeToRecentSundayAttendanceWeeks (person attendance):', err); onError?.() }
+    (err) => {
+      // Non-fatal — this collection is a secondary ID-matching enrichment on top of
+      // sunday_reports (e.g. permission-denied if its rules haven't deployed yet).
+      // Fall back to name-only matching instead of calling onError and wiping out
+      // otherwise-good report data via the caller's error handler.
+      console.error('subscribeToRecentSundayAttendanceWeeks (person attendance):', err)
+      latestPersonAttendance = []
+      emit()
+    }
   )
 
   return () => { unsubReports(); unsubPersonAttendance() }
@@ -3644,9 +3652,10 @@ export async function getSundayReportSummaries(numWeeks = null) {
     const secondWeekAttendees = Array.isArray(data.secondWeekAttendeesNames)  ? data.secondWeekAttendeesNames.filter(Boolean).length  : Number(s.secondWeekAttendees) || 0
     const pastoralCount       = Array.isArray(data.pastoralAttendees)         ? data.pastoralAttendees.filter(Boolean).length         : 0
     const riverKidsCount      = Array.isArray(data.riverKids)                 ? data.riverKids.filter(Boolean).length                 : Number(s.riverKids) || 0
-    // "New Comers" is never saved as a real names array from Live Control (it's derived live from
-    // D-Light visitors each session, so normalizeReport always writes newComers as []) — only bulk
-    // Excel imports populate that array for real. Prefer whichever source is actually non-zero.
+    // Live Control now confirms New Comers into a real names array (report.newComers),
+    // same as every other attendance section. Older reports saved before that fix — and
+    // bulk Excel imports, which only ever wrote the summary count — still only have
+    // summary.newcomers, so keep preferring whichever source is actually non-zero.
     const newcomersFromArray  = Array.isArray(data.newComers) ? data.newComers.filter(Boolean).length : 0
     const newcomers           = newcomersFromArray > 0 ? newcomersFromArray : (Number(s.newcomers) || 0)
     const sundaySchool        = Number(s.sundaySchool) || 0

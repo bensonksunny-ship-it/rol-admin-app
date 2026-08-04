@@ -1201,7 +1201,7 @@ export default function SundayReport({ embedded = false }) {
     const fourthWeekNames   = (report?.fourthWeekAttendeesNames || []).filter(Boolean)
     const pastoralNames     = (report?.pastoralAttendees || []).filter(Boolean)
     const riverKidsNames    = (report?.riverKids || []).filter(Boolean)
-    const newcomersNames    = dlightSuggestions.filter(Boolean)
+    const newcomersNames    = (report?.newComers || []).filter(Boolean)
     const othersCount       = othersNames.length
     const nonCellCount      = nonCellNames.length
     const secondWeekCount   = secondWeekNames.length
@@ -1219,7 +1219,7 @@ export default function SundayReport({ embedded = false }) {
       newcomersCount, newcomersNames, pastoralCount, pastoralNames, riverKidsCount, riverKidsNames,
       totalAdults, total,
     }
-  }, [cellGroups, report, dlightSuggestions])
+  }, [cellGroups, report])
 
   // Names that appear in 2+ different sections — used to show red duplicate warning
   const duplicateNorms = useMemo(() => {
@@ -1240,13 +1240,13 @@ export default function SundayReport({ embedded = false }) {
     for (const n of (report?.secondWeekAttendeesNames || [])) add('secondWeek', n)
     for (const n of (report?.thirdWeekAttendeesNames || [])) add('thirdWeek', n)
     for (const n of (report?.fourthWeekAttendeesNames || [])) add('fourthWeek', n)
-    for (const n of dlightSuggestions) add('newComers', n)
+    for (const n of (report?.newComers || [])) add('newComers', n)
     const dupes = new Set()
     for (const [key, sections] of sectionSets) {
       if (sections.size > 1) dupes.add(key)
     }
     return dupes
-  }, [report, dlightSuggestions])
+  }, [report])
 
   /** First incomplete attendance section = “active” highlight (editors only) */
   const activeSectionId = useMemo(() => {
@@ -2252,36 +2252,34 @@ export default function SundayReport({ embedded = false }) {
                 )
               })}
 
-              {/* ── New Comers — auto-populated from D-Light Visitors ── */}
-              <div ref={newComersSectionRef} className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 shadow-sm">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-slate-800">New Comers</h3>
-                  <span className="text-xs text-indigo-500 font-medium bg-indigo-100 px-2 py-0.5 rounded-full">
-                    From D-Light Visitors
-                  </span>
-                </div>
-
-                {loadingDlight ? (
-                  <p className="text-sm text-slate-400 py-2">Loading from D-Light visitors…</p>
-                ) : dlightSuggestions.length === 0 ? (
-                  <p className="text-sm text-slate-400 py-2">
-                    No visitors recorded for this Sunday in D-Light yet.
-                  </p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {dlightSuggestions.map((name, idx) => (
-                      <li key={idx} className="flex items-center gap-2 text-sm text-slate-800">
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />
-                        {name}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                <p className="text-xs text-slate-400 mt-3">
-                  Names are pulled automatically from D-Light visitor entries for this week.
-                </p>
-              </div>
+              {/* ── New Comers — suggested from D-Light Visitors, confirmed into the
+                  report the same way every other section is (tap-to-add from
+                  suggestions, editable, removable). Previously this was a read-only
+                  list of dlightSuggestions that never wrote to report.newComers, so
+                  the field saved as [] and the summary dashboard always showed 0. ── */}
+              <AttendanceSectionShell
+                sectionRef={newComersSectionRef}
+                completed={completedSections.newComers}
+                isActive={activeSectionId === 'newComers'}
+                canManage={canEditEffective}
+                onDone={() => handleAttendanceDone('newComers')}
+                onUndo={() => handleAttendanceUndo('newComers')}
+              >
+                <NameListSection
+                  title="New Comers"
+                  names={report?.newComers || []}
+                  canEdit={canEditEffective && !completedSections.newComers}
+                  onAdd={() => addCellName('newComers')}
+                  onAddValue={(value) => addCellNameValue('newComers', value)}
+                  onEdit={(idx, value) => updateCellList('newComers', idx, value)}
+                  onRemove={(idx) => removeCellName('newComers', idx)}
+                  suggestions={dlightSuggestions}
+                  loadingSuggestions={loadingDlight}
+                  suggestionsLabel="From D-Light visitors this week — tap to add"
+                  duplicateNorms={duplicateNorms}
+                  className="border-0 shadow-none bg-transparent p-0"
+                />
+              </AttendanceSectionShell>
 
               <AttendanceSectionShell
                 sectionRef={secondWeekSectionRef}

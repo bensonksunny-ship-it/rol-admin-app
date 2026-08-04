@@ -4914,13 +4914,19 @@ export default function DepartmentHub() {
               const isInCell = !!(entry.visitorId && cellVisitorIds.has(entry.visitorId))
               const menuOpen = pcsMenuOpenId === entry.id
               const isPastor = entry.name?.trim().toLowerCase() === 'benson k sunny'
+              const absentWeeks = getConsecutiveAbsentSundays(entry)
+              const isLongAbsent = absentWeeks >= 4
               return (
-                <div className="relative">
+                <div className="relative w-full h-full">
                   {menuOpen && (
                     <div className="fixed inset-0 z-10" onClick={() => setPcsMenuOpenId(null)} />
                   )}
+                  {/* Fixed-height card so every tile in the grid lines up identically
+                      regardless of name length or which badges/subtitle apply — avatar,
+                      name/badges, subtitle, and the ⋮ menu each sit in a fixed relative
+                      slot instead of the card growing/shrinking around its content. */}
                   <div
-                    className={`flex items-center gap-2 rounded-2xl pl-2 pr-1 py-2 border transition-all cursor-pointer
+                    className={`w-full h-[72px] flex items-center gap-2 rounded-2xl pl-2 pr-1 py-2 border transition-all cursor-pointer
                       ${isPastor
                         ? isExpanded
                           ? 'bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-700 border-amber-400 shadow-lg ring-2 ring-amber-300 ring-offset-1'
@@ -4948,9 +4954,9 @@ export default function DepartmentHub() {
                         <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" title="In a cell group" />
                       )}
                     </div>
-                    <div className="min-w-0">
+                    <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <p className={`text-sm font-semibold leading-tight truncate max-w-[110px] ${isPastor ? isExpanded ? 'text-white' : 'text-amber-900' : isExpanded ? 'text-white' : hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
+                        <p className={`text-sm font-semibold leading-tight truncate ${isPastor ? isExpanded ? 'text-white' : 'text-amber-900' : isExpanded ? 'text-white' : hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
                           {entry.name}
                         </p>
                         {isPastor && (
@@ -4963,15 +4969,24 @@ export default function DepartmentHub() {
                             {entry.leadershipPosition}
                           </span>
                         )}
+                        {isLongAbsent && (
+                          <span
+                            className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-red-100' : 'bg-red-100 text-red-700'}`}
+                            title={`Absent for ${absentWeeks} consecutive Sundays`}
+                          >
+                            ⚠️ {absentWeeks}w
+                          </span>
+                        )}
                       </div>
                       {hasMember
-                        ? <p className={`text-xs font-medium leading-tight ${isExpanded ? 'text-indigo-200' : isPastor ? 'text-amber-700' : 'text-amber-600'}`}>#{entry.membershipNumber}</p>
+                        ? <p className={`text-xs font-medium leading-tight truncate ${isExpanded ? 'text-indigo-200' : isPastor ? 'text-amber-700' : 'text-amber-600'}`}>#{entry.membershipNumber}</p>
                         : isInCell
-                          ? <p className={`text-xs font-medium leading-tight truncate max-w-[110px] ${isExpanded ? 'text-indigo-200' : 'text-emerald-600'}`}>{cellNameByVisitorId.get(entry.visitorId) || 'Cell member'}</p>
-                          : <p className={`text-xs leading-tight ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>Not a member</p>
+                          ? <p className={`text-xs font-medium leading-tight truncate ${isExpanded ? 'text-indigo-200' : 'text-emerald-600'}`}>{cellNameByVisitorId.get(entry.visitorId) || 'Cell member'}</p>
+                          : <p className={`text-xs leading-tight truncate ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>Not a member</p>
                       }
                     </div>
-                    {/* Three-dots menu button */}
+                    {/* Three-dots menu button — pinned to a fixed slot at the card's
+                        trailing edge regardless of name/badge length above. */}
                     <button
                       type="button"
                       onClick={e => { e.stopPropagation(); setPcsMenuOpenId(menuOpen ? null : entry.id) }}
@@ -5609,7 +5624,7 @@ export default function DepartmentHub() {
                       {/* Missed-Sundays alert — helps the Caring Director judge whether to push for cell assignment */}
                       {(() => {
                         const absentWeeks = getConsecutiveAbsentSundays(entry)
-                        if (absentWeeks < 3) return null
+                        if (absentWeeks < 4) return null
                         return (
                           <div className="mb-3 inline-flex items-center gap-1.5 text-xs font-bold text-red-700 bg-red-50 border border-red-300 px-3 py-1.5 rounded-full">
                             ⚠️ Absent for {absentWeeks} consecutive Sundays
@@ -6691,19 +6706,19 @@ export default function DepartmentHub() {
                                 {entries.length} {entries.length === 1 ? 'person' : 'people'}
                               </span>
                             </div>
-                            {/* Chips — profile panel injected inline right after the clicked chip */}
-                            <div className="px-4 py-3 flex flex-wrap gap-2">
+                            {/* Cards — fixed-size grid tiles (auto-fill/minmax) so every card
+                                lines up in equal-width columns instead of the old variable-width
+                                flex-wrap chips. The expanded profile panel spans the full grid
+                                row (col-span-full) so it still breaks onto its own row below
+                                whichever card was clicked. */}
+                            <div className="px-4 py-3 grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
                               {entries.map(entry => (
                                 <Fragment key={entry.id}>
                                   <Chip entry={entry} />
                                   {pcsExpandedId === entry.id && (
-                                    <>
-                                      {/* Force a full-width break so profile starts on its own row */}
-                                      <div className="w-full -mx-4" />
-                                      <div className="w-full -mx-4">
-                                        {PCSInlineProfile({ entry })}
-                                      </div>
-                                    </>
+                                    <div className="col-span-full -mx-4">
+                                      {PCSInlineProfile({ entry })}
+                                    </div>
                                   )}
                                 </Fragment>
                               ))}
