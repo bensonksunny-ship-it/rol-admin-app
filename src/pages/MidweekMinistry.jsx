@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Check } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
 import { useViewAs } from '../context/ViewAsContext'
@@ -15,6 +16,8 @@ import {
   setMidweekSettings,
   saveMidweekSessionSummary,
   syncMidweekAttendanceToCellReport,
+  getDepartmentChildren,
+  createTask,
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
@@ -77,26 +80,23 @@ export default function MidweekMinistry({ embedded = false }) {
 
   return (
     <div className={embedded ? undefined : 'min-h-screen bg-slate-50'}>
-      <div className={`max-w-2xl mx-auto space-y-5 ${embedded ? 'py-4' : 'px-4 py-6'}`}>
+      <div className={`max-w-2xl mx-auto space-y-4 ${embedded ? 'py-4' : 'px-4 py-6'}`}>
+        {/* Minimal page label — the "Begin Meeting" hero below is the real focal
+            point, so this stays small instead of competing with it. */}
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Mid-week Ministry</h1>
-          <p className="text-slate-500 text-sm mt-0.5">Live cell meeting tools</p>
+          <h1 className="text-base font-bold text-slate-800">Mid-week Ministry</h1>
         </div>
 
-        {/* Report date selector — change this to enter historical data */}
-        <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-3">
-          <span className="text-indigo-500 text-lg">📅</span>
-          <div className="flex-1">
-            <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Report Date</p>
-            <p className="text-xs text-indigo-500 mt-0.5">Change this to enter data for a past session</p>
-          </div>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-indigo-300 bg-white text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-          />
-        </div>
+        {/* ── Session Config (fixed placement) — Report Date + Live Control/Cell
+            Prep toggle, always directly under the page heading regardless of
+            which sub-tab is active, so switching tabs never shifts these
+            controls. ── */}
+        <SessionConfigBar
+          selectedDate={selectedDate}
+          onDateChange={setSelectedDate}
+          subTab={subTab}
+          onSubTabChange={setSubTab}
+        />
 
         {isFounder && viewAsRole !== 'founder' && (
           <div className="px-3 py-1.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium">
@@ -104,28 +104,7 @@ export default function MidweekMinistry({ embedded = false }) {
           </div>
         )}
 
-        {/* Sub-tab strip */}
-        <div className="flex gap-1 bg-slate-100 rounded-2xl p-1">
-          {[
-            { key: 'live', label: '⚡ Live Control' },
-            { key: 'prep', label: '📋 Cell Prep' },
-          ].map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setSubTab(key)}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                subTab === key
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {subTab === 'live' && (
+        {subTab === 'live' ? (
           canUseLive ? (
             <LiveControlTab
               userProfile={userProfile}
@@ -141,8 +120,7 @@ export default function MidweekMinistry({ embedded = false }) {
               <p className="text-sm mt-1">Switch to Director or Leader view to access it.</p>
             </div>
           )
-        )}
-        {subTab === 'prep' && (
+        ) : (
           <CellPrepTab
             userProfile={userProfile}
             isDirector={effectiveIsDirector}
@@ -150,6 +128,46 @@ export default function MidweekMinistry({ embedded = false }) {
             reportDate={selectedDate}
           />
         )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Session Config Bar ───────────────────────────────────────────────────────
+// Auxiliary controls (Report Date + Live Control/Cell Prep toggle) — deliberately
+// lower visual weight than the "Begin Meeting" hero, one compact row instead of
+// two separate cards, so it reads as secondary session config, not a focal point.
+function SessionConfigBar({ selectedDate, onDateChange, subTab, onSubTabChange }) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-100/70 rounded-2xl px-3 py-2.5">
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <span className="text-slate-400 text-sm shrink-0">📅</span>
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => e.target.value && onDateChange(e.target.value)}
+          title="Report date — change to enter data for a past session"
+          className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+      </div>
+      <div className="flex gap-1 bg-white rounded-xl p-1 border border-slate-200 shrink-0">
+        {[
+          { key: 'live', label: 'Live Control' },
+          { key: 'prep', label: 'Cell Prep' },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onSubTabChange(key)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              subTab === key
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   )
@@ -190,6 +208,15 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
   const [visitors, setVisitors]           = useState([])
   const [visitorInput, setVisitorInput]   = useState('')
 
+  // River Kids parent-child linkage — riverKidsChildren is the full registry
+  // (fetched once per mount, not per cell); childrenAttending is this session's
+  // confirmed roster; askedParentIds tracks who's already been prompted so toggling
+  // a member on/off repeatedly doesn't re-show the popover every time.
+  const [riverKidsChildren, setRiverKidsChildren] = useState([])
+  const [childrenAttending, setChildrenAttending] = useState([])
+  const [askedParentIds, setAskedParentIds]       = useState(new Set())
+  const [childPrompt, setChildPrompt]             = useState(null) // { memberId, memberName, matches: [{name}], checked: Set<name> }
+
   // Prayer state
   const [prayerPoints, setPrayerPoints]   = useState([])
   const [loadingPrayer, setLoadingPrayer] = useState(false)
@@ -208,6 +235,8 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
           if (saved.presentIds)              setPresentIds(new Set(saved.presentIds))
           if (saved.visitors)                setVisitors(saved.visitors)
           if (saved.visitorInput !== undefined) setVisitorInput(saved.visitorInput)
+          if (saved.childrenAttending)       setChildrenAttending(saved.childrenAttending)
+          if (saved.askedParentIds)          setAskedParentIds(new Set(saved.askedParentIds))
         }
       } catch {}
       return
@@ -217,9 +246,17 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         presentIds: [...presentIds],
         visitors,
         visitorInput,
+        childrenAttending,
+        askedParentIds: [...askedParentIds],
       }))
     } catch {}
-  }, [selectedCellId, today, presentIds, visitors, visitorInput])
+  }, [selectedCellId, today, presentIds, visitors, visitorInput, childrenAttending, askedParentIds])
+
+  // River Kids registry — loaded once; used to spot parents among cell members via
+  // name matching (fatherName/motherName are free-text, no ID linkage exists).
+  useEffect(() => {
+    getDepartmentChildren('River Kids').then(setRiverKidsChildren).catch(() => setRiverKidsChildren([]))
+  }, [])
 
   // Load cell groups
   useEffect(() => {
@@ -264,16 +301,101 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       .finally(() => setLoadingPrayer(false))
   }, [selectedCellId, today])
 
-  const activeMembers = useMemo(() => members.filter((m) => m.status !== 'inactive'), [members])
+  // De-duplicate by name (case/whitespace-insensitive) — keeps the first occurrence
+  // only, so a member listed twice in the underlying roster shows once in Attendance.
+  const activeMembers = useMemo(() => {
+    const seen = new Set()
+    return members
+      .filter((m) => m.status !== 'inactive')
+      .filter((m) => {
+        const key = String(m.name || '').trim().toLowerCase()
+        if (!key) return true
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+  }, [members])
+
+  // name (lowercased/trimmed) → River Kids children who list that name as a parent.
+  // Name-string matching is the only linkage available — department_children has no
+  // parentMemberId, just free-text fatherName/motherName fields.
+  const childrenByParentName = useMemo(() => {
+    const map = new Map()
+    riverKidsChildren.forEach((child) => {
+      if (child.active === false) return
+      ;[child.fatherName, child.motherName].forEach((parentName) => {
+        const key = String(parentName || '').trim().toLowerCase()
+        if (!key) return
+        if (!map.has(key)) map.set(key, [])
+        map.get(key).push({ name: child.name })
+      })
+    })
+    return map
+  }, [riverKidsChildren])
 
   const togglePresent = useCallback((id) => {
     setPresentIds((prev) => {
+      const wasPresent = prev.has(id)
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
+      if (wasPresent) next.delete(id)
       else next.add(id)
+
+      // Only prompt on the transition to present, and only once per parent per
+      // session — repeatedly toggling the same member shouldn't re-show the popover.
+      if (!wasPresent && !askedParentIds.has(id)) {
+        const member = activeMembers.find((m) => m.id === id)
+        const key = String(member?.name || '').trim().toLowerCase()
+        const matches = key ? childrenByParentName.get(key) : null
+        if (matches?.length) {
+          setAskedParentIds((prevAsked) => new Set(prevAsked).add(id))
+          setChildPrompt({
+            memberId: id,
+            memberName: member.name,
+            matches,
+            checked: new Set(matches.map((c) => c.name)), // default all checked
+          })
+        }
+      }
       return next
     })
+  }, [askedParentIds, activeMembers, childrenByParentName])
+
+  const toggleChildPromptCheck = useCallback((name) => {
+    setChildPrompt((prev) => {
+      if (!prev) return prev
+      const next = new Set(prev.checked)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return { ...prev, checked: next }
+    })
   }, [])
+
+  const confirmChildPrompt = useCallback(() => {
+    setChildPrompt((prev) => {
+      if (!prev) return null
+      const toAdd = prev.matches.filter((c) => prev.checked.has(c.name))
+      if (toAdd.length) {
+        setChildrenAttending((prevChildren) => {
+          const existingNames = new Set(prevChildren.map((c) => c.name.trim().toLowerCase()))
+          const fresh = toAdd
+            .filter((c) => !existingNames.has(c.name.trim().toLowerCase()))
+            .map((c) => ({ id: `${prev.memberId}_${c.name}`, name: c.name, parentName: prev.memberName }))
+          return [...prevChildren, ...fresh]
+        })
+      }
+      return null
+    })
+  }, [])
+
+  const removeChildAttending = useCallback((id) => {
+    setChildrenAttending((prev) => prev.filter((c) => c.id !== id))
+  }, [])
+
+  const selectAllMembers = useCallback(() => {
+    setPresentIds(new Set(activeMembers.map((m) => m.id)))
+  }, [activeMembers])
+
+  const clearAllMembers = useCallback(() => setPresentIds(new Set()), [])
 
   // Segment state machine
   const isEnded    = segmentIdx >= segmentOrder.length
@@ -304,6 +426,9 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       setPresentIds(new Set())
       setVisitors([])
       setVisitorInput('')
+      setChildrenAttending([])
+      setAskedParentIds(new Set())
+      setChildPrompt(null)
       segmentStartTime.current  = null
       segmentTimingsRef.current = []
       setPendingTimings([])
@@ -371,13 +496,13 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         setSaveError('Session could not be saved. Please check your connection and try again.')
       })
 
-      syncMidweekAttendanceToCellReport(selectedCellId, cellName, today, presentMembers, updatedBy, visitors)
+      syncMidweekAttendanceToCellReport(selectedCellId, cellName, today, presentMembers, updatedBy, visitors, childrenAttending)
         .catch((err) => {
           console.error('Failed to sync attendance to cell report:', err)
           setSaveError('Attendance could not be saved to reports. Ask your Cell Director to update your profile with the correct Cell ID.')
         })
     }
-  }, [pendingTimings, selectedCellId, today, presentIds, userProfile, segmentOrder.length, cellGroups, members, visitors])
+  }, [pendingTimings, selectedCellId, today, presentIds, userProfile, segmentOrder.length, cellGroups, members, visitors, childrenAttending])
 
   // Master button appearance
   let masterBg, masterText, masterIcon, masterLabel, masterSub
@@ -420,7 +545,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
   }, [selectedCellId, today, prayerPoints, userProfile])
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="space-y-6 pb-24">
 
       {/* Cell selector — Directors only */}
       {isDirector && (
@@ -460,44 +585,49 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         />
       )}
 
-      {/* ── Master Button ── */}
+      {/* ── Meeting Controller — primary card. The master button is the page's
+          focal point, so it keeps the strongest elevation of any element on
+          the page; the card around it gives that focal point a defined,
+          premium container instead of floating loose against the page bg. ── */}
       {selectedCellId && (
-        <div className="flex justify-center">
-          <motion.button
-            type="button"
-            onClick={handleMasterTap}
-            whileTap={{ scale: 0.96 }}
-            className={`${masterBg} ${masterText} w-full rounded-3xl shadow-2xl p-10 flex flex-col items-center gap-3 transition-colors select-none`}
-          >
-            <span className="text-6xl leading-none">{masterIcon}</span>
-            <span className="text-3xl font-bold tracking-tight">{masterLabel}</span>
-            <span className="text-sm font-medium opacity-60">{masterSub}</span>
-            {!isEnded && segmentIdx >= 0 && (
-              <div className="flex gap-2 mt-1">
-                {segmentOrder.map((seg, i) => (
-                  <div
-                    key={seg}
-                    className={`rounded-full transition-all ${
-                      i < segmentIdx    ? 'w-2 h-2 bg-white/30'
-                      : i === segmentIdx ? 'w-3 h-3 bg-white'
-                      : 'w-2 h-2 bg-white/15'
-                    }`}
-                  />
-                ))}
-              </div>
-            )}
-          </motion.button>
-        </div>
-      )}
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-md p-6 space-y-5">
+          <div className="flex justify-center">
+            <motion.button
+              type="button"
+              onClick={handleMasterTap}
+              whileTap={{ scale: 0.96 }}
+              className={`${masterBg} ${masterText} w-full rounded-3xl shadow-lg ring-1 ring-black/5 p-12 flex flex-col items-center gap-3 transition-colors select-none`}
+            >
+              <span className="text-7xl leading-none">{masterIcon}</span>
+              <span className="text-4xl font-bold tracking-tight">{masterLabel}</span>
+              <span className="text-sm font-medium opacity-60">{masterSub}</span>
+              {!isEnded && segmentIdx >= 0 && (
+                <div className="flex gap-2 mt-1">
+                  {segmentOrder.map((seg, i) => (
+                    <div
+                      key={seg}
+                      className={`rounded-full transition-all ${
+                        i < segmentIdx    ? 'w-2 h-2 bg-white/30'
+                        : i === segmentIdx ? 'w-3 h-3 bg-white'
+                        : 'w-2 h-2 bg-white/15'
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
+            </motion.button>
+          </div>
 
-      {/* ── Live Elapsed Timer ── */}
-      {selectedCellId && currentSeg && !isEnded && segmentStartedAt && (
-        <div className="flex justify-center">
-          <LiveElapsedTimer
-            startedAtMs={segmentStartedAt}
-            plannedMinutes={segmentDurations[currentSeg] || null}
-            label={currentSeg}
-          />
+          {/* ── Live Elapsed Timer — tied directly to the hero's active state ── */}
+          {currentSeg && !isEnded && segmentStartedAt && (
+            <div className="flex justify-center">
+              <LiveElapsedTimer
+                startedAtMs={segmentStartedAt}
+                plannedMinutes={segmentDurations[currentSeg] || null}
+                label={currentSeg}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -517,22 +647,45 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         </div>
       )}
 
+      {/* ── Attendance & Visitor Management — secondary cards. Same elevation
+          tier (shadow-sm) as each other, one clear step below the Meeting
+          Controller's shadow-md, with a larger top margin than the internal
+          card rhythm to read as "the next section" rather than more of the
+          controller above. ── */}
+
       {/* ── Attendance Bubbles ── */}
       {selectedCellId && (
-        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-5">
-          <div className="flex items-center justify-between">
+        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4 mt-2">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <h2 className="font-bold text-slate-900 text-lg">Attendance</h2>
             <span className="text-sm font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
               {presentIds.size} / {activeMembers.length}
-              {visitors.length > 0 && <span className="ml-1 text-teal-700"> · {visitors.length} visitor{visitors.length > 1 ? 's' : ''}</span>}
             </span>
           </div>
+          {!loadingMembers && activeMembers.length > 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={selectAllMembers}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={clearAllMembers}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                Clear All
+              </button>
+            </div>
+          )}
           {loadingMembers ? (
             <div className="text-center text-slate-400 py-8 text-sm">Loading members…</div>
           ) : activeMembers.length === 0 ? (
             <div className="text-center text-slate-400 py-8 text-sm">No active members found.</div>
           ) : (
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               {activeMembers.map((member) => (
                 <MemberBubble
                   key={member.id}
@@ -543,47 +696,89 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
               ))}
             </div>
           )}
+        </div>
+      )}
 
-          {/* Visitors */}
-          <div className="border-t border-slate-100 pt-4 space-y-3">
-            <p className="text-sm font-semibold text-slate-600">Visitors</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={visitorInput}
-                onChange={(e) => setVisitorInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addVisitor() } }}
-                placeholder="Visitor name"
-                className="flex-1 px-4 py-2.5 rounded-2xl border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-300 placeholder-slate-400"
-              />
-              <button
-                type="button"
-                onClick={addVisitor}
-                disabled={!visitorInput.trim()}
-                className="px-4 py-2.5 rounded-2xl bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 disabled:opacity-40 transition-all"
-              >
-                + Add
-              </button>
-            </div>
+      {/* ── Visitor Management ── */}
+      {selectedCellId && (
+        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-bold text-slate-900 text-lg">Visitor Management</h2>
             {visitors.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {visitors.map((v) => (
-                  <span
-                    key={v.id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-teal-800 text-sm font-medium"
-                  >
-                    {v.name}
-                    <button
-                      type="button"
-                      onClick={() => removeVisitor(v.id)}
-                      className="text-teal-400 hover:text-teal-700 leading-none text-base"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
+              <span className="text-sm font-semibold text-teal-700 bg-teal-50 px-3 py-1 rounded-full">
+                {visitors.length} visitor{visitors.length > 1 ? 's' : ''}
+              </span>
             )}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={visitorInput}
+              onChange={(e) => setVisitorInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addVisitor() } }}
+              placeholder="Visitor name"
+              className="flex-1 px-4 py-2.5 rounded-2xl border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-300 placeholder-slate-400"
+            />
+            <button
+              type="button"
+              onClick={addVisitor}
+              disabled={!visitorInput.trim()}
+              className="px-4 py-2.5 rounded-2xl bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 disabled:opacity-40 transition-all"
+            >
+              + Add
+            </button>
+          </div>
+          {visitors.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {visitors.map((v) => (
+                <span
+                  key={v.id}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-teal-800 text-sm font-medium"
+                >
+                  {v.name}
+                  <button
+                    type="button"
+                    onClick={() => removeVisitor(v.id)}
+                    className="text-teal-400 hover:text-teal-700 leading-none text-base"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Children Attending (River Kids) — populated only via the "Is [Child]
+          also attending?" prompt triggered from Attendance above, not manually
+          added here (that mirrors how the linkage is meant to work: a child's
+          attendance is tied to their parent being marked present). ── */}
+      {selectedCellId && childrenAttending.length > 0 && (
+        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-bold text-slate-900 text-lg">Children Attending</h2>
+            <span className="text-sm font-semibold text-amber-700 bg-amber-50 px-3 py-1 rounded-full">
+              {childrenAttending.length} child{childrenAttending.length > 1 ? 'ren' : ''}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {childrenAttending.map((c) => (
+              <span
+                key={c.id}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-sm font-medium"
+              >
+                {c.name}
+                {c.parentName && <span className="text-amber-500 font-normal text-xs">· {c.parentName}</span>}
+                <button
+                  type="button"
+                  onClick={() => removeChildAttending(c.id)}
+                  className="text-amber-400 hover:text-amber-700 leading-none text-base"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -615,6 +810,19 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
             prayerPoints={prayerPoints}
             onConfirm={confirmEndMeeting}
             onCancel={() => setShowEndModal(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── River Kids child-attendance prompt — shown once per parent per session,
+          right after they're marked present in Attendance above. ── */}
+      <AnimatePresence>
+        {childPrompt && (
+          <ChildAttendancePrompt
+            prompt={childPrompt}
+            onToggle={toggleChildPromptCheck}
+            onConfirm={confirmChildPrompt}
+            onSkip={() => setChildPrompt(null)}
           />
         )}
       </AnimatePresence>
@@ -732,14 +940,34 @@ function EndMeetingModal({ timings, presentIds, members, visitors, prayerPoints,
 
           {/* Attendance — interactive bubbles */}
           <div className="space-y-3">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              👥 Attendance — {localPresent.size} / {members.length} members
-              {visitors?.length > 0 && ` · ${visitors.length} visitor${visitors.length > 1 ? 's' : ''}`}
-            </p>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                👥 Attendance — {localPresent.size} / {members.length} members
+                {visitors?.length > 0 && ` · ${visitors.length} visitor${visitors.length > 1 ? 's' : ''}`}
+              </p>
+              {members.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLocalPresent(new Set(members.map((m) => m.id)))}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLocalPresent(new Set())}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              )}
+            </div>
             {members.length === 0 ? (
               <p className="text-slate-400 text-sm">No members loaded.</p>
             ) : (
-              <div className="flex flex-wrap gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {members.map((m) => (
                   <MemberBubble
                     key={m.id}
@@ -816,6 +1044,94 @@ function EndMeetingModal({ timings, presentIds, members, visitors, prayerPoints,
   )
 }
 
+// ─── Child Attendance Prompt (River Kids linkage) ──────────────────────────────
+// Small centered confirm card, styled to match ProgramConfirmSheet's convention
+// (accent bar, rounded-3xl white card, tap-outside dismisses like "Skip") rather
+// than the full bottom-sheet pattern EndMeetingModal uses — this is a quick,
+// low-stakes confirmation, not a review step.
+
+function ChildAttendancePrompt({ prompt, onToggle, onConfirm, onSkip }) {
+  const { memberName, matches, checked } = prompt
+  const single = matches.length === 1
+
+  return (
+    <>
+      <motion.div
+        key="child-prompt-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/55 z-[70] flex items-center justify-center p-4"
+        onClick={onSkip}
+      >
+        <motion.div
+          key="child-prompt-card"
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+          className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="w-10 h-1 rounded-full bg-amber-400 mb-4" />
+          <p className="text-lg font-bold text-slate-900">
+            {single
+              ? `Is ${matches[0].name} also attending?`
+              : `${memberName}'s children — also attending?`}
+          </p>
+          <p className="text-sm text-slate-500 mt-1 mb-4">
+            {memberName} is registered as a parent in River Kids{single ? '.' : ` of ${matches.length} children.`}
+          </p>
+
+          {!single && (
+            <div className="space-y-2 mb-5">
+              {matches.map((c) => {
+                const isChecked = checked.has(c.name)
+                return (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => onToggle(c.name)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-colors ${
+                      isChecked ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-slate-50 border border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    <span className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      isChecked ? 'bg-amber-500 text-white' : 'bg-white border border-slate-300'
+                    }`}>
+                      {isChecked && <Check size={14} strokeWidth={3} />}
+                    </span>
+                    <span className="flex-1 text-left">{c.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onSkip}
+              className="flex-1 py-3 rounded-2xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
+            >
+              No / Skip
+            </button>
+            <motion.button
+              type="button"
+              onClick={onConfirm}
+              whileTap={{ scale: 0.97 }}
+              disabled={!single && checked.size === 0}
+              className="flex-1 py-3 rounded-2xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 disabled:opacity-40 transition-colors"
+            >
+              Yes, Add {single ? '' : `(${checked.size})`}
+            </motion.button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </>
+  )
+}
+
 // ─── Member Bubble ────────────────────────────────────────────────────────────
 
 function MemberBubble({ member, present, onToggle }) {
@@ -825,19 +1141,20 @@ function MemberBubble({ member, present, onToggle }) {
     <motion.button
       type="button"
       onClick={() => onToggle(member.id)}
-      whileTap={{ scale: 0.95 }}
-      className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-sm font-medium transition-all ${
+      whileTap={{ scale: 0.97 }}
+      className={`w-full min-h-[52px] flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-colors ${
         present
-          ? 'bg-emerald-500 text-white ring-2 ring-emerald-200 shadow-md shadow-emerald-100'
-          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          ? 'bg-emerald-600 text-white shadow-sm'
+          : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
       }`}
     >
-      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-        present ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-600'
+      <span className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+        present ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
       }`}>
         {initials}
       </span>
-      <span className="text-left leading-tight">{member.name}</span>
+      <span className="flex-1 text-left leading-tight truncate">{member.name}</span>
+      {present && <Check size={18} strokeWidth={3} className="flex-shrink-0" />}
     </motion.button>
   )
 }
@@ -1075,6 +1392,8 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
   // Back to Bible imported content
   const [b2b, setB2b]           = useState(null)
   const [loadingB2b, setLoadingB2b] = useState(true)
+  const [notifyingDirector, setNotifyingDirector] = useState(false)
+  const [notifiedDirector, setNotifiedDirector]   = useState(false)
 
   useEffect(() => {
     getCellGroups('Cell').then(setCellGroups).finally(() => setLoadingGroups(false))
@@ -1119,10 +1438,34 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
       .finally(() => setLoadingPrayer(false))
   }, [selectedCellId, today])
 
-  useEffect(() => {
+  const loadB2b = useCallback(() => {
     setLoadingB2b(true)
     getActiveBackToBibleForDate(today).then(setB2b).finally(() => setLoadingB2b(false))
   }, [today])
+
+  useEffect(() => { loadB2b() }, [loadB2b])
+
+  const handleNotifyDirector = async () => {
+    if (!selectedCellId) return
+    setNotifyingDirector(true)
+    try {
+      const cellName = cellGroups.find((g) => g.id === selectedCellId)?.cellName || 'this cell'
+      await createTask({
+        taskTitle: `Post Back to Bible content — ${cellName}`,
+        department: 'Cell',
+        assignedPerson: '',
+        priority: 'Medium',
+        deadline: '',
+        status: 'Pending',
+        notes: `No Back to Bible study has been shared yet for the week of ${today}. Requested by ${userProfile?.name || userProfile?.email || 'a cell leader'} via Mid-week Ministry.`,
+        createdBy: userProfile?.email || '',
+      })
+      setNotifiedDirector(true)
+      setTimeout(() => setNotifiedDirector(false), 5000)
+    } finally {
+      setNotifyingDirector(false)
+    }
+  }
 
   // Segments sorted by their current order number
   const sortedSegments = useMemo(
@@ -1235,15 +1578,17 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
         </div>
       )}
 
-      {/* ── Set Default Program ── */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
+      {/* ── Inline Program Table ── */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h2 className="font-bold text-slate-900">Set Default Program</h2>
-            <p className="text-slate-500 text-xs mt-0.5">Enter start time and duration for each segment</p>
+            <h2 className="font-bold text-slate-900">Schedule</h2>
+            <p className="text-slate-500 text-xs mt-0.5">
+              {programStartTime ? `Starts ${toAmPm(programStartTime, 0)}` : 'No start time set'} · {sortedSegments.length} segment{sortedSegments.length !== 1 ? 's' : ''} · {totalMinutes} min
+            </p>
           </div>
           {savedProgram && (
-            <span className="text-xs px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold">✓ Saved</span>
+            <span className="text-xs px-3 py-1 rounded-full bg-green-100 text-green-700 font-semibold shrink-0">✓ Saved</span>
           )}
         </div>
 
@@ -1260,28 +1605,32 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
           />
         </div>
 
-        {/* Column headers */}
-        <div className="grid grid-cols-[36px_1fr_90px_96px] gap-2 px-1">
+        {/* Column headers — grid template mirrors the row template exactly below,
+            so the two stay aligned; widened Duration/Time Window columns are what
+            actually fix the clustered "8:15 PM - 8:17 PM" wrapping. */}
+        <div className="grid grid-cols-[36px_1fr_110px_190px_40px] gap-3 px-2">
           <span className="text-xs font-bold text-slate-400 text-center">#</span>
           <span className="text-xs font-bold text-slate-400">Segment</span>
           <span className="text-xs font-bold text-slate-400 text-center">Duration</span>
-          <span className="text-xs font-bold text-slate-400 text-center">Time</span>
+          <span className="text-xs font-bold text-slate-400 text-center">Time Window</span>
+          <span className="text-xs font-bold text-slate-400 text-center">Actions</span>
         </div>
 
-        {/* Segment rows */}
-        <div className="space-y-2">
+        {/* Segment rows — each its own card: generous padding, clear column
+            separation, no cramped wrapping on the time-window text. */}
+        <div className="space-y-3">
           {sortedSegments.map((seg, idx) => {
             const style        = SEGMENT_STYLES[seg.name] || SEGMENT_STYLES.Prayer
             const startOffset  = getOffset(idx)
             const endOffset    = startOffset + (Number(seg.durationMinutes) || 0)
             const timeLabel    = programStartTime
-              ? `${toAmPm(programStartTime, startOffset)}–${toAmPm(programStartTime, endOffset)}`
+              ? `${toAmPm(programStartTime, startOffset)} – ${toAmPm(programStartTime, endOffset)}`
               : '—'
 
             return (
               <div
                 key={seg.name}
-                className="grid grid-cols-[36px_1fr_90px_80px_28px] gap-2 items-center bg-slate-50 rounded-2xl px-3 py-3 border border-slate-100"
+                className="grid grid-cols-[36px_1fr_110px_190px_40px] gap-3 items-center bg-slate-50 rounded-2xl px-4 py-3.5 border border-slate-100 shadow-sm"
               >
                 {/* Order number input */}
                 <input
@@ -1291,17 +1640,19 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
                   value={seg.order}
                   onChange={(e) => updateSegment(seg.name, 'order', e.target.value)}
                   disabled={!canEdit}
-                  className="w-9 px-1 py-1 rounded-lg border border-slate-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50 bg-white"
+                  className="w-9 px-1 py-1.5 rounded-lg border border-slate-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50 bg-white"
                 />
 
                 {/* Segment name + icon */}
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-base flex-shrink-0">{style.icon}</span>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="w-8 h-8 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-base flex-shrink-0">
+                    {style.icon}
+                  </span>
                   <span className="font-semibold text-slate-800 text-sm truncate">{seg.name}</span>
                 </div>
 
                 {/* Duration input */}
-                <div className="flex items-center gap-1 justify-center">
+                <div className="flex items-center gap-1.5 justify-center">
                   <input
                     type="number"
                     min={1}
@@ -1309,25 +1660,30 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
                     value={seg.durationMinutes}
                     onChange={(e) => updateSegment(seg.name, 'durationMinutes', e.target.value)}
                     disabled={!canEdit}
-                    className="w-14 px-2 py-1 rounded-lg border border-slate-300 text-sm text-center font-medium focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50 bg-white"
+                    className="w-14 px-2 py-1.5 rounded-lg border border-slate-300 text-sm text-center font-medium focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50 bg-white"
                   />
-                  <span className="text-xs text-slate-500">m</span>
+                  <span className="text-xs text-slate-500">min</span>
                 </div>
 
-                {/* Calculated time */}
-                <span className="text-xs text-indigo-600 font-semibold text-center leading-tight">{timeLabel}</span>
+                {/* Calculated time window — fixed-width column + whitespace-nowrap
+                    is what stops "8:15 PM - 8:17 PM" from wrapping/overlapping. */}
+                <span className="text-xs text-indigo-600 font-semibold text-center whitespace-nowrap">
+                  {timeLabel}
+                </span>
 
                 {/* Remove button */}
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => removeSegment(seg.name)}
-                    className="text-slate-300 hover:text-red-400 transition text-lg leading-none"
-                    aria-label={`Remove ${seg.name}`}
-                  >
-                    ×
-                  </button>
-                )}
+                <div className="flex justify-center">
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => removeSegment(seg.name)}
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors text-lg leading-none"
+                      aria-label={`Remove ${seg.name}`}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               </div>
             )
           })}
@@ -1473,9 +1829,31 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
         {loadingB2b ? (
           <div className="text-center text-slate-400 py-4 text-sm">Loading…</div>
         ) : !b2b ? (
-          <div className="text-center py-6">
-            <p className="text-3xl mb-2">📭</p>
-            <p className="text-slate-400 text-sm">Director hasn't posted content for this week yet.</p>
+          <div className="text-center py-6 space-y-3">
+            <p className="text-3xl mb-1">📭</p>
+            <p className="text-slate-400 text-sm">No study has been shared for this week.</p>
+            {notifiedDirector && (
+              <p className="inline-block text-xs font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">
+                ✓ Director notified
+              </p>
+            )}
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleNotifyDirector}
+                disabled={notifyingDirector || !selectedCellId}
+                className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                {notifyingDirector ? 'Notifying…' : 'Notify Director'}
+              </button>
+              <button
+                type="button"
+                onClick={loadB2b}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">

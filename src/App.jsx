@@ -68,8 +68,8 @@ function App() {
               <Route path="department/sunday-ministry/reports" element={<SundayReportsHistory />} />
               <Route path="department/cell/cell-report" element={<Navigate to="/department/cell?tab=reports" replace />} />
               <Route path="department/cell/cell-history" element={<Navigate to="/department/cell?tab=reports" replace />} />
-              <Route path="department/cell/shepherd" element={<Navigate to="/department/cell?tab=leaderEntry" replace />} />
-              <Route path="department/cell/midweek" element={<Navigate to="/department/cell?tab=leaderEntry" replace />} />
+              <Route path="department/cell/shepherd" element={<Navigate to="/department/cell?tab=shepherdCare" replace />} />
+              <Route path="department/cell/midweek" element={<Navigate to="/department/cell?tab=midweek" replace />} />
               <Route path="department/junior-c" element={<Navigate to="/department/river-kids" replace />} />
               <Route path="department/build-c" element={<Navigate to="/department/building-care" replace />} />
               <Route path="department/d-light/members" element={<DLightMembers />} />

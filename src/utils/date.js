@@ -111,6 +111,20 @@ export function computeDurationMinutes(startTime, endTime) {
   return diff >= 0 ? diff : diff + 24 * 60
 }
 
+/**
+ * "HH:mm" (24-hour) + a minute offset → "HH:mm", wrapping past midnight
+ * (e.g. "23:45" + 30 → "00:15"). Returns '' if time is missing/unparseable.
+ */
+export function addMinutesToTime(time24, minutesToAdd) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(time24 || '').trim())
+  if (!m) return ''
+  const total = (parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (Number(minutesToAdd) || 0)) % 1440
+  const wrapped = total < 0 ? total + 1440 : total
+  const h = Math.floor(wrapped / 60)
+  const min = wrapped % 60
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
+
 /** "20:15" → "8:15 PM" */
 export function formatTime12h(time24) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(time24 || '').trim())

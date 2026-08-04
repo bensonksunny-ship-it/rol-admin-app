@@ -11,6 +11,7 @@ import {
   updateTask,
   subscribeTasksByDepartment,
   subscribeCellMemberReferralTasks,
+  subscribePCSReferralTasks,
   subscribePCSAddNotifications,
   completePCSAddNotification,
   dismissPCSAddNotification,
@@ -124,7 +125,7 @@ import {
   completeCellVisitorProposal,
   dismissCellVisitorProposal,
   getSundayAttendanceCountsByName,
-  getRecentSundayAttendanceWeeks,
+  subscribeToRecentSundayAttendanceWeeks,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
@@ -274,6 +275,18 @@ const RK_CLASS_GROUPS = [
   { key: 'river-kids-2',  label: 'River Kids-2'  },
 ]
 const rkClassGroupLabel = (key) => RK_CLASS_GROUPS.find(g => g.key === key)?.label || key
+
+// PCS main view — search + filter chips. Chips are grouped ('cell' | 'status' | 'year')
+// so selecting multiple within a group is OR'd (any match) while different groups are
+// AND'd together (must satisfy every active group).
+const PCS_FILTER_CHIPS = [
+  { key: 'cell:jordan',      label: 'Jordan',        group: 'cell',   value: 'jordan' },
+  { key: 'cell:bethany',     label: 'Bethany',       group: 'cell',   value: 'bethany' },
+  { key: 'cell:olive',       label: 'Olive',         group: 'cell',   value: 'olive' },
+  { key: 'status:notmember', label: 'Not a member',  group: 'status', value: 'notmember' },
+  { key: 'status:leader',    label: 'Leader',        group: 'status', value: 'leader' },
+  { key: 'year:2026',        label: '2026',          group: 'year',   value: 2026 },
+]
 
 // Firestore's permission-denied error is a dead end for the person clicking the
 // button — "Missing or insufficient permissions" gives them nothing actionable.
@@ -518,6 +531,9 @@ export default function DepartmentHub() {
   const [pcsNotifiedIds, setPcsNotifiedIds] = useState(new Set())
   const [pcsNotifyingId, setPcsNotifyingId] = useState(null)
   const [pcsToast, setPcsToast] = useState(null)
+  const [pcsCellReferralTasks, setPcsCellReferralTasks] = useState([])
+  const [pcsSearchQuery, setPcsSearchQuery] = useState('')
+  const [pcsActiveFilters, setPcsActiveFilters] = useState(() => new Set())
   const [sundayAttendanceWeeks, setSundayAttendanceWeeks] = useState([])
   const [rkChildrenForPCS, setRkChildrenForPCS] = useState([])
   const [pcsChildSearchOpenId, setPcsChildSearchOpenId] = useState(null)
@@ -836,7 +852,7 @@ export default function DepartmentHub() {
     const allTabs = getDepartmentHubTabs(slug)
     // Cell leaders only see their own tabs, not the director's overview
     if (slug === 'cell' && !canViewAllCells) {
-      return allTabs.filter(t => t === 'leaderEntry' || t === 'reports')
+      return allTabs.filter(t => t === 'shepherdCare' || t === 'midweek' || t === 'reports')
     }
     return allTabs
   }, [slug, canViewAllCells])
@@ -879,10 +895,6 @@ export default function DepartmentHub() {
     if (activeTab !== 'finance') return
     setFinanceSubTab(financeSubFromUrl || 'expense')
   }, [activeTab, financeSubFromUrl])
-
-  // Same idea as opsSub, one level deep, Cell-only: CellLeaderEntryTab used to own a
-  // local 'shepherd' | 'midweek' toggle; now it's a controlled prop from ?leaderView=.
-  const leaderViewFromUrl = searchParams.get('leaderView') === 'midweek' ? 'midweek' : 'shepherd'
 
   function formatDuration(firstSundayStr) {
     if (!firstSundayStr) return '—'
@@ -1486,8 +1498,14 @@ export default function DepartmentHub() {
           getCellGroupMembers(g.id).then(members => members.map(m => ({ ...m, cellId: g.id })))
         )).then(results => setAllCellMembers(results.flat())).catch(() => {})
       }).catch(() => {})
-      getRecentSundayAttendanceWeeks(20).then(setSundayAttendanceWeeks).catch(() => setSundayAttendanceWeeks([]))
+      // Live subscription (not a one-time fetch) so the "Absent for N consecutive
+      // Sundays" badge updates as soon as a Sunday report or a person-linked
+      // check-in changes, instead of only refreshing when this tab remounts.
+      const unsubSundayAttendance = subscribeToRecentSundayAttendanceWeeks(
+        20, setSundayAttendanceWeeks, () => setSundayAttendanceWeeks([])
+      )
       getDepartmentChildren('River Kids').then(kids => setRkChildrenForPCS(kids.filter(k => k.active !== false))).catch(() => setRkChildrenForPCS([]))
+      return () => unsubSundayAttendance()
     }
   }, [slug, activeTab])
 
@@ -1521,6 +1539,15 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (slug !== 'caring') return
     const unsub = subscribeCellMemberReferralTasks(setCellReferralTasks)
+    return unsub
+  }, [slug])
+
+  // Live listener for Caring's own "Notify Cell Director to Assign Cell" referrals
+  // (department: 'Cell', pcsReferral: true) — lets the button's "sent" state persist
+  // across reloads and prevents re-sending a duplicate referral for the same person.
+  useEffect(() => {
+    if (slug !== 'caring') return
+    const unsub = subscribePCSReferralTasks(setPcsCellReferralTasks)
     return unsub
   }, [slug])
 
@@ -4686,6 +4713,42 @@ export default function DepartmentHub() {
               ...(noYearEntries.length ? [{ year: null, entries: noYearEntries }] : []),
             ]
 
+            // ── Search + filter chips — matches name (search) and every active filter
+            // group (cell / status / year), OR'd within a group, AND'd across groups.
+            const getEntryCellName = (entry) => {
+              const np = (entry.phone || '').replace(/\s+/g, '')
+              const cm = allCellMembers.find(m => m.status !== 'inactive' && (
+                (entry.visitorId && m.visitorId && m.visitorId === entry.visitorId) ||
+                (np && m.phone && m.phone.replace(/\s+/g, '') === np)
+              ))
+              const cg = cm ? cellGroups.find(g => g.id === cm.cellId) : null
+              return (cg?.cellName || '').trim().toLowerCase()
+            }
+            const activePcsChips = PCS_FILTER_CHIPS.filter(c => pcsActiveFilters.has(c.key))
+            const pcsChipsByGroup = activePcsChips.reduce((acc, c) => {
+              (acc[c.group] ||= []).push(c)
+              return acc
+            }, {})
+            const pcsSearchTrimmed = pcsSearchQuery.trim().toLowerCase()
+            const matchesPcsFilters = (entry) => {
+              if (pcsSearchTrimmed && !(entry.name || '').toLowerCase().includes(pcsSearchTrimmed)) return false
+              return Object.values(pcsChipsByGroup).every((chips) =>
+                chips.some((c) => {
+                  if (c.group === 'cell') return getEntryCellName(entry).includes(c.value)
+                  if (c.group === 'status') {
+                    if (c.value === 'notmember') return !entry.membershipNumber
+                    if (c.value === 'leader') return !!entry.leadershipPosition
+                  }
+                  if (c.group === 'year') return entry.year === c.value
+                  return false
+                })
+              )
+            }
+            const pcsIsFiltering = pcsSearchTrimmed !== '' || activePcsChips.length > 0
+            const filteredGrouped = grouped
+              .map((g) => ({ ...g, entries: g.entries.filter(matchesPcsFilters) }))
+              .filter((g) => !pcsIsFiltering || g.entries.length > 0)
+
             const handleChipClick = (entry) => {
               if (pcsExpandedId === entry.id) {
                 setPcsExpandedId(null); setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null); setPcsExpandedForm({})
@@ -4826,14 +4889,19 @@ export default function DepartmentHub() {
             }
 
             // Consecutive Sundays absent, counting back from the most recent report —
-            // stops at the first week the name shows up in any attendance list.
-            // Weeks with no filed report are skipped rather than counted as absent.
-            const getConsecutiveAbsentSundays = (name) => {
-              const norm = String(name || '').trim().toLowerCase()
-              if (!norm || sundayAttendanceWeeks.length === 0) return 0
+            // stops at the first week the PCS entry shows up present, checked by real
+            // visitorId first (reliable — matches an actual check-in linked to this
+            // person's record) and by name second (fallback, for weeks that were
+            // never explicitly linked to a profile). Weeks with no filed report are
+            // skipped rather than counted as absent.
+            const getConsecutiveAbsentSundays = (entry) => {
+              const norm = String(entry?.name || '').trim().toLowerCase()
+              const idKey = entry?.visitorId ? `v:${entry.visitorId}` : null
+              if ((!norm && !idKey) || sundayAttendanceWeeks.length === 0) return 0
               let count = 0
               for (const wk of sundayAttendanceWeeks) {
-                if (wk.names.has(norm)) break
+                const present = (idKey && wk.ids?.has(idKey)) || (norm && wk.names.has(norm))
+                if (present) break
                 count++
               }
               return count
@@ -5540,7 +5608,7 @@ export default function DepartmentHub() {
 
                       {/* Missed-Sundays alert — helps the Caring Director judge whether to push for cell assignment */}
                       {(() => {
-                        const absentWeeks = getConsecutiveAbsentSundays(entry.name)
+                        const absentWeeks = getConsecutiveAbsentSundays(entry)
                         if (absentWeeks < 3) return null
                         return (
                           <div className="mb-3 inline-flex items-center gap-1.5 text-xs font-bold text-red-700 bg-red-50 border border-red-300 px-3 py-1.5 rounded-full">
@@ -5553,7 +5621,16 @@ export default function DepartmentHub() {
                       {(() => {
                         const cellMember = _cellMember
                         const cg = _cg
-                        const notified = pcsNotifiedIds.has(entry.id)
+                        const _np0 = (entry.phone || '').replace(/\s+/g, '')
+                        // Persisted referral for this person, if Caring already sent one —
+                        // matched by personId, then visitorId, then normalized phone, so the
+                        // "sent" state survives a reload instead of resetting to the button.
+                        const existingReferral = pcsCellReferralTasks.find(t =>
+                          (entry.personId && t.memberId && t.memberId === entry.personId) ||
+                          (entry.visitorId && t.pcsPersonVisitorId && t.pcsPersonVisitorId === entry.visitorId) ||
+                          (_np0 && t.memberPhone && t.memberPhone.replace(/\s+/g, '') === _np0)
+                        )
+                        const notified = pcsNotifiedIds.has(entry.id) || !!existingReferral
                         const notifying = pcsNotifyingId === entry.id
 
                         // All memberships for this person (history)
@@ -5574,12 +5651,30 @@ export default function DepartmentHub() {
                               {!cg && canEdit && (
                                 notified
                                   ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>Requested
+                                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>Notification Sent
                                     </span>
                                   : <button type="button" disabled={notifying} onClick={async () => {
+                                      if (existingReferral) { setPcsNotifiedIds(prev => new Set([...prev, entry.id])); return }
                                       setPcsNotifyingId(entry.id)
                                       try {
-                                        await createTask({ taskTitle: `Add ${entry.name} to a cell group`, department: 'Cell', assignedPerson: '', priority: 'Medium', deadline: '', status: 'Pending', notes: `Referred from PCS by ${userProfile?.name || userProfile?.email || 'Caring Director'}. ${entry.name} is under personal care but has no cell group.${entry.phone ? ` Phone: ${entry.phone}` : ''}`, createdBy: userProfile?.email || '', pcsReferral: true, pcsPersonName: entry.name, pcsPersonPhone: entry.phone || '', pcsPersonVisitorId: entry.visitorId || '' })
+                                        await createTask({
+                                          taskTitle: `Add ${entry.name} to a cell group`,
+                                          department: 'Cell',
+                                          assignedPerson: '',
+                                          priority: 'Medium',
+                                          deadline: '',
+                                          status: 'Pending',
+                                          notes: `Referred from PCS by ${userProfile?.name || userProfile?.email || 'Caring Director'}. ${entry.name} is under personal care but has no cell group.${entry.phone ? ` Phone: ${entry.phone}` : ''}`,
+                                          createdBy: userProfile?.email || '',
+                                          pcsReferral: true,
+                                          memberId: entry.personId || entry.id,
+                                          memberName: entry.name,
+                                          memberPhone: entry.phone || '',
+                                          // Legacy field names CellDirectorCockpit.jsx's pcsReferrals mapping already reads.
+                                          pcsPersonName: entry.name,
+                                          pcsPersonPhone: entry.phone || '',
+                                          pcsPersonVisitorId: entry.visitorId || '',
+                                        })
                                         setPcsNotifiedIds(prev => new Set([...prev, entry.id]))
                                         setPcsToast(`Notification sent to Cell Director to assign ${entry.name}`)
                                         setTimeout(() => setPcsToast(null), 3500)
@@ -6108,6 +6203,62 @@ export default function DepartmentHub() {
                   </button>
                 </div>
 
+                {/* ── Search + Filter chips ── */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">🔍</span>
+                    <input
+                      type="text"
+                      value={pcsSearchQuery}
+                      onChange={(e) => setPcsSearchQuery(e.target.value)}
+                      placeholder="Search name..."
+                      className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:bg-white transition-colors"
+                    />
+                    {pcsSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setPcsSearchQuery('')}
+                        aria-label="Clear search"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {PCS_FILTER_CHIPS.map((chip) => {
+                      const active = pcsActiveFilters.has(chip.key)
+                      return (
+                        <button
+                          key={chip.key}
+                          type="button"
+                          onClick={() => setPcsActiveFilters((prev) => {
+                            const next = new Set(prev)
+                            next.has(chip.key) ? next.delete(chip.key) : next.add(chip.key)
+                            return next
+                          })}
+                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                            active
+                              ? 'bg-indigo-600 border-indigo-600 text-white'
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          {chip.label}
+                        </button>
+                      )
+                    })}
+                    {pcsActiveFilters.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPcsActiveFilters(new Set())}
+                        className="px-3 py-1.5 rounded-full text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        Clear filters
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 {/* Picker */}
                 {pcsPickerOpen && (
                   <PCSPickerModal
@@ -6524,9 +6675,13 @@ export default function DepartmentHub() {
                       </svg>
                       <p className="text-sm text-slate-400">No people added yet. Click "Add Person" to start.</p>
                     </div>
+                  ) : filteredGrouped.length === 0 ? (
+                    <div className="py-16 flex flex-col items-center gap-3 text-center">
+                      <p className="text-sm text-slate-400">No one matches your search or filters.</p>
+                    </div>
                   ) : (
                     <div className="divide-y divide-slate-100">
-                      {grouped.map(({ year, entries }) => {
+                      {filteredGrouped.map(({ year, entries }) => {
                         return (
                           <div key={year ?? 'no-year'}>
                             {/* Year label */}
@@ -8996,9 +9151,17 @@ export default function DepartmentHub() {
 
           {activeTab === 'reports' && slug === 'cell' && <CellReportsTab />}
 
-          {activeTab === 'leaderEntry' && slug === 'cell' && (
+          {activeTab === 'shepherdCare' && slug === 'cell' && (
             <CellLeaderEntryTab
-              view={leaderViewFromUrl}
+              view="shepherd"
+              pendingFillInvitations={pendingFillInvitations}
+              onOpenFillInvite={openFillInviteModal}
+            />
+          )}
+
+          {activeTab === 'midweek' && slug === 'cell' && (
+            <CellLeaderEntryTab
+              view="midweek"
               pendingFillInvitations={pendingFillInvitations}
               onOpenFillInvite={openFillInviteModal}
             />

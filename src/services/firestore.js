@@ -3483,39 +3483,76 @@ export async function getRecentNonCellAttendees(numWeeks = 6) {
 }
 
 /**
- * Most recent Sunday reports, each reduced to the full set of lowercased names
- * present that week (pastoral, cells, non-cell, others, new comers, river kids,
- * 2nd/3rd/4th week attendees) — used to work out how many consecutive Sundays
- * a given name has been absent. Sorted most-recent-first.
+ * Live version of the old one-time getRecentSundayAttendanceWeeks — subscribes to
+ * both sunday_reports (name-based attendance: pastoral, cells, non-cell, others,
+ * new comers, river kids, 2nd/3rd/4th week attendees) AND person_sunday_attendance
+ * (ID-based check-ins, written whenever a Non Cell/Others attendee is linked to a
+ * real People Directory or D-Light visitor record — see recordPersonSundayAttendance
+ * in SundayReport.jsx), merging both into each week's presence data. This is what
+ * lets consecutive-absence calculations match a PCS entry by its real visitorId
+ * (reliable) as well as by name (fallback, for weeks that were never explicitly
+ * linked), and lets the badge update live instead of only refreshing on tab-mount.
+ *
+ * Emits an array of { date, names: Set<lowercased name>, ids: Set<'p:'+personId |
+ * 'v:'+visitorId> } sorted most-recent-first, on every relevant Firestore change.
+ * Returns an unsubscribe function.
  */
-export async function getRecentSundayAttendanceWeeks(numWeeks = 20) {
-  if (!db) return []
-  const q = query(collection(db, SUNDAY_REPORTS_COLLECTION), orderBy('date', 'desc'), limit(numWeeks))
-  const snap = await getDocs(q)
-  return snap.docs
-    .map((d) => {
-      const data = d.data()
-      const names = new Set()
-      const addAll = (arr) => {
-        if (!Array.isArray(arr)) return
-        arr.forEach((n) => {
-          const norm = String(n).trim().toLowerCase()
-          if (norm) names.add(norm)
-        })
-      }
-      addAll(data.nonCell)
-      addAll(data.others)
-      addAll(data.newComers)
-      addAll(data.pastoralAttendees)
-      addAll(data.riverKids)
-      addAll(data.secondWeekAttendeesNames)
-      addAll(data.thirdWeekAttendeesNames)
-      addAll(data.fourthWeekAttendeesNames)
-      const sca = data.sundayCellAttendance
-      if (sca && typeof sca === 'object') Object.values(sca).forEach((arr) => addAll(arr))
-      return { date: d.id, names }
+export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onError) {
+  if (!db) { onChange([]); return () => {} }
+  let latestReportDocs = []
+  let latestPersonAttendance = []
+
+  const emit = () => {
+    const idsByDate = new Map()
+    latestPersonAttendance.forEach((rec) => {
+      const date = String(rec.date || '').slice(0, 10)
+      if (!date) return
+      if (!idsByDate.has(date)) idsByDate.set(date, new Set())
+      const set = idsByDate.get(date)
+      if (rec.personId) set.add(`p:${rec.personId}`)
+      if (rec.visitorId) set.add(`v:${rec.visitorId}`)
     })
-    .sort((a, b) => b.date.localeCompare(a.date))
+
+    const weeks = latestReportDocs
+      .map((d) => {
+        const data = d.data()
+        const names = new Set()
+        const addAll = (arr) => {
+          if (!Array.isArray(arr)) return
+          arr.forEach((n) => {
+            const norm = String(n).trim().toLowerCase()
+            if (norm) names.add(norm)
+          })
+        }
+        addAll(data.nonCell)
+        addAll(data.others)
+        addAll(data.newComers)
+        addAll(data.pastoralAttendees)
+        addAll(data.riverKids)
+        addAll(data.secondWeekAttendeesNames)
+        addAll(data.thirdWeekAttendeesNames)
+        addAll(data.fourthWeekAttendeesNames)
+        const sca = data.sundayCellAttendance
+        if (sca && typeof sca === 'object') Object.values(sca).forEach((arr) => addAll(arr))
+        return { date: d.id, names, ids: idsByDate.get(d.id) || new Set() }
+      })
+      .sort((a, b) => b.date.localeCompare(a.date))
+
+    onChange(weeks)
+  }
+
+  const unsubReports = onSnapshot(
+    query(collection(db, SUNDAY_REPORTS_COLLECTION), orderBy('date', 'desc'), limit(numWeeks)),
+    (snap) => { latestReportDocs = snap.docs; emit() },
+    (err) => { console.error('subscribeToRecentSundayAttendanceWeeks (reports):', err); onError?.() }
+  )
+  const unsubPersonAttendance = onSnapshot(
+    collection(db, PERSON_SUNDAY_ATTENDANCE_COLLECTION),
+    (snap) => { latestPersonAttendance = snap.docs.map((d) => d.data()); emit() },
+    (err) => { console.error('subscribeToRecentSundayAttendanceWeeks (person attendance):', err); onError?.() }
+  )
+
+  return () => { unsubReports(); unsubPersonAttendance() }
 }
 
 /**
@@ -4108,11 +4145,15 @@ export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTiming
  * appears in the reports history immediately (without waiting for the Sunday Cloud Function).
  * Creates a minimal cell_reports doc if none exists for the given cell + date.
  * Adds present members to the attendees subcollection (skipping any already recorded).
+ * `visitors`/`children` are name-only lists ({name} or {id, name}); `children` here is
+ * distinct from department_children — it's the session's roster of River Kids children
+ * confirmed as attending alongside their parent, written to cell_reports.childrenList.
  */
-export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy, visitors = []) {
+export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy, visitors = [], children = []) {
   if (!db || !cellId || !dateStr || !Array.isArray(presentMembers)) return
   const d = String(dateStr).slice(0, 10)
   const visitorNames = Array.isArray(visitors) ? visitors.map((v) => v.name).filter(Boolean) : []
+  const childNames = Array.isArray(children) ? children.map((c) => c.name).filter(Boolean) : []
 
   // Find or create the cell_reports doc for this cell + date
   const q = query(
@@ -4174,6 +4215,8 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
     membersAttended: finalSnap.size,
     visitors: visitorNames.length,
     visitorsList: visitorNames,
+    children: childNames.length,
+    childrenList: childNames,
   })
 }
 
@@ -4199,10 +4242,12 @@ function toMondayISO(dateStr) {
  * @param {string} payload.shepherdNotes
  * @param {number} payload.visitors
  * @param {number} payload.children
+ * @param {string} [payload.startTime] - "HH:mm" (24-hour), meeting start time
+ * @param {string} [payload.endTime] - "HH:mm" (24-hour), start + total segment duration
  * @param {string} [payload.updatedBy]
- * @returns {Promise<{membersAttended:number, visitors:number, children:number, meetingDurationMinutes:number, programList:Array}>}
+ * @returns {Promise<{membersAttended:number, visitors:number, children:number, meetingDurationMinutes:number, programList:Array, startTime:string, endTime:string}>}
  */
-export async function updateCellReportFull(row, { attendees, segmentTimings, shepherdNotes, visitors, children, updatedBy }) {
+export async function updateCellReportFull(row, { attendees, segmentTimings, shepherdNotes, visitors, children, startTime, endTime, updatedBy }) {
   if (!db || !row?.cellId || !row?.meetingDateISO) throw new Error('updateCellReportFull: missing row fields')
   const d = String(row.meetingDateISO).slice(0, 10)
 
@@ -4226,11 +4271,13 @@ export async function updateCellReportFull(row, { attendees, segmentTimings, she
   }
   const reportId = report.id
 
-  // 2. Update counts on cell_reports doc
+  // 2. Update counts + meeting timing on cell_reports doc
   await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), {
     membersAttended: attendees.length,
     visitors: Number(visitors) || 0,
     children: Number(children) || 0,
+    startTime: startTime || '',
+    endTime: endTime || '',
   })
 
   // 3. Reconcile attendees subcollection
@@ -4307,6 +4354,8 @@ export async function updateCellReportFull(row, { attendees, segmentTimings, she
     children: Number(children) || 0,
     meetingDurationMinutes,
     programList: (segmentTimings || []).map((t) => ({ programName: t.name, durationMinutes: t.durationMinutes })),
+    startTime: startTime || '',
+    endTime: endTime || '',
   }
 }
 

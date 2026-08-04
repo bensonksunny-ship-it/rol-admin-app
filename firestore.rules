@@ -134,7 +134,10 @@ service cloud.firestore {
       // Cell also needs read access to its own cellAssignConsult requests once they've moved
       // to department: 'D Light' — otherwise the Unassigned row status badge can't tell
       // "pending" from "consulted" (see subscribeCellDlightConsultTasks).
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) || (resource.data.cellAssignConsult == true && canAccessDept('Cell')));
+      // Caring also needs read access to its own pcsReferral tasks once they've moved to
+      // department: 'Cell' — otherwise it can create a referral but never verify/dedupe it,
+      // so "Notify Cell Director" looks unsent again on every reload and can be double-fired.
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) || (resource.data.cellAssignConsult == true && canAccessDept('Cell')) || (resource.data.pcsReferral == true && canAccessDept('Caring')));
       // Caring creates cross-department referral tasks (e.g. "Notify Cell" to add someone to a
       // cell group, "Forward to D-Light" to register a visitor) targeting a department Caring
       // itself doesn't have access to — pcsReferral flags those as a recognized referral, same
@@ -581,6 +584,21 @@ service cloud.firestore {
       // patchSundayReportRiverKids(), which was permission-denied for a River Kids
       // account, surfacing as a generic "Failed to save" alert with no detail.
       allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() || canAccessDept('D Light') || canAccessDept('River Kids'));
+    }
+
+    // Per-person Sunday attendance (recordPersonSundayAttendance) — written alongside
+    // sunday_reports whenever a Non Cell/Others attendee is linked to a real People
+    // Directory or D-Light visitor record, so their own profile (e.g. a Caring PCS
+    // entry's "consecutive Sundays absent" badge) can be matched by real visitorId/
+    // personId instead of name string alone. Had no rule at all before this — every
+    // write from SundayReport.jsx was silently failing (swallowed by .catch(() => {})),
+    // so the collection was effectively always empty. Same writer set as sunday_reports
+    // itself; read is open like sunday_reports since Caring/People Directory both need
+    // to read it regardless of department.
+    match /person_sunday_attendance/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() || canAccessDept('D Light') || canAccessDept('River Kids'));
+      allow delete: if isSignedIn() && isFullAccess();
     }
 
     // Mid-week Ministry: prayer points per cell per date

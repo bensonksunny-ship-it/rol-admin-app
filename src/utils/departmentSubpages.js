@@ -1,5 +1,5 @@
 import {
-  LayoutGrid, Users, CalendarDays, Wallet, FileBarChart2, PenLine, Settings2,
+  LayoutGrid, Users, CalendarDays, Wallet, FileBarChart2, Settings2,
   Palette, UserCircle, Database, Sun, Tv, ListMusic, FolderTree, UserCheck,
   Music, Music2, Archive, History, PenSquare, LineChart, UserPlus, ClipboardList,
   CheckSquare, HeartHandshake, PartyPopper, CalendarClock, Sparkles,
@@ -24,7 +24,8 @@ function getTabLabel(tab) {
     case 'financial':         return 'Budget'
     case 'cellGroups':        return 'Cell Groups'
     case 'reports':           return 'Reports'
-    case 'leaderEntry':       return 'Leader Entry'
+    case 'shepherdCare':      return 'Shepherd Care'
+    case 'midweek':           return 'Mid-week'
     case 'finance':           return 'Finance'
     case 'operations':        return 'Operations'
     case 'design':            return 'Design'
@@ -68,7 +69,8 @@ function getTabIcon(tab) {
     case 'financial':          return Wallet
     case 'cellGroups':         return Users
     case 'reports':            return FileBarChart2
-    case 'leaderEntry':        return PenLine
+    case 'shepherdCare':       return HeartHandshake
+    case 'midweek':            return CalendarClock
     case 'finance':            return Landmark
     case 'operations':         return Settings2
     case 'design':             return Palette
@@ -143,14 +145,6 @@ function getFinanceChildren(slug) {
   return DEFAULT_FINANCE_CHILDREN
 }
 
-// Cell's Leader Entry tab used to have its own inline toggle (CellLeaderEntryTab) for
-// switching between Shepherd Care and Mid-week Ministry — same idea, one level deep,
-// Cell-only. Drives the `leaderView` query param.
-const CELL_LEADER_ENTRY_CHILDREN = [
-  { key: 'shepherd', label: 'Shepherd Care', Icon: HeartHandshake },
-  { key: 'midweek',  label: 'Mid-week',      Icon: CalendarClock },
-]
-
 // Tabs that link to a dedicated standalone route instead of `?tab=` on the generic hub.
 function getTabPath(slug, tab) {
   if (tab === 'entry' && slug === 'accounts') return ACCOUNTS_ENTRY_BASE_PATH
@@ -166,9 +160,9 @@ function getTabPath(slug, tab) {
 /**
  * Returns this department's subpages as `{ key, label, to, Icon, children? }`, in the
  * same order and with the same per-user visibility (e.g. Cell Leaders only see
- * leaderEntry/reports) that DepartmentTabBar used to render as pills. `children` (only
- * present on Operations, and on Cell's Leader Entry) is a second grid of tiles the
- * folder modal drills into instead of navigating straight there.
+ * shepherdCare/midweek/reports) that DepartmentTabBar used to render as pills.
+ * `children` (only present on Operations) is a second grid of tiles the folder modal
+ * drills into instead of navigating straight there.
  */
 export function getDepartmentSubpages(slug, userProfile) {
   const allTabs = getDepartmentHubTabs(slug)
@@ -224,15 +218,6 @@ export function getDepartmentSubpages(slug, userProfile) {
         children: getFinanceChildren(slug).map((c) => ({
           ...c,
           to: `/department/${slug}?tab=finance&financeSub=${encodeURIComponent(c.key)}`,
-        })),
-      }
-    }
-    if (tab === 'leaderEntry' && slug === 'cell') {
-      return {
-        ...base,
-        children: CELL_LEADER_ENTRY_CHILDREN.map((c) => ({
-          ...c,
-          to: `/department/cell?tab=leaderEntry&leaderView=${encodeURIComponent(c.key)}`,
         })),
       }
     }

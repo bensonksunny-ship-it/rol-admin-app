@@ -4,7 +4,7 @@
 export function getDepartmentHubTabs(slug) {
   switch (slug) {
     case 'cell':
-      return ['summary', 'cellGroups', 'reports', 'leaderEntry', 'finance', 'operations']
+      return ['summary', 'cellGroups', 'reports', 'shepherdCare', 'midweek', 'finance', 'operations']
     case 'caring':
       return ['summary', 'pcs', 'finance', 'operations']
     case 'sunday-ministry':

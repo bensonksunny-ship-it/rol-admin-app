@@ -16,7 +16,7 @@ import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 // same screen, with only one place that knows how each notification type resolves.
 function buildNotificationDeepLink(n) {
   if (n.type === 'pcs_fill') {
-    return '/department/cell?tab=leaderEntry&openFillInvite=' + (n.inviteId || '')
+    return '/department/cell?tab=shepherdCare&openFillInvite=' + (n.inviteId || '')
   }
   if (n.type === 'visitor_proposal') {
     return '/department/d-light?tab=visitorEntry'

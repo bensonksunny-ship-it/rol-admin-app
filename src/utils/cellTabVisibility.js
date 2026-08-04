@@ -6,14 +6,15 @@ import { isCellDirectorInPositions, isCellLeaderInPositions } from './cellReport
  * Used by DepartmentTabBar and DepartmentHub (slug === 'cell').
  *
  * New tab keys (post-restructure):
- *   summary | cellGroups | reports | leaderEntry | finance | operations
+ *   summary | cellGroups | reports | shepherdCare | midweek | finance | operations
  */
 
 export const CELL_TAB_KEYS = Object.freeze([
   'summary',
   'cellGroups',
   'reports',
-  'leaderEntry',
+  'shepherdCare',
+  'midweek',
   'finance',
   'operations',
 ])
@@ -49,7 +50,7 @@ export function visibleCellTabs(user) {
 
   if (leader) {
     // Cell Leader: their own entry and reports only. No summary, no full cell groups list, no ops.
-    return ['leaderEntry', 'reports']
+    return ['shepherdCare', 'midweek', 'reports']
   }
 
   // Other staff with departmental visibility: read-only overview.

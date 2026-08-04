@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { formatDisplayDate } from '../../utils/date'
+import { formatDisplayDate, formatTime12h, addMinutesToTime } from '../../utils/date'
 import {
   getCellGroupMembers,
   getCellReportByCellAndDate,
@@ -29,6 +29,7 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
   // Form state
   const [attendees, setAttendees]           = useState([])
   const [segmentTimings, setSegmentTimings] = useState([])
+  const [startTime, setStartTime]           = useState(isNew ? '' : (row?.startTime || ''))
   const [visitors, setVisitors]             = useState(0)
   const [children, setChildren]             = useState(0)
   const [meetingDate, setMeetingDate]       = useState(isNew ? '' : (row?.meetingDateISO || ''))
@@ -101,6 +102,19 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
     [segmentTimings]
   )
 
+  // Each segment's clock-time range, derived from Start Time + the running total of
+  // every prior segment's duration — read-only, always in sync with the segment list.
+  const segmentRanges = useMemo(() => {
+    if (!startTime) return segmentTimings.map(() => null)
+    let cursor = startTime
+    return segmentTimings.map((seg) => {
+      const segStart = cursor
+      const segEnd = addMinutesToTime(cursor, Number(seg.durationMinutes) || 0)
+      cursor = segEnd
+      return segEnd ? `${formatTime12h(segStart)} – ${formatTime12h(segEnd)}` : null
+    })
+  }, [startTime, segmentTimings])
+
   function addAttendee(member) {
     setAttendees((prev) => {
       const alreadyPresent = prev.some(
@@ -109,7 +123,6 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
       if (alreadyPresent) return prev
       return [...prev, { memberId: member.id, name: member.name, birthday: member.birthday || '', anniversary: member.anniversary || '', phone: member.phone || '', locality: member.locality || '' }]
     })
-    setMemberSearch('')
   }
 
   function removeAttendee(index) {
@@ -144,12 +157,16 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
       const cellName = isNew ? (cellGroup?.cellName || '') : (row?.cellName || '')
       const effectiveRow = { cellId, cellName, meetingDateISO: dateISO, meetingDay: row?.meetingDay || '' }
 
+      const endTime = startTime ? addMinutesToTime(startTime, totalDurationMinutes) : ''
+
       const result = await updateCellReportFull(effectiveRow, {
         attendees,
         segmentTimings,
         shepherdNotes: '',
         visitors: Number(visitors) || 0,
         children: Number(children) || 0,
+        startTime,
+        endTime,
         updatedBy: 'user',
       })
 
@@ -259,7 +276,10 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
               )}
               {activeTab === 'Timing' && (
                 <TimingTab
+                  startTime={startTime}
+                  onStartTimeChange={setStartTime}
                   segments={segmentTimings}
+                  segmentRanges={segmentRanges}
                   totalMinutes={totalDurationMinutes}
                   onAdd={addSegment}
                   onUpdate={updateSegment}
@@ -327,6 +347,7 @@ function AttendanceTab({ attendees, allMembers, onAdd, onRemove }) {
       if (idx !== -1) onRemove(idx)
     } else {
       onAdd(member)
+      setSearch('')
     }
   }
 
@@ -380,35 +401,48 @@ function AttendanceTab({ attendees, allMembers, onAdd, onRemove }) {
   )
 }
 
-function TimingTab({ segments, totalMinutes, onAdd, onUpdate, onRemove }) {
+function TimingTab({ startTime, onStartTimeChange, segments, segmentRanges, totalMinutes, onAdd, onUpdate, onRemove }) {
   return (
     <div className="space-y-3">
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">⏱ Segment Timings</p>
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">🕐 Start Time</p>
+      <input
+        type="time"
+        value={startTime}
+        onChange={(e) => onStartTimeChange(e.target.value)}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+      />
+
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider pt-2">⏱ Segment Timings</p>
 
       {segments.map((seg, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <input
-            type="text"
-            value={seg.name}
-            onChange={(e) => onUpdate(i, 'name', e.target.value)}
-            placeholder="Segment name"
-            className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          />
-          <input
-            type="number"
-            min="0"
-            value={seg.durationMinutes}
-            onChange={(e) => onUpdate(i, 'durationMinutes', e.target.value)}
-            className="w-20 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          />
-          <span className="text-slate-400 text-sm flex-shrink-0">min</span>
-          <button
-            type="button"
-            onClick={() => onRemove(i)}
-            className="text-slate-300 hover:text-red-400 transition-colors font-bold text-lg leading-none"
-          >
-            ×
-          </button>
+        <div key={i} className="space-y-1">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={seg.name}
+              onChange={(e) => onUpdate(i, 'name', e.target.value)}
+              placeholder="Segment name"
+              className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+            <input
+              type="number"
+              min="0"
+              value={seg.durationMinutes}
+              onChange={(e) => onUpdate(i, 'durationMinutes', e.target.value)}
+              className="w-20 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+            <span className="text-slate-400 text-sm flex-shrink-0">min</span>
+            <button
+              type="button"
+              onClick={() => onRemove(i)}
+              className="text-slate-300 hover:text-red-400 transition-colors font-bold text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+          {segmentRanges?.[i] && (
+            <p className="text-xs text-indigo-500 font-medium pl-1">{segmentRanges[i]}</p>
+          )}
         </div>
       ))}
 
