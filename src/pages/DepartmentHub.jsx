@@ -145,6 +145,7 @@ import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import FinanceTabBar from '../components/finance/FinanceTabBar'
+import SecCoreFinance from './seccore/SecCoreFinance'
 import AccountsExpensePage from './accounts/ExpensePage'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
 import BudgetPage from './accounts/BudgetPage'
@@ -1877,12 +1878,6 @@ export default function DepartmentHub() {
 
   return (
     <div>
-      {!isAccountsEntryRoute && (
-        <div className="px-2 lg:px-6 pt-4">
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{department?.name || slug}</h1>
-        </div>
-      )}
-
       {/* ── Allotted-time notifications ── */}
       {boardAllottedNotifications.length > 0 && (
         <div className="fixed top-4 left-4 right-4 z-[70] sm:left-auto sm:right-4 sm:w-80 space-y-2 pointer-events-none">
@@ -3848,7 +3843,11 @@ export default function DepartmentHub() {
             <UpcomingSunday slug={slug} />
           )}
 
-          {activeTab === 'finance' && (
+          {activeTab === 'finance' && slug === 'sec-core' && (
+            <SecCoreFinance department={department} />
+          )}
+
+          {activeTab === 'finance' && slug !== 'sec-core' && (
             <FinanceTabBar
               tabs={slug === 'accounts' ? ['expense', 'budget', 'addDepartments'] : ['expense', 'budget', 'payout']}
               active={financeSubTab}
@@ -3859,17 +3858,17 @@ export default function DepartmentHub() {
             />
           )}
 
-          {activeTab === 'finance' && financeSubTab === 'expense' && department?.name && (
+          {activeTab === 'finance' && slug !== 'sec-core' && financeSubTab === 'expense' && department?.name && (
             slug === 'accounts'
               ? <AccountsExpensePage />
               : <DeptExpenseTab department={department.name} />
           )}
 
-          {activeTab === 'finance' && financeSubTab === 'budget' && (
+          {activeTab === 'finance' && slug !== 'sec-core' && financeSubTab === 'budget' && (
             <BudgetPage department={slug === 'accounts' ? undefined : department?.name} />
           )}
 
-          {activeTab === 'finance' && financeSubTab === 'payout' && slug !== 'accounts' && (
+          {activeTab === 'finance' && slug !== 'sec-core' && financeSubTab === 'payout' && slug !== 'accounts' && (
             <div className="space-y-4">
               {slug === 'administration' && <AdvancePayoutReviewer />}
               <AdvancePayoutTab departmentSlug={slug} departmentName={department?.name || slug} />

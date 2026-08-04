@@ -212,6 +212,12 @@ export function getDepartmentSubpages(slug, userProfile) {
     if (tab === 'finance' && slug === 'worship') {
       return { ...base, to: `/department/worship?tab=finance&financeSub=expense` }
     }
+    // Sec-Core's Finance tile is the same idea — a single unified page (Expense base
+    // view + a Payout Request icon drawer, no Budget) instead of the generic
+    // Expense/Budget/Payout drill-down grid.
+    if (tab === 'finance' && slug === 'sec-core') {
+      return { ...base, to: `/department/sec-core?tab=finance` }
+    }
     if (tab === 'finance') {
       return {
         ...base,

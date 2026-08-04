@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { format, differenceInCalendarDays } from 'date-fns'
-import { Plus, X, MoreVertical, Pencil, Trash2, ChevronRight, Download } from 'lucide-react'
+import { Plus, X, MoreVertical, Pencil, Trash2, ClipboardList, Download, History as HistoryIcon, Search } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import html2canvas from 'html2canvas'
 import {
@@ -229,7 +230,7 @@ function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
   )
 }
 
-export function DirectorBoardTab({ canEdit, userProfile }) {
+export function DirectorBoardTab({ canEdit, userProfile, onOpenAgenda }) {
   const [members, setMembers]   = useState([])
   const [loading, setLoading]   = useState(true)
   const [saving, setSaving]     = useState(false)
@@ -419,22 +420,38 @@ export function DirectorBoardTab({ canEdit, userProfile }) {
           <h2 className="text-lg font-bold text-slate-800">Director Board</h2>
           <p className="text-xs text-slate-500 mt-0.5">Secretaries, Directors &amp; Coordinators</p>
         </div>
-        {canEdit && (
-          <div className="relative group flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="relative group">
             <button
               type="button"
-              onClick={() => { setShowForm(true); setEditIdx(null); setNewMember(BLANK_MEMBER) }}
-              aria-label="Add Leader"
-              title="Add Leader"
-              className="w-11 h-11 flex items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+              onClick={onOpenAgenda}
+              aria-label="Board Agenda"
+              title="Board Agenda"
+              className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
             >
-              <Plus size={20} strokeWidth={2.5} />
+              <ClipboardList size={18} strokeWidth={2.5} />
             </button>
             <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
-              Add Leader
+              Board Agenda
             </span>
           </div>
-        )}
+          {canEdit && (
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={() => { setShowForm(true); setEditIdx(null); setNewMember(BLANK_MEMBER) }}
+                aria-label="Add Leader"
+                title="Add Leader"
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+              >
+                <Plus size={20} strokeWidth={2.5} />
+              </button>
+              <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
+                Add Leader
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {SECTIONS.map((sec) => {
@@ -576,7 +593,7 @@ function monthSundays(year, month) {
   return dates
 }
 
-const EMPTY_LEADER_FORM = { leader: '', coLeader: '', notes: '', psalm: '' }
+const EMPTY_LEADER_FORM = { leader: '', psalm: '' }
 
 const PSALM_OPTIONS = Array.from({ length: 150 }, (_, i) => String(i + 1))
 
@@ -611,51 +628,153 @@ function SundayLeaderRow({ date, value, onChange, pool, dirty, hasAssignment, lo
       {loading ? (
         <p className="text-sm text-slate-400">Loading…</p>
       ) : canEdit ? (
-        <div className="space-y-2.5">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <select
-              value={value.leader}
-              onChange={(e) => onChange({ ...value, leader: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
-            >
-              <option value="">— Sunday Leader —</option>
-              {pool.map((p) => <option key={p.personId || p.name} value={p.name}>{p.name}</option>)}
-            </select>
-            <select
-              value={value.coLeader}
-              onChange={(e) => onChange({ ...value, coLeader: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
-            >
-              <option value="">— Co-Leader (optional) —</option>
-              {pool.map((p) => <option key={p.personId || p.name} value={p.name}>{p.name}</option>)}
-            </select>
-            <select
-              value={value.psalm}
-              onChange={(e) => onChange({ ...value, psalm: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
-            >
-              <option value="">— Psalm —</option>
-              {PSALM_OPTIONS.map((n) => <option key={n} value={n}>Psalm {n}</option>)}
-            </select>
-          </div>
-          <input
-            type="text"
-            value={value.notes}
-            onChange={(e) => onChange({ ...value, notes: e.target.value })}
-            placeholder="Notes / order of service…"
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <select
+            value={value.leader}
+            onChange={(e) => onChange({ ...value, leader: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+          >
+            <option value="">— Sunday Leader —</option>
+            {pool.map((p) => <option key={p.personId || p.name} value={p.name}>{p.name}</option>)}
+          </select>
+          <select
+            value={value.psalm}
+            onChange={(e) => onChange({ ...value, psalm: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+          >
+            <option value="">— Psalm —</option>
+            {PSALM_OPTIONS.map((n) => <option key={n} value={n}>Psalm {n}</option>)}
+          </select>
         </div>
       ) : value.leader ? (
         <div className="space-y-1">
           <p className="text-sm"><span className="text-slate-500">Leader:</span> <span className="font-medium text-slate-800">{value.leader}</span></p>
-          {value.coLeader && <p className="text-sm"><span className="text-slate-500">Co-Leader:</span> <span className="font-medium text-slate-800">{value.coLeader}</span></p>}
           {value.psalm && <p className="text-sm"><span className="text-slate-500">Psalm:</span> <span className="font-medium text-slate-800">Psalm {value.psalm}</span></p>}
-          {value.notes && <p className="text-sm text-slate-600">{value.notes}</p>}
         </div>
       ) : (
         <p className="text-sm text-slate-400">No assignment for this Sunday.</p>
       )}
+    </div>
+  )
+}
+
+// ─── Leader History / Duty Count modal ─────────────────────────────────────────
+// Only counts/lists Sundays that have already occurred (date < today) — a future
+// assignment doesn't count toward a leader's duty total until that Sunday passes.
+
+function SundayLeaderHistoryModal({ entries, onClose }) {
+  const [view, setView] = useState('stats') // 'stats' | 'history'
+  const [query, setQuery] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const pastEntries = useMemo(
+    () => entries.filter((e) => e.leader && e.date < today).sort((a, b) => b.date.localeCompare(a.date)),
+    [entries, today]
+  )
+
+  const stats = useMemo(() => {
+    const counts = {}
+    pastEntries.forEach((e) => { counts[e.leader] = (counts[e.leader] || 0) + 1 })
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  }, [pastEntries])
+
+  const filteredHistory = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return pastEntries.filter((e) => {
+      if (q && !e.leader.toLowerCase().includes(q)) return false
+      if (fromDate && e.date < fromDate) return false
+      if (toDate && e.date > toDate) return false
+      return true
+    })
+  }, [pastEntries, query, fromDate, toDate])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 sm:p-4" onClick={onClose}>
+      <div
+        className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <h3 className="font-semibold text-slate-900">Leader History</h3>
+          <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex gap-1 px-5 pt-3 border-b border-slate-100 shrink-0">
+          {[{ key: 'stats', label: 'Stats' }, { key: 'history', label: 'History' }].map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setView(t.key)}
+              className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                view === t.key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5">
+          {view === 'stats' ? (
+            stats.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-6">No completed Sundays recorded yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {stats.map((s) => (
+                  <li key={s.name} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+                    <span className="text-sm font-medium text-slate-800 truncate">{s.name}</span>
+                    <span className="shrink-0 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-full">
+                      Led {s.count} time{s.count !== 1 ? 's' : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : (
+            <div className="space-y-3">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Filter by leader name…"
+                  className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">From</label>
+                  <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">To</label>
+                  <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm" />
+                </div>
+              </div>
+
+              {filteredHistory.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-6">No matching assignments.</p>
+              ) : (
+                <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+                  {filteredHistory.map((e) => (
+                    <li key={e.date} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                      <span className="text-xs text-slate-500 tabular-nums shrink-0">{formatDisplayDate(e.date)}</span>
+                      <span className="text-sm font-medium text-slate-800 flex-1 text-right truncate">{e.leader}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -669,12 +788,25 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
   const [poolModalOpen, setPoolModalOpen] = useState(false)
   const [poolSaving, setPoolSaving]     = useState(false)
 
-  const [entries, setEntries]           = useState({})       // date -> {leader, coLeader, notes} (editable)
-  const [savedEntries, setSavedEntries] = useState({})       // date -> {leader, coLeader, notes} | undefined (last-persisted)
+  const [entries, setEntries]           = useState({})       // date -> {leader, psalm} (editable)
+  const [savedEntries, setSavedEntries] = useState({})       // date -> {leader, psalm} | undefined (last-persisted)
   const [entriesLoading, setEntriesLoading] = useState(true)
   const [saving, setSaving]             = useState(false)
   const [saveMessage, setSaveMessage]   = useState('')
   const [exporting, setExporting]       = useState(false)
+
+  const [historyModalOpen, setHistoryModalOpen] = useState(false)
+  const [historyEntries, setHistoryEntries]     = useState([])
+  const [historyLoading, setHistoryLoading]     = useState(false)
+
+  const openHistory = () => {
+    setHistoryModalOpen(true)
+    setHistoryLoading(true)
+    getAllSecCoreSundayLeaderEntries()
+      .then(setHistoryEntries)
+      .catch(() => setHistoryEntries([]))
+      .finally(() => setHistoryLoading(false))
+  }
 
   const prevMonth = () => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))
   const nextMonth = () => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))
@@ -719,12 +851,10 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
           const savedPsalm = e?.psalm || ''
           const val = {
             leader: e?.leader || '',
-            coLeader: e?.coLeader || '',
-            notes: e?.notes || '',
             psalm: savedPsalm || nextPsalm(priorPsalm),
           }
           nextEntries[date] = val
-          nextSaved[date] = e ? { leader: val.leader, coLeader: val.coLeader, notes: val.notes, psalm: savedPsalm } : undefined
+          nextSaved[date] = e ? { leader: val.leader, psalm: savedPsalm } : undefined
           priorPsalm = savedPsalm || val.psalm
         })
         setEntries(nextEntries)
@@ -740,8 +870,8 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
     const cur = entries[date] || EMPTY_LEADER_FORM
     const saved = savedEntries[date]
     return saved
-      ? (cur.leader !== saved.leader || cur.coLeader !== saved.coLeader || cur.notes !== saved.notes || cur.psalm !== saved.psalm)
-      : !!(cur.leader.trim() || cur.coLeader.trim() || cur.notes.trim())
+      ? (cur.leader !== saved.leader || cur.psalm !== saved.psalm)
+      : !!(cur.leader.trim() || cur.psalm)
   }
 
   const addToPool = async (person) => {
@@ -771,14 +901,12 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
       const payload = sundaysInMonth.map((date) => ({
         date,
         leader: (entries[date]?.leader || '').trim(),
-        coLeader: (entries[date]?.coLeader || '').trim(),
-        notes: (entries[date]?.notes || '').trim(),
         psalm: (entries[date]?.psalm || '').trim(),
       }))
       await setSecCoreSundayLeaderMonth(payload, updatedBy)
 
-      // Resolve each distinct assigned name to an app account once, then notify.
-      const names = [...new Set(payload.flatMap((p) => [p.leader, p.coLeader]).filter(Boolean))]
+      // Resolve each distinct assigned leader to an app account once, then notify.
+      const names = [...new Set(payload.map((p) => p.leader).filter(Boolean))]
       const userByName = {}
       await Promise.all(names.map(async (name) => {
         userByName[name] = await getUserByName(name).catch(() => null)
@@ -786,24 +914,15 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
 
       let notifiedCount = 0
       await Promise.all(payload.flatMap((p) => {
-        const jobs = []
-        if (p.leader && userByName[p.leader]) {
-          notifiedCount += 1
-          jobs.push(createSundayLeaderAssignmentNotification({
-            uid: userByName[p.leader].id, date: p.date, role: 'leader', name: p.leader, createdBy: updatedBy,
-          }))
-        }
-        if (p.coLeader && userByName[p.coLeader]) {
-          notifiedCount += 1
-          jobs.push(createSundayLeaderAssignmentNotification({
-            uid: userByName[p.coLeader].id, date: p.date, role: 'coLeader', name: p.coLeader, createdBy: updatedBy,
-          }))
-        }
-        return jobs
+        if (!p.leader || !userByName[p.leader]) return []
+        notifiedCount += 1
+        return [createSundayLeaderAssignmentNotification({
+          uid: userByName[p.leader].id, date: p.date, role: 'leader', name: p.leader, createdBy: updatedBy,
+        })]
       }))
 
       const nextSaved = {}
-      payload.forEach((p) => { nextSaved[p.date] = { leader: p.leader, coLeader: p.coLeader, notes: p.notes, psalm: p.psalm } })
+      payload.forEach((p) => { nextSaved[p.date] = { leader: p.leader, psalm: p.psalm } })
       setSavedEntries(nextSaved)
       setSaveMessage(`${format(monthCursor, 'MMMM yyyy')} schedule saved · ${notifiedCount} leader${notifiedCount !== 1 ? 's' : ''} notified`)
     } finally {
@@ -819,7 +938,7 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
     try {
       const all = await getAllSecCoreSundayLeaderEntries()
       const rows = all
-        .filter((e) => e.leader || e.coLeader || e.psalm)
+        .filter((e) => e.leader || e.psalm)
         .sort((a, b) => a.date.localeCompare(b.date))
 
       const container = document.createElement('div')
@@ -833,7 +952,7 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
           ${rows.map((e, i) => `
             <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 40px;background:${i % 2 === 0 ? '#f8fafc' : '#ffffff'};border-bottom:1px solid #e2e8f0;">
               <span style="font-weight:700;color:#1e293b;font-size:14px;white-space:nowrap;">${formatDisplayDate(e.date)}</span>
-              <span style="color:#4338ca;font-weight:600;font-size:14px;flex:1;text-align:center;">${[e.leader, e.coLeader].filter(Boolean).join(' & ') || '—'}</span>
+              <span style="color:#4338ca;font-weight:600;font-size:14px;flex:1;text-align:center;">${e.leader || '—'}</span>
               <span style="color:#64748b;font-size:13px;white-space:nowrap;">${e.psalm ? `Psalm ${e.psalm}` : ''}</span>
             </div>
           `).join('') || '<p style="padding:24px 40px;color:#94a3b8;font-size:14px;">No assignments recorded yet.</p>'}
@@ -867,10 +986,25 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-800">Sunday Leader</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Monthly leader &amp; co-leader schedule</p>
+          <p className="text-xs text-slate-500 mt-0.5">Monthly leader schedule</p>
         </div>
-        {canEdit && (
-          <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={openHistory}
+              aria-label="Leader History"
+              title="Leader History"
+              className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+            >
+              <HistoryIcon size={18} strokeWidth={2.5} />
+            </button>
+            <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
+              Leader History
+            </span>
+          </div>
+          {canEdit && (
+            <>
             <div className="relative group">
               <button
                 type="button"
@@ -900,8 +1034,9 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
                 Manage Leader Pool
               </span>
             </div>
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Month navigation + Save Month Schedule */}
@@ -958,6 +1093,16 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
           onRemove={removeFromPool}
           onClose={() => setPoolModalOpen(false)}
         />
+      )}
+
+      {historyModalOpen && (
+        historyLoading ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setHistoryModalOpen(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl px-6 py-4 text-sm text-slate-500" onClick={(e) => e.stopPropagation()}>Loading…</div>
+          </div>
+        ) : (
+          <SundayLeaderHistoryModal entries={historyEntries} onClose={() => setHistoryModalOpen(false)} />
+        )
       )}
     </div>
   )
@@ -1268,6 +1413,41 @@ export function BoardAgendaTab({ canEdit, userProfile }) {
   )
 }
 
+// ─── Board Agenda drawer ───────────────────────────────────────────────────────
+// Right-side slide-over overlay (same portal/backdrop pattern as ProfileDrawer,
+// mirrored to the right edge) so Board Agenda opens over the page instead of
+// pushing Director Board content down the way the old inline collapsible did.
+function BoardAgendaDrawer({ onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-label="Board Agenda">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} aria-hidden />
+      <div className="absolute inset-y-0 right-0 w-full sm:max-w-xl bg-slate-50 shadow-2xl flex flex-col animate-drawer-in-right">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white flex-shrink-0">
+          <p className="text-sm font-bold text-slate-800">Board Agenda</p>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+          >
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 // ─── Director Board page (Board Overview & Leadership + Board Agenda) ─────────
 
 export function DirectorBoardPage({ canEdit, userProfile }) {
@@ -1275,23 +1455,13 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
 
   return (
     <div className="space-y-4">
-      <DirectorBoardTab canEdit={canEdit} userProfile={userProfile} />
+      <DirectorBoardTab canEdit={canEdit} userProfile={userProfile} onOpenAgenda={() => setAgendaOpen(true)} />
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setAgendaOpen(v => !v)}
-          className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 transition-colors"
-        >
-          <ChevronRight size={16} className={`text-slate-400 transition-transform duration-200 ${agendaOpen ? 'rotate-90' : ''}`} />
-          Board Agenda
-        </button>
-        {agendaOpen && (
-          <div className="border-t border-slate-100 p-4">
-            <BoardAgendaTab canEdit={canEdit} userProfile={userProfile} />
-          </div>
-        )}
-      </div>
+      {agendaOpen && (
+        <BoardAgendaDrawer onClose={() => setAgendaOpen(false)}>
+          <BoardAgendaTab canEdit={canEdit} userProfile={userProfile} />
+        </BoardAgendaDrawer>
+      )}
     </div>
   )
 }
