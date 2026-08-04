@@ -633,6 +633,11 @@ service cloud.firestore {
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
     }
 
+    match /sec_core_leader_assignment_notifications/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.uid == request.auth.uid || canAccessDept('Sec-Core'));
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
+    }
+
     // Sunday Plan checklists — weekly instances
     match /sunday_checklist_weekly/{docId} {
       allow read: if isSignedIn();

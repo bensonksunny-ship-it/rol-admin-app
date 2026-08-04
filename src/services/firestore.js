@@ -1310,9 +1310,18 @@ export async function createFinanceExpense(data) {
     ...data,
     date: Timestamp.fromDate(new Date(data.date)),
     amount: Number(data.amount) || 0,
+    status: data.status || 'pending',
     createdAt: Timestamp.now(),
   })
   return ref.id
+}
+
+export async function updateFinanceExpenseStatus(id, status, approvedBy) {
+  await updateDoc(doc(db, 'finance_expense', id), {
+    status,
+    approvedBy: approvedBy || '',
+    approvedAt: Timestamp.now(),
+  })
 }
 
 export async function updateFinanceExpense(id, data) {
@@ -1541,6 +1550,7 @@ export async function addFinanceBudgetItem(data, addedBy) {
   if (!db) return null
   const ref = await addDoc(collection(db, FINANCE_BUDGET_COLLECTION), {
     ...financeBudgetPayload(data),
+    status: 'pending',
     addedBy: addedBy || 'unknown',
     createdAt: Timestamp.now(),
   })
@@ -1550,6 +1560,15 @@ export async function addFinanceBudgetItem(data, addedBy) {
 export async function updateFinanceBudgetItem(id, data) {
   if (!db) return
   await updateDoc(doc(db, FINANCE_BUDGET_COLLECTION, id), financeBudgetPayload(data))
+}
+
+export async function updateFinanceBudgetItemStatus(id, status, approvedBy) {
+  if (!db) return
+  await updateDoc(doc(db, FINANCE_BUDGET_COLLECTION, id), {
+    status,
+    approvedBy: approvedBy || '',
+    approvedAt: Timestamp.now(),
+  })
 }
 
 export async function deleteFinanceBudgetItem(id) {
@@ -4392,6 +4411,91 @@ export async function setSecCoreSundayLeaderEntry(dateStr, data, updatedBy) {
 export async function deleteSecCoreSundayLeaderEntry(dateStr) {
   if (!db || !dateStr) return
   await deleteDoc(doc(db, SEC_CORE_SUNDAY_LEADER, dateStr))
+}
+
+export async function getSecCoreSundayLeaderPool() {
+  if (!db) return {}
+  const snap = await getDoc(doc(db, SEC_CORE_COLLECTION, 'sunday_leader_pool'))
+  return snap.exists() ? snap.data() : {}
+}
+
+export function subscribeToSundayLeaderPool(onChange, onError) {
+  if (!db) { onError?.(); return () => {} }
+  return onSnapshot(
+    doc(db, SEC_CORE_COLLECTION, 'sunday_leader_pool'),
+    (snap) => onChange(snap.exists() ? snap.data() : {}),
+    (err) => { console.error('subscribeToSundayLeaderPool:', err); onError?.() }
+  )
+}
+
+export async function setSecCoreSundayLeaderPool(data, updatedBy) {
+  if (!db) return
+  await setDoc(doc(db, SEC_CORE_COLLECTION, 'sunday_leader_pool'), {
+    ...data,
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+// Batch-writes every Sunday's leader/co-leader/notes for a month in one commit —
+// backs the "Save Month Schedule" button (replaces per-row saves).
+export async function setSecCoreSundayLeaderMonth(entries, updatedBy) {
+  if (!db || !entries?.length) return
+  const batch = writeBatch(db)
+  entries.forEach(({ date, leader, coLeader, notes, psalm }) => {
+    batch.set(doc(db, SEC_CORE_SUNDAY_LEADER, date), {
+      date,
+      leader: leader || '',
+      coLeader: coLeader || '',
+      notes: notes || '',
+      psalm: psalm || '',
+      updatedBy: updatedBy || 'unknown',
+      updatedAt: Timestamp.now(),
+    }, { merge: true })
+  })
+  await batch.commit()
+}
+
+// Unbounded — every sec_core_sunday_leader doc on record, chronological, for the
+// Export Schedule JPEG (deliberately not capped like getSecCoreSundayLeaderEntries,
+// since the export should include however many Sundays are actually assigned).
+export async function getAllSecCoreSundayLeaderEntries() {
+  if (!db) return []
+  const q = query(collection(db, SEC_CORE_SUNDAY_LEADER), orderBy('date', 'asc'))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+// Exact-name lookup against the users collection — used to resolve a Sunday Leader
+// Pool name to an actual app account before sending a workspace notification (most
+// pool members, drawn from the general People Directory, won't have one).
+export async function getUserByName(name) {
+  if (!db || !name) return null
+  const q = query(collection(db, 'users'), where('name', '==', name), limit(1))
+  const snap = await getDocs(q)
+  return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }
+}
+
+const SEC_CORE_LEADER_NOTIF_COLLECTION = 'sec_core_leader_assignment_notifications'
+
+export async function createSundayLeaderAssignmentNotification({ uid, date, role, name, createdBy }) {
+  if (!db || !uid || !date) return
+  await setDoc(doc(db, SEC_CORE_LEADER_NOTIF_COLLECTION, `${uid}_${date}_${role}`), {
+    uid,
+    date,
+    role,
+    name: name || '',
+    createdBy: createdBy || 'unknown',
+    createdAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+export function subscribeSundayLeaderAssignmentNotifications(uid, onChange) {
+  if (!db || !uid) { onChange([]); return () => {} }
+  const q = query(collection(db, SEC_CORE_LEADER_NOTIF_COLLECTION), where('uid', '==', uid))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  }, () => onChange([]))
 }
 
 // Expense department options (Accounts → Operations → Add Departments)

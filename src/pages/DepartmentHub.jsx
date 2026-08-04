@@ -144,11 +144,12 @@ import PersonSearchInput from '../components/PersonSearchInput'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
 import DeptExpenseTab from '../components/DeptExpenseTab'
+import FinanceTabBar from '../components/finance/FinanceTabBar'
 import AccountsExpensePage from './accounts/ExpensePage'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
 import BudgetPage from './accounts/BudgetPage'
 import UpcomingSunday from './UpcomingSunday'
-import SecCoreSummary from './seccore/SecCoreSummary'
+import { DirectorBoardPage, SundayLeaderTab, SecCoreAnalyticsHub } from './seccore/SecCoreSummary'
 import SundayPrepTracker from '../components/SundayPrepTracker'
 
 async function mergeTasksEntriesTeam(canonicalName) {
@@ -2313,8 +2314,6 @@ export default function DepartmentHub() {
                 )
               ) : slug === 'sunday-ministry' ? (
                 <SundayPrepTracker />
-              ) : slug === 'sec-core' ? (
-                <SecCoreSummary />
               ) : slug === 'media' ? (
                 <>
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -2566,6 +2565,8 @@ export default function DepartmentHub() {
                     )
                   })()}
                 </div>
+              ) : slug === 'sec-core' ? (
+                <SecCoreAnalyticsHub />
               ) : (
                 <>
                   <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -2608,6 +2609,13 @@ export default function DepartmentHub() {
             </>
           )}
 
+          {activeTab === 'directorBoard' && slug === 'sec-core' && (
+            <DirectorBoardPage canEdit={canEdit} userProfile={userProfile} />
+          )}
+
+          {activeTab === 'sundayLeader' && slug === 'sec-core' && (
+            <SundayLeaderTab canEdit={canEdit} userProfile={userProfile} />
+          )}
 
           {activeTab === 'members' && slug === 'caring' && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -3838,6 +3846,17 @@ export default function DepartmentHub() {
 
           {activeTab === 'upcomingSunday' && ['media', 'worship', 'd-light', 'administration'].includes(slug) && (
             <UpcomingSunday slug={slug} />
+          )}
+
+          {activeTab === 'finance' && (
+            <FinanceTabBar
+              tabs={slug === 'accounts' ? ['expense', 'budget', 'addDepartments'] : ['expense', 'budget', 'payout']}
+              active={financeSubTab}
+              onChange={(key) => {
+                setFinanceSubTab(key)
+                setSearchParams({ tab: 'finance', financeSub: key }, { replace: true })
+              }}
+            />
           )}
 
           {activeTab === 'finance' && financeSubTab === 'expense' && department?.name && (

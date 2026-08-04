@@ -4,7 +4,9 @@ import {
   subscribePCSFillInvitationsByCellId, subscribeCellVisitorProposals, subscribeCellDlightConsultTasks,
   subscribeDismissedNotificationIds, dismissNotification as dismissNotificationDoc,
   subscribeNotificationTodoAdditionIds, markNotificationAddedToTodo, createTask,
+  subscribeSundayLeaderAssignmentNotifications,
 } from '../services/firestore'
+import { formatDisplayDate } from '../utils/date'
 import { getDepartmentRole } from '../utils/access'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 
@@ -30,6 +32,9 @@ function buildNotificationDeepLink(n) {
     // recommendation shown against that person's row) live.
     return '/department/cell?tab=summary'
   }
+  if (n.type === 'sunday_leader_assignment') {
+    return '/department/sec-core?tab=sundayLeader'
+  }
   return null
 }
 
@@ -44,6 +49,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   const [visitorProposalNotifications, setVisitorProposalNotifications] = useState([])
   const [dlightConsultNotifications, setDlightConsultNotifications] = useState([])
   const [consultResponseNotifications, setConsultResponseNotifications] = useState([])
+  const [sundayLeaderNotifications, setSundayLeaderNotifications] = useState([])
   const [dismissedIds, setDismissedIds] = useState(new Set())
   const [addedToTodoIds, setAddedToTodoIds] = useState(new Set())
   // Optimistic hide — set synchronously the instant Ignore/Add-to-Todo is clicked, so
@@ -135,6 +141,23 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     })
   }, [userProfile, isFounder])
 
+  // Sec-Core: a leader/co-leader assignment written to this uid via "Save Month
+  // Schedule" (only created when the pool name resolves to an actual app account).
+  useEffect(() => {
+    if (!uid) { setSundayLeaderNotifications([]); return }
+    return subscribeSundayLeaderAssignmentNotifications(uid, (docs) => {
+      setSundayLeaderNotifications(docs.map((d) => ({
+        id: d.id,
+        type: 'sunday_leader_assignment',
+        department: 'Sec-Core',
+        title: d.role === 'coLeader' ? 'Assigned as Co-Leader' : 'Assigned as Sunday Leader',
+        body: `You're scheduled for ${formatDisplayDate(d.date)}`,
+        cellName: '',
+        sentAt: typeof d.createdAt?.toDate === 'function' ? d.createdAt.toDate() : d.createdAt,
+      })))
+    })
+  }, [uid])
+
   // Per-user "Ignore" state — hides an item from this feed everywhere it's rendered
   // without touching the underlying business record it was synthesized from.
   useEffect(() => {
@@ -152,10 +175,10 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   }, [uid])
 
   const notifications = useMemo(
-    () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications]
+    () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
       .filter((n) => !dismissedIds.has(n.id) && !optimisticHiddenIds.has(n.id))
       .map((n) => ({ ...n, addedToTodo: addedToTodoIds.has(n.id) })),
-    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds]
+    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds]
   )
 
   const handleNotifAction = (n) => {

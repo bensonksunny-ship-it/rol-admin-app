@@ -1,19 +1,25 @@
-import { useEffect, useState, useRef } from 'react'
-import { format, addWeeks, subWeeks } from 'date-fns'
+import { useEffect, useMemo, useState, useRef } from 'react'
+import { format, differenceInCalendarDays } from 'date-fns'
+import { Plus, X, MoreVertical, Pencil, Trash2, ChevronRight, Download } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import html2canvas from 'html2canvas'
 import {
   getSecCoreDirectorBoard,
   setSecCoreDirectorBoard,
   subscribeToDirectorBoard,
   getSecCoreSundayLeaderEntries,
   getSecCoreSundayLeaderEntry,
-  setSecCoreSundayLeaderEntry,
-  deleteSecCoreSundayLeaderEntry,
+  setSecCoreSundayLeaderMonth,
+  getAllSecCoreSundayLeaderEntries,
+  subscribeToSundayLeaderPool,
+  setSecCoreSundayLeaderPool,
+  getUserByName,
+  createSundayLeaderAssignmentNotification,
   subscribeToBoardPoints,
   updateBoardPoint,
-  getPeople,
-  getDelightVisitors,
+  getMergedPeopleDirectory,
+  subscribeFinanceExpenseByDept,
 } from '../../services/firestore'
-import { useAuth } from '../../context/AuthContext'
 import { formatDisplayDate } from '../../utils/date'
 import { DEPARTMENT_LIST } from '../../constants/departments'
 
@@ -37,40 +43,37 @@ function PersonPicker({ value, onChange }) {
   const [open, setOpen]           = useState(false)
   const inputRef = useRef(null)
 
-  // Load people lazily on first focus — merge both collections, people takes priority
+  // Load the full merged People Directory lazily on first focus — the same
+  // "everybody" roster PeopleDirectory.jsx shows (people + cell members + dept/
+  // worship teams + PCS + D-Light visitors, deduped), not just the sparse `people`
+  // collection, so the picker can find someone regardless of which department or
+  // role they're currently attached to.
   const loadPeople = () => {
     if (allPeople !== null) return
-    Promise.all([
-      getPeople().catch(() => []),
-      getDelightVisitors().catch(() => []),
-    ]).then(([people, visitors]) => {
-      const seen = new Set()
-      const merged = []
-      for (const p of people) {
-        merged.push(p)
-        if (p.phone) seen.add(p.phone.replace(/\s+/g, ''))
-      }
-      for (const v of visitors) {
-        const phone = (v.phone || '').replace(/\s+/g, '')
-        if (phone && seen.has(phone)) continue
-        merged.push(v)
-        if (phone) seen.add(phone)
-      }
-      merged.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-      setAllPeople(merged)
-    }).catch(() => setAllPeople([]))
+    getMergedPeopleDirectory()
+      .then(({ people }) => {
+        const sorted = [...people].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        setAllPeople(sorted)
+      })
+      .catch(() => setAllPeople([]))
   }
 
+  // No result cap — the whole match set renders in a scrollable dropdown instead
+  // of being truncated. Matches name, phone, or email, all case-insensitive.
   const results = allPeople
-    ? allPeople.filter(p => {
-        if (!query.trim()) return false
-        const q = query.toLowerCase()
-        return p.name?.toLowerCase().includes(q) || (p.phone || '').includes(q)
-      }).slice(0, 8)
+    ? (() => {
+        const q = query.trim().toLowerCase()
+        if (!q) return allPeople
+        return allPeople.filter(p =>
+          (p.name || '').toLowerCase().includes(q) ||
+          (p.phone || '').toLowerCase().includes(q) ||
+          (p.email || '').toLowerCase().includes(q)
+        )
+      })()
     : []
 
   const select = (p) => {
-    onChange({ personId: p.id, name: p.name || '' })
+    onChange({ personId: p.personId || '', name: p.name || '' })
     setQuery('')
     setOpen(false)
   }
@@ -104,11 +107,11 @@ function PersonPicker({ value, onChange }) {
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => { loadPeople(); setOpen(true) }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Search by name or phone…"
+        placeholder="Search by name, phone, or email…"
         className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
       />
-      {open && query.trim() && (
-        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+      {open && (
+        <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-lg overflow-y-auto max-h-64">
           {allPeople === null && (
             <p className="px-3 py-2 text-xs text-slate-400">Loading…</p>
           )}
@@ -117,7 +120,7 @@ function PersonPicker({ value, onChange }) {
           )}
           {results.map(p => (
             <button
-              key={p.id}
+              key={p._key}
               type="button"
               onMouseDown={() => select(p)}
               className="w-full text-left px-3 py-2 hover:bg-indigo-50 transition-colors border-b border-slate-100 last:border-0 flex items-center gap-2"
@@ -127,7 +130,9 @@ function PersonPicker({ value, onChange }) {
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-slate-800 truncate">{p.name}</p>
-                {p.phone && <p className="text-[10px] text-slate-400">{p.phone}</p>}
+                {(p.phone || p.email) && (
+                  <p className="text-[10px] text-slate-400 truncate">{[p.phone, p.email].filter(Boolean).join(' · ')}</p>
+                )}
               </div>
             </button>
           ))}
@@ -135,14 +140,6 @@ function PersonPicker({ value, onChange }) {
       )}
     </div>
   )
-}
-
-function nextSundayISO() {
-  const today = new Date()
-  const daysUntil = today.getDay() === 0 ? 0 : 7 - today.getDay()
-  const d = new Date(today)
-  d.setDate(today.getDate() + daysUntil)
-  return format(d, 'yyyy-MM-dd')
 }
 
 // ─── Director Board tab ───────────────────────────────────────────────────────
@@ -232,7 +229,7 @@ function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
   )
 }
 
-function DirectorBoardTab({ canEdit, userProfile }) {
+export function DirectorBoardTab({ canEdit, userProfile }) {
   const [members, setMembers]   = useState([])
   const [loading, setLoading]   = useState(true)
   const [saving, setSaving]     = useState(false)
@@ -316,9 +313,12 @@ function DirectorBoardTab({ canEdit, userProfile }) {
   const MemberRow = ({ m, idx }) => {
     const isEditing = editIdx === idx
     const style = POSITION_STYLES[m.type] || POSITION_STYLES.director
-    return (
-      <li className={`border-b border-slate-100 last:border-0 ${isEditing ? 'bg-slate-50' : ''}`}>
-        {isEditing ? (
+    const tenure = dur(m.from, m.to || null)
+    const [menuOpen, setMenuOpen] = useState(false)
+
+    if (isEditing) {
+      return (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
           <MemberForm
             value={newMember}
             onChange={setNewMember}
@@ -326,41 +326,79 @@ function DirectorBoardTab({ canEdit, userProfile }) {
             onCancel={() => { setEditIdx(null); setNewMember(BLANK_MEMBER) }}
             submitLabel="Update"
           />
-        ) : (
-          <div className="flex items-center gap-3 px-4 py-2.5">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-slate-800">{m.name}</p>
-              <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                {m.department && (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${style.badge}`}>{m.department}</span>
-                )}
-                {m.role && <span className="text-xs text-slate-500">{m.role}</span>}
-                {m.from && (
-                  <span className="text-[10px] text-slate-400">
-                    {new Date(m.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
-                    {' – '}
-                    {m.to ? new Date(m.to).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Present'}
-                  </span>
-                )}
-                {dur(m.from, m.to || null) && (
-                  <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full border ${style.badge}`}>
-                    {dur(m.from, m.to || null)}
-                  </span>
-                )}
-              </div>
-            </div>
-            {canEdit && (
-              <div className="flex gap-2 shrink-0">
-                <button type="button"
-                  onClick={() => { setEditIdx(idx); setNewMember({ personId: m.personId || '', name: m.name, role: m.role || '', type: m.type || 'director', department: m.department || '', from: m.from || '', to: m.to || '' }); setShowForm(false) }}
-                  className="text-xs text-indigo-600 hover:underline">Edit</button>
-                <button type="button" onClick={() => removeMember(idx)}
-                  className="text-xs text-red-500 hover:underline">Remove</button>
-              </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-slate-300 hover:shadow-sm transition-all">
+        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 ${style.dot}`}>
+          {m.name[0]?.toUpperCase() || '?'}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-slate-800 truncate">{m.name}</p>
+          <div className="flex items-center gap-2 flex-wrap mt-1">
+            {m.department && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${style.badge}`}>{m.department}</span>
+            )}
+            {m.role && <span className="text-xs text-slate-500">{m.role}</span>}
+            {m.from && (
+              <span className="text-[10px] text-slate-400">
+                {new Date(m.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                {' – '}
+                {m.to ? new Date(m.to).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Present'}
+              </span>
             )}
           </div>
-        )}
-      </li>
+        </div>
+
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {tenure && (
+            <span className={`text-[10px] font-black px-2 py-1 rounded-full border whitespace-nowrap ${style.badge}`}>
+              {tenure}
+            </span>
+          )}
+          {canEdit && (
+            <div className="relative" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => setMenuOpen(v => !v)}
+                aria-label="Member actions"
+                className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              >
+                <MoreVertical size={16} />
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
+                  <div className="absolute right-0 top-full mt-1 z-20 w-36 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        setEditIdx(idx)
+                        setNewMember({ personId: m.personId || '', name: m.name, role: m.role || '', type: m.type || 'director', department: m.department || '', from: m.from || '', to: m.to || '' })
+                        setShowForm(false)
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                    >
+                      <Pencil size={13} /> Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setMenuOpen(false); removeMember(idx) }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <Trash2 size={13} /> Remove
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     )
   }
 
@@ -373,49 +411,79 @@ function DirectorBoardTab({ canEdit, userProfile }) {
   const typeLabel = (t) => t.charAt(0).toUpperCase() + t.slice(1)
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col space-y-4 max-w-4xl mx-auto">
 
-      {/* Three columns side by side */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {SECTIONS.map((sec, si) => {
-          const secMembers = byType[sec.key]
-          const style = POSITION_STYLES[sec.key]
-          return (
-            <div key={sec.key} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${style.dot}`} />
-                  <h3 className="font-semibold text-slate-800 text-sm">{sec.label}</h3>
-                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">{secMembers.length}</span>
-                </div>
-                {saving && si === 0 && <span className="text-xs text-slate-400">Saving…</span>}
+      {/* Page header */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800">Director Board</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Secretaries, Directors &amp; Coordinators</p>
+        </div>
+        {canEdit && (
+          <div className="relative group flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => { setShowForm(true); setEditIdx(null); setNewMember(BLANK_MEMBER) }}
+              aria-label="Add Leader"
+              title="Add Leader"
+              className="w-11 h-11 flex items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+            >
+              <Plus size={20} strokeWidth={2.5} />
+            </button>
+            <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
+              Add Leader
+            </span>
+          </div>
+        )}
+      </div>
+
+      {SECTIONS.map((sec) => {
+        const secMembers = byType[sec.key]
+        const style = POSITION_STYLES[sec.key]
+        return (
+          <div key={sec.key} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${style.dot}`} />
+                <h3 className="font-semibold text-slate-800 text-sm">
+                  {sec.label} <span className="text-slate-400 font-normal">({secMembers.length})</span>
+                </h3>
               </div>
+              {saving && <span className="text-xs text-slate-400">Saving…</span>}
+            </div>
+
+            <div className="p-4 space-y-2.5">
               {secMembers.length === 0 ? (
-                <p className="px-4 py-4 text-sm text-slate-400">No {sec.label.toLowerCase()} added yet.</p>
+                <div className="px-4 py-6 text-center text-sm text-slate-400 bg-slate-50/60 border border-dashed border-slate-200 rounded-lg">
+                  No {sec.label.toLowerCase()} added yet.
+                </div>
               ) : (
-                <ul>
-                  {secMembers.map((m, i) => {
-                    const realIdx = members.indexOf(m)
-                    return <MemberRow key={i} m={m} idx={realIdx} />
-                  })}
-                </ul>
+                secMembers.map((m, i) => {
+                  const realIdx = members.indexOf(m)
+                  return <MemberRow key={i} m={m} idx={realIdx} />
+                })
               )}
             </div>
-          )
-        })}
-      </div>
+          </div>
+        )
+      })}
 
       {saveError && (
         <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{saveError}</p>
       )}
 
-      {/* Add new member */}
-      {canEdit && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          {showForm ? (
-            <>
-              <div className="px-4 py-3 border-b border-slate-100">
-                <p className="text-sm font-semibold text-slate-700">Add Person</p>
+      {/* Add member modal */}
+      {canEdit && showForm && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => { setShowForm(false); setNewMember(BLANK_MEMBER) }} />
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => { setShowForm(false); setNewMember(BLANK_MEMBER) }}>
+            <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="font-semibold text-slate-900">Add Person</h3>
+                <button type="button" onClick={() => { setShowForm(false); setNewMember(BLANK_MEMBER) }}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition-colors">
+                  <X size={16} />
+                </button>
               </div>
               <MemberForm
                 value={newMember}
@@ -424,17 +492,9 @@ function DirectorBoardTab({ canEdit, userProfile }) {
                 onCancel={() => { setShowForm(false); setNewMember(BLANK_MEMBER) }}
                 submitLabel={`+ Add ${typeLabel(newMember.type)}`}
               />
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => { setShowForm(true); setEditIdx(null) }}
-              className="w-full px-4 py-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors flex items-center gap-2"
-            >
-              <span className="text-lg leading-none">+</span> Add Director, Coordinator or Secretary
-            </button>
-          )}
-        </div>
+            </div>
+          </div>
+        </>
       )}
 
     </div>
@@ -443,169 +503,461 @@ function DirectorBoardTab({ canEdit, userProfile }) {
 
 // ─── Sunday Leader tab ────────────────────────────────────────────────────────
 
-function SundayLeaderTab({ canEdit, userProfile }) {
-  const [selectedDate, setSelectedDate] = useState(nextSundayISO)
-  const [entry, setEntry]               = useState(null)
-  const [loading, setLoading]           = useState(false)
-  const [saving, setSaving]             = useState(false)
-  const [deleting, setDeleting]         = useState(false)
-  const [history, setHistory]           = useState([])
-  const [historyLoading, setHistLoading]= useState(true)
-  const [form, setForm]                 = useState({ leader: '', coLeader: '', notes: '' })
+function SundayLeaderPoolModal({ pool, onAdd, onRemove, onClose, saving }) {
+  const [picked, setPicked] = useState(null)
 
-  const prevSunday = () =>
-    setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
-  const nextSunday = () =>
-    setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div
+          className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+            <div>
+              <h3 className="font-semibold text-slate-900">Sunday Leader Pool</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Approved leaders available for weekly assignment</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-3 border-b border-slate-100 shrink-0">
+            <PersonPicker value={picked} onChange={setPicked} />
+            <button
+              type="button"
+              disabled={!picked || saving}
+              onClick={() => { onAdd(picked); setPicked(null) }}
+              className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+            >
+              {saving ? 'Adding…' : '+ Add to Pool'}
+            </button>
+          </div>
+
+          <div className="overflow-y-auto flex-1">
+            {pool.length === 0 ? (
+              <p className="px-5 py-6 text-center text-sm text-slate-400">No approved leaders yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {pool.map((p, i) => (
+                  <li key={p.personId || p.name || i} className="flex items-center justify-between gap-3 px-5 py-2.5">
+                    <span className="text-sm font-medium text-slate-800 truncate">{p.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => onRemove(i)}
+                      className="text-xs text-red-500 hover:underline shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function monthSundays(year, month) {
+  const dates = []
+  const d = new Date(year, month, 1)
+  while (d.getMonth() === month) {
+    if (d.getDay() === 0) dates.push(format(d, 'yyyy-MM-dd'))
+    d.setDate(d.getDate() + 1)
+  }
+  return dates
+}
+
+const EMPTY_LEADER_FORM = { leader: '', coLeader: '', notes: '', psalm: '' }
+
+const PSALM_OPTIONS = Array.from({ length: 150 }, (_, i) => String(i + 1))
+
+function nextPsalm(psalm) {
+  const n = Number(psalm)
+  if (!n || n < 1) return ''
+  return String((n % 150) + 1)
+}
+
+// Controlled row — value/onChange come from the parent so "Save Month Schedule" can
+// batch-write every row in one call instead of each row saving itself.
+function SundayLeaderRow({ date, value, onChange, pool, dirty, hasAssignment, loading, canEdit }) {
+  const d = new Date(date + 'T00:00:00')
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-bold">
+          {format(d, 'dd MMM yyyy')} · {format(d, 'EEEE')}
+        </span>
+        {loading ? (
+          <span className="text-[10px] text-slate-400">Loading…</span>
+        ) : dirty ? (
+          <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Unsaved changes</span>
+        ) : hasAssignment ? (
+          <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Saved</span>
+        ) : (
+          <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200">No assignment</span>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-slate-400">Loading…</p>
+      ) : canEdit ? (
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <select
+              value={value.leader}
+              onChange={(e) => onChange({ ...value, leader: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+            >
+              <option value="">— Sunday Leader —</option>
+              {pool.map((p) => <option key={p.personId || p.name} value={p.name}>{p.name}</option>)}
+            </select>
+            <select
+              value={value.coLeader}
+              onChange={(e) => onChange({ ...value, coLeader: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+            >
+              <option value="">— Co-Leader (optional) —</option>
+              {pool.map((p) => <option key={p.personId || p.name} value={p.name}>{p.name}</option>)}
+            </select>
+            <select
+              value={value.psalm}
+              onChange={(e) => onChange({ ...value, psalm: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+            >
+              <option value="">— Psalm —</option>
+              {PSALM_OPTIONS.map((n) => <option key={n} value={n}>Psalm {n}</option>)}
+            </select>
+          </div>
+          <input
+            type="text"
+            value={value.notes}
+            onChange={(e) => onChange({ ...value, notes: e.target.value })}
+            placeholder="Notes / order of service…"
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+          />
+        </div>
+      ) : value.leader ? (
+        <div className="space-y-1">
+          <p className="text-sm"><span className="text-slate-500">Leader:</span> <span className="font-medium text-slate-800">{value.leader}</span></p>
+          {value.coLeader && <p className="text-sm"><span className="text-slate-500">Co-Leader:</span> <span className="font-medium text-slate-800">{value.coLeader}</span></p>}
+          {value.psalm && <p className="text-sm"><span className="text-slate-500">Psalm:</span> <span className="font-medium text-slate-800">Psalm {value.psalm}</span></p>}
+          {value.notes && <p className="text-sm text-slate-600">{value.notes}</p>}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">No assignment for this Sunday.</p>
+      )}
+    </div>
+  )
+}
+
+export function SundayLeaderTab({ canEdit, userProfile }) {
+  const [monthCursor, setMonthCursor] = useState(() => {
+    const d = new Date()
+    return new Date(d.getFullYear(), d.getMonth(), 1)
+  })
+  const [pool, setPool]                 = useState([])
+  const [poolModalOpen, setPoolModalOpen] = useState(false)
+  const [poolSaving, setPoolSaving]     = useState(false)
+
+  const [entries, setEntries]           = useState({})       // date -> {leader, coLeader, notes} (editable)
+  const [savedEntries, setSavedEntries] = useState({})       // date -> {leader, coLeader, notes} | undefined (last-persisted)
+  const [entriesLoading, setEntriesLoading] = useState(true)
+  const [saving, setSaving]             = useState(false)
+  const [saveMessage, setSaveMessage]   = useState('')
+  const [exporting, setExporting]       = useState(false)
+
+  const prevMonth = () => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))
+  const nextMonth = () => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))
+
+  const sundaysInMonth = useMemo(
+    () => monthSundays(monthCursor.getFullYear(), monthCursor.getMonth()),
+    [monthCursor]
+  )
 
   useEffect(() => {
-    getSecCoreSundayLeaderEntries(20)
-      .then(setHistory)
-      .catch(() => setHistory([]))
-      .finally(() => setHistLoading(false))
+    const unsub = subscribeToSundayLeaderPool(
+      (d) => setPool(d.members || []),
+      () => setPool([])
+    )
+    return unsub
   }, [])
 
   useEffect(() => {
-    if (!selectedDate) return
-    setLoading(true)
-    getSecCoreSundayLeaderEntry(selectedDate)
-      .then((e) => {
-        setEntry(e)
-        setForm({ leader: e?.leader || '', coLeader: e?.coLeader || '', notes: e?.notes || '' })
+    let cancelled = false
+    setEntriesLoading(true)
+    setSaveMessage('')
+    // Also fetch the Sunday exactly 7 days before this month's first Sunday (may fall
+    // in the previous month) so the very first row still has a prior-Psalm reference
+    // to auto-suggest from.
+    const firstSunday = sundaysInMonth[0]
+    const priorDate = firstSunday
+      ? (() => { const d = new Date(firstSunday + 'T00:00:00'); d.setDate(d.getDate() - 7); return format(d, 'yyyy-MM-dd') })()
+      : null
+    Promise.all([
+      ...sundaysInMonth.map((date) => getSecCoreSundayLeaderEntry(date)),
+      priorDate ? getSecCoreSundayLeaderEntry(priorDate) : Promise.resolve(null),
+    ])
+      .then((results) => {
+        if (cancelled) return
+        const monthResults = results.slice(0, sundaysInMonth.length)
+        const priorEntry = results[results.length - 1]
+        const nextEntries = {}
+        const nextSaved = {}
+        let priorPsalm = priorEntry?.psalm || ''
+        sundaysInMonth.forEach((date, i) => {
+          const e = monthResults[i]
+          const savedPsalm = e?.psalm || ''
+          const val = {
+            leader: e?.leader || '',
+            coLeader: e?.coLeader || '',
+            notes: e?.notes || '',
+            psalm: savedPsalm || nextPsalm(priorPsalm),
+          }
+          nextEntries[date] = val
+          nextSaved[date] = e ? { leader: val.leader, coLeader: val.coLeader, notes: val.notes, psalm: savedPsalm } : undefined
+          priorPsalm = savedPsalm || val.psalm
+        })
+        setEntries(nextEntries)
+        setSavedEntries(nextSaved)
       })
-      .catch(() => { setEntry(null); setForm({ leader: '', coLeader: '', notes: '' }) })
-      .finally(() => setLoading(false))
-  }, [selectedDate])
+      .finally(() => { if (!cancelled) setEntriesLoading(false) })
+    return () => { cancelled = true }
+  }, [sundaysInMonth])
 
-  const handleSave = async () => {
-    setSaving(true)
+  const updateEntry = (date, value) => setEntries((prev) => ({ ...prev, [date]: value }))
+
+  const isDirty = (date) => {
+    const cur = entries[date] || EMPTY_LEADER_FORM
+    const saved = savedEntries[date]
+    return saved
+      ? (cur.leader !== saved.leader || cur.coLeader !== saved.coLeader || cur.notes !== saved.notes || cur.psalm !== saved.psalm)
+      : !!(cur.leader.trim() || cur.coLeader.trim() || cur.notes.trim())
+  }
+
+  const addToPool = async (person) => {
+    if (!person?.name) return
+    if (pool.some((p) => (p.personId && p.personId === person.personId) || p.name === person.name)) return
+    setPoolSaving(true)
     try {
-      await setSecCoreSundayLeaderEntry(
-        selectedDate,
-        { leader: form.leader.trim(), coLeader: form.coLeader.trim(), notes: form.notes.trim() },
-        userProfile?.displayName || userProfile?.email
-      )
-      setEntry({ ...form, date: selectedDate })
-      setHistory((prev) => {
-        const filtered = prev.filter((h) => h.date !== selectedDate)
-        return [{ date: selectedDate, ...form }, ...filtered].sort((a, b) => b.date.localeCompare(a.date))
-      })
+      const next = [...pool, { personId: person.personId || '', name: person.name }]
+      await setSecCoreSundayLeaderPool({ members: next }, userProfile?.displayName || userProfile?.email)
+      setPool(next)
+    } finally {
+      setPoolSaving(false)
+    }
+  }
+
+  const removeFromPool = async (idx) => {
+    const next = pool.filter((_, i) => i !== idx)
+    await setSecCoreSundayLeaderPool({ members: next }, userProfile?.displayName || userProfile?.email)
+    setPool(next)
+  }
+
+  const handleSaveMonth = async () => {
+    setSaving(true)
+    setSaveMessage('')
+    const updatedBy = userProfile?.displayName || userProfile?.email || 'unknown'
+    try {
+      const payload = sundaysInMonth.map((date) => ({
+        date,
+        leader: (entries[date]?.leader || '').trim(),
+        coLeader: (entries[date]?.coLeader || '').trim(),
+        notes: (entries[date]?.notes || '').trim(),
+        psalm: (entries[date]?.psalm || '').trim(),
+      }))
+      await setSecCoreSundayLeaderMonth(payload, updatedBy)
+
+      // Resolve each distinct assigned name to an app account once, then notify.
+      const names = [...new Set(payload.flatMap((p) => [p.leader, p.coLeader]).filter(Boolean))]
+      const userByName = {}
+      await Promise.all(names.map(async (name) => {
+        userByName[name] = await getUserByName(name).catch(() => null)
+      }))
+
+      let notifiedCount = 0
+      await Promise.all(payload.flatMap((p) => {
+        const jobs = []
+        if (p.leader && userByName[p.leader]) {
+          notifiedCount += 1
+          jobs.push(createSundayLeaderAssignmentNotification({
+            uid: userByName[p.leader].id, date: p.date, role: 'leader', name: p.leader, createdBy: updatedBy,
+          }))
+        }
+        if (p.coLeader && userByName[p.coLeader]) {
+          notifiedCount += 1
+          jobs.push(createSundayLeaderAssignmentNotification({
+            uid: userByName[p.coLeader].id, date: p.date, role: 'coLeader', name: p.coLeader, createdBy: updatedBy,
+          }))
+        }
+        return jobs
+      }))
+
+      const nextSaved = {}
+      payload.forEach((p) => { nextSaved[p.date] = { leader: p.leader, coLeader: p.coLeader, notes: p.notes, psalm: p.psalm } })
+      setSavedEntries(nextSaved)
+      setSaveMessage(`${format(monthCursor, 'MMMM yyyy')} schedule saved · ${notifiedCount} leader${notifiedCount !== 1 ? 's' : ''} notified`)
     } finally {
       setSaving(false)
     }
   }
 
-  const handleDelete = async () => {
-    if (!window.confirm(`Delete assignment for ${formatDisplayDate(selectedDate)}?`)) return
-    setDeleting(true)
+  // Exports every sec_core_sunday_leader entry on record (not just this month) as a
+  // single shareable JPEG — html2canvas snapshots an off-screen styled card so the
+  // graphic can reuse real HTML/Tailwind layout instead of hand-drawing on <canvas>.
+  const handleExportSchedule = async () => {
+    setExporting(true)
     try {
-      await deleteSecCoreSundayLeaderEntry(selectedDate)
-      setEntry(null)
-      setForm({ leader: '', coLeader: '', notes: '' })
-      setHistory((prev) => prev.filter((h) => h.date !== selectedDate))
+      const all = await getAllSecCoreSundayLeaderEntries()
+      const rows = all
+        .filter((e) => e.leader || e.coLeader || e.psalm)
+        .sort((a, b) => a.date.localeCompare(b.date))
+
+      const container = document.createElement('div')
+      container.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#ffffff;font-family:Arial,Helvetica,sans-serif;'
+      container.innerHTML = `
+        <div style="padding:32px 40px;background:linear-gradient(135deg,#4338ca,#312e81);color:#ffffff;">
+          <p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:2px;opacity:.7;">ROL CHURCH &middot; SEC-CORE</p>
+          <p style="margin:0;font-size:28px;font-weight:800;">SUNDAY LEADER SCHEDULE</p>
+        </div>
+        <div>
+          ${rows.map((e, i) => `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 40px;background:${i % 2 === 0 ? '#f8fafc' : '#ffffff'};border-bottom:1px solid #e2e8f0;">
+              <span style="font-weight:700;color:#1e293b;font-size:14px;white-space:nowrap;">${formatDisplayDate(e.date)}</span>
+              <span style="color:#4338ca;font-weight:600;font-size:14px;flex:1;text-align:center;">${[e.leader, e.coLeader].filter(Boolean).join(' & ') || '—'}</span>
+              <span style="color:#64748b;font-size:13px;white-space:nowrap;">${e.psalm ? `Psalm ${e.psalm}` : ''}</span>
+            </div>
+          `).join('') || '<p style="padding:24px 40px;color:#94a3b8;font-size:14px;">No assignments recorded yet.</p>'}
+        </div>
+        <div style="padding:16px 40px;background:#312e81;color:rgba(255,255,255,.7);font-size:12px;text-align:center;">
+          Generated by ROL Admin App
+        </div>
+      `
+      document.body.appendChild(container)
+      const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff' })
+      document.body.removeChild(container)
+
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92))
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `sunday-leader-schedule-${format(new Date(), 'yyyy-MM-dd')}.jpg`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export schedule failed:', err)
+      alert('Could not export schedule image.')
     } finally {
-      setDeleting(false)
+      setExporting(false)
     }
   }
 
   return (
     <div className="space-y-4">
-      {/* Date nav + form */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={prevSunday} className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">← Prev</button>
-          <span className="font-semibold text-slate-800 text-sm">
-            {format(new Date(selectedDate), 'EEE, dd MMM yyyy')}
-          </span>
-          <button type="button" onClick={nextSunday} className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next →</button>
+      {/* Page header */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800">Sunday Leader</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Monthly leader &amp; co-leader schedule</p>
         </div>
-
-        {loading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
-        ) : canEdit ? (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Sunday Leader</label>
-                <input
-                  type="text"
-                  value={form.leader}
-                  onChange={(e) => setForm((f) => ({ ...f, leader: e.target.value }))}
-                  placeholder="Name"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Co-Leader <span className="text-slate-400">(optional)</span></label>
-                <input
-                  type="text"
-                  value={form.coLeader}
-                  onChange={(e) => setForm((f) => ({ ...f, coLeader: e.target.value }))}
-                  placeholder="Name"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">Notes</label>
-              <textarea
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                placeholder="Any notes for this Sunday…"
-                rows={2}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-              />
-            </div>
-            <div className="flex gap-2 justify-end">
-              {entry && (
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-sm hover:bg-red-50 disabled:opacity-50"
-                >
-                  {deleting ? 'Deleting…' : 'Delete'}
-                </button>
-              )}
+        {canEdit && (
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="relative group">
               <button
                 type="button"
-                onClick={handleSave}
-                disabled={saving || !form.leader.trim()}
-                className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                onClick={handleExportSchedule}
+                disabled={exporting}
+                aria-label="Export Schedule"
+                title="Export Schedule"
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md active:scale-95 disabled:opacity-50 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
               >
-                {saving ? 'Saving…' : 'Save'}
+                <Download size={18} strokeWidth={2.5} className={exporting ? 'animate-pulse' : ''} />
               </button>
+              <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
+                {exporting ? 'Exporting…' : 'Export Schedule'}
+              </span>
+            </div>
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={() => setPoolModalOpen(true)}
+                aria-label="Manage Sunday Leader Pool"
+                title="Manage Sunday Leader Pool"
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+              >
+                <Plus size={20} strokeWidth={2.5} />
+              </button>
+              <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
+                Manage Leader Pool
+              </span>
             </div>
           </div>
-        ) : entry ? (
-          <div className="space-y-1">
-            <p className="text-sm"><span className="text-slate-500">Leader:</span> <span className="font-medium text-slate-800">{entry.leader}</span></p>
-            {entry.coLeader && <p className="text-sm"><span className="text-slate-500">Co-Leader:</span> <span className="font-medium text-slate-800">{entry.coLeader}</span></p>}
-            {entry.notes && <p className="text-sm text-slate-600 whitespace-pre-wrap">{entry.notes}</p>}
-          </div>
-        ) : (
-          <p className="text-sm text-slate-400">No assignment for this Sunday.</p>
         )}
       </div>
 
-      {/* History */}
-      {!historyLoading && history.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <h3 className="px-4 py-3 font-semibold text-slate-800 text-sm border-b border-slate-100">Recent Assignments</h3>
-          <ul className="divide-y divide-slate-100">
-            {history.map((h) => (
-              <li
-                key={h.date}
-                className={`flex items-center gap-4 px-4 py-2.5 cursor-pointer hover:bg-slate-50 ${h.date === selectedDate ? 'bg-indigo-50/60' : ''}`}
-                onClick={() => setSelectedDate(h.date)}
-              >
-                <span className="text-xs text-slate-500 tabular-nums w-24 shrink-0">{formatDisplayDate(h.date)}</span>
-                <span className="text-sm font-medium text-slate-800 flex-1">{h.leader}</span>
-                {h.coLeader && <span className="text-xs text-slate-500">{h.coLeader}</span>}
-              </li>
-            ))}
-          </ul>
+      {/* Month navigation + Save Month Schedule */}
+      <div className="flex items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={prevMonth} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">‹ Prev Month</button>
+          <span className="font-semibold text-slate-800 text-sm">{format(monthCursor, 'MMMM yyyy')}</span>
+          <button type="button" onClick={nextMonth} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next Month ›</button>
         </div>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={handleSaveMonth}
+            disabled={saving || entriesLoading}
+            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-40 transition-colors shadow-sm"
+          >
+            {saving ? 'Saving…' : 'Save Month Schedule'}
+          </button>
+        )}
+      </div>
+
+      {saveMessage && (
+        <p className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">{saveMessage}</p>
+      )}
+
+      {canEdit && pool.length === 0 && (
+        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          No approved leaders yet — tap the + button above to add people from the directory.
+        </p>
+      )}
+
+      {/* Monthly Sunday schedule */}
+      <div className="space-y-3">
+        {sundaysInMonth.map((date) => (
+          <SundayLeaderRow
+            key={date}
+            date={date}
+            value={entries[date] || EMPTY_LEADER_FORM}
+            onChange={(value) => updateEntry(date, value)}
+            pool={pool}
+            dirty={!entriesLoading && isDirty(date)}
+            hasAssignment={!!savedEntries[date]}
+            loading={entriesLoading}
+            canEdit={canEdit}
+          />
+        ))}
+      </div>
+
+      {poolModalOpen && (
+        <SundayLeaderPoolModal
+          pool={pool}
+          saving={poolSaving}
+          onAdd={addToPool}
+          onRemove={removeFromPool}
+          onClose={() => setPoolModalOpen(false)}
+        />
       )}
     </div>
   )
@@ -625,7 +977,7 @@ function sundayDateChips() {
   })
 }
 
-function BoardAgendaTab({ canEdit, userProfile }) {
+export function BoardAgendaTab({ canEdit, userProfile }) {
   const [allPoints, setAllPoints] = useState([])
   const [loading, setLoading]     = useState(true)
   const [selectedDate, setSelectedDate] = useState(null)
@@ -916,39 +1268,358 @@ function BoardAgendaTab({ canEdit, userProfile }) {
   )
 }
 
-// ─── Main export ──────────────────────────────────────────────────────────────
+// ─── Director Board page (Board Overview & Leadership + Board Agenda) ─────────
 
-export default function SecCoreSummary() {
-  const { canManageDepartment, userProfile } = useAuth()
-  const canEdit = canManageDepartment('Sec-Core')
-  const [tab, setTab] = useState('directorBoard')
-
-  const tabs = [
-    { key: 'directorBoard', label: 'Director Board' },
-    { key: 'boardAgenda',   label: 'Board Agenda' },
-    { key: 'sundayLeader',  label: 'Sunday Leader' },
-  ]
+export function DirectorBoardPage({ canEdit, userProfile }) {
+  const [agendaOpen, setAgendaOpen] = useState(false)
 
   return (
-    <div className="space-y-3">
-      <div className="flex gap-1 border-b border-slate-200 overflow-x-auto scrollbar-hide">
-        {tabs.map(t => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
-              tab === t.key
-                ? 'border-indigo-600 text-indigo-700'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >{t.label}</button>
-        ))}
-      </div>
+    <div className="space-y-4">
+      <DirectorBoardTab canEdit={canEdit} userProfile={userProfile} />
 
-      {tab === 'directorBoard' && <DirectorBoardTab canEdit={canEdit} userProfile={userProfile} />}
-      {tab === 'boardAgenda'   && <BoardAgendaTab   canEdit={canEdit} userProfile={userProfile} />}
-      {tab === 'sundayLeader'  && <SundayLeaderTab  canEdit={canEdit} userProfile={userProfile} />}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setAgendaOpen(v => !v)}
+          className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 transition-colors"
+        >
+          <ChevronRight size={16} className={`text-slate-400 transition-transform duration-200 ${agendaOpen ? 'rotate-90' : ''}`} />
+          Board Agenda
+        </button>
+        {agendaOpen && (
+          <div className="border-t border-slate-100 p-4">
+            <BoardAgendaTab canEdit={canEdit} userProfile={userProfile} />
+          </div>
+        )}
+      </div>
     </div>
   )
 }
+
+// ─── Analytics Hub ────────────────────────────────────────────────────────────
+
+function quarterInfo(d) {
+  const q = Math.floor(d.getMonth() / 3) + 1
+  return { key: `${d.getFullYear()}-Q${q}`, label: `Q${q} '${String(d.getFullYear()).slice(2)}` }
+}
+
+function lastNQuarters(n) {
+  const now = new Date()
+  return Array.from({ length: n }, (_, i) => quarterInfo(new Date(now.getFullYear(), now.getMonth() - (n - 1 - i) * 3, 1)))
+}
+
+function lastNMonths(n) {
+  const now = new Date()
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (n - 1 - i), 1)
+    return { label: format(d, 'MMM'), year: d.getFullYear(), month: d.getMonth() }
+  })
+}
+
+// Badge tone recipe matches StatusBadge.jsx (src/components/finance) exactly, so
+// pills here read as the same "finance page" visual language, just with labels
+// suited to analytics rather than expense-approval status.
+const BADGE_TONES = {
+  slate:   'bg-slate-50 text-slate-600 border-slate-200',
+  indigo:  'bg-indigo-50 text-indigo-700 border-indigo-100',
+  rose:    'bg-rose-50 text-rose-700 border-rose-100',
+  emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  amber:   'bg-amber-50 text-amber-700 border-amber-200',
+}
+
+function Badge({ tone = 'slate', children }) {
+  return (
+    <span className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full border ${BADGE_TONES[tone] || BADGE_TONES.slate}`}>
+      {children}
+    </span>
+  )
+}
+
+// Mirrors DeptExpenseTab's "Total Expense" summary card (src/components/DeptExpenseTab.jsx)
+// — label/value on the left, a single pill badge on the right — so KPI tiles read
+// as the same card as the Worship Finance page's stat card, just repeated per metric.
+function KpiTile({ label, value, badge, badgeTone }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+        <p className="text-2xl font-bold text-slate-800 tabular-nums mt-0.5">{value}</p>
+      </div>
+      {badge && <Badge tone={badgeTone}>{badge}</Badge>}
+    </div>
+  )
+}
+
+function ChartCard({ title, children }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+      <p className="text-sm font-semibold text-slate-700 mb-3">{title}</p>
+      {children}
+    </div>
+  )
+}
+
+// Mirrors a DeptExpenseTab entry row (bg-white rounded-xl border shadow-sm px-4 py-3)
+// with a StatusBadge-style pill in the header instead of a colored card border.
+function InsightCard({ title, badge, badgeTone, children }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</p>
+        {badge && <Badge tone={badgeTone}>{badge}</Badge>}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+const chartTooltipStyle = { fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }
+const chartAxisTick = { fontSize: 10, fill: '#94a3b8' }
+
+export function SecCoreAnalyticsHub() {
+  const [members, setMembers]     = useState([])
+  const [sundayEntries, setSundayEntries] = useState([])
+  const [allPoints, setAllPoints] = useState([])
+  const [expenses, setExpenses]   = useState([])
+  const [loading, setLoading]     = useState(true)
+
+  useEffect(() => {
+    let pending = 4
+    const done = () => { if (--pending <= 0) setLoading(false) }
+
+    const unsubMembers = subscribeToDirectorBoard(
+      (d) => { setMembers(d.members || []); done() },
+      () => done()
+    )
+    getSecCoreSundayLeaderEntries(16).then(setSundayEntries).catch(() => setSundayEntries([])).finally(done)
+    const unsubPoints = subscribeToBoardPoints((pts) => { setAllPoints(pts); done() })
+    const unsubExpenses = subscribeFinanceExpenseByDept('Sec-Core', (entries) => { setExpenses(entries); done() })
+
+    return () => { unsubMembers?.(); unsubPoints?.(); unsubExpenses?.() }
+  }, [])
+
+  const now = new Date()
+
+  const activeMembers = useMemo(
+    () => members.filter((m) => !m.to || new Date(m.to) >= now),
+    [members]
+  )
+  const rosterByType = useMemo(() => ({
+    director:    activeMembers.filter((m) => !m.type || m.type === 'director').length,
+    coordinator: activeMembers.filter((m) => m.type === 'coordinator').length,
+    secretary:   activeMembers.filter((m) => m.type === 'secretary').length,
+  }), [activeMembers])
+
+  const approvedCount = useMemo(() => allPoints.filter((p) => p.status === 'approved').length, [allPoints])
+  const pendingCount  = allPoints.length - approvedCount
+  const completionPct = allPoints.length ? Math.round((approvedCount / allPoints.length) * 100) : 0
+
+  const next4Sundays = useMemo(() => sundayDateChips().slice(0, 4), [])
+  const missingSundays = useMemo(
+    () => next4Sundays.filter((d) => !sundayEntries.some((e) => e.date === d && e.leader)),
+    [next4Sundays, sundayEntries]
+  )
+
+  const pointsThisMonth = useMemo(
+    () => allPoints.filter((p) => p.createdAt && p.createdAt.getFullYear() === now.getFullYear() && p.createdAt.getMonth() === now.getMonth()),
+    [allPoints]
+  )
+  const deptsThisMonth = useMemo(
+    () => new Set(pointsThisMonth.map((p) => p.department).filter(Boolean)).size,
+    [pointsThisMonth]
+  )
+
+  const agendaChartData = useMemo(() => ([
+    { label: 'Approved', count: approvedCount, fill: '#10b981' },
+    { label: 'Pending',  count: pendingCount,  fill: '#f59e0b' },
+  ]), [approvedCount, pendingCount])
+
+  const expenseChartData = useMemo(() => {
+    const months = lastNMonths(6)
+    return months.map((m) => ({
+      label: m.label,
+      amount: expenses
+        .filter((e) => e.date && new Date(e.date).getFullYear() === m.year && new Date(e.date).getMonth() === m.month)
+        .reduce((s, e) => s + (Number(e.amount) || 0), 0),
+    }))
+  }, [expenses])
+
+  const rotationChartData = useMemo(() => {
+    const quarters = lastNQuarters(4)
+    return quarters.map((q) => ({
+      label: q.label,
+      count: members.filter((m) => {
+        if (!m.from) return false
+        const d = new Date(m.from)
+        return !isNaN(d) && quarterInfo(d).key === q.key
+      }).length,
+    }))
+  }, [members])
+
+  const stalePending = useMemo(
+    () => allPoints
+      .filter((p) => p.status !== 'approved' && p.createdAt && differenceInCalendarDays(now, p.createdAt) > 14)
+      .sort((a, b) => a.createdAt - b.createdAt),
+    [allPoints]
+  )
+
+  const renewalsDue = useMemo(
+    () => members
+      .filter((m) => {
+        if (!m.to) return false
+        const d = new Date(m.to)
+        if (isNaN(d)) return false
+        const days = differenceInCalendarDays(d, now)
+        return days >= 0 && days <= 30
+      })
+      .sort((a, b) => new Date(a.to) - new Date(b.to)),
+    [members]
+  )
+
+  const topLeader = useMemo(() => {
+    const last12 = [...sundayEntries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12)
+    const counts = {}
+    last12.forEach((e) => { if (e.leader) counts[e.leader] = (counts[e.leader] || 0) + 1 })
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+    return { entry: sorted[0] || null, total: last12.length }
+  }, [sundayEntries])
+
+  if (loading) {
+    return <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-6 text-center text-slate-400 text-sm">Loading analytics…</div>
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* KPI Row — same stat-card recipe as the Worship Finance page's Total Expense card */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiTile
+          label="Agenda Completion"
+          value={`${completionPct}%`}
+          badge={`${pendingCount} pending`}
+          badgeTone={completionPct >= 70 ? 'emerald' : completionPct >= 40 ? 'amber' : 'rose'}
+        />
+        <KpiTile
+          label="Sunday Coverage"
+          value={`${next4Sundays.length - missingSundays.length}/${next4Sundays.length}`}
+          badge={missingSundays.length ? `${missingSundays.length} missing` : 'All covered'}
+          badgeTone={missingSundays.length === 0 ? 'emerald' : 'amber'}
+        />
+        <KpiTile
+          label="Active Roster"
+          value={activeMembers.length}
+          badge={`D:${rosterByType.director} C:${rosterByType.coordinator} S:${rosterByType.secretary}`}
+          badgeTone="indigo"
+        />
+        <KpiTile
+          label="Board Points This Month"
+          value={pointsThisMonth.length}
+          badge={`${deptsThisMonth} dept${deptsThisMonth !== 1 ? 's' : ''}`}
+          badgeTone="indigo"
+        />
+      </div>
+
+      {/* Trends */}
+      <h3 className="text-sm font-semibold text-slate-700">Trends</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <ChartCard title="Agenda Completion">
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={agendaChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+              <XAxis dataKey="label" tick={chartAxisTick} axisLine={false} tickLine={false} />
+              <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: '#f1f5f9' }} />
+              <Bar dataKey="count" radius={[3, 3, 0, 0]} maxBarSize={48}>
+                {agendaChartData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        {/* Rose accent — same "money" color as the Finance page's entry-count pill */}
+        <ChartCard title="Expense Trend (6 mo)">
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={expenseChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+              <XAxis dataKey="label" tick={chartAxisTick} axisLine={false} tickLine={false} />
+              <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: '#f1f5f9' }} formatter={(v) => [`₹${Number(v).toLocaleString('en-IN')}`, 'Expense']} />
+              <Bar dataKey="amount" fill="#f43f5e" radius={[3, 3, 0, 0]} maxBarSize={32} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Leadership Rotation">
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={rotationChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+              <XAxis dataKey="label" tick={chartAxisTick} axisLine={false} tickLine={false} />
+              <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip contentStyle={chartTooltipStyle} cursor={{ fill: '#f1f5f9' }} formatter={(v) => [v, 'New appointments']} />
+              <Bar dataKey="count" fill="#6366f1" radius={[3, 3, 0, 0]} maxBarSize={32} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+
+      {/* Insights */}
+      <h3 className="text-sm font-semibold text-slate-700">Insights</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <InsightCard
+          title="Unassigned Sundays"
+          badge={missingSundays.length || 'Clear'}
+          badgeTone={missingSundays.length ? 'amber' : 'emerald'}
+        >
+          {missingSundays.length === 0 ? (
+            <p className="text-sm text-slate-500">All upcoming Sundays covered.</p>
+          ) : (
+            <ul className="space-y-1">
+              {missingSundays.map((d) => (
+                <li key={d} className="text-sm text-slate-700">{format(new Date(d + 'T00:00:00'), 'EEE, d MMM')}</li>
+              ))}
+            </ul>
+          )}
+        </InsightCard>
+
+        <InsightCard
+          title="Stale Pending Points"
+          badge={stalePending.length || 'Clear'}
+          badgeTone={stalePending.length ? 'rose' : 'emerald'}
+        >
+          {stalePending.length === 0 ? (
+            <p className="text-sm text-slate-500">Nothing to flag.</p>
+          ) : (
+            <p className="text-sm text-slate-700">
+              {stalePending.length} point{stalePending.length !== 1 ? 's' : ''} pending &gt;14 days
+              <br />
+              <span className="text-xs text-slate-400">Oldest: {stalePending[0].department} · {formatDisplayDate(stalePending[0].createdAt)}</span>
+            </p>
+          )}
+        </InsightCard>
+
+        <InsightCard
+          title="Roster Renewals Due"
+          badge={renewalsDue.length || 'Clear'}
+          badgeTone={renewalsDue.length ? 'amber' : 'emerald'}
+        >
+          {renewalsDue.length === 0 ? (
+            <p className="text-sm text-slate-500">Nothing to flag.</p>
+          ) : (
+            <ul className="space-y-1">
+              {renewalsDue.map((m, i) => (
+                <li key={i} className="text-sm text-slate-700">{m.name} <span className="text-xs text-slate-400">({format(new Date(m.to), 'd MMM')})</span></li>
+              ))}
+            </ul>
+          )}
+        </InsightCard>
+
+        <InsightCard title="Most Active Sunday Leader">
+          {topLeader.entry ? (
+            <p className="text-sm text-slate-700">
+              <span className="font-bold">{topLeader.entry[0]}</span> led {topLeader.entry[1]} of last {topLeader.total} Sundays
+            </p>
+          ) : (
+            <p className="text-sm text-slate-400">No assignments recorded yet.</p>
+          )}
+        </InsightCard>
+      </div>
+    </div>
+  )
+}
+

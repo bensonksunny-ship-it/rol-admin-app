@@ -53,6 +53,8 @@ function getTabLabel(tab) {
     case 'upcomingSunday':    return 'Upcoming Sunday'
     case 'sundayCrew':        return 'Crew'
     case 'applications':      return 'Applications'
+    case 'directorBoard':     return 'Director Board'
+    case 'sundayLeader':      return 'Sunday Leader'
     default:                  return tab
   }
 }
@@ -95,6 +97,8 @@ function getTabIcon(tab) {
     case 'upcomingSunday':     return CalendarClock
     case 'sundayCrew':         return Users
     case 'applications':       return ClipboardList
+    case 'directorBoard':      return Users
+    case 'sundayLeader':       return Sun
     default:                   return Sparkles
   }
 }

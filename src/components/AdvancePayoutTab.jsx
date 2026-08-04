@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
+import { Plus } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { createAdvancePayoutRequest, getAdvancePayoutRequests } from '../services/firestore'
-
-const STATUS = {
-  pending:     'bg-amber-50 text-amber-700 border-amber-200',
-  approved:    'bg-emerald-50 text-emerald-700 border-emerald-200',
-  disapproved: 'bg-red-50 text-red-600 border-red-200',
-}
+import FinanceModal from './finance/FinanceModal'
+import StatusBadge from './finance/StatusBadge'
 
 export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
   const { userProfile } = useAuth()
@@ -17,6 +14,7 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -50,6 +48,7 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
       setForm({ amount: '', reason: '' })
       setSuccess(true)
       setTimeout(() => setSuccess(false), 4000)
+      setModalOpen(false)
       await load()
     } catch {
       setError('Failed to submit. Please try again.')
@@ -60,51 +59,11 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
 
   return (
     <div className="space-y-4">
-      {/* Request form */}
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_4px_24px_rgba(99,102,241,0.08)] ring-1 ring-inset ring-slate-100 p-5 space-y-4"
-      >
-        <h3 className="text-sm font-semibold text-slate-700">Request Advance Payout</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500">Amount (₹)</label>
-            <input
-              type="number"
-              min="1"
-              step="any"
-              value={form.amount}
-              onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-              placeholder="0"
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
-            />
-          </div>
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <label className="text-xs font-medium text-slate-500">Reason</label>
-            <textarea
-              value={form.reason}
-              onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
-              placeholder="Briefly describe the reason for this advance payout request…"
-              rows={3}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm resize-none"
-            />
-          </div>
-        </div>
-        {error && <p className="text-xs font-medium text-red-600">{error}</p>}
-        {success && <p className="text-xs font-medium text-emerald-600">Request submitted — pending review by Founder &amp; Administration.</p>}
-        <button
-          type="submit"
-          disabled={saving}
-          className="px-5 py-2 min-h-[40px] rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
-        >
-          {saving ? 'Submitting…' : 'Submit Request'}
-        </button>
-      </form>
 
-      {/* History */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-slate-700">Request History</h3>
+      {/* Section header + add action */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-slate-700">Payout Requests</h3>
           <button
             type="button"
             onClick={load}
@@ -115,14 +74,29 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
             ↻
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => { setError(''); setModalOpen(true) }}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors shrink-0"
+        >
+          <Plus size={16} /> Request Payout
+        </button>
+      </div>
+
+      {success && (
+        <p className="text-xs font-medium text-emerald-600">Request submitted — pending review by Founder &amp; Administration.</p>
+      )}
+
+      {/* Card-table request history */}
+      <div className="space-y-2">
         {loading ? (
-          <p className="p-6 text-sm text-slate-400 text-center">Loading…</p>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 text-center text-slate-400 text-sm">Loading…</div>
         ) : requests.length === 0 ? (
-          <p className="p-6 text-sm text-slate-400 text-center">No payout requests yet.</p>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 text-center text-slate-400 text-sm">No payout requests yet.</div>
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {requests.map(r => (
-              <li key={r.id} className="px-5 py-3 flex items-start justify-between gap-3">
+          requests.map(r => (
+            <div key={r.id} className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-800">₹{Number(r.amount).toLocaleString('en-IN')}</p>
                   <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{r.reason}</p>
@@ -131,14 +105,48 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
                     {r.status !== 'pending' && r.reviewedBy ? ` · Reviewed by ${r.reviewedBy}` : ''}
                   </p>
                 </div>
-                <span className={`shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full border capitalize ${STATUS[r.status] || ''}`}>
-                  {r.status}
-                </span>
-              </li>
-            ))}
-          </ul>
+                <StatusBadge status={r.status} />
+              </div>
+            </div>
+          ))
         )}
       </div>
+
+      {/* Request Payout modal */}
+      <FinanceModal open={modalOpen} onClose={() => setModalOpen(false)} title="Request Advance Payout">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-500">Amount (₹)</label>
+            <input
+              type="number"
+              min="1"
+              step="any"
+              value={form.amount}
+              onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+              placeholder="0"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-500">Reason</label>
+            <textarea
+              value={form.reason}
+              onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+              placeholder="Briefly describe the reason for this advance payout request…"
+              rows={3}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+            />
+          </div>
+          {error && <p className="text-xs font-medium text-red-600">{error}</p>}
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-5 py-2 min-h-[40px] rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
+          >
+            {saving ? 'Submitting…' : 'Submit Request'}
+          </button>
+        </form>
+      </FinanceModal>
     </div>
   )
 }

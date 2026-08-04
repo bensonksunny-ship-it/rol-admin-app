@@ -23,6 +23,8 @@ export function getDepartmentHubTabs(slug) {
       return ['summary', 'entry', 'finance', 'operations']
     case 'administration':
       return ['summary', 'upcomingSunday', 'finance', 'operations']
+    case 'sec-core':
+      return ['summary', 'directorBoard', 'sundayLeader', 'planning', 'finance']
     default:
       return ['summary', 'finance', 'operations']
   }
