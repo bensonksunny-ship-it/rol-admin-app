@@ -130,6 +130,15 @@ service cloud.firestore {
       allow write: if isFullAccess();
     }
 
+    // Global app settings (e.g. settings/pastoral_roster — default Pastors shown as
+    // pre-linked suggestions on every Sunday report). Read by anyone signed in since
+    // every Sunday report editor needs it; write restricted to Founder, same governance
+    // level as the /departments collection above.
+    match /settings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isFullAccess();
+    }
+
     match /tasks/{taskId} {
       // Cell also needs read access to its own cellAssignConsult requests once they've moved
       // to department: 'D Light' — otherwise the Unassigned row status badge can't tell

@@ -3331,6 +3331,7 @@ function normalizeReport(data) {
     filed: !!data.filed,
     sundayMinistryTeam: Array.isArray(data.sundayMinistryTeam) ? data.sundayMinistryTeam : [],
     pastoralAttendees: Array.isArray(data.pastoralAttendees) ? data.pastoralAttendees : [],
+    pastoralLinked: data.pastoralLinked && typeof data.pastoralLinked === 'object' ? data.pastoralLinked : {},
     sundayCellAttendance,
     olive: Array.isArray(data.olive) ? data.olive : [],
     jordan: Array.isArray(data.jordan) ? data.jordan : [],
@@ -3341,6 +3342,7 @@ function normalizeReport(data) {
     children: Array.isArray(data.children) ? data.children : [],
     newComers: Array.isArray(data.newComers) ? data.newComers : [],
     others: Array.isArray(data.others) ? data.others : [],
+    othersLinked: data.othersLinked && typeof data.othersLinked === 'object' ? data.othersLinked : {},
     nonCell: Array.isArray(data.nonCell) ? data.nonCell : [],
     secondWeekAttendeesNames: Array.isArray(data.secondWeekAttendeesNames) ? data.secondWeekAttendeesNames : [],
     thirdWeekAttendeesNames: Array.isArray(data.thirdWeekAttendeesNames) ? data.thirdWeekAttendeesNames : [],
@@ -3693,6 +3695,7 @@ export async function setSundayReport(dateStr, payload, updatedBy) {
     filed: data.filed,
     sundayMinistryTeam: data.sundayMinistryTeam,
     pastoralAttendees: data.pastoralAttendees,
+    pastoralLinked: data.pastoralLinked || {},
     sundayCellAttendance: data.sundayCellAttendance || {},
     olive: data.olive,
     jordan: data.jordan,
@@ -3703,6 +3706,7 @@ export async function setSundayReport(dateStr, payload, updatedBy) {
     children: data.children,
     newComers: data.newComers,
     others: data.others,
+    othersLinked: data.othersLinked || {},
     nonCell: data.nonCell,
     secondWeekAttendeesNames: data.secondWeekAttendeesNames,
     riverKids: data.riverKids,
@@ -4554,6 +4558,33 @@ export function subscribeSundayLeaderAssignmentNotifications(uid, onChange) {
   return onSnapshot(q, (snap) => {
     onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
   }, () => onChange([]))
+}
+
+// Global "Pastoral Roster" — default Pastors/leadership shown as one-tap, pre-linked
+// suggestions on every Sunday report's Pastoral Attendees section (see SundayReport.jsx).
+// Single settings doc, same shape as sec_core's sunday_leader_pool: { members: [...] }.
+export async function getPastoralRoster() {
+  if (!db) return {}
+  const snap = await getDoc(doc(db, 'settings', 'pastoral_roster'))
+  return snap.exists() ? snap.data() : {}
+}
+
+export function subscribeToPastoralRoster(onChange, onError) {
+  if (!db) { onError?.(); return () => {} }
+  return onSnapshot(
+    doc(db, 'settings', 'pastoral_roster'),
+    (snap) => onChange(snap.exists() ? snap.data() : {}),
+    (err) => { console.error('subscribeToPastoralRoster:', err); onError?.() }
+  )
+}
+
+export async function savePastoralRoster(data, updatedBy) {
+  if (!db) return
+  await setDoc(doc(db, 'settings', 'pastoral_roster'), {
+    ...data,
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
 }
 
 // Expense department options (Accounts → Operations → Add Departments)

@@ -24,6 +24,8 @@ import {
   subscribeSundayReportNameField,
   patchSundayReportCellAttendance,
   getSundayProgramDefault,
+  subscribeToPastoralRoster,
+  savePastoralRoster,
 } from '../services/firestore'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
@@ -40,8 +42,9 @@ const FOURTH_WEEK_KEY = { key: 'fourthWeekAttendeesNames', title: 'Fourth Week A
 
 const PASTORAL_KEY = { key: 'pastoralAttendees', title: 'Pastoral Attendees' }
 
-/** Currently the only pastor on record — shown as a one-tap suggestion above the search/manual-add options */
-const PASTORAL_ATTENDEE_SUGGESTIONS = ['Pastor Benson K Sunny']
+/** Fallback shown until a Founder links a real record via "Manage Pastoral Roster" —
+ * kept unlinked (no id/source) so it behaves exactly like today until then. */
+const DEFAULT_PASTORAL_ROSTER = [{ name: 'Pastor Benson K Sunny' }]
 
 /** Local-only UX: order for Done → scroll to next attendance section */
 const ATTENDANCE_SECTION_ORDER = ['pastoral', 'cells', 'nonCell', 'others', 'riverKids', 'newComers', 'secondWeekAttendeesNames', 'thirdWeekAttendeesNames', 'fourthWeekAttendeesNames']
@@ -111,7 +114,7 @@ function fmtFirstVisit(dateStr) {
   return format(d, 'd MMM yyyy')
 }
 
-function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, linkedNames = null, duplicateNorms = null, className = '' }) {
+function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', onSuggestionClick = null, people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, linkedNames = null, duplicateNorms = null, className = '' }) {
   const [query, setQuery] = useState('')
   const [linkingIdx, setLinkingIdx] = useState(null)
   const [linkQuery, setLinkQuery] = useState('')
@@ -183,7 +186,7 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
                 <button
                   key={name}
                   type="button"
-                  onClick={() => onAddValue?.(name)}
+                  onClick={() => (onSuggestionClick ? onSuggestionClick(name) : onAddValue?.(name))}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-medium hover:bg-indigo-100 transition-colors"
                 >
                   <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
@@ -281,6 +284,94 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
         )}
       </ul>
     </div>
+  )
+}
+
+/** Founder-only — manages the global settings/pastoral_roster doc: default Pastors
+ * every Sunday report's "Pastors — tap to add" suggestions pre-link to. */
+function PastoralRosterModal({ roster, directory, saving, onAdd, onRemove, onClose }) {
+  const [query, setQuery] = useState('')
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return []
+    const existing = new Set(roster.map((m) => (m.name || '').trim().toLowerCase()))
+    return directory.filter((p) => p.name && p.name.trim().toLowerCase().includes(q) && !existing.has(p.name.trim().toLowerCase())).slice(0, 8)
+  }, [query, directory, roster])
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div
+          className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+            <div>
+              <h3 className="font-semibold text-slate-900">Pastoral Roster</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Default "tap to add" suggestions for every Sunday report</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="p-4 space-y-2 border-b border-slate-100 shrink-0">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search the member database…"
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+            />
+            {results.length > 0 && (
+              <div className="border border-slate-200 rounded-lg shadow-sm max-h-56 overflow-y-auto">
+                {results.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={saving}
+                    onClick={() => { onAdd(p); setQuery('') }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col border-b border-slate-100 last:border-0 disabled:opacity-50"
+                  >
+                    <span className="text-slate-800 font-medium">{p.name}</span>
+                    <span className="text-xs text-indigo-500">
+                      {{ visitor: 'D-Light Visitor', cell: 'Cell Member', pcs: 'PCS', team: 'Dept/Worship Team' }[p.source] || 'People Directory'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="overflow-y-auto flex-1">
+            {roster.length === 0 ? (
+              <p className="px-5 py-6 text-center text-sm text-slate-400">No pastors added yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {roster.map((m, i) => (
+                  <li key={m.id || m.name || i} className="flex items-center justify-between gap-3 px-5 py-2.5">
+                    <span className="text-sm font-medium text-slate-800 truncate">{m.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => onRemove(i)}
+                      className="text-xs text-red-500 hover:underline shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -1767,6 +1858,93 @@ export default function SundayReport({ embedded = false }) {
     [report?.othersLinked]
   )
 
+  const pastoralLinkedNames = useMemo(
+    () => new Set(Object.keys(report?.pastoralLinked || {})),
+    [report?.pastoralLinked]
+  )
+
+  /**
+   * Link a Pastoral Attendees entry to a real profile (People Directory, D-Light
+   * visitor, cell member, PCS, or dept/worship team record) so their attendance is
+   * tied to their own profile via a real personId/visitorId — same mechanism as
+   * linkOthersNameToCell (recordPersonSundayAttendance), minus Others' cell-move
+   * behavior, which doesn't apply here: pastoral attendance is never reassigned into
+   * a cell's attendance list just because a name happens to match a cell member.
+   */
+  const linkPastoralNameToRecord = (idx, person) => {
+    const name = String(person?.name || '').trim()
+    if (!name) return
+    const pastoralAttendees = [...(report?.pastoralAttendees || [])]
+    pastoralAttendees[idx] = name
+    const pastoralLinked = { ...(report?.pastoralLinked || {}) }
+    pastoralLinked[name.toLowerCase()] = { source: person.source, id: person.id }
+    updateReport({ pastoralAttendees, pastoralLinked })
+
+    recordPersonSundayAttendance({
+      date: selectedDate,
+      personId: person.source === 'people' ? person.id : null,
+      visitorId: person.source === 'visitor' ? person.id : null,
+      name,
+      recordedBy: userProfile?.email || 'unknown',
+    }).catch(() => {})
+  }
+
+  // ── Pastoral Roster — global default Pastor/leadership mapping, so "tap to add"
+  // pre-links to a real database record instead of an unlinked string (see
+  // firestore.js's settings/pastoral_roster). Falls back to DEFAULT_PASTORAL_ROSTER
+  // (unlinked) until a Founder links it via "Manage Pastoral Roster".
+  const [pastoralRosterDoc, setPastoralRosterDoc] = useState({})
+  const [pastoralRosterModalOpen, setPastoralRosterModalOpen] = useState(false)
+  const [pastoralRosterSaving, setPastoralRosterSaving] = useState(false)
+
+  useEffect(() => {
+    const unsub = subscribeToPastoralRoster(setPastoralRosterDoc, () => setPastoralRosterDoc({}))
+    return unsub
+  }, [])
+
+  const pastoralRosterMembers = pastoralRosterDoc?.members?.length ? pastoralRosterDoc.members : DEFAULT_PASTORAL_ROSTER
+  const pastoralSuggestionNames = useMemo(
+    () => pastoralRosterMembers.map((m) => m.name).filter(Boolean),
+    [pastoralRosterMembers]
+  )
+  const pastoralRosterByName = useMemo(() => {
+    const map = {}
+    pastoralRosterMembers.forEach((m) => { if (m.name) map[m.name.trim().toLowerCase()] = m })
+    return map
+  }, [pastoralRosterMembers])
+
+  /** Tapping a pastoral suggestion both adds the name AND links it in one step,
+   * when the roster has a real record for that name — no separate "Link" tap needed. */
+  const handlePastoralSuggestionClick = (name) => {
+    const record = pastoralRosterByName[name.trim().toLowerCase()]
+    if (record?.id && record?.source) {
+      const idx = (report?.pastoralAttendees || []).length
+      addCellNameValue(PASTORAL_KEY.key, name)
+      linkPastoralNameToRecord(idx, record)
+    } else {
+      addCellNameValue(PASTORAL_KEY.key, name)
+    }
+  }
+
+  const addToPastoralRoster = async (person) => {
+    const members = pastoralRosterDoc?.members || []
+    if (members.some((m) => (m.name || '').trim().toLowerCase() === (person.name || '').trim().toLowerCase())) return
+    setPastoralRosterSaving(true)
+    try {
+      const next = [...members, { name: person.name, id: person.id, source: person.source }]
+      await savePastoralRoster({ members: next }, userProfile?.name || userProfile?.email)
+      setPastoralRosterDoc((prev) => ({ ...prev, members: next }))
+    } finally {
+      setPastoralRosterSaving(false)
+    }
+  }
+
+  const removeFromPastoralRoster = async (idx) => {
+    const members = (pastoralRosterDoc?.members || []).filter((_, i) => i !== idx)
+    await savePastoralRoster({ members }, userProfile?.name || userProfile?.email)
+    setPastoralRosterDoc((prev) => ({ ...prev, members }))
+  }
+
   /**
    * Link an "Others" entry to a real profile — either a People Directory record or a
    * D-Light visitor record — so their own profile can show this Sunday's attendance.
@@ -2093,20 +2271,48 @@ export default function SundayReport({ embedded = false }) {
                 onDone={() => handleAttendanceDone('pastoral')}
                 onUndo={() => handleAttendanceUndo('pastoral')}
               >
+                {isFounder && (
+                  <div className="flex justify-end mb-1">
+                    <button
+                      type="button"
+                      onClick={() => setPastoralRosterModalOpen(true)}
+                      className="text-xs text-indigo-600 hover:underline font-medium"
+                    >
+                      Manage Pastoral Roster
+                    </button>
+                  </div>
+                )}
                 <NameListSection
                   title={PASTORAL_KEY.title}
                   names={report?.[PASTORAL_KEY.key] || []}
                   canEdit={pastoralEdit}
+                  onAdd={() => addCellName(PASTORAL_KEY.key)}
                   onAddValue={(value) => addCellNameValue(PASTORAL_KEY.key, value)}
                   onEdit={(idx, value) => updateCellList(PASTORAL_KEY.key, idx, value)}
                   onRemove={(idx) => removeCellName(PASTORAL_KEY.key, idx)}
-                  suggestions={PASTORAL_ATTENDEE_SUGGESTIONS}
+                  people={othersLinkDirectory}
+                  searchPlaceholder="Search the member database…"
+                  suggestions={pastoralSuggestionNames}
                   suggestionsLabel="Pastors — tap to add"
-                  showManualAdd={false}
+                  onSuggestionClick={handlePastoralSuggestionClick}
+                  linkDirectory={othersLinkDirectory}
+                  onLink={linkPastoralNameToRecord}
+                  linkedNames={pastoralLinkedNames}
                   duplicateNorms={duplicateNorms}
                   className="border-0 shadow-none bg-transparent p-0"
                 />
               </AttendanceSectionShell>
+
+              {pastoralRosterModalOpen && (
+                <PastoralRosterModal
+                  roster={pastoralRosterDoc?.members || []}
+                  directory={othersLinkDirectory}
+                  saving={pastoralRosterSaving}
+                  onAdd={addToPastoralRoster}
+                  onRemove={removeFromPastoralRoster}
+                  onClose={() => setPastoralRosterModalOpen(false)}
+                />
+              )}
 
               <AttendanceSectionShell
                 sectionRef={cellsSectionRef}
