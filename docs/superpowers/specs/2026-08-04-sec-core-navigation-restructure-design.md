@@ -9,7 +9,7 @@ Restructures Sec-Core's navigation so Director Board, Sunday Leader, and Plannin
 
 - Board Agenda is nested inside Director Board as a collapsible card, not its own tab.
 - Sunday Leader gains a managed "Sunday Leaders Pool" with single-dropdown assignment instead of free-text name entry (no Co-Leader field).
-- Sunday Leader gains a JPEG schedule export and a My Workspace notification banner (see §2).
+- Sunday Leader gains a Psalm-per-Sunday assignment (dropdown, auto-suggested from the prior Sunday), a JPEG schedule export, and a My Workspace notification banner (see §2).
 - Operations (and its Team / Sub Department children) is removed entirely for Sec-Core; Planning is promoted out of Operations to stand alone.
 - The `summary` tab is retained as Sec-Core's landing page, rendering the [Sec-Core Analytics Hub](2026-08-04-sec-core-analytics-hub-design.md) dashboard — already implemented in the baseline, unchanged by this spec.
 
@@ -29,7 +29,7 @@ Before this spec, the working tree already contained substantial uncommitted pro
 
 **What this spec still needs to add on top of that baseline:**
 1. Change `DirectorBoardPage`'s Board Agenda from a clickable sub-tab to a collapsed-by-default collapsible card (see §1).
-2. Sunday Leaders Pool: `+` button, modal, Firestore doc/functions, single-dropdown conversion (no Co-Leader), stale-entry handling, JPEG export, and a My Workspace notification banner (see §2).
+2. Sunday Leaders Pool: `+` button, modal, Firestore doc/functions, single-dropdown conversion (no Co-Leader), stale-entry handling, Psalm-per-Sunday assignment, JPEG export, and a My Workspace notification banner (see §2).
 3. Remove `operations` from `sec-core`'s tab list; promote `planning` to top-level (see §3).
 
 ## Tabs
@@ -73,6 +73,7 @@ Before this spec, the working tree already contained substantial uncommitted pro
 |---|---|
 | Prev/Next Sunday date nav | "Recent Assignments" history list (unchanged from today) |
 | Leader `<select>` (single — **no Co-Leader field**) | Click a row → jumps `selectedDate` to that entry, same as today |
+| Psalm `<select>` (Psalm 1–150, auto-suggested — see below) | |
 | Notes `<textarea>` (unchanged) | |
 | Delete / Save buttons (unchanged logic) | |
 
@@ -82,13 +83,22 @@ Before this spec, the working tree already contained substantial uncommitted pro
 
 **Stale entries:** when the entry being edited has a `leader` name not present in the current pool (person since removed), that name is injected into the dropdown's option list as an extra, visually distinguished option (e.g. dimmed, suffixed "(not in pool)") — computed client-side per render, not persisted. Ensures opening any past Sunday never shows a blank field. Saving without changing the selection keeps the same stored name; removing someone from the pool has no effect on already-saved entries.
 
-Read/write of the per-Sunday entry itself (`sec_core_sunday_leader/{dateStr}` docs) is otherwise unchanged — same `getSecCoreSundayLeaderEntry` / `setSecCoreSundayLeaderEntry` / `deleteSecCoreSundayLeaderEntry` / `getSecCoreSundayLeaderEntries` functions, same schema minus `coLeader` going forward, just sourced from a select instead of a text input.
+Read/write of the per-Sunday entry itself (`sec_core_sunday_leader/{dateStr}` docs) is otherwise unchanged — same `getSecCoreSundayLeaderEntry` / `setSecCoreSundayLeaderEntry` / `deleteSecCoreSundayLeaderEntry` / `getSecCoreSundayLeaderEntries` functions, same schema minus `coLeader` (plus new `psalm`, see below) going forward, just sourced from a select instead of a text input.
+
+### Psalm-per-Sunday
+
+New `psalm` field (number, 1–150) on the same `sec_core_sunday_leader/{dateStr}` doc, entered via a `<select>` ("Psalm 1" … "Psalm 150") in the same form as Leader/Notes — one Save persists all of it together.
+
+**Auto-suggested default:** when the loaded entry for `selectedDate` has no `psalm` saved yet, look up the entry for exactly 7 days earlier (`format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd')` — the same `subWeeks` helper this file already imports for Prev/Next nav). If that prior-Sunday entry has a `psalm`, pre-select `psalm + 1` (wrapping `150 → 1`) as this Sunday's starting value in the dropdown. This is only a starting suggestion:
+- It never overwrites an already-saved `psalm` on the entry being viewed.
+- The admin can freely pick any other Psalm before saving.
+- If the prior Sunday has no entry or no `psalm` set, the dropdown starts unselected (no default guess).
 
 ### Export Schedule (JPEG)
 
 "Export Schedule" button in the header. On click:
 1. Fetches **every** `sec_core_sunday_leader` entry on record via a new unbounded `getAllSecCoreSundayLeaderEntries()` (the existing `getSecCoreSundayLeaderEntries(count)` caps at a limit — wrong shape for "however many Sundays are assigned, that many," not a fixed monthly/count window), sorted chronologically ascending.
-2. Renders an off-screen styled card (ROL Church header, one row per entry: date + leader name) and snapshots it with **html2canvas** (new dependency, added to `package.json`) → canvas → `toBlob('image/jpeg', ...)`.
+2. Renders an off-screen styled card (ROL Church header, one row per entry: date + leader name + Psalm) and snapshots it with **html2canvas** (new dependency, added to `package.json`) → canvas → `toBlob('image/jpeg', ...)`.
 3. Triggers a download via a temporary `<a download>` link + `URL.createObjectURL`, same download mechanic `WorshipWorkspaceWidget.generateAndSharePlan` already uses (`src/components/workspace/WorshipWorkspaceWidget.jsx:380-388`), though that function hand-draws on `<canvas>` directly rather than using html2canvas.
 
 ### Workspace Notification Banner
@@ -96,7 +106,7 @@ Read/write of the per-Sunday entry itself (`sec_core_sunday_leader/{dateStr}` do
 New component `src/components/workspace/SecCoreSundayLeaderWorkspaceWidget.jsx`, added to `MyWorkspace.jsx` alongside `WorshipWorkspaceWidget` (`src/pages/MyWorkspace.jsx:6,69`). Follows `WorshipWorkspaceWidget`'s literal pattern — **no bell, no `dismissed_notifications` entry, no deep link** — just a self-contained card:
 - Fetches `sec_core_sunday_leader` entries and finds the nearest date `>= today` where `leader` name-matches the signed-in user (`userProfile.name`, same case-insensitive trim/compare convention used elsewhere in the app, e.g. Sunday Attendance name matching).
 - If none found, the widget renders nothing (`canSeeWidget` gate, matching `WorshipWorkspaceWidget`'s `if (!canSeeWidget) return null`).
-- Header text: `"Hello {firstName}, you are the Sunday Leader on {formatted date}"`.
+- Header text: `"Hello {firstName}, you are the Sunday Leader on {formatted date}"`, plus the assigned Psalm (e.g. "Psalm 23") shown alongside the date once expanded.
 - **Special color:** when that nearest date equals the coming Sunday (same `nextSundayISO()`-style calculation `SundayLeaderTab` already uses), the header uses an urgent gradient treatment (amber/rose, distinct from Worship's violet-indigo so the two widgets don't read as the same alert) — matching `WorshipWorkspaceWidget`'s `isScheduledThisSunday ? 'bg-gradient-to-r from-violet-600 to-indigo-600...' : ...` pattern (`WorshipWorkspaceWidget.jsx:414-418`) but with Sec-Core's own color pair. When the nearest date is further out (not the immediate coming Sunday), the card renders in a calmer neutral/indigo style instead.
 - Click toggles `expanded`, revealing the entry's `notes` (if any) and, if the user has more than one upcoming assigned date, a short list of the others.
 
@@ -134,7 +144,7 @@ Relative to the current uncommitted working-tree state (not relative to `HEAD`) 
 | `src/constants/departmentTabs.js` | `sec-core` case: drop `operations`, add `planning` → `['summary', 'directorBoard', 'sundayLeader', 'planning', 'finance']` |
 | `src/utils/departmentSubpages.js` | No change needed — `directorBoard`/`sundayLeader` labels/icons already added; `planning`/`finance` already generic |
 | `src/services/firestore.js` | Add `getSundayLeaderPool`, `subscribeToSundayLeaderPool`, `setSundayLeaderPool`, `getAllSecCoreSundayLeaderEntries` |
-| `src/pages/seccore/SecCoreSummary.jsx` | `DirectorBoardPage`: replace the `subTab`/sub-tab-strip implementation with `DirectorBoardTab` + collapsible Board Agenda card. `SundayLeaderTab`: remove Co-Leader input/state; add pool state/subscription, `+` button, Leaders Pool modal, convert Leader input to `<select>`, stale-entry handling, Export Schedule button (html2canvas) |
+| `src/pages/seccore/SecCoreSummary.jsx` | `DirectorBoardPage`: replace the `subTab`/sub-tab-strip implementation with `DirectorBoardTab` + collapsible Board Agenda card. `SundayLeaderTab`: remove Co-Leader input/state; add pool state/subscription, `+` button, Leaders Pool modal, convert Leader input to `<select>`, stale-entry handling, Psalm `<select>` with prior-Sunday auto-suggest, Export Schedule button (html2canvas) |
 | `src/components/workspace/SecCoreSundayLeaderWorkspaceWidget.jsx` | New — My Workspace notification banner, literal-Worship-widget pattern, special color when nearest assignment is the coming Sunday |
 | `src/pages/MyWorkspace.jsx` | Import and render `SecCoreSundayLeaderWorkspaceWidget` alongside `WorshipWorkspaceWidget` |
 | `src/pages/DepartmentHub.jsx` | No new imports/branches needed — `directorBoard`/`sundayLeader`/`summary`(`SecCoreAnalyticsHub`) render blocks already wired in the baseline; `planning`/`finance` already generic, work automatically once `planning` is in `sec-core`'s tab list |
@@ -142,7 +152,8 @@ Relative to the current uncommitted working-tree state (not relative to `HEAD`) 
 ## Out of Scope / Non-Goals
 
 - No `firestore.rules` changes.
-- No schema migration on the existing `sec_core_sunday_leader` per-date entry docs — `coLeader` simply stops being read/written by the UI; historical values are left in place, untouched.
+- No schema migration on the existing `sec_core_sunday_leader` per-date entry docs — `coLeader` simply stops being read/written by the UI (historical values left in place, untouched); `psalm` is a purely additive new field, absent on all existing docs until re-saved.
+- No assigned "Psalm reader" role — Psalm is a reference/content field only, not a separate person assignment.
 - No change to historical Director Board or Board Agenda data or behavior.
 - No bell/dismiss/deep-link integration for the Sunday Leader notification — it's a plain My Workspace banner only, matching Worship's actual pattern (see §2's Workspace Notification Banner).
 - No change to Analytics Hub's data sources, KPI logic, chart design, or file location (see its own spec) — it's already implemented in the baseline and this spec doesn't touch it.
