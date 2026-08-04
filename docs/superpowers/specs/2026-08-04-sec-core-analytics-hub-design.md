@@ -1,7 +1,7 @@
 # Sec-Core Analytics Hub — Design Spec
 
 **Date:** 2026-08-04
-**Status:** Approved
+**Status:** Implemented (uncommitted in working tree) — see [2026-08-04-sec-core-navigation-restructure-design.md](2026-08-04-sec-core-navigation-restructure-design.md), which documents this alongside other in-flight Sec-Core changes and leaves it untouched.
 
 ## Overview
 
@@ -24,7 +24,7 @@ All four are subscribed independently inside the new component (self-contained, 
 
 ## Component
 
-New export `SecCoreAnalyticsHub` added to `src/pages/seccore/SecCoreSummary.jsx` (same file as the other three Sec-Core tab components). No props required.
+New export `SecCoreAnalyticsHub` added to `src/pages/seccore/SecCoreSummary.jsx` (same file as the other Sec-Core tab components). No props required.
 
 `DepartmentHub.jsx` renders `<SecCoreAnalyticsHub />` in a new `slug === 'sec-core'` branch of the `summary` tab's if/else chain (inserted before the final generic-default branch, alongside the existing `caring`/`d-light`/`accounts` branches). The existing "Total Expense (This Month)" card above the branch (shown for every department) is left untouched.
 
@@ -91,5 +91,5 @@ Matches the existing design system (same as `DLightDirectorDashboard.jsx`):
 
 | File | Change |
 |------|--------|
-| `src/pages/seccore/SecCoreSummary.jsx` | Add `SecCoreAnalyticsHub` export (new data hooks + KPI/chart/insight JSX) |
+| `src/pages/seccore/SecCoreSummary.jsx` | Add `SecCoreAnalyticsHub` export (data hooks + KPI/chart/insight JSX) |
 | `src/pages/DepartmentHub.jsx` | Import `SecCoreAnalyticsHub`; add `slug === 'sec-core'` branch in the `summary` tab's if/else chain |
