@@ -245,7 +245,7 @@ function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
   )
 }
 
-export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda }) {
+export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, onScheduleMeeting }) {
   const [members, setMembers]   = useState([])
   const [loading, setLoading]   = useState(true)
   const [saving, setSaving]     = useState(false)
@@ -253,7 +253,6 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda }) 
   const [newMember, setNewMember] = useState(BLANK_MEMBER)
   const [editIdx, setEditIdx]   = useState(null)
   const [showForm, setShowForm] = useState(false)
-  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [meetings, setMeetings] = useState([])
 
   useEffect(() => {
@@ -454,7 +453,7 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda }) 
             <div className="relative group">
               <button
                 type="button"
-                onClick={() => setScheduleOpen(true)}
+                onClick={() => onScheduleMeeting?.()}
                 aria-label="Schedule Meeting"
                 title="Schedule Meeting"
                 className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
@@ -526,14 +525,6 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda }) 
           </ul>
         )}
       </div>
-
-      {scheduleOpen && (
-        <ScheduleMeetingModal
-          members={members}
-          userProfile={userProfile}
-          onClose={() => setScheduleOpen(false)}
-        />
-      )}
 
       {SECTIONS.map((sec) => {
         const secMembers = byType[sec.key]
@@ -607,8 +598,8 @@ const BLANK_MEETING = { title: '', date: '', time: '', venue: '' }
  * (Secretary/Director/Coordinator) who has a resolvable app account — same
  * getUserByName + notification pattern SundayLeaderTab uses for leader assignments —
  * plus every Senior Pastor and Founder, regardless of whether they sit on the roster. */
-function ScheduleMeetingModal({ members, userProfile, onClose }) {
-  const [form, setForm] = useState(BLANK_MEETING)
+function ScheduleMeetingModal({ members, userProfile, initialDate = null, onClose }) {
+  const [form, setForm] = useState(() => (initialDate ? { ...BLANK_MEETING, date: initialDate } : BLANK_MEETING))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -1512,13 +1503,19 @@ function sundayDateChips() {
   })
 }
 
-export function BoardAgendaTab({ canEdit, userProfile, initialDate = null }) {
+export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onScheduleMeeting }) {
   const [allPoints, setAllPoints] = useState([])
   const [loading, setLoading]     = useState(true)
   const [selectedDate, setSelectedDate] = useState(null)
   const [editId, setEditId]       = useState(null)
   const [editVals, setEditVals]   = useState({ durationMinutes: '' })
   const [saving, setSaving]       = useState(false)
+  const [meetings, setMeetings]   = useState([])
+
+  useEffect(() => {
+    const unsub = subscribeToBoardMeetings(setMeetings, () => setMeetings([]))
+    return unsub
+  }, [])
 
   // Meeting Start Time — one per Sunday, drives the auto-computed timeline below.
   // Collapsed by default; the date chips row (de-emphasized) is only shown once the
@@ -1562,6 +1559,12 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null }) {
   const fixedPoints  = datePoints.filter(p => p.slNo && p.allottedTime).sort((a, b) => Number(a.slNo) - Number(b.slNo))
   const unfixedPoints = datePoints.filter(p => !p.slNo || !p.allottedTime)
   const sortedPoints = [...fixedPoints, ...unfixedPoints]
+
+  // A calendar Sunday is auto-selected by default (sundayDateChips()[0]) whether or
+  // not a Board Meeting was actually scheduled for it — this distinguishes "there's a
+  // real meeting on this date" from "this is just the next Sunday" so the agenda sheet
+  // can give way to a clean empty state instead of a meeting-shaped card with nothing in it.
+  const hasScheduledMeeting = !!selectedDate && meetings.some(m => m.date === selectedDate)
 
   // Live per-point time windows, derived from Start Time + each accepted point's
   // durationMinutes in Sl No order — recalculates automatically whenever Start Time
@@ -1746,8 +1749,33 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null }) {
         </div>
       )}
 
+      {/* ── No meeting scheduled for this date — clean empty state instead of a
+          meeting-shaped card with nothing in it ── */}
+      {selectedDate && !hasScheduledMeeting && (
+        <div className="mx-auto bg-white rounded-2xl shadow-sm border border-dashed border-slate-300 overflow-hidden w-full" style={{ maxWidth: 480 }}>
+          <div className="px-6 py-10 flex flex-col items-center text-center gap-2">
+            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-1">
+              <CalendarPlus size={22} strokeWidth={2} />
+            </div>
+            <p className="text-sm font-bold text-slate-700">No Board Meeting Scheduled</p>
+            <p className="text-xs text-slate-400 max-w-[280px]">
+              {format(new Date(selectedDate + 'T00:00:00'), 'EEEE, d MMMM yyyy')} doesn't have a scheduled Board Meeting yet.
+            </p>
+            {canEdit && onScheduleMeeting && (
+              <button
+                type="button"
+                onClick={() => onScheduleMeeting(selectedDate)}
+                className="mt-2 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
+              >
+                <CalendarPlus size={14} strokeWidth={2.5} /> Schedule Meeting
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── A5 agenda sheet ── */}
-      {selectedDate && (
+      {selectedDate && hasScheduledMeeting && (
         <div className="mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden w-full" style={{ maxWidth: 480 }}>
 
           {/* Header */}
@@ -1932,6 +1960,26 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [pointsMeetingId, setPointsMeetingId] = useState(null)
 
+  // Schedule Board Meeting — owned here (not inside DirectorBoardTab) so both the
+  // roster page's own "Schedule Meeting" icon AND the Board Agenda drawer's new
+  // "No Board Meeting Scheduled" empty-state button can open the same modal.
+  const [members, setMembers] = useState([])
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [schedulePrefillDate, setSchedulePrefillDate] = useState(null)
+
+  useEffect(() => {
+    const unsub = subscribeToDirectorBoard(
+      (d) => setMembers(d.members || []),
+      () => {}
+    )
+    return unsub
+  }, [])
+
+  const openScheduleMeeting = (date = null) => {
+    setSchedulePrefillDate(date)
+    setScheduleOpen(true)
+  }
+
   const openAgenda = (date) => { setAgendaDate(date); setAgendaOpen(true) }
 
   // Deep-linked from a "Board Meeting: {title}" notification (see
@@ -1953,12 +2001,27 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
         canEdit={canEdit}
         userProfile={userProfile}
         onOpenMeetingAgenda={openAgenda}
+        onScheduleMeeting={openScheduleMeeting}
       />
 
       {agendaOpen && (
         <BoardAgendaDrawer onClose={() => setAgendaOpen(false)}>
-          <BoardAgendaTab canEdit={canEdit} userProfile={userProfile} initialDate={agendaDate} />
+          <BoardAgendaTab
+            canEdit={canEdit}
+            userProfile={userProfile}
+            initialDate={agendaDate}
+            onScheduleMeeting={openScheduleMeeting}
+          />
         </BoardAgendaDrawer>
+      )}
+
+      {scheduleOpen && (
+        <ScheduleMeetingModal
+          members={members}
+          userProfile={userProfile}
+          initialDate={schedulePrefillDate}
+          onClose={() => { setScheduleOpen(false); setSchedulePrefillDate(null) }}
+        />
       )}
 
       {pointsMeetingId && (

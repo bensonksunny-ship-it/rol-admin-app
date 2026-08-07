@@ -5197,21 +5197,41 @@ export async function getAllWorshipTeamMembers() {
 // visitorId, same as PeopleDirectory.jsx's own list) into one searchable roster,
 // so any "search the People Directory" picker sees the same "everybody" the
 // People Directory page does instead of just the sparse `people` collection.
+// Every source below is read with a fallback to [] so one unavailable collection can't
+// blank the whole directory. But a *silent* fallback is how a permission-denied rule
+// turned into "those people just don't exist in search" with nothing in the console to
+// explain it — the D Light visitor-entry outage that made people unfindable for any
+// department outside the old delight_visitors allow-list. Log loudly instead: the
+// directory still degrades gracefully, but the reason is visible in the console.
+function directorySource(label, promise) {
+  return promise.catch((err) => {
+    console.error(
+      `[PeopleDirectory] Source "${label}" failed to load — these people will be MISSING ` +
+      `from directory search. Usually a Firestore rules permission-denied for this user's ` +
+      `department; see the read rule for this collection in firestore.rules.`,
+      err
+    )
+    return []
+  })
+}
+
 export async function getMergedPeopleDirectory() {
   const [people, cellMembers, pcsEntries, deptTeams, worshipTeams, cellGroups, visitors, sundayAttendance] = await Promise.all([
-    getPeople().catch(() => []),
-    getAllCellGroupMembers().catch(() => []),
+    directorySource('people', getPeople()),
+    directorySource('cell members', getAllCellGroupMembers()),
     // Active + inactive (soft-deleted) PCS entries both — this is the "everybody in
     // the church's records" directory (see comment at its call sites), so someone
     // removed from active pastoral care tracking should still be findable here, not
     // silently dropped the way getPCSEntries() alone drops them for the PCS list view.
-    Promise.all([getPCSEntries().catch(() => []), getInactivePCSEntries().catch(() => [])])
-      .then(([active, inactive]) => [...active, ...inactive]),
-    getAllDepartmentTeamMembers().catch(() => []),
-    getAllWorshipTeamMembers().catch(() => []),
-    getCellGroups('Cell').catch(() => []),
-    getDelightVisitors().catch(() => []),
-    getAllPersonSundayAttendance().catch(() => []),
+    Promise.all([
+      directorySource('PCS entries (active)', getPCSEntries()),
+      directorySource('PCS entries (inactive)', getInactivePCSEntries()),
+    ]).then(([active, inactive]) => [...active, ...inactive]),
+    directorySource('department team members', getAllDepartmentTeamMembers()),
+    directorySource('worship team members', getAllWorshipTeamMembers()),
+    directorySource('cell groups', getCellGroups('Cell')),
+    directorySource('D Light visitor entries', getDelightVisitors()),
+    directorySource('Sunday attendance', getAllPersonSundayAttendance()),
   ])
 
   const cellById = {}

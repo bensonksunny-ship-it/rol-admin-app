@@ -57,6 +57,7 @@ import {
   updateDepartmentUpdate,
   deleteDepartmentUpdate,
   getDelightVisitors,
+  getMergedPeopleDirectory,
   subscribeDelightVisitors,
   addDelightVisitor,
   updateDelightVisitor,
@@ -501,7 +502,7 @@ export default function DepartmentHub() {
   const [markingWeekComerName, setMarkingWeekComerName] = useState(null)
   const [delightVisitorModalOpen, setDelightVisitorModalOpen] = useState(false)
   const [editingDelightVisitorId, setEditingDelightVisitorId] = useState(null)
-  const [importingVisitors, setImportingVisitors] = useState(false)
+  const [_importingVisitors, setImportingVisitors] = useState(false)
   const [importVisitorResult, setImportVisitorResult] = useState(null)
   const [importPreviewRows, setImportPreviewRows] = useState([])
   const [importPreviewOpen, setImportPreviewOpen] = useState(false)
@@ -1433,11 +1434,50 @@ export default function DepartmentHub() {
     setMarkingWeekComerName(null)
   }
 
+  // Backs the "Add Member" person picker on every department's Team tab.
+  //
+  // Two problems this fixes, both of which showed up as "I can't find this person to
+  // add them to my team":
+  //
+  //  1. It read delight_visitors directly, which firestore.rules only allowed for an
+  //     allow-list of departments. Every other Director got permission-denied, and the
+  //     `.catch(() => [])` turned that into a silently empty picker with no error to
+  //     report. The rule is now open to any signed-in user, and the catch logs.
+  //  2. Even when the read succeeded, D-Light visitor entries are only ONE of the
+  //     places a church member exists — plenty of people only ever appear as a cell
+  //     member, a PCS entry, or a `people` record. Those were unfindable here. Reading
+  //     the merged directory instead means every person in the church is searchable,
+  //     unfiltered, which is what this picker is supposed to offer.
+  //
+  // The merged entries carry `_key`/`personId`/`_visitorIds` and never a plain `.id`
+  // (see getMergedPeopleDirectory), so they're normalized to the `{id, name, phone}`
+  // shape this picker writes as `visitorId`. `id` prefers the real D-Light visitor doc
+  // id when the person has one, so existing visitorId-keyed lookups elsewhere keep
+  // resolving exactly as before; people with no visitor record fall back to their
+  // personId rather than being dropped from the search.
   useEffect(() => {
     const isTeamSection = activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team')
     if (!isTeamSection) return
     setTeamVisitorsLoading(true)
-    getDelightVisitors().then(setTeamVisitors).catch(() => setTeamVisitors([])).finally(() => setTeamVisitorsLoading(false))
+    getMergedPeopleDirectory()
+      .then(({ people }) => {
+        const seen = new Set()
+        const options = []
+        for (const p of people || []) {
+          const name = String(p.name || '').trim()
+          const id = (p._visitorIds && p._visitorIds[0]) || p.personId || p._key
+          if (!name || !id || seen.has(id)) continue
+          seen.add(id)
+          options.push({ id, name, phone: p.phone || '' })
+        }
+        options.sort((a, b) => a.name.localeCompare(b.name))
+        setTeamVisitors(options)
+      })
+      .catch((err) => {
+        console.error('Failed to load the people list for the Team tab\'s Add Member search — the picker will appear empty.', err)
+        setTeamVisitors([])
+      })
+      .finally(() => setTeamVisitorsLoading(false))
   }, [slug, activeTab, opsSubTab])
 
   useEffect(() => {
@@ -3092,103 +3132,6 @@ export default function DepartmentHub() {
                 </div>
                 {canEditDelightVisitors && (
                   <div className="flex items-center gap-2">
-                    {/* Paste data button */}
-                    <button
-                      type="button"
-                      title="Paste data"
-                      onClick={() => { setPasteText(''); setPasteImportOpen(true) }}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer select-none bg-white/70 backdrop-blur-sm border border-slate-200/80 shadow-sm text-slate-600 text-sm font-medium hover:bg-white hover:shadow-md hover:border-blue-200 hover:text-blue-700 transition-all duration-150"
-                    >
-                      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
-                        <rect x="6" y="2" width="10" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                        <path d="M6 5H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                        <path d="M9 8h4M9 11h4M9 14h2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
-                      </svg>
-                      <span className="hidden sm:inline">Paste Data</span>
-                    </button>
-                    {/* Import Excel — glassmorphism icon button */}
-                    <label
-                      title="Import from Excel"
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer select-none
-                        bg-white/70 backdrop-blur-sm border border-slate-200/80 shadow-sm
-                        text-slate-600 text-sm font-medium
-                        hover:bg-white hover:shadow-md hover:border-emerald-200 hover:text-emerald-700
-                        transition-all duration-150
-                        ${importingVisitors ? 'opacity-50 pointer-events-none' : ''}`}
-                    >
-                      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
-                        <rect x="2" y="2" width="12" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                        <path d="M5 7h6M5 10h6M5 13h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
-                        <circle cx="16" cy="15" r="3.5" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.25"/>
-                        <path d="M16 13.5v3M14.5 15.5l1.5 1.5 1.5-1.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                      <span className="hidden sm:inline">{importingVisitors ? 'Parsing…' : 'Import Excel'}</span>
-                      <input
-                        type="file"
-                        accept=".xlsx,.xls,.csv"
-                        className="hidden"
-                        disabled={importingVisitors}
-                        onChange={async (e) => {
-                          const file = e.target?.files?.[0]
-                          if (!file) return
-                          e.target.value = ''
-                          setImportingVisitors(true)
-                          try {
-                            const ext = file.name.toLowerCase()
-                            const readFile = () => new Promise((res, rej) => {
-                              const fr = new FileReader()
-                              fr.onload = (ev) => res(ev.target.result)
-                              fr.onerror = rej
-                              if (ext.endsWith('.csv')) fr.readAsText(file)
-                              else fr.readAsArrayBuffer(file)
-                            })
-                            const data = await readFile()
-                            let rows = []
-                            if (ext.endsWith('.csv')) {
-                              rows = String(data).split(/\r?\n/).map((l) => l.split(',').map((c) => c.trim().replace(/^["']|["']$/g, '')))
-                            } else {
-                              const XLSX = await import('xlsx')
-                              const wb = XLSX.read(data, { type: 'array' })
-                              rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 })
-                            }
-                            const parsed = parseVisitorRows(rows)
-                            if (parsed.length === 0) {
-                              setImportVisitorResult({ error: true, message: 'No valid rows found in file.' })
-                              setTimeout(() => setImportVisitorResult(null), 4000)
-                            } else {
-                              setImportPreviewRows(parsed)
-                              setImportPreviewOpen(true)
-                            }
-                          } catch (err) {
-                            console.error(err)
-                            setImportVisitorResult({ error: true, message: 'Could not read file — check format.' })
-                            setTimeout(() => setImportVisitorResult(null), 4000)
-                          } finally {
-                            setImportingVisitors(false)
-                          }
-                        }}
-                      />
-                    </label>
-
-                    {filteredDelightVisitors.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const year = visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear
-                          if (!window.confirm(`Delete all ${filteredDelightVisitors.length} visitor entries for ${year}? This cannot be undone.`)) return
-                          try {
-                            await Promise.all(filteredDelightVisitors.map((v) => deleteDelightVisitor(v.id)))
-                            setDelightVisitors((prev) => prev.filter((v) => !filteredDelightVisitors.some((f) => f.id === v.id)))
-                          } catch (err) {
-                            console.error(err)
-                            alert('Failed to delete all visitors')
-                          }
-                        }}
-                        className="px-4 py-2 rounded-lg bg-red-50 text-red-600 border border-red-200 text-sm font-medium hover:bg-red-100"
-                      >
-                        Delete All
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={() => {

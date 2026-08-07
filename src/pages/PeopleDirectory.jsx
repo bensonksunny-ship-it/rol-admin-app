@@ -11,7 +11,7 @@ import {
   updateDelightVisitor,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
-import { isFounder } from '../utils/access'
+import { hasAccess } from '../utils/access'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
 import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
@@ -276,7 +276,7 @@ function Row({ label, value }) {
   )
 }
 
-function ExpandedProfile({ p, onEdit }) {
+function ExpandedProfile({ p, onEdit, canEdit }) {
   // Build ministry list: manual PCS entries first, then auto from team records (deduplicated by ministry name)
   const manualMinistries = (p.pcs?.ministries || p.ministries || []).map(m => ({ ...m, source: 'pcs' }))
   const manualNames = new Set(manualMinistries.map(m => m.ministry?.toLowerCase()))
@@ -424,21 +424,31 @@ function ExpandedProfile({ p, onEdit }) {
         )}
       </SectionCard>
 
+      {/* The Edit button is hidden for view-only users. This mirrors the `people`
+          write rule in firestore.rules (Founder / Caring / D Light / Cell Director) —
+          showing it to anyone else would only produce a permission-denied on save. */}
       <div className="mt-3 flex items-center justify-between">
-        {!p.personId && (
+        {canEdit && !p.personId && (
           <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
             Legacy record — saving will link to People Directory.
           </p>
         )}
         <div className="ml-auto">
-          <button
-            type="button"
-            onClick={() => onEdit(p)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a2 2 0 01-1.414.586H9v-2a2 2 0 01.586-1.414z" /></svg>
-            Edit
-          </button>
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() => onEdit(p)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a2 2 0 01-1.414.586H9v-2a2 2 0 01.586-1.414z" /></svg>
+              Edit
+            </button>
+          ) : (
+            <span className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 border border-slate-200 rounded-xl">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+              View only
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -455,7 +465,7 @@ const FILTERS = [
 ]
 
 export default function PeopleDirectory() {
-  const { userProfile } = useAuth()
+  const { userProfile, isFounder, isSeniorPastor, isAdmin, isCellDirector } = useAuth()
   const [loading, setLoading] = useState(true)
   const [people, setPeople] = useState([])
   const [cellGroups, setCellGroups] = useState([])
@@ -465,9 +475,45 @@ export default function PeopleDirectory() {
   const [expandedId, setExpandedId] = useState(null)
   const [editingPerson, setEditingPerson] = useState(null)
 
-  // Cell Directors get a search-only lookup (to find and link a person to a cell
-  // group), not the browsable full directory that Founders/Admins see.
-  const isRestrictedDirector = isCellDirectorInPositions(userProfile) && !isFounder(userProfile) && userProfile?.role !== ROLES.ADMIN
+  // Two independent axes, deliberately kept separate:
+  //
+  //  canBrowseAll — may scroll the entire church roster as a list. Founder/Senior
+  //    Pastor, Admin, any department Director, Sec-Core, and the two departments that
+  //    own these records (Caring, D Light). Everyone else gets a search-only view:
+  //    they type a name and see matches, but aren't handed a browsable dump of the
+  //    whole congregation.
+  //
+  //  canEditPeople — may open the Edit modal. Mirrors the `people` collection write
+  //    rule in firestore.rules (Founder / Caring / D Light / Cell Director); anyone
+  //    else sees a "View only" badge instead of the Edit button. Deliberately NARROWER
+  //    than canBrowseAll: Senior Pastor, Admin and Sec-Core can see everything but not
+  //    change it, and since the Firestore rule doesn't grant them write on `people`,
+  //    showing them an Edit button would only produce a permission-denied on save.
+  //
+  // SEARCH ITSELF IS NEVER FILTERED by department, role, or record source — every
+  // person in the church must be findable by every signed-in leader, in both views.
+  // That's the whole point: a Director who can't find someone can't add them to a team.
+  const isAnyDirector =
+    userProfile?.role === ROLES.DIRECTOR ||
+    (Array.isArray(userProfile?.positions) && userProfile.positions.some((p) => {
+      const r = String(p?.role || p?.position || '').trim().toLowerCase()
+      return r === 'director'
+    }))
+  const canBrowseAll =
+    isFounder ||
+    isSeniorPastor ||
+    isAdmin ||
+    isAnyDirector ||
+    hasAccess(userProfile, 'Sec-Core') ||
+    hasAccess(userProfile, 'Caring') ||
+    hasAccess(userProfile, 'D Light')
+  const canEditPeople =
+    isFounder ||
+    hasAccess(userProfile, 'Caring') ||
+    hasAccess(userProfile, 'D Light') ||
+    isCellDirector ||
+    isCellDirectorInPositions(userProfile)
+  const searchOnly = !canBrowseAll
   const hasSearch = search.trim().length > 0
 
   const handleSaved = useCallback((updated) => {
@@ -550,7 +596,7 @@ export default function PeopleDirectory() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {editingPerson && (
+      {editingPerson && canEditPeople && (
         <EditPersonModal
           p={editingPerson}
           cellGroups={cellGroups}
@@ -567,13 +613,13 @@ export default function PeopleDirectory() {
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight">People Directory</h1>
               <p className="text-xs text-slate-400 mt-0.5">
-                {isRestrictedDirector
-                  ? 'Search to find and link a person to a cell group'
+                {searchOnly
+                  ? 'View only — search any name in the church'
                   : (loading ? 'Loading…' : `${people.length} people across all sources`)}
               </p>
             </div>
           </div>
-          {!isRestrictedDirector && !loading && sourceCounts && (
+          {!searchOnly && !loading && sourceCounts && (
             <div className="flex flex-wrap gap-1.5 mb-3">
               {[
                 { label: 'In People', count: sourceCounts.people, color: 'text-indigo-700 bg-indigo-50' },
@@ -596,11 +642,11 @@ export default function PeopleDirectory() {
             placeholder="Search by name, phone or email…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className={`w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300 ${isRestrictedDirector ? '' : 'mb-3'}`}
+            className={`w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300 ${searchOnly ? '' : 'mb-3'}`}
           />
 
           {/* Filter tabs — hidden for the search-only Cell Director view */}
-          {!isRestrictedDirector && (
+          {!searchOnly && (
             <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
               {FILTERS.map(f => (
                 <button
@@ -623,22 +669,22 @@ export default function PeopleDirectory() {
 
       {/* List */}
       <div className="max-w-3xl mx-auto px-4 py-3">
-        {isRestrictedDirector && !hasSearch && (
+        {searchOnly && !hasSearch && (
           <div className="text-center py-16 text-slate-400">
             <p className="text-2xl mb-2">🔎</p>
             <p className="text-sm font-semibold">Search for a person</p>
-            <p className="text-xs mt-1">Type a name, phone, or email to find someone and link them to a cell group</p>
+            <p className="text-xs mt-1">Type a name, phone, or email. Everyone in the church is searchable here.</p>
           </div>
         )}
 
-        {(!isRestrictedDirector || hasSearch) && loading && (
+        {(!searchOnly || hasSearch) && loading && (
           <div className="flex flex-col items-center justify-center py-16 text-slate-400">
             <div className="w-8 h-8 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin mb-3" />
             <p className="text-sm">Loading all records…</p>
           </div>
         )}
 
-        {(!isRestrictedDirector || hasSearch) && !loading && filtered.length === 0 && (
+        {(!searchOnly || hasSearch) && !loading && filtered.length === 0 && (
           <div className="text-center py-16 text-slate-400">
             <p className="text-2xl mb-2">🔍</p>
             <p className="text-sm font-semibold">No people found</p>
@@ -646,7 +692,7 @@ export default function PeopleDirectory() {
           </div>
         )}
 
-        {(!isRestrictedDirector || hasSearch) && !loading && grouped.length > 0 && (
+        {(!searchOnly || hasSearch) && !loading && grouped.length > 0 && (
           <div className="space-y-4">
             {grouped.map(({ year, entries }) => (
               <div key={year}>
@@ -705,7 +751,7 @@ export default function PeopleDirectory() {
                           </svg>
                         </button>
 
-                        {isExpanded && <ExpandedProfile p={p} onEdit={setEditingPerson} />}
+                        {isExpanded && <ExpandedProfile p={p} onEdit={setEditingPerson} canEdit={canEditPeople} />}
                       </div>
                     )
                   })}
@@ -715,7 +761,13 @@ export default function PeopleDirectory() {
           </div>
         )}
 
-        {(!isRestrictedDirector || hasSearch) && !loading && <p className="text-center text-[10px] text-slate-300 mt-4">{filtered.length} of {people.length} people shown</p>}
+        {(!searchOnly || hasSearch) && !loading && (
+          <p className="text-center text-[10px] text-slate-300 mt-4">
+            {searchOnly
+              ? `${filtered.length} ${filtered.length === 1 ? 'match' : 'matches'}`
+              : `${filtered.length} of ${people.length} people shown`}
+          </p>
+        )}
       </div>
     </div>
   )
