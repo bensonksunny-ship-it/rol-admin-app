@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { format, differenceInCalendarDays } from 'date-fns'
-import { Plus, X, MoreVertical, Pencil, Trash2, ClipboardList, Download, History as HistoryIcon, Search } from 'lucide-react'
+import { Plus, X, MoreVertical, Pencil, Trash2, ClipboardList, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import html2canvas from 'html2canvas'
 import {
@@ -18,10 +18,15 @@ import {
   createSundayLeaderAssignmentNotification,
   subscribeToBoardPoints,
   updateBoardPoint,
+  getSecCoreBoardMeetingStartTime,
+  setSecCoreBoardMeetingStartTime,
   getMergedPeopleDirectory,
   subscribeFinanceExpenseByDept,
+  createBoardMeeting,
+  subscribeToBoardMeetings,
+  createBoardMeetingNotification,
 } from '../../services/firestore'
-import { formatDisplayDate } from '../../utils/date'
+import { formatDisplayDate, formatTime12h, addMinutesToTime } from '../../utils/date'
 import { DEPARTMENT_LIST } from '../../constants/departments'
 
 const DEPT_NAMES = DEPARTMENT_LIST.map(d => d.name)
@@ -230,7 +235,7 @@ function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
   )
 }
 
-export function DirectorBoardTab({ canEdit, userProfile, onOpenAgenda }) {
+export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda }) {
   const [members, setMembers]   = useState([])
   const [loading, setLoading]   = useState(true)
   const [saving, setSaving]     = useState(false)
@@ -238,6 +243,8 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenAgenda }) {
   const [newMember, setNewMember] = useState(BLANK_MEMBER)
   const [editIdx, setEditIdx]   = useState(null)
   const [showForm, setShowForm] = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [meetings, setMeetings] = useState([])
 
   useEffect(() => {
     const unsub = subscribeToDirectorBoard(
@@ -252,6 +259,18 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenAgenda }) {
     )
     return unsub
   }, [])
+
+  useEffect(() => {
+    const unsub = subscribeToBoardMeetings(setMeetings, () => setMeetings([]))
+    return unsub
+  }, [])
+
+  // Upcoming first (today or later), soonest first; keep at most the next 6 so the
+  // list can't grow unbounded as old meetings accumulate.
+  const upcomingMeetings = useMemo(() => {
+    const today = format(new Date(), 'yyyy-MM-dd')
+    return meetings.filter(m => m.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6)
+  }, [meetings])
 
   const save = async (nextMembers) => {
     setSaving(true)
@@ -421,20 +440,22 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenAgenda }) {
           <p className="text-xs text-slate-500 mt-0.5">Secretaries, Directors &amp; Coordinators</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="relative group">
-            <button
-              type="button"
-              onClick={onOpenAgenda}
-              aria-label="Board Agenda"
-              title="Board Agenda"
-              className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
-            >
-              <ClipboardList size={18} strokeWidth={2.5} />
-            </button>
-            <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
-              Board Agenda
-            </span>
-          </div>
+          {canEdit && (
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={() => setScheduleOpen(true)}
+                aria-label="Schedule Meeting"
+                title="Schedule Meeting"
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+              >
+                <CalendarPlus size={18} strokeWidth={2.5} />
+              </button>
+              <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
+                Schedule Meeting
+              </span>
+            </div>
+          )}
           {canEdit && (
             <div className="relative group">
               <button
@@ -453,6 +474,56 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenAgenda }) {
           )}
         </div>
       </div>
+
+      {/* Scheduled Meetings — each opens the Board Agenda drawer pre-selected to that
+          meeting's date; "View full board agenda" is the old always-available entry
+          point, now living here instead of its own header icon. */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
+          <h3 className="font-semibold text-slate-800 text-sm">Scheduled Meetings</h3>
+          <button
+            type="button"
+            onClick={() => onOpenMeetingAgenda?.(null)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:underline"
+          >
+            <ClipboardList size={13} /> View full board agenda
+          </button>
+        </div>
+        {upcomingMeetings.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-slate-400">No upcoming meetings scheduled.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {upcomingMeetings.map((m) => (
+              <li key={m.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenMeetingAgenda?.(m.date)}
+                  className="w-full text-left px-5 py-3 hover:bg-slate-50 transition-colors flex items-center gap-3"
+                >
+                  <div className="flex-shrink-0 w-11 text-center">
+                    <p className="text-[10px] font-bold text-indigo-500 uppercase">{format(new Date(m.date + 'T00:00:00'), 'MMM')}</p>
+                    <p className="text-lg font-black text-slate-800 leading-tight">{format(new Date(m.date + 'T00:00:00'), 'd')}</p>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{m.title || 'Board Meeting'}</p>
+                    <p className="text-xs text-slate-400 truncate">
+                      {[m.time, m.venue].filter(Boolean).join(' · ') || 'No time/venue set'}
+                    </p>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {scheduleOpen && (
+        <ScheduleMeetingModal
+          members={members}
+          userProfile={userProfile}
+          onClose={() => setScheduleOpen(false)}
+        />
+      )}
 
       {SECTIONS.map((sec) => {
         const secMembers = byType[sec.key]
@@ -515,6 +586,140 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenAgenda }) {
       )}
 
     </div>
+  )
+}
+
+// ─── Schedule Meeting modal ───────────────────────────────────────────────────
+
+const BLANK_MEETING = { title: '', date: '', time: '', venue: '' }
+
+/** Schedules a Director Board meeting and notifies every active roster member
+ * (Secretary/Director/Coordinator) who has a resolvable app account — same
+ * getUserByName + notification pattern SundayLeaderTab uses for leader assignments. */
+function ScheduleMeetingModal({ members, userProfile, onClose }) {
+  const [form, setForm] = useState(BLANK_MEETING)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const canSubmit = form.title.trim() && form.date
+
+  const handleSubmit = async () => {
+    if (!canSubmit || saving) return
+    setSaving(true)
+    setError('')
+    const createdBy = userProfile?.displayName || userProfile?.email || 'unknown'
+    try {
+      const meetingId = await createBoardMeeting({
+        title: form.title.trim(),
+        date: form.date,
+        time: form.time,
+        venue: form.venue.trim(),
+        createdBy,
+      })
+
+      const today = format(new Date(), 'yyyy-MM-dd')
+      const activeMembers = (members || []).filter(m => !m.to || m.to >= today)
+      await Promise.all(activeMembers.map(async (m) => {
+        if (!m.name) return
+        const account = await getUserByName(m.name).catch(() => null)
+        if (!account) return
+        await createBoardMeetingNotification({
+          uid: account.id,
+          meetingId,
+          meetingTitle: form.title.trim(),
+          meetingDate: form.date,
+          meetingTime: form.time,
+          meetingVenue: form.venue.trim(),
+          role: m.type || '',
+          name: m.name,
+          createdBy,
+        }).catch(() => {})
+      }))
+
+      onClose()
+    } catch (e) {
+      console.error('Schedule meeting failed:', e)
+      setError('Failed to schedule meeting. Please try again.')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="font-semibold text-slate-900">Schedule Board Meeting</h3>
+            <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition-colors">
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="px-5 py-4 space-y-3">
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Meeting Title</label>
+              <input
+                type="text"
+                value={form.title}
+                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="e.g. Monthly Board Meeting"
+                autoFocus
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Date</label>
+                <input
+                  type="date"
+                  value={form.date}
+                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Time</label>
+                <input
+                  type="time"
+                  value={form.time}
+                  onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Venue / Link</label>
+              <input
+                type="text"
+                value={form.venue}
+                onChange={e => setForm(f => ({ ...f, venue: e.target.value }))}
+                placeholder="Conference Room / Zoom link…"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
+
+            {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+
+            <div className="flex gap-2 justify-end pt-1">
+              <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!canSubmit || saving}
+                className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-40 hover:bg-indigo-700 transition-colors"
+              >
+                {saving ? 'Scheduling…' : 'Schedule & Notify Board'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -603,58 +808,70 @@ function nextPsalm(psalm) {
   return String((n % 150) + 1)
 }
 
-// Controlled row — value/onChange come from the parent so "Save Month Schedule" can
-// batch-write every row in one call instead of each row saving itself.
-function SundayLeaderRow({ date, value, onChange, pool, dirty, hasAssignment, loading, canEdit }) {
+// Controlled table row — value/onChange come from the parent so "Save Month Schedule"
+// can batch-write every row in one call instead of each row saving itself. Read-only
+// typography by default; the Leader/Psalm cells only swap in <select> inputs while the
+// parent's edit toggle is active (canEdit here already folds in that toggle).
+function SundayLeaderRow({ date, value, onChange, onReset, pool, dirty, hasAssignment, loading, canEdit }) {
   const d = new Date(date + 'T00:00:00')
 
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-bold">
-          {format(d, 'dd MMM yyyy')} · {format(d, 'EEEE')}
-        </span>
-        {loading ? (
-          <span className="text-[10px] text-slate-400">Loading…</span>
-        ) : dirty ? (
-          <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Unsaved changes</span>
-        ) : hasAssignment ? (
-          <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Saved</span>
-        ) : (
-          <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200">No assignment</span>
-        )}
-      </div>
+  const statusBadge = loading ? (
+    <span className="text-[10px] text-slate-400">Loading…</span>
+  ) : dirty ? (
+    <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">Unsaved</span>
+  ) : hasAssignment ? (
+    <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">Saved</span>
+  ) : (
+    <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200 whitespace-nowrap">No assignment</span>
+  )
 
-      {loading ? (
-        <p className="text-sm text-slate-400">Loading…</p>
-      ) : canEdit ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+  return (
+    <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition-colors">
+      <td className="px-4 py-3 align-top whitespace-nowrap">
+        <p className="text-sm font-semibold text-slate-800">{format(d, 'dd MMM yyyy')}</p>
+        <p className="text-xs text-slate-400">{format(d, 'EEEE')}</p>
+      </td>
+      <td className="px-4 py-3 align-top">
+        {loading ? (
+          <span className="text-sm text-slate-300">—</span>
+        ) : canEdit ? (
           <select
             value={value.leader}
             onChange={(e) => onChange({ ...value, leader: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+            className="w-full min-w-[160px] px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm bg-white"
           >
             <option value="">— Sunday Leader —</option>
             {pool.map((p) => <option key={p.personId || p.name} value={p.name}>{p.name}</option>)}
           </select>
+        ) : (
+          <span className={`text-sm ${value.leader ? 'font-medium text-slate-800' : 'text-slate-400'}`}>{value.leader || '—'}</span>
+        )}
+      </td>
+      <td className="px-4 py-3 align-top">
+        {loading ? (
+          <span className="text-sm text-slate-300">—</span>
+        ) : canEdit ? (
           <select
             value={value.psalm}
             onChange={(e) => onChange({ ...value, psalm: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+            className="w-full min-w-[120px] px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm bg-white"
           >
             <option value="">— Psalm —</option>
             {PSALM_OPTIONS.map((n) => <option key={n} value={n}>Psalm {n}</option>)}
           </select>
-        </div>
-      ) : value.leader ? (
-        <div className="space-y-1">
-          <p className="text-sm"><span className="text-slate-500">Leader:</span> <span className="font-medium text-slate-800">{value.leader}</span></p>
-          {value.psalm && <p className="text-sm"><span className="text-slate-500">Psalm:</span> <span className="font-medium text-slate-800">Psalm {value.psalm}</span></p>}
-        </div>
-      ) : (
-        <p className="text-sm text-slate-400">No assignment for this Sunday.</p>
-      )}
-    </div>
+        ) : (
+          <span className={`text-sm ${value.psalm ? 'text-slate-700' : 'text-slate-400'}`}>{value.psalm ? `Psalm ${value.psalm}` : '—'}</span>
+        )}
+      </td>
+      <td className="px-4 py-3 align-top">{statusBadge}</td>
+      <td className="px-4 py-3 align-top text-right">
+        {canEdit && dirty && (
+          <button type="button" onClick={onReset} className="text-xs font-medium text-slate-400 hover:text-red-500 transition-colors">
+            Reset
+          </button>
+        )}
+      </td>
+    </tr>
   )
 }
 
@@ -794,6 +1011,10 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
   const [saving, setSaving]             = useState(false)
   const [saveMessage, setSaveMessage]   = useState('')
   const [exporting, setExporting]       = useState(false)
+  // Read-only by default — the whole month's rows only become interactive dropdowns
+  // (and Save/Cancel appear) once the Edit icon is tapped, matching the batch-save
+  // design (one "Save Month Schedule" for every row, not a per-row save).
+  const [editMode, setEditMode]         = useState(false)
 
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [historyEntries, setHistoryEntries]     = useState([])
@@ -866,6 +1087,27 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
 
   const updateEntry = (date, value) => setEntries((prev) => ({ ...prev, [date]: value }))
 
+  /** Reverts a single row to its last-saved state (or blank if never saved) — the
+   * table's per-row "Reset" action, without discarding edits made to other rows. */
+  const resetEntry = (date) => {
+    setEntries((prev) => ({
+      ...prev,
+      [date]: savedEntries[date] ? { ...savedEntries[date] } : { ...EMPTY_LEADER_FORM },
+    }))
+  }
+
+  /** Discards any in-progress edits (reverting every row to its last-saved state,
+   * or blank if never saved) and drops back to read-only view. */
+  const handleCancelEdit = () => {
+    const reverted = {}
+    sundaysInMonth.forEach((date) => {
+      reverted[date] = savedEntries[date] ? { ...savedEntries[date] } : { ...EMPTY_LEADER_FORM }
+    })
+    setEntries(reverted)
+    setSaveMessage('')
+    setEditMode(false)
+  }
+
   const isDirty = (date) => {
     const cur = entries[date] || EMPTY_LEADER_FORM
     const saved = savedEntries[date]
@@ -925,6 +1167,7 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
       payload.forEach((p) => { nextSaved[p.date] = { leader: p.leader, psalm: p.psalm } })
       setSavedEntries(nextSaved)
       setSaveMessage(`${format(monthCursor, 'MMMM yyyy')} schedule saved · ${notifiedCount} leader${notifiedCount !== 1 ? 's' : ''} notified`)
+      setEditMode(false)
     } finally {
       setSaving(false)
     }
@@ -1003,6 +1246,22 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
               Leader History
             </span>
           </div>
+          {canEdit && !editMode && (
+            <div className="relative group">
+              <button
+                type="button"
+                onClick={() => setEditMode(true)}
+                aria-label="Edit Schedule"
+                title="Edit Schedule"
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+              >
+                <Pencil size={16} strokeWidth={2.5} />
+              </button>
+              <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
+                Edit Schedule
+              </span>
+            </div>
+          )}
           {canEdit && (
             <>
             <div className="relative group">
@@ -1046,15 +1305,25 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
           <span className="font-semibold text-slate-800 text-sm">{format(monthCursor, 'MMMM yyyy')}</span>
           <button type="button" onClick={nextMonth} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next Month ›</button>
         </div>
-        {canEdit && (
-          <button
-            type="button"
-            onClick={handleSaveMonth}
-            disabled={saving || entriesLoading}
-            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-40 transition-colors shadow-sm"
-          >
-            {saving ? 'Saving…' : 'Save Month Schedule'}
-          </button>
+        {canEdit && editMode && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              disabled={saving}
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-40 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveMonth}
+              disabled={saving || entriesLoading}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-40 transition-colors shadow-sm"
+            >
+              {saving ? 'Saving…' : 'Save Month Schedule'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -1062,27 +1331,43 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
         <p className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">{saveMessage}</p>
       )}
 
-      {canEdit && pool.length === 0 && (
+      {canEdit && editMode && pool.length === 0 && (
         <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           No approved leaders yet — tap the + button above to add people from the directory.
         </p>
       )}
 
-      {/* Monthly Sunday schedule */}
-      <div className="space-y-3">
-        {sundaysInMonth.map((date) => (
-          <SundayLeaderRow
-            key={date}
-            date={date}
-            value={entries[date] || EMPTY_LEADER_FORM}
-            onChange={(value) => updateEntry(date, value)}
-            pool={pool}
-            dirty={!entriesLoading && isDirty(date)}
-            hasAssignment={!!savedEntries[date]}
-            loading={entriesLoading}
-            canEdit={canEdit}
-          />
-        ))}
+      {/* Monthly Sunday schedule — single consolidated card table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Date</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Leader</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Psalm</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Status</th>
+                <th className="text-right px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sundaysInMonth.map((date) => (
+                <SundayLeaderRow
+                  key={date}
+                  date={date}
+                  value={entries[date] || EMPTY_LEADER_FORM}
+                  onChange={(value) => updateEntry(date, value)}
+                  onReset={() => resetEntry(date)}
+                  pool={pool}
+                  dirty={!entriesLoading && editMode && isDirty(date)}
+                  hasAssignment={!!savedEntries[date]}
+                  loading={entriesLoading}
+                  canEdit={canEdit && editMode}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {poolModalOpen && (
@@ -1122,51 +1407,98 @@ function sundayDateChips() {
   })
 }
 
-export function BoardAgendaTab({ canEdit, userProfile }) {
+export function BoardAgendaTab({ canEdit, userProfile, initialDate = null }) {
   const [allPoints, setAllPoints] = useState([])
   const [loading, setLoading]     = useState(true)
   const [selectedDate, setSelectedDate] = useState(null)
   const [editId, setEditId]       = useState(null)
-  const [editVals, setEditVals]   = useState({ slNo: '', allottedTime: '' })
+  const [editVals, setEditVals]   = useState({ durationMinutes: '' })
   const [saving, setSaving]       = useState(false)
+
+  // Meeting Start Time — one per Sunday, drives the auto-computed timeline below.
+  // Collapsed by default; the date chips row (de-emphasized) is only shown once the
+  // director explicitly wants to change which Sunday they're looking at.
+  const [startTime, setStartTime] = useState('')
+  const [dateChipsOpen, setDateChipsOpen] = useState(false)
 
   useEffect(() => {
     setLoading(true)
-    // Auto-select the forthcoming Sunday immediately
+    // Opened from a scheduled meeting → land straight on its date; otherwise
+    // auto-select the forthcoming Sunday like before.
     const chips = sundayDateChips()
-    setSelectedDate(chips[0] || null)
+    setSelectedDate(initialDate || chips[0] || null)
 
     const unsub = subscribeToBoardPoints(pts => {
       setAllPoints(pts)
       setLoading(false)
     })
     return unsub
-  }, [])
+  }, [initialDate])
+
+  useEffect(() => {
+    if (!selectedDate) { setStartTime(''); return }
+    getSecCoreBoardMeetingStartTime(selectedDate).then(setStartTime).catch(() => setStartTime(''))
+  }, [selectedDate])
+
+  const handleStartTimeChange = async (value) => {
+    setStartTime(value)
+    if (!selectedDate) return
+    await setSecCoreBoardMeetingStartTime(selectedDate, value, userProfile?.displayName || userProfile?.email || 'Sec-Core')
+  }
 
   const unscheduled  = allPoints.filter(p => !p.meetingDate)
   const pointDates   = [...new Set(allPoints.map(p => p.meetingDate).filter(Boolean))]
   const upcomingChips = sundayDateChips().filter(d => !pointDates.includes(d))
-  const allDates     = [...new Set([...pointDates, ...upcomingChips])].sort()
+  // initialDate may be a non-Sunday scheduled-meeting date with no points yet —
+  // include it explicitly so its chip still appears and gets auto-selected.
+  const allDates     = [...new Set([...pointDates, ...upcomingChips, ...(initialDate ? [initialDate] : [])])].sort()
 
   const datePoints   = selectedDate ? allPoints.filter(p => p.meetingDate === selectedDate) : []
   const fixedPoints  = datePoints.filter(p => p.slNo && p.allottedTime).sort((a, b) => Number(a.slNo) - Number(b.slNo))
   const unfixedPoints = datePoints.filter(p => !p.slNo || !p.allottedTime)
   const sortedPoints = [...fixedPoints, ...unfixedPoints]
 
-  const handleFix = async (id) => {
-    if (!editVals.slNo.trim() || !editVals.allottedTime.trim()) return
+  // Live per-point time windows, derived from Start Time + each accepted point's
+  // durationMinutes in Sl No order — recalculates automatically whenever Start Time
+  // changes or a point is accepted/unlocked, instead of trusting a persisted string
+  // that could go stale. Legacy points fixed before durationMinutes existed have no
+  // known duration, so they can't be placed on the timeline (shown null → falls back
+  // to their old allottedTime text) and don't advance the running clock.
+  const fixedPointTimes = useMemo(() => {
+    if (!startTime) return fixedPoints.map(() => null)
+    let cursor = startTime
+    return fixedPoints.map((bp) => {
+      if (!bp.durationMinutes) return null
+      const start = cursor
+      const end = addMinutesToTime(cursor, Number(bp.durationMinutes))
+      cursor = end
+      return `${formatTime12h(start)} – ${formatTime12h(end)}`
+    })
+  }, [startTime, fixedPoints])
+
+  // Where a newly-accepted point would land — accepted points always append to the
+  // end of the agenda, after every already-accepted point's duration.
+  const cumulativeMinutes = fixedPoints.reduce((s, bp) => s + (Number(bp.durationMinutes) || 0), 0)
+  const nextSlNo = fixedPoints.length + 1
+
+  const handleAcceptPoint = async (bp) => {
+    const mins = Number(editVals.durationMinutes)
+    if (!mins || mins <= 0) return
     setSaving(true)
     try {
+      const start = startTime ? addMinutesToTime(startTime, cumulativeMinutes) : ''
+      const end = start ? addMinutesToTime(start, mins) : ''
       const patch = {
-        slNo: editVals.slNo.trim(),
-        allottedTime: editVals.allottedTime.trim(),
+        slNo: nextSlNo,
+        durationMinutes: mins,
+        allottedTime: start && end ? `${formatTime12h(start)} – ${formatTime12h(end)}` : `${mins} min`,
         status: 'approved',
         approvedBy: userProfile?.displayName || userProfile?.email || 'Sec-Core',
       }
-      await updateBoardPoint(id, patch)
-      setAllPoints(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
+      await updateBoardPoint(bp.id, patch)
+      setAllPoints(prev => prev.map(p => p.id === bp.id ? { ...p, ...patch } : p))
       setEditId(null)
-      setEditVals({ slNo: '', allottedTime: '' })
+      setEditVals({ durationMinutes: '' })
     } finally {
       setSaving(false)
     }
@@ -1175,7 +1507,7 @@ export function BoardAgendaTab({ canEdit, userProfile }) {
   const handleUnfix = async (id) => {
     setSaving(true)
     try {
-      const patch = { slNo: '', allottedTime: '', status: 'pending', approvedBy: '' }
+      const patch = { slNo: '', allottedTime: '', status: 'pending', approvedBy: '', durationMinutes: null }
       await updateBoardPoint(id, patch)
       setAllPoints(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
     } finally {
@@ -1198,7 +1530,30 @@ export function BoardAgendaTab({ canEdit, userProfile }) {
   return (
     <div className="space-y-4">
 
-      {/* ── Sunday date chips ── */}
+      {/* ── Meeting Start Time + de-emphasized date picker ── */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-semibold text-slate-500">Start Time</label>
+          <input
+            type="time"
+            value={startTime}
+            onChange={(e) => handleStartTimeChange(e.target.value)}
+            disabled={!canEdit || !selectedDate}
+            className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setDateChipsOpen(v => !v)}
+          className="flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          {selectedDate ? format(new Date(selectedDate + 'T00:00:00'), 'EEE, d MMM') : 'No Date'}
+          <ChevronDown size={13} className={`transition-transform ${dateChipsOpen ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+
+      {/* ── Sunday date chips — hidden by default, expand to change date ── */}
+      {dateChipsOpen && (
       <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
         {allDates.map(date => {
           const pts      = allPoints.filter(p => p.meetingDate === date)
@@ -1249,6 +1604,7 @@ export function BoardAgendaTab({ canEdit, userProfile }) {
           </button>
         )}
       </div>
+      )}
 
       {/* ── Unscheduled points panel (when "No Date" chip selected) ── */}
       {selectedDate === null && unscheduled.length > 0 && (
@@ -1328,36 +1684,38 @@ export function BoardAgendaTab({ canEdit, userProfile }) {
                         <p className="text-[10px] text-slate-400 mt-0.5">Requested: {bp.timeNeeded}</p>
                       )}
 
-                      {/* Inline Sl + Time editor for unfixed items */}
+                      {/* Duration entry + Accept for unfixed items — Sl No and the
+                          time window are both derived automatically (next slot in
+                          order, Start Time + running duration total) rather than
+                          typed in by hand. */}
                       {!isFixed && canEdit && (
                         isEditing ? (
                           <div className="mt-2.5 flex items-center gap-2 flex-wrap">
                             <input
                               type="number"
                               min="1"
-                              placeholder="Sl"
+                              placeholder="Duration"
                               autoFocus
-                              value={editVals.slNo}
-                              onChange={e => setEditVals(v => ({ ...v, slNo: e.target.value }))}
-                              className="w-14 px-2 py-1.5 rounded-lg border border-indigo-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                              value={editVals.durationMinutes}
+                              onChange={e => setEditVals({ durationMinutes: e.target.value })}
+                              onKeyDown={e => e.key === 'Enter' && handleAcceptPoint(bp)}
+                              className="w-20 px-2 py-1.5 rounded-lg border border-indigo-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
                             />
-                            <input
-                              type="text"
-                              placeholder="Approved time"
-                              value={editVals.allottedTime}
-                              onChange={e => setEditVals(v => ({ ...v, allottedTime: e.target.value }))}
-                              onKeyDown={e => e.key === 'Enter' && handleFix(bp.id)}
-                              className="flex-1 min-w-[120px] px-2 py-1.5 rounded-lg border border-indigo-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                            />
+                            <span className="text-xs text-slate-500">min</span>
+                            {startTime && editVals.durationMinutes && Number(editVals.durationMinutes) > 0 && (
+                              <span className="text-xs text-indigo-600 font-semibold whitespace-nowrap">
+                                → Point {nextSlNo}: {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes))} – {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes + Number(editVals.durationMinutes)))}
+                              </span>
+                            )}
                             <button
                               type="button"
-                              disabled={!editVals.slNo.trim() || !editVals.allottedTime.trim() || saving}
-                              onClick={() => handleFix(bp.id)}
-                              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                            >{saving ? '…' : 'Fix Slot'}</button>
+                              disabled={!editVals.durationMinutes || Number(editVals.durationMinutes) <= 0 || saving}
+                              onClick={() => handleAcceptPoint(bp)}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                            >{saving ? '…' : 'Accept Point'}</button>
                             <button
                               type="button"
-                              onClick={() => { setEditId(null); setEditVals({ slNo: '', allottedTime: '' }) }}
+                              onClick={() => { setEditId(null); setEditVals({ durationMinutes: '' }) }}
                               className="text-slate-400 hover:text-slate-600 text-sm leading-none px-1"
                             >✕</button>
                           </div>
@@ -1366,10 +1724,12 @@ export function BoardAgendaTab({ canEdit, userProfile }) {
                             type="button"
                             onClick={() => {
                               setEditId(bp.id)
-                              setEditVals({ slNo: bp.slNo || '', allottedTime: bp.allottedTime || '' })
+                              // Prefill from the submitter's requested time if it's a bare number.
+                              const guess = /^\d+$/.test(String(bp.timeNeeded || '').trim()) ? bp.timeNeeded.trim() : ''
+                              setEditVals({ durationMinutes: guess })
                             }}
-                            className="mt-2 text-xs text-indigo-600 font-semibold hover:underline"
-                          >Set Sl &amp; Time →</button>
+                            className="mt-2 text-xs text-emerald-600 font-semibold hover:underline"
+                          >Accept Point →</button>
                         )
                       )}
                       {!isFixed && !canEdit && (
@@ -1380,7 +1740,9 @@ export function BoardAgendaTab({ canEdit, userProfile }) {
                     {/* Fixed badge + unlock */}
                     {isFixed && (
                       <div className="flex-shrink-0 flex flex-col items-end gap-1">
-                        <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">{bp.allottedTime}</span>
+                        <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
+                          {fixedPointTimes[fixedPoints.indexOf(bp)] || bp.allottedTime}
+                        </span>
                         {canEdit && (
                           <button
                             type="button"
@@ -1413,10 +1775,11 @@ export function BoardAgendaTab({ canEdit, userProfile }) {
   )
 }
 
-// ─── Board Agenda drawer ───────────────────────────────────────────────────────
-// Right-side slide-over overlay (same portal/backdrop pattern as ProfileDrawer,
-// mirrored to the right edge) so Board Agenda opens over the page instead of
-// pushing Director Board content down the way the old inline collapsible did.
+// ─── Board Agenda modal ─────────────────────────────────────────────────────────
+// Centered modal (not a right-anchored slide-over) so it becomes the clear focus of
+// attention the moment it opens, matching the centered-card convention used
+// elsewhere in this app (e.g. SundayLeaderHistoryModal, ChildAttendancePrompt)
+// rather than competing for space alongside the page like a sidebar panel.
 function BoardAgendaDrawer({ onClose, children }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -1425,10 +1788,18 @@ function BoardAgendaDrawer({ onClose, children }) {
   }, [onClose])
 
   return createPortal(
-    <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-label="Board Agenda">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} aria-hidden />
-      <div className="absolute inset-y-0 right-0 w-full sm:max-w-xl bg-slate-50 shadow-2xl flex flex-col animate-drawer-in-right">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white flex-shrink-0">
+    <div
+      className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Board Agenda"
+      onClick={onClose}
+    >
+      <div
+        className="bg-slate-50 rounded-3xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white rounded-t-3xl flex-shrink-0">
           <p className="text-sm font-bold text-slate-800">Board Agenda</p>
           <button
             type="button"
@@ -1452,14 +1823,17 @@ function BoardAgendaDrawer({ onClose, children }) {
 
 export function DirectorBoardPage({ canEdit, userProfile }) {
   const [agendaOpen, setAgendaOpen] = useState(false)
+  const [agendaDate, setAgendaDate] = useState(null)
+
+  const openAgenda = (date) => { setAgendaDate(date); setAgendaOpen(true) }
 
   return (
     <div className="space-y-4">
-      <DirectorBoardTab canEdit={canEdit} userProfile={userProfile} onOpenAgenda={() => setAgendaOpen(true)} />
+      <DirectorBoardTab canEdit={canEdit} userProfile={userProfile} onOpenMeetingAgenda={openAgenda} />
 
       {agendaOpen && (
         <BoardAgendaDrawer onClose={() => setAgendaOpen(false)}>
-          <BoardAgendaTab canEdit={canEdit} userProfile={userProfile} />
+          <BoardAgendaTab canEdit={canEdit} userProfile={userProfile} initialDate={agendaDate} />
         </BoardAgendaDrawer>
       )}
     </div>

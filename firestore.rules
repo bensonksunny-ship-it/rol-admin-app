@@ -452,7 +452,12 @@ service cloud.firestore {
     }
 
     match /caring_pcs/{docId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      // Read opened to any signed-in user (was Caring-only) — getMergedPeopleDirectory()
+      // is the "everybody in the church's records" directory used by pickers across every
+      // department (e.g. Sec-Core's Director Board "Add Person"), so a PCS-only person was
+      // otherwise silently unfindable outside Caring. Write stays Caring-gated.
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
     // Central people registry — Caring is the primary gatekeeper; other depts read for search/linking
@@ -661,6 +666,20 @@ service cloud.firestore {
     }
 
     match /sec_core_leader_assignment_notifications/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.uid == request.auth.uid || canAccessDept('Sec-Core'));
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
+    }
+
+    // Scheduled Director Board meetings — read open like board_meeting_points since
+    // Director Board members are leaders from many departments, not necessarily
+    // Sec-Core itself, and need to read meeting details from their own notification/
+    // workspace widget. Only Sec-Core schedules meetings, so write stays restricted.
+    match /sec_core_board_meetings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
+    }
+
+    match /sec_core_board_meeting_notifications/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || resource.data.uid == request.auth.uid || canAccessDept('Sec-Core'));
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
     }

@@ -132,6 +132,7 @@ import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { differenceInDays, differenceInYears, differenceInMonths, format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
+import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
@@ -710,6 +711,27 @@ export default function DepartmentHub() {
     next.delete('openConsultId')
     setSearchParams(next, { replace: true })
   }, [openConsultId, slug, tasks])
+
+  // Deep-link from the To-Do List (ToDoListCard.jsx's taskDeepLink): once PCS entries
+  // have loaded, auto-expand the matching person's inline profile for the id passed in
+  // via ?memberId=, then strip it from the URL so it doesn't re-trigger on refresh.
+  // Matches personId first, then falls back to the PCS entry's own doc id, since
+  // memberId is stamped as `entry.personId || entry.id` at task-creation time
+  // (see DepartmentHub.jsx's "Add to a cell group" referral button).
+  const openMemberId = searchParams.get('memberId') || null
+  useEffect(() => {
+    if (!openMemberId || slug !== 'caring' || pcsEntries.length === 0) return
+    const entry = pcsEntries.find((e) => e.personId === openMemberId || e.id === openMemberId)
+    if (entry) {
+      setPcsExpandedId(entry.id)
+      setTimeout(() => {
+        document.getElementById(`pcs-entry-${entry.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 150)
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('memberId')
+    setSearchParams(next, { replace: true })
+  }, [openMemberId, slug, pcsEntries])
 
   const [monthlyExpenseTotal, setMonthlyExpenseTotal] = useState(0)
   const [loadingMonthlyExpense, setLoadingMonthlyExpense] = useState(true)
@@ -4913,11 +4935,11 @@ export default function DepartmentHub() {
               const isExpanded = pcsExpandedId === entry.id
               const isInCell = !!(entry.visitorId && cellVisitorIds.has(entry.visitorId))
               const menuOpen = pcsMenuOpenId === entry.id
-              const isPastor = entry.name?.trim().toLowerCase() === 'benson k sunny'
+              const isPastor = isSeniorPastorName(entry.name)
               const absentWeeks = getConsecutiveAbsentSundays(entry)
               const isLongAbsent = absentWeeks >= 4
               return (
-                <div className="relative w-full h-full">
+                <div id={`pcs-entry-${entry.id}`} className="relative w-full h-full">
                   {menuOpen && (
                     <div className="fixed inset-0 z-10" onClick={() => setPcsMenuOpenId(null)} />
                   )}
@@ -4944,7 +4966,7 @@ export default function DepartmentHub() {
                         {entry.name.charAt(0).toUpperCase()}
                       </div>
                       {isPastor && (
-                        <span className="absolute -top-1.5 -left-1.5 text-amber-500" title="Pastor">
+                        <span className="absolute -top-1.5 -left-1.5 text-amber-500" title={SENIOR_PASTOR_FULL_TITLE}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M2 18h20l-2-9-5 4-3-8-3 8-5-4-2 9z"/>
                           </svg>
@@ -4960,8 +4982,11 @@ export default function DepartmentHub() {
                           {entry.name}
                         </p>
                         {isPastor && (
-                          <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-amber-200' : 'bg-amber-500 text-white'}`}>
-                            Pastor
+                          <span
+                            className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-amber-200' : 'bg-amber-500 text-white'}`}
+                            title={SENIOR_PASTOR_FULL_TITLE}
+                          >
+                            {SENIOR_PASTOR_TITLE}
                           </span>
                         )}
                         {hasLeadership && (
@@ -5663,7 +5688,7 @@ export default function DepartmentHub() {
                           <div className="mb-3">
                             <div className="flex items-center justify-between gap-2 mb-1.5">
                               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Cell Group</p>
-                              {!cg && canEdit && (
+                              {!cg && !isPastor && canEdit && (
                                 notified
                                   ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                                       <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>Notification Sent
@@ -5757,7 +5782,9 @@ export default function DepartmentHub() {
                                     )
                                   })()}
                                 </>
-                              : <p className="text-xs text-slate-400">{entry.visitorId || _np ? 'Not currently in a cell group' : 'Link visitor record to see cell'}</p>
+                              : isPastor
+                                ? <p className="text-xs font-medium text-amber-600">Exempt from cell group assignment — {SENIOR_PASTOR_TITLE}</p>
+                                : <p className="text-xs text-slate-400">{entry.visitorId || _np ? 'Not currently in a cell group' : 'Link visitor record to see cell'}</p>
                             }
 
                             {/* Cell history */}

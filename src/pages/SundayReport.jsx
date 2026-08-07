@@ -26,9 +26,11 @@ import {
   getSundayProgramDefault,
   subscribeToPastoralRoster,
   savePastoralRoster,
+  getRecentNonCellAttendeeNames,
 } from '../services/firestore'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
+import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'nonCell', title: 'Non Cell' },
@@ -204,6 +206,7 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
         {(names || []).map((name, idx) => {
           const isLinked = linkedNames?.has(String(name).trim().toLowerCase())
           const isDupe = duplicateNorms?.has(String(name).replace(/\s+/g, ' ').trim().toLowerCase())
+          const isSeniorPastor = isSeniorPastorName(name)
           return (
           <li key={idx} className={linkDirectory ? 'relative' : undefined}>
             <div className="flex items-center gap-2">
@@ -215,6 +218,14 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
                     onChange={(e) => onEdit(idx, e.target.value)}
                     className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-300'}`}
                   />
+                  {isSeniorPastor && (
+                    <span
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-800 text-xs font-bold whitespace-nowrap"
+                      title={SENIOR_PASTOR_FULL_TITLE}
+                    >
+                      {SENIOR_PASTOR_TITLE}
+                    </span>
+                  )}
                   {isDupe && (
                     <span className="text-xs font-bold text-red-600 whitespace-nowrap">Duplicate</span>
                   )}
@@ -237,7 +248,17 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
                   </button>
                 </>
               ) : (
-                <span className={isDupe ? 'text-red-600 font-semibold' : 'text-slate-800'}>{name || '—'}</span>
+                <>
+                  <span className={isDupe ? 'text-red-600 font-semibold' : 'text-slate-800'}>{name || '—'}</span>
+                  {isSeniorPastor && (
+                    <span
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-800 text-xs font-bold whitespace-nowrap"
+                      title={SENIOR_PASTOR_FULL_TITLE}
+                    >
+                      {SENIOR_PASTOR_TITLE}
+                    </span>
+                  )}
+                </>
               )}
             </div>
             {linkDirectory && linkingIdx === idx && (
@@ -375,7 +396,7 @@ function PastoralRosterModal({ roster, directory, saving, onAdd, onRemove, onClo
   )
 }
 
-function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, onEdit, onRemove, duplicateNorms = null, className = '' }) {
+function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, onEdit, onRemove, duplicateNorms = null, suggestions = [], loadingSuggestions = false, className = '' }) {
   const [query, setQuery] = useState('')
   const nameSet = useMemo(() => new Set((names || []).map(n => n.trim().toLowerCase())), [names])
   const results = useMemo(() => {
@@ -421,6 +442,35 @@ function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, o
                       {p.phone}{p.phone && p.date ? ' · ' : ''}{p.date ? `First attended ${fmtFirstVisit(p.date)}` : ''}
                     </span>
                   )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Smart suggestions — seen at Sunday Service in the last 4 weeks, not currently
+          in a cell. One tap both adds them here and records their attendance. */}
+      {canEdit && (loadingSuggestions || suggestions.length > 0) && (
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+            Suggested — seen recently, not in a cell — tap to add
+          </p>
+          {loadingSuggestions ? (
+            <p className="text-xs text-slate-400">Loading suggestions…</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {suggestions.map((p) => (
+                <button
+                  key={p.id || p.name}
+                  type="button"
+                  onClick={() => onAddValue(p)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-700 text-xs font-medium hover:bg-teal-100 transition-colors"
+                >
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                    <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                  </svg>
+                  {p.name}
                 </button>
               ))}
             </div>
@@ -1230,7 +1280,14 @@ export default function SundayReport({ embedded = false }) {
   const [dlightSuggestions, setDlightSuggestions] = useState([])
   const [loadingDlight, setLoadingDlight] = useState(false)
   const [secondWeekSuggestions, setSecondWeekSuggestions] = useState([])
-  const [loadingSecondWeekSuggestions, setLoadingSecondWeekSuggestions] = useState(false)
+  const [thirdWeekSuggestions, setThirdWeekSuggestions] = useState([])
+  const [fourthWeekSuggestions, setFourthWeekSuggestions] = useState([])
+  // One loading flag covers all three milestone buckets — they're now computed
+  // together in a single visitCount pass (see the effect below).
+  const [loadingMilestoneSuggestions, setLoadingMilestoneSuggestions] = useState(false)
+  // Lowercased names currently classified into ANY milestone bucket this week —
+  // used to keep them out of the generic Non Cell suggestion list.
+  const [milestoneSuggestionNames, setMilestoneSuggestionNames] = useState(new Set())
   const [peopleDirectory, setPeopleDirectory] = useState([])
   const [delightVisitorsAll, setDelightVisitorsAll] = useState([])
   const [cellMemberNames, setCellMemberNames] = useState(new Set())
@@ -1375,8 +1432,27 @@ export default function SundayReport({ embedded = false }) {
     setCompletedSections({})
   }, [selectedDate])
 
+  // Names currently held by a given attendance section — used to block marking that
+  // section "Done" while any of its names is flagged in duplicateNorms (appears in
+  // 2+ sections). 'cells' covers every cell group at once, matching its single
+  // shared Done button in the section order below.
+  const namesForSection = useCallback((sectionId) => {
+    if (sectionId === 'cells') return Object.values(report?.sundayCellAttendance || {}).flat()
+    if (sectionId === 'pastoral') return report?.pastoralAttendees || []
+    return report?.[sectionId] || []
+  }, [report])
+
+  const sectionHasDuplicate = useCallback((sectionId) => {
+    const names = namesForSection(sectionId)
+    return names.some((n) => duplicateNorms.has((n || '').replace(/\s+/g, ' ').trim().toLowerCase()))
+  }, [namesForSection, duplicateNorms])
+
   const handleAttendanceDone = useCallback(
     (sectionId) => {
+      if (sectionHasDuplicate(sectionId)) {
+        alert('This section has a name that also appears in another attendance section. Please resolve the duplicate (shown in red) before marking it done.')
+        return
+      }
       setCompletedSections((prev) => ({ ...prev, [sectionId]: true }))
       const idx = ATTENDANCE_SECTION_ORDER.indexOf(sectionId)
       const nextId = ATTENDANCE_SECTION_ORDER[idx + 1]
@@ -1387,7 +1463,7 @@ export default function SundayReport({ embedded = false }) {
         })
       }
     },
-    [sectionRefById]
+    [sectionRefById, sectionHasDuplicate]
   )
 
   const handleAttendanceUndo = useCallback((sectionId) => {
@@ -1474,25 +1550,54 @@ export default function SundayReport({ embedded = false }) {
     })
   }, [membersForCell, delightVisitorsAll, peopleDirectory, cellGroups, expandedCellId])
 
-  // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days before the Sunday),
-  // plus the 4 weeks before that (candidates for "Second Week Attendees")
+  // Every attendance category in one Sunday's report, for "was this person recorded
+  // attending that Sunday at all" — used by the milestone visitCount below. Broader
+  // on purpose than getRecentNonCellAttendeeNames(), which is scoped to just Non Cell
+  // for the Non Cell suggestion pool.
+  function unionAttendeeNames(reportDoc) {
+    const names = new Set()
+    const addAll = (arr) => (Array.isArray(arr) ? arr : []).forEach((n) => {
+      const t = String(n || '').trim().toLowerCase()
+      if (t) names.add(t)
+    })
+    if (!reportDoc) return names
+    addAll(reportDoc.pastoralAttendees)
+    addAll(reportDoc.nonCell)
+    addAll(reportDoc.others)
+    addAll(reportDoc.newComers)
+    addAll(reportDoc.secondWeekAttendeesNames)
+    addAll(reportDoc.thirdWeekAttendeesNames)
+    addAll(reportDoc.fourthWeekAttendeesNames)
+    if (reportDoc.sundayCellAttendance && typeof reportDoc.sundayCellAttendance === 'object') {
+      Object.values(reportDoc.sundayCellAttendance).forEach(addAll)
+    }
+    return names
+  }
+
+  // How many Sundays back to scan when counting a visitor's total check-ins. Wide
+  // enough to still catch a 4th-week visitor who skipped a Sunday along the way,
+  // without scanning the entire report history every time this page loads.
+  const MILESTONE_LOOKBACK_WEEKS = 10
+
+  // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days
+  // before the Sunday) for "New Comers" suggestions, plus MILESTONE_LOOKBACK_WEEKS of
+  // past sunday_reports docs to compute each visitor's real visitCount — total Sundays
+  // they've actually been recorded attending since their first visit, not a single
+  // calendar-window guess and not "N consecutive Sundays." 2nd/3rd/4th Week Attendees
+  // are then exactly those with visitCount 2/3/4 respectively.
   useEffect(() => {
     setLoadingDlight(true)
-    setLoadingSecondWeekSuggestions(true)
+    setLoadingMilestoneSuggestions(true)
     const sunday = new Date(selectedDate + 'T00:00:00')
     const weekAgo = new Date(sunday)
     weekAgo.setDate(sunday.getDate() - 6)
-    const priorWeeksEnd = new Date(weekAgo)
-    priorWeeksEnd.setDate(weekAgo.getDate() - 1)
-    const priorWeeksStart = new Date(weekAgo)
-    priorWeeksStart.setDate(weekAgo.getDate() - 28)
 
-    // Sunday-dated report docs spanning the suggestion window — used to drop anyone
-    // already recorded as a second-week attendee in a past report from the suggestions.
     const weekDates = []
-    for (let d = new Date(sunday); d >= priorWeeksStart; d.setDate(d.getDate() - 7)) {
+    for (let d = new Date(sunday), i = 0; i < MILESTONE_LOOKBACK_WEEKS; i++) {
       weekDates.push(format(d, 'yyyy-MM-dd'))
+      d.setDate(d.getDate() - 7)
     }
+    const oldestTracked = new Date(weekDates[weekDates.length - 1] + 'T00:00:00')
 
     Promise.all([getDelightVisitors(), Promise.all(weekDates.map((d) => getSundayReport(d)))])
       .then(([visitors, reports]) => {
@@ -1501,26 +1606,62 @@ export default function SundayReport({ embedded = false }) {
           const d = new Date(v.attendedDate + 'T00:00:00')
           return d >= weekAgo && d <= sunday
         })
-        const names = [...new Set(thisWeek.map(v => v.name).filter(Boolean))]
-        setDlightSuggestions(names)
+        setDlightSuggestions([...new Set(thisWeek.map(v => v.name).filter(Boolean))])
 
+        // date -> Set(lowercased names present that Sunday, any capacity)
+        const namesByDate = new Map(weekDates.map((d, i) => [d, unionAttendeeNames(reports[i])]))
+
+        // Already explicitly logged into a milestone bucket in a past report —
+        // don't re-suggest them even if the visitCount math would still land them
+        // in a bucket (e.g. re-opening an older, already-completed date).
         const alreadyRecorded = new Set(
-          reports.flatMap((r) => (r?.secondWeekAttendeesNames || []).map((n) => String(n).trim().toLowerCase()))
+          reports.flatMap((r) => [
+            ...(r?.secondWeekAttendeesNames || []),
+            ...(r?.thirdWeekAttendeesNames || []),
+            ...(r?.fourthWeekAttendeesNames || []),
+          ].map((n) => String(n).trim().toLowerCase()))
         )
 
-        const priorWeeks = visitors.filter(v => {
-          if (!v.attendedDate) return false
-          const d = new Date(v.attendedDate + 'T00:00:00')
-          return d >= priorWeeksStart && d <= priorWeeksEnd
+        const buckets = { 2: [], 3: [], 4: [] }
+        const milestoneNames = new Set()
+
+        visitors.forEach((v) => {
+          const name = String(v.name || '').trim()
+          if (!name || !v.attendedDate) return
+          const firstVisit = new Date(v.attendedDate + 'T00:00:00')
+          if (firstVisit > sunday || firstVisit < oldestTracked) return
+
+          const key = name.toLowerCase()
+          if (alreadyRecorded.has(key)) return
+
+          let visitCount = 0
+          weekDates.forEach((d) => {
+            const wkDate = new Date(d + 'T00:00:00')
+            if (wkDate < firstVisit || wkDate > sunday) return
+            if (namesByDate.get(d)?.has(key)) visitCount++
+          })
+
+          if (visitCount >= 2 && visitCount <= 4) {
+            milestoneNames.add(key)
+            buckets[visitCount].push(name)
+          }
         })
-        const priorNames = [...new Set(priorWeeks.map(v => v.name).filter(Boolean))]
-          .filter((n) => !alreadyRecorded.has(n.trim().toLowerCase()))
-        setSecondWeekSuggestions(priorNames)
+
+        setSecondWeekSuggestions([...new Set(buckets[2])])
+        setThirdWeekSuggestions([...new Set(buckets[3])])
+        setFourthWeekSuggestions([...new Set(buckets[4])])
+        setMilestoneSuggestionNames(milestoneNames)
       })
-      .catch(() => { setDlightSuggestions([]); setSecondWeekSuggestions([]) })
+      .catch(() => {
+        setDlightSuggestions([])
+        setSecondWeekSuggestions([])
+        setThirdWeekSuggestions([])
+        setFourthWeekSuggestions([])
+        setMilestoneSuggestionNames(new Set())
+      })
       .finally(() => {
         setLoadingDlight(false)
-        setLoadingSecondWeekSuggestions(false)
+        setLoadingMilestoneSuggestions(false)
       })
   }, [selectedDate])
 
@@ -1803,6 +1944,34 @@ export default function SundayReport({ embedded = false }) {
     }
     return merged
   }, [othersLinkDirectory])
+
+  // ── Non Cell smart suggestions — names seen at Sunday Service in the last 4 weeks
+  // (as of this report's date) who aren't currently in any cell group.
+  const [recentAttendeeNames, setRecentAttendeeNames] = useState([])
+  const [loadingNonCellSuggestions, setLoadingNonCellSuggestions] = useState(false)
+  useEffect(() => {
+    if (!selectedDate) return
+    setLoadingNonCellSuggestions(true)
+    getRecentNonCellAttendeeNames(selectedDate, 4)
+      .then(setRecentAttendeeNames)
+      .catch(() => setRecentAttendeeNames([]))
+      .finally(() => setLoadingNonCellSuggestions(false))
+  }, [selectedDate])
+
+  const nonCellSuggestions = useMemo(() => {
+    const nonCellSet = new Set((report?.nonCell || []).map((n) => (n || '').trim().toLowerCase()))
+    const byName = new Map(nonCellSearchPool.map((p) => [(p.name || '').trim().toLowerCase(), p]))
+    const names = recentAttendeeNames.filter((n) => {
+      const key = n.trim().toLowerCase()
+      if (!key || nonCellSet.has(key)) return false
+      if (cellMemberNames?.has(key)) return false
+      // Anyone currently classified as a 2nd/3rd/4th Week Attendee belongs in that
+      // milestone section only — keeping them here too would render them twice.
+      if (milestoneSuggestionNames.has(key)) return false
+      return true
+    })
+    return names.map((n) => byName.get(n.trim().toLowerCase()) || { name: n })
+  }, [recentAttendeeNames, report?.nonCell, cellMemberNames, nonCellSearchPool, milestoneSuggestionNames])
 
   // Combined people pool for bulk import matching: cell members + people directory + visitors + River Kids
   const bulkImportSearchPool = useMemo(() => {
@@ -2327,20 +2496,30 @@ export default function SundayReport({ embedded = false }) {
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                   {cellGroups.map((g) => {
                     const isSelected = expandedCellId === g.id
-                    const count = (report?.sundayCellAttendance?.[g.id] || []).length
+                    const cellNames = report?.sundayCellAttendance?.[g.id] || []
+                    const count = cellNames.length
+                    // Flagged without needing to expand — a name in this cell also appears
+                    // in another section (or another cell) per the global duplicateNorms set.
+                    const hasDupe = cellNames.some((n) => duplicateNorms.has((n || '').replace(/\s+/g, ' ').trim().toLowerCase()))
                     return (
                       <button
                         key={g.id}
                         type="button"
                         onClick={() => setExpandedCellId(isSelected ? null : g.id)}
-                        className={`rounded-xl border text-center px-2 py-2.5 transition active:scale-95 ${
-                          isSelected
-                            ? 'border-indigo-500 bg-indigo-50 shadow-sm'
-                            : 'border-slate-200 bg-white hover:border-indigo-300'
+                        title={hasDupe ? 'Contains a duplicate name — also recorded elsewhere' : undefined}
+                        className={`relative rounded-xl border text-center px-2 py-2.5 transition active:scale-95 ${
+                          hasDupe
+                            ? 'border-red-400 bg-red-50'
+                            : isSelected
+                              ? 'border-indigo-500 bg-indigo-50 shadow-sm'
+                              : 'border-slate-200 bg-white hover:border-indigo-300'
                         }`}
                       >
-                        <p className="text-xs font-semibold text-slate-700 leading-tight truncate">{g.cellName || 'Unnamed'}</p>
-                        <p className={`text-base font-extrabold tabular-nums mt-0.5 ${count > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{count}</p>
+                        {hasDupe && (
+                          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">!</span>
+                        )}
+                        <p className={`text-xs font-semibold leading-tight truncate ${hasDupe ? 'text-red-700' : 'text-slate-700'}`}>{g.cellName || 'Unnamed'}</p>
+                        <p className={`text-base font-extrabold tabular-nums mt-0.5 ${hasDupe ? 'text-red-600' : count > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{count}</p>
                       </button>
                     )
                   })}
@@ -2428,6 +2607,8 @@ export default function SundayReport({ embedded = false }) {
                         onEdit={(idx, value) => updateCellList(key, idx, value)}
                         onRemove={(idx) => removeCellName(key, idx)}
                         duplicateNorms={duplicateNorms}
+                        suggestions={nonCellSuggestions}
+                        loadingSuggestions={loadingNonCellSuggestions}
                         className="border-0 shadow-none bg-transparent p-0"
                       />
                     ) : key === 'riverKids' ? (
@@ -2504,8 +2685,8 @@ export default function SundayReport({ embedded = false }) {
                   onEdit={(idx, value) => updateCellList(SECOND_WEEK_KEY.key, idx, value)}
                   onRemove={(idx) => removeCellName(SECOND_WEEK_KEY.key, idx)}
                   suggestions={secondWeekSuggestions}
-                  loadingSuggestions={loadingSecondWeekSuggestions}
-                  suggestionsLabel="New comers from the last 4 weeks — tap to add"
+                  loadingSuggestions={loadingMilestoneSuggestions}
+                  suggestionsLabel="2nd Sunday check-in — tap to add"
                   duplicateNorms={duplicateNorms}
                   className="border-0 shadow-none bg-transparent p-0"
                 />
@@ -2527,6 +2708,9 @@ export default function SundayReport({ embedded = false }) {
                   onAddValue={(value) => addCellNameValue(THIRD_WEEK_KEY.key, value)}
                   onEdit={(idx, value) => updateCellList(THIRD_WEEK_KEY.key, idx, value)}
                   onRemove={(idx) => removeCellName(THIRD_WEEK_KEY.key, idx)}
+                  suggestions={thirdWeekSuggestions}
+                  loadingSuggestions={loadingMilestoneSuggestions}
+                  suggestionsLabel="3rd Sunday check-in — tap to add"
                   duplicateNorms={duplicateNorms}
                   className="border-0 shadow-none bg-transparent p-0"
                 />
@@ -2548,6 +2732,9 @@ export default function SundayReport({ embedded = false }) {
                   onAddValue={(value) => addCellNameValue(FOURTH_WEEK_KEY.key, value)}
                   onEdit={(idx, value) => updateCellList(FOURTH_WEEK_KEY.key, idx, value)}
                   onRemove={(idx) => removeCellName(FOURTH_WEEK_KEY.key, idx)}
+                  suggestions={fourthWeekSuggestions}
+                  loadingSuggestions={loadingMilestoneSuggestions}
+                  suggestionsLabel="4th Sunday check-in — tap to add"
                   duplicateNorms={duplicateNorms}
                   className="border-0 shadow-none bg-transparent p-0"
                 />
@@ -2928,14 +3115,23 @@ function AttendanceRow({ label, count, names, accent = 'indigo' }) {
       </div>
       {names?.length > 0 && (
         <ul className="flex flex-wrap gap-1.5 mt-2.5">
-          {names.map((n, i) => (
-            <li
-              key={i}
-              className="inline-flex items-center bg-white border border-slate-200 text-slate-600 text-xs font-medium px-2.5 py-1 rounded-full shadow-sm"
-            >
-              {n}
-            </li>
-          ))}
+          {names.map((n, i) => {
+            const isSeniorPastor = isSeniorPastorName(n)
+            return (
+              <li
+                key={i}
+                title={isSeniorPastor ? SENIOR_PASTOR_FULL_TITLE : undefined}
+                className={`inline-flex items-center gap-1 border text-xs font-medium px-2.5 py-1 rounded-full shadow-sm ${
+                  isSeniorPastor
+                    ? 'bg-amber-100 border-amber-300 text-amber-800 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600'
+                }`}
+              >
+                {n}
+                {isSeniorPastor && <span className="opacity-70">· {SENIOR_PASTOR_TITLE}</span>}
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

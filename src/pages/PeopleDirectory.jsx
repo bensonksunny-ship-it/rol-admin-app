@@ -14,6 +14,7 @@ import { useAuth } from '../context/AuthContext'
 import { isFounder } from '../utils/access'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
+import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
 
 const fmt = (d) => {
   if (!d) return null
@@ -34,6 +35,7 @@ function statusBadges(p) {
   const hasActiveCell = p.cells.some(c => c.status !== 'inactive')
   const hasMinistry = p.deptTeams.length > 0 || p.worshipTeams.length > 0 || (p.ministries?.length > 0) || (p.pcs?.ministries?.length > 0)
 
+  if (isSeniorPastorName(p.name)) badges.push({ label: SENIOR_PASTOR_TITLE, bg: 'bg-gradient-to-r from-amber-100 to-yellow-100', text: 'text-amber-800', border: 'border-amber-300', title: SENIOR_PASTOR_FULL_TITLE })
   if (isMember)      badges.push({ label: 'Member',  bg: 'bg-amber-100',   text: 'text-amber-700',   border: 'border-amber-200'   })
   if (hasActiveCell) badges.push({ label: 'Cell',    bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200' })
   if (p.pcs)         badges.push({ label: 'PCS',     bg: 'bg-indigo-100',  text: 'text-indigo-700',  border: 'border-indigo-200'  })
@@ -694,7 +696,7 @@ export default function PeopleDirectory() {
 
                           <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
                             {badges.map(b => (
-                              <span key={b.label} className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${b.bg} ${b.text} ${b.border}`}>{b.label}</span>
+                              <span key={b.label} title={b.title} className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${b.bg} ${b.text} ${b.border}`}>{b.label}</span>
                             ))}
                           </div>
 

@@ -216,14 +216,34 @@ export async function deleteTask(id) {
   await deleteDoc(doc(db, 'tasks', id))
 }
 
+// Status transitions for the global To-Do List (ToDoListCard) — stamp their own
+// timestamp so completed/turned-down items can still be shown (greyed out) for their
+// 30-day retention window instead of disappearing the instant they're actioned.
+export async function markTaskCompleted(id) {
+  await updateDoc(doc(db, 'tasks', id), { status: 'Completed', completedAt: Timestamp.now() })
+}
+
+export async function markTaskTurnedDown(id) {
+  await updateDoc(doc(db, 'tasks', id), { status: 'Turned Down', turnedDownAt: Timestamp.now() })
+}
+
+function taskDocToRecord(d) {
+  const data = d.data()
+  return {
+    id: d.id,
+    ...data,
+    deadline: toDate(data.deadline),
+    createdAt: toDate(data.createdAt),
+    completedAt: toDate(data.completedAt),
+    turnedDownAt: toDate(data.turnedDownAt),
+  }
+}
+
 export function subscribeTasksByDepartment(department, onChange) {
   if (!db || !department) return () => {}
   const q = query(collection(db, 'tasks'), where('department', '==', department), orderBy('createdAt', 'desc'))
   return onSnapshot(q, (snap) => {
-    onChange(snap.docs.map((d) => {
-      const data = d.data()
-      return { id: d.id, ...data, deadline: toDate(data.deadline) }
-    }))
+    onChange(snap.docs.map(taskDocToRecord))
   }, () => {})
 }
 
@@ -241,10 +261,7 @@ export function subscribeTasksForDepartments(departments, onChange) {
     ? query(collection(db, 'tasks'), where('department', 'in', departments.slice(0, 30)))
     : collection(db, 'tasks')
   return onSnapshot(q, (snap) => {
-    onChange(snap.docs.map((d) => {
-      const data = d.data()
-      return { id: d.id, ...data, deadline: toDate(data.deadline) }
-    }))
+    onChange(snap.docs.map(taskDocToRecord))
   }, () => {})
 }
 
@@ -3925,6 +3942,34 @@ export async function getRecentSundayAttendanceNamesByCell(cellId, count = 5) {
   return results
 }
 
+/**
+ * Distinct names recorded specifically in the Non Cell attendance section across
+ * the last `count` Sunday reports strictly before `beforeDate` — deliberately
+ * scoped to just `nonCell` (not Others, not any other section) so the Non Cell
+ * "recently seen, not yet in a cell" suggestion pool only draws from people who
+ * were themselves marked Non Cell before, not from every attendance category.
+ */
+export async function getRecentNonCellAttendeeNames(beforeDate, count = 4) {
+  if (!db || !beforeDate) return []
+  const q = query(collection(db, SUNDAY_REPORTS_COLLECTION), orderBy('date', 'desc'), limit(count * 6))
+  const snap = await getDocs(q)
+  if (snap.empty) return []
+  const seen = new Set()
+  let weeksCounted = 0
+  for (const d of snap.docs) {
+    const data = d.data()
+    const date = data.date || d.id
+    if (!date || date >= beforeDate) continue
+    for (const n of (Array.isArray(data.nonCell) ? data.nonCell : [])) {
+      const t = String(n || '').trim()
+      if (t) seen.add(t)
+    }
+    weeksCounted += 1
+    if (weeksCounted >= count) break
+  }
+  return [...seen]
+}
+
 export async function getSundayServiceAttendance(dateStr, cellId) {
   if (!db || !dateStr || !cellId) return { presentIds: [] }
   const id = `${String(dateStr).slice(0, 10)}_${cellId}`
@@ -4560,6 +4605,73 @@ export function subscribeSundayLeaderAssignmentNotifications(uid, onChange) {
   }, () => onChange([]))
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SEC-CORE BOARD MEETINGS — scheduled Director Board meeting instances (Date,
+// Time, Venue/Link, Title), distinct from the bare meetingDate string that
+// board_meeting_points has always used. Points can carry a meetingId to link
+// them to a specific scheduled instance, in addition to their existing
+// meetingDate (kept for BoardAgendaTab's date-chip grouping).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SEC_CORE_BOARD_MEETINGS_COLLECTION = 'sec_core_board_meetings'
+
+export async function createBoardMeeting({ title, date, time, venue, createdBy }) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, SEC_CORE_BOARD_MEETINGS_COLLECTION), {
+    title: title || '',
+    date: date || '',
+    time: time || '',
+    venue: venue || '',
+    status: 'scheduled',
+    createdBy: createdBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export function subscribeToBoardMeetings(onChange, onError) {
+  if (!db) { onChange([]); return () => {} }
+  const q = query(collection(db, SEC_CORE_BOARD_MEETINGS_COLLECTION), orderBy('date', 'asc'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  }, (err) => { console.error('subscribeToBoardMeetings:', err); onError?.() })
+}
+
+export async function getBoardMeeting(id) {
+  if (!db || !id) return null
+  const snap = await getDoc(doc(db, SEC_CORE_BOARD_MEETINGS_COLLECTION, id))
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null
+}
+
+const SEC_CORE_BOARD_MEETING_NOTIF_COLLECTION = 'sec_core_board_meeting_notifications'
+
+/** Doc id `${uid}_${meetingId}` — same idempotent composite-key pattern as
+ * createSundayLeaderAssignmentNotification, so re-notifying the same meeting
+ * to the same person merges instead of duplicating. */
+export async function createBoardMeetingNotification({ uid, meetingId, meetingTitle, meetingDate, meetingTime, meetingVenue, role, name, createdBy }) {
+  if (!db || !uid || !meetingId) return
+  await setDoc(doc(db, SEC_CORE_BOARD_MEETING_NOTIF_COLLECTION, `${uid}_${meetingId}`), {
+    uid,
+    meetingId,
+    meetingTitle: meetingTitle || '',
+    meetingDate: meetingDate || '',
+    meetingTime: meetingTime || '',
+    meetingVenue: meetingVenue || '',
+    role: role || '',
+    name: name || '',
+    createdBy: createdBy || 'unknown',
+    createdAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+export function subscribeBoardMeetingNotifications(uid, onChange) {
+  if (!db || !uid) { onChange([]); return () => {} }
+  const q = query(collection(db, SEC_CORE_BOARD_MEETING_NOTIF_COLLECTION), where('uid', '==', uid))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  }, () => onChange([]))
+}
+
 // Global "Pastoral Roster" — default Pastors/leadership shown as one-tap, pre-linked
 // suggestions on every Sunday report's Pastoral Attendees section (see SundayReport.jsx).
 // Single settings doc, same shape as sec_core's sunday_leader_pool: { members: [...] }.
@@ -4732,9 +4844,11 @@ function mapBoardPoint(d) {
     point: data.point || '',
     timeNeeded: data.timeNeeded || '',
     meetingDate: data.meetingDate || '',
+    meetingId: data.meetingId || '',
     status: data.status || 'pending',
     allottedTime: data.allottedTime || '',
     approvedBy: data.approvedBy || '',
+    durationMinutes: data.durationMinutes ?? null,
     createdAt: toDate(data.createdAt),
     createdBy: data.createdBy || '',
   }
@@ -4775,6 +4889,7 @@ export async function addBoardPoint(data) {
     point: data.point || '',
     timeNeeded: data.timeNeeded || '',
     meetingDate: data.meetingDate || '',
+    meetingId: data.meetingId || '',
     status: 'pending',
     createdAt: Timestamp.now(),
     createdBy: data.createdBy || 'unknown',
@@ -4789,15 +4904,38 @@ export async function updateBoardPoint(id, data) {
   if (data.point !== undefined) payload.point = String(data.point)
   if (data.timeNeeded !== undefined) payload.timeNeeded = String(data.timeNeeded)
   if (data.meetingDate !== undefined) payload.meetingDate = String(data.meetingDate)
+  if (data.meetingId !== undefined) payload.meetingId = String(data.meetingId)
   if (data.status !== undefined) payload.status = String(data.status)
   if (data.allottedTime !== undefined) payload.allottedTime = String(data.allottedTime)
   if (data.approvedBy !== undefined) payload.approvedBy = String(data.approvedBy)
+  if (data.durationMinutes !== undefined) payload.durationMinutes = data.durationMinutes === null ? null : Number(data.durationMinutes)
   if (Object.keys(payload).length) await updateDoc(doc(db, BOARD_POINTS_COLLECTION, id), payload)
 }
 
 export async function deleteBoardPoint(id) {
   if (!db || !id) return
   await deleteDoc(doc(db, BOARD_POINTS_COLLECTION, id))
+}
+
+// Board Agenda's per-Sunday meeting Start Time — one small doc per date in the shared
+// `sec_core` collection (same single-doc-per-key pattern as sec_core/director_board),
+// covered by the existing sec_core/{docId} security rule, no new rules needed. Fixed
+// point time windows are then computed live from this + each point's durationMinutes,
+// never persisted per-point, so changing the start time recalculates everything.
+export async function getSecCoreBoardMeetingStartTime(dateStr) {
+  if (!db || !dateStr) return ''
+  const snap = await getDoc(doc(db, SEC_CORE_COLLECTION, `board_agenda_${dateStr}`))
+  return snap.exists() ? (snap.data().startTime || '') : ''
+}
+
+export async function setSecCoreBoardMeetingStartTime(dateStr, startTime, updatedBy) {
+  if (!db || !dateStr) return
+  await setDoc(doc(db, SEC_CORE_COLLECTION, `board_agenda_${dateStr}`), {
+    date: dateStr,
+    startTime: startTime || '',
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
 }
 
 // ─── Cross-collection sync (visitorId as the key) ─────────────────────────────
@@ -5048,7 +5186,12 @@ export async function getMergedPeopleDirectory() {
   const [people, cellMembers, pcsEntries, deptTeams, worshipTeams, cellGroups, visitors, sundayAttendance] = await Promise.all([
     getPeople().catch(() => []),
     getAllCellGroupMembers().catch(() => []),
-    getPCSEntries().catch(() => []),
+    // Active + inactive (soft-deleted) PCS entries both — this is the "everybody in
+    // the church's records" directory (see comment at its call sites), so someone
+    // removed from active pastoral care tracking should still be findable here, not
+    // silently dropped the way getPCSEntries() alone drops them for the PCS list view.
+    Promise.all([getPCSEntries().catch(() => []), getInactivePCSEntries().catch(() => [])])
+      .then(([active, inactive]) => [...active, ...inactive]),
     getAllDepartmentTeamMembers().catch(() => []),
     getAllWorshipTeamMembers().catch(() => []),
     getCellGroups('Cell').catch(() => []),

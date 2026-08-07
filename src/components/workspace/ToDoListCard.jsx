@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckSquare, Check, Trash2, Users, X } from 'lucide-react'
-import { subscribeTasksForDepartments, updateTask, deleteTask, getCellGroups, addCellGroupMember } from '../../services/firestore'
+import { CheckSquare, Check, XCircle, Users, X } from 'lucide-react'
+import { subscribeTasksForDepartments, markTaskCompleted, markTaskTurnedDown, getCellGroups, addCellGroupMember } from '../../services/firestore'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { formatDMY } from '../../utils/date'
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
 
 // Resolves where clicking a task should land. Tasks added via a notification's "+ Add
 // to To-Do" already carry the exact URL (t.deepLink — see useActionNotifications).
@@ -16,6 +18,12 @@ import { formatDMY } from '../../utils/date'
 function taskDeepLink(t) {
   if (t.deepLink) return t.deepLink
   if (t.cellAssignConsult) return `/department/d-light?tab=summary&openConsultId=${t.id}`
+  // `pcsReferral` is shared by two different task shapes (DepartmentHub.jsx):
+  // "Add [Name] to a cell group" (Caring -> Cell, carries memberId) and "Add [Name] to
+  // D-Light" (Caring -> D-Light, no memberId). Only the first has anywhere useful to
+  // deep-link into — send it straight to that person's PCS profile drawer instead of
+  // falling through to the D-Light route below, which is for the other task shape.
+  if (t.pcsReferral && t.memberId) return `/department/caring?tab=pcs&memberId=${encodeURIComponent(t.memberId)}`
   if (t.pcsReferral) return '/department/d-light?tab=visitorEntry'
   if (t.department) return getDepartmentPath(t.department)
   return '/tasks'
@@ -32,17 +40,28 @@ function myDepartmentNames(userProfile) {
   return [...new Set([...fromPositions, ...fromDepartments, ...fromPrimary])]
 }
 
-// Checklist card: check off or delete a task right here, or click it to jump straight
-// to its action modal / department tab (taskDeepLink above). Live view of the same
-// `tasks` collection via a real-time onSnapshot subscription, so nothing (including
-// items added via a notification's "+ Add to To-Do List" action) needs a page refresh.
+// The moment a task's 30-day retention clock starts counting down from — whichever
+// action last touched it, falling back to when it was created for still-pending items.
+function taskAnchorTime(t) {
+  const anchor = t.completedAt || t.turnedDownAt || t.createdAt
+  const d = anchor instanceof Date ? anchor : anchor ? new Date(anchor) : null
+  return d && !isNaN(d.getTime()) ? d.getTime() : Date.now()
+}
+
+// Checklist card: mark a task Completed or Turned Down right here, or click it to jump
+// straight to its action modal / department tab (taskDeepLink above). Live view of the
+// same `tasks` collection via a real-time onSnapshot subscription — spans every
+// department a task can be created from (Sec-Core referrals, Caring PCS referrals,
+// Cell consult requests, etc.), so this one list is the app's single global To-Do List.
+// Completed/Turned Down items stay visible (greyed out) for 30 days instead of vanishing
+// the instant they're actioned — see taskAnchorTime above.
 export default function ToDoListCard() {
   const { userProfile, isFounder } = useAuth()
   const navigate = useNavigate()
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [completingIds, setCompletingIds] = useState(() => new Set())
-  const [deletingIds, setDeletingIds] = useState(() => new Set())
+  const [turningDownIds, setTurningDownIds] = useState(() => new Set())
 
   // Cell assignment (inline "Assign to [recommended cell]" / "Assign to Other…" on
   // consult_response To-Dos) — same underlying write CellDirectorCockpit's Unassigned
@@ -52,7 +71,6 @@ export default function ToDoListCard() {
   const [cellGroups, setCellGroups] = useState([])
   const [assigningId, setAssigningId] = useState(null)
   const [toast, setToast] = useState(null)
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   // Collapsed-by-default: the card itself no longer renders inline. It lives behind a
   // floating capsule badge and only expands into a bottom-sheet drawer on tap, so it
@@ -81,42 +99,47 @@ export default function ToDoListCard() {
     return unsubscribe
   }, [isFounder, myDepts])
 
+  // Every task within its 30-day retention window, regardless of status — this is the
+  // full list rendered in the drawer. Active items surface first (soonest deadline
+  // first); resolved items (Completed/Turned Down) sink below them, most recent first.
   const myTasks = useMemo(() => {
+    const cutoff = Date.now() - THIRTY_DAYS_MS
+    const relevant = ['Pending', 'In Progress', 'Completed', 'Turned Down']
     return tasks
-      .filter((t) => t.status === 'Pending' || t.status === 'In Progress')
-      .sort((a, b) => (a.deadline && b.deadline ? new Date(a.deadline) - new Date(b.deadline) : 0))
+      .filter((t) => relevant.includes(t.status) && taskAnchorTime(t) >= cutoff)
+      .sort((a, b) => {
+        const aActive = a.status === 'Pending' || a.status === 'In Progress'
+        const bActive = b.status === 'Pending' || b.status === 'In Progress'
+        if (aActive !== bActive) return aActive ? -1 : 1
+        if (aActive) return (a.deadline && b.deadline) ? new Date(a.deadline) - new Date(b.deadline) : 0
+        return taskAnchorTime(b) - taskAnchorTime(a)
+      })
   }, [tasks])
+
+  const activeTasks = useMemo(
+    () => myTasks.filter((t) => t.status === 'Pending' || t.status === 'In Progress'),
+    [myTasks]
+  )
+  const completedCount = useMemo(() => myTasks.filter((t) => t.status === 'Completed').length, [myTasks])
+  const turnedDownCount = useMemo(() => myTasks.filter((t) => t.status === 'Turned Down').length, [myTasks])
 
   const completeTask = async (t) => {
     if (completingIds.has(t.id)) return
     setCompletingIds((prev) => new Set(prev).add(t.id))
     try {
-      await updateTask(t.id, { status: 'Completed' })
-    } catch {
+      await markTaskCompleted(t.id)
+    } finally {
       setCompletingIds((prev) => { const next = new Set(prev); next.delete(t.id); return next })
     }
   }
 
-  // Two-tap delete (tap trash to arm, tap the confirm check to actually delete) instead
-  // of window.confirm — a native blocking dialog is one more thing that can behave
-  // unpredictably (browser/extension/embedded-context quirks); this keeps everything
-  // inside React so it's easy to reason about and test. Removes from local `tasks`
-  // state immediately (optimistic), then deletes the Firestore doc; if the write
-  // fails, the task is put back and the actual error is surfaced in the toast instead
-  // of silently doing nothing, so a permission-denied failure is visibly a failure —
-  // not indistinguishable from "worked, but slow."
-  const removeTask = async (t) => {
-    if (deletingIds.has(t.id)) return
-    setConfirmDeleteId(null)
-    setDeletingIds((prev) => new Set(prev).add(t.id))
-    setTasks((prev) => prev.filter((x) => x.id !== t.id))
+  const turnDownTask = async (t) => {
+    if (turningDownIds.has(t.id)) return
+    setTurningDownIds((prev) => new Set(prev).add(t.id))
     try {
-      await deleteTask(t.id)
-    } catch (err) {
-      setTasks((prev) => (prev.some((x) => x.id === t.id) ? prev : [...prev, t]))
-      showToast(`Failed to delete: ${err?.code || err?.message || 'unknown error'}`, 'error')
+      await markTaskTurnedDown(t.id)
     } finally {
-      setDeletingIds((prev) => { const next = new Set(prev); next.delete(t.id); return next })
+      setTurningDownIds((prev) => { const next = new Set(prev); next.delete(t.id); return next })
     }
   }
 
@@ -133,9 +156,9 @@ export default function ToDoListCard() {
         ...(t.consultPersonPhone ? { phone: t.consultPersonPhone } : {}),
         ...(t.consultPersonVisitorId ? { visitorId: t.consultPersonVisitorId } : {}),
       })
-      await updateTask(t.id, { status: 'Completed' })
+      await markTaskCompleted(t.id)
       if (t.sourceConsultTaskId) {
-        try { await updateTask(t.sourceConsultTaskId, { status: 'Completed' }) } catch { /* non-fatal */ }
+        try { await markTaskCompleted(t.sourceConsultTaskId) } catch { /* non-fatal */ }
       }
       const cellName = activeCells.find((c) => c.id === cellId)?.cellName || 'the cell'
       showToast(`${t.consultPersonName || 'Member'} assigned to ${cellName}.`)
@@ -157,7 +180,8 @@ export default function ToDoListCard() {
       )}
 
       {/* Collapsed state: floating capsule badge — takes only as much space as its own
-          pixels, never a fixed card footprint. */}
+          pixels, never a fixed card footprint. Badge count is active (actionable) tasks
+          only — resolved items retained for their 30-day window don't inflate it. */}
       <button
         type="button"
         onClick={() => setIsOpen(true)}
@@ -170,9 +194,9 @@ export default function ToDoListCard() {
         <span className="text-sm font-bold text-slate-800 dark:text-slate-100">To-Do</span>
         {loading ? (
           <span className="text-xs text-slate-400 dark:text-slate-500">…</span>
-        ) : myTasks.length > 0 ? (
+        ) : activeTasks.length > 0 ? (
           <span className="text-[11px] font-bold min-w-[20px] text-center px-2 py-0.5 rounded-full bg-amber-500 text-white">
-            {myTasks.length}
+            {activeTasks.length}
           </span>
         ) : (
           <span className="text-xs text-slate-400 dark:text-slate-500">All clear 🎉</span>
@@ -204,24 +228,38 @@ export default function ToDoListCard() {
                 <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
               </div>
 
-              <div className="px-5 pb-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
-                    <CheckSquare size={18} strokeWidth={1.75} />
-                  </span>
-                  <div>
-                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">To-Do List</p>
-                    <p className="text-xs mt-0.5 text-slate-400 dark:text-slate-500">{myTasks.length} need attention</p>
+              <div className="px-5 pb-4 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                      <CheckSquare size={18} strokeWidth={1.75} />
+                    </span>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">To-Do List</p>
+                      <p className="text-xs mt-0.5 text-slate-400 dark:text-slate-500">{activeTasks.length} need attention</p>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    aria-label="Close To-Do List"
+                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"
+                  >
+                    <X size={18} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsOpen(false)}
-                  aria-label="Close To-Do List"
-                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"
-                >
-                  <X size={18} />
-                </button>
+
+                {/* Action counter summary — last 30 days */}
+                {(completedCount > 0 || turnedDownCount > 0) && (
+                  <div className="flex items-center gap-2 mt-3">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                      <Check size={11} strokeWidth={3} /> {completedCount} Completed
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                      <XCircle size={11} strokeWidth={2.5} /> {turnedDownCount} Turned Down
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto overscroll-contain">
@@ -232,35 +270,28 @@ export default function ToDoListCard() {
                 ) : (
                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
                     <AnimatePresence initial={false}>
-                      {myTasks.map((t) => (
+                      {myTasks.map((t) => {
+                        const isResolved = t.status === 'Completed' || t.status === 'Turned Down'
+                        return (
                         <motion.div
                           key={t.id}
                           layout
                           initial={{ opacity: 0, y: 8 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
-                          className="group w-full px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+                          className={`group w-full px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${isResolved ? 'grayscale opacity-60' : ''}`}
                         >
                           <div className="flex items-center gap-2">
-                            <motion.button
-                              type="button"
-                              onClick={() => completeTask(t)}
-                              disabled={completingIds.has(t.id)}
-                              aria-label="Mark task complete"
-                              whileTap={{ scale: 0.8 }}
-                              className="min-h-[44px] min-w-[44px] flex-shrink-0 flex items-center justify-center transition-colors disabled:opacity-50"
-                            >
-                              <span className="w-5 h-5 rounded-md border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center justify-center transition-colors">
-                                <Check size={12} strokeWidth={3} className="text-emerald-600 dark:text-emerald-400 opacity-0 hover:opacity-100 transition-opacity" />
-                              </span>
-                            </motion.button>
-
                             <button
                               type="button"
                               onClick={() => { setIsOpen(false); navigate(taskDeepLink(t)) }}
                               className="flex-1 min-w-0 flex items-center gap-3 text-left min-h-[44px]"
                             >
-                              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.status === 'In Progress' ? 'bg-[#6357c9]' : 'bg-amber-400'}`} />
+                              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                t.status === 'Completed' ? 'bg-emerald-500'
+                                  : t.status === 'Turned Down' ? 'bg-slate-400'
+                                  : t.status === 'In Progress' ? 'bg-[#6357c9]' : 'bg-amber-400'
+                              }`} />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{t.taskTitle || t.task || 'Untitled'}</p>
                                 <div className="flex items-center gap-1.5 mt-0.5">
@@ -273,47 +304,48 @@ export default function ToDoListCard() {
                                 </div>
                               </div>
                               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                                t.status === 'In Progress' ? 'bg-[#efecfb] dark:bg-[#6357c9]/15 text-[#6357c9] dark:text-[#a599e8]' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                t.status === 'Completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                  : t.status === 'Turned Down' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                                  : t.status === 'In Progress' ? 'bg-[#efecfb] dark:bg-[#6357c9]/15 text-[#6357c9] dark:text-[#a599e8]' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'
                               }`}>{t.status}</span>
                             </button>
 
-                            {confirmDeleteId === t.id ? (
+                            {/* Right-side actions — only for still-active items; a
+                                resolved item just shows its status badge above. These
+                                buttons are siblings of the title button, not nested
+                                inside it, so a click here never bubbles into its
+                                onClick anyway — stopPropagation is just defense in
+                                depth against that ever changing. */}
+                            {!isResolved && (
                               <div className="flex items-center gap-1 flex-shrink-0">
-                                <button
+                                <motion.button
                                   type="button"
-                                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); removeTask(t) }}
-                                  disabled={deletingIds.has(t.id)}
-                                  aria-label="Confirm delete"
-                                  title="Confirm delete"
-                                  className="min-h-[44px] px-3 rounded-lg bg-rose-600 text-white text-[11px] font-semibold hover:bg-rose-700 active:scale-95 transition-all disabled:opacity-50"
+                                  onClick={(e) => { e.stopPropagation(); completeTask(t) }}
+                                  disabled={completingIds.has(t.id) || turningDownIds.has(t.id)}
+                                  aria-label="Task Completed"
+                                  title="Task Completed"
+                                  whileTap={{ scale: 0.85 }}
+                                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-300 dark:text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 active:scale-90 transition-all disabled:opacity-50"
                                 >
-                                  {deletingIds.has(t.id) ? '…' : 'Delete?'}
-                                </button>
-                                <button
+                                  <Check size={16} strokeWidth={2.5} />
+                                </motion.button>
+                                <motion.button
                                   type="button"
-                                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); setConfirmDeleteId(null) }}
-                                  aria-label="Cancel delete"
-                                  title="Cancel"
-                                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-90 transition-all"
+                                  onClick={(e) => { e.stopPropagation(); turnDownTask(t) }}
+                                  disabled={completingIds.has(t.id) || turningDownIds.has(t.id)}
+                                  aria-label="Turn Down"
+                                  title="Turn Down"
+                                  whileTap={{ scale: 0.85 }}
+                                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-300 dark:text-slate-600 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 active:scale-90 transition-all disabled:opacity-50"
                                 >
-                                  ✕
-                                </button>
+                                  <XCircle size={16} strokeWidth={2} />
+                                </motion.button>
                               </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setConfirmDeleteId(t.id) }}
-                                aria-label="Delete task"
-                                title="Delete task"
-                                className="min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 hover:!text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 active:scale-90 transition-all"
-                              >
-                                <Trash2 size={14} strokeWidth={2} />
-                              </button>
                             )}
                           </div>
 
                           {/* Cell assignment — quick-assign to D-Light's recommended cell, or pick another */}
-                          {t.cellAssignRecommendation && (
+                          {!isResolved && t.cellAssignRecommendation && (
                             <div className="flex items-center flex-wrap gap-1.5 mt-2 pl-11">
                               {t.recommendedCellId && (
                                 <button
@@ -340,7 +372,8 @@ export default function ToDoListCard() {
                             </div>
                           )}
                         </motion.div>
-                      ))}
+                        )
+                      })}
                     </AnimatePresence>
                   </div>
                 )}
