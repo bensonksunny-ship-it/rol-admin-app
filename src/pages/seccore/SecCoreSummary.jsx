@@ -630,21 +630,35 @@ function ScheduleMeetingModal({ members, userProfile, onClose }) {
 
       const today = format(new Date(), 'yyyy-MM-dd')
       const activeMembers = (members || []).filter(m => !m.to || m.to >= today)
+      const notifiedUids = new Set()
+      const notifyPayload = (extra) => ({
+        meetingId,
+        meetingTitle: form.title.trim(),
+        meetingDate: form.date,
+        meetingTime: form.time,
+        meetingVenue: form.venue.trim(),
+        createdBy,
+        ...extra,
+      })
+
       await Promise.all(activeMembers.map(async (m) => {
         if (!m.name) return
         const account = await getUserByName(m.name).catch(() => null)
-        if (!account) return
-        await createBoardMeetingNotification({
-          uid: account.id,
-          meetingId,
-          meetingTitle: form.title.trim(),
-          meetingDate: form.date,
-          meetingTime: form.time,
-          meetingVenue: form.venue.trim(),
-          role: m.type || '',
-          name: m.name,
-          createdBy,
-        }).catch(() => {})
+        if (!account || notifiedUids.has(account.id)) return
+        notifiedUids.add(account.id)
+        await createBoardMeetingNotification(notifyPayload({ uid: account.id, role: m.type || '', name: m.name })).catch(() => {})
+      }))
+
+      // Church-wide leadership always gets notified too, whether or not they sit on
+      // the Director Board roster — a board meeting concerns them regardless.
+      const [seniorPastors, founders] = await Promise.all([
+        getUsersByAppRole('Senior Pastor').catch(() => []),
+        getUsersByAppRole('Founder').catch(() => []),
+      ])
+      await Promise.all([...seniorPastors, ...founders].map(async (u) => {
+        if (!u.id || notifiedUids.has(u.id)) return
+        notifiedUids.add(u.id)
+        await createBoardMeetingNotification(notifyPayload({ uid: u.id, role: u.role || '', name: u.name || '' })).catch(() => {})
       }))
 
       onClose()
