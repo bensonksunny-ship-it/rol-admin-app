@@ -4,6 +4,7 @@ import WorkspaceHeader from '../components/workspace/WorkspaceHeader'
 import ToDoListCard from '../components/workspace/ToDoListCard'
 import EdenGardenGrid from '../components/workspace/EdenGardenGrid'
 import WorshipWorkspaceWidget from '../components/workspace/WorshipWorkspaceWidget'
+import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWorkspaceWidget'
 
 function greeting() {
   const h = new Date().getHours()
@@ -67,6 +68,7 @@ export default function MyWorkspace() {
       {isFounder && <EdenGardenGrid />}
       <ToDoListCard />
       <WorshipWorkspaceWidget />
+      <BoardMeetingWorkspaceWidget />
     </div>
   )
 }

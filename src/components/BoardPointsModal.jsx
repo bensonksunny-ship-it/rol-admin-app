@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { addBoardPoint, getBoardPoints } from '../services/firestore'
+import { addBoardPoint, getBoardPoints, getBoardMeeting } from '../services/firestore'
 
 function nextSundayISO() {
   const now = new Date()
@@ -19,24 +19,37 @@ function labelDate(iso) {
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
 }
 
-export default function BoardPointsModal({ department, userEmail, onClose }) {
+// `meetingId` (optional) scopes this modal to one scheduled sec_core_board_meetings
+// instance — used when opened from a "Board Meeting: {title}" notification or the
+// BoardMeetingWorkspaceWidget's Submit Point action. Points get a meetingId in
+// addition to meetingDate, and the submitted-points list only shows this meeting's
+// points instead of the department's whole backlog. Without it, behaves exactly as
+// before (WorkspaceHeader's generic "Director Board" entry point — next Sunday).
+export default function BoardPointsModal({ department, userEmail, meetingId = null, onClose }) {
   const [points,     setPoints]     = useState([])
   const [loading,    setLoading]    = useState(true)
   const [point,      setPoint]      = useState('')
   const [timeNeeded, setTimeNeeded] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error,      setError]      = useState('')
+  const [meeting,    setMeeting]    = useState(null)
 
-  const targetSunday = nextSundayISO()
+  useEffect(() => {
+    if (!meetingId) { setMeeting(null); return }
+    getBoardMeeting(meetingId).then(setMeeting).catch(() => setMeeting(null))
+  }, [meetingId])
+
+  const targetSunday = meeting?.date || nextSundayISO()
   const sundayLabel  = labelDate(targetSunday)
+  const meetingBadge = meeting?.title ? meeting.title : `For Sunday ${sundayLabel}`
 
   useEffect(() => {
     if (!department) { setLoading(false); return }
     getBoardPoints(department)
-      .then(setPoints)
+      .then((pts) => setPoints(meetingId ? pts.filter((p) => p.meetingId === meetingId) : pts))
       .catch(() => setPoints([]))
       .finally(() => setLoading(false))
-  }, [department])
+  }, [department, meetingId])
 
   useEffect(() => {
     const fn = e => { if (e.key === 'Escape') onClose() }
@@ -56,6 +69,7 @@ export default function BoardPointsModal({ department, userEmail, onClose }) {
         point: point.trim(),
         timeNeeded: timeNeeded.trim(),
         meetingDate: targetSunday,
+        meetingId: meetingId || '',
         createdBy: userEmail || 'unknown',
       })
       if (id) {
@@ -64,6 +78,7 @@ export default function BoardPointsModal({ department, userEmail, onClose }) {
           point: point.trim(),
           timeNeeded: timeNeeded.trim(),
           meetingDate: targetSunday,
+          meetingId: meetingId || '',
           status: 'pending', allottedTime: '',
         }])
         setPoint('')
@@ -101,7 +116,7 @@ export default function BoardPointsModal({ department, userEmail, onClose }) {
             <div>
               <p className="text-lg font-bold text-slate-900 dark:text-white leading-tight">Board Meeting Points</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {loading ? 'Loading…' : `${points.length} point${points.length !== 1 ? 's' : ''} submitted · ${department || '—'}`}
+                {loading ? 'Loading…' : `${points.length} point${points.length !== 1 ? 's' : ''} submitted · ${department || '—'}${meeting ? ` · ${sundayLabel}` : ''}`}
               </p>
             </div>
             <button
@@ -135,8 +150,11 @@ export default function BoardPointsModal({ department, userEmail, onClose }) {
           <div className={`px-5 pt-3.5 pb-6 flex-shrink-0 ${points.length > 0 ? 'border-t border-slate-100 dark:border-slate-800' : ''}`}>
             <div className="flex justify-between items-center mb-2.5">
               <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">New Point</span>
-              <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-800 px-3 py-1 rounded-full">
-                For Sunday {sundayLabel}
+              <span
+                className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-800 px-3 py-1 rounded-full max-w-[220px] truncate"
+                title={meeting?.title ? `${meeting.title} · ${sundayLabel}` : undefined}
+              >
+                {meetingBadge}
               </span>
             </div>
 

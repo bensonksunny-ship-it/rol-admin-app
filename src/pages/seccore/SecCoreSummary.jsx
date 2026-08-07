@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useSearchParams } from 'react-router-dom'
 import { format, differenceInCalendarDays } from 'date-fns'
 import { Plus, X, MoreVertical, Pencil, Trash2, ClipboardList, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
@@ -15,6 +16,7 @@ import {
   subscribeToSundayLeaderPool,
   setSecCoreSundayLeaderPool,
   getUserByName,
+  getUsersByAppRole,
   createSundayLeaderAssignmentNotification,
   subscribeToBoardPoints,
   updateBoardPoint,
@@ -28,6 +30,7 @@ import {
 } from '../../services/firestore'
 import { formatDisplayDate, formatTime12h, addMinutesToTime } from '../../utils/date'
 import { DEPARTMENT_LIST } from '../../constants/departments'
+import BoardPointsModal from '../../components/BoardPointsModal'
 
 const DEPT_NAMES = DEPARTMENT_LIST.map(d => d.name)
 
@@ -128,7 +131,14 @@ function PersonPicker({ value, onChange }) {
             <button
               key={p._key}
               type="button"
-              onMouseDown={() => select(p)}
+              // preventDefault on mousedown (not the selection itself) stops the input
+              // from blurring first, so the button is still mounted when the click
+              // completes. Doing selection in onMouseDown instead used to unmount this
+              // dropdown mid-gesture — the mouseup then landed on the modal's backdrop
+              // behind it, which fired the backdrop's onClick-to-dismiss handler and
+              // reset the whole form the instant a person was picked.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => select(p)}
               className="w-full text-left px-3 py-2 hover:bg-indigo-50 transition-colors border-b border-slate-100 last:border-0 flex items-center gap-2"
             >
               <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-[10px] font-black text-indigo-600 flex-shrink-0">
@@ -595,7 +605,8 @@ const BLANK_MEETING = { title: '', date: '', time: '', venue: '' }
 
 /** Schedules a Director Board meeting and notifies every active roster member
  * (Secretary/Director/Coordinator) who has a resolvable app account — same
- * getUserByName + notification pattern SundayLeaderTab uses for leader assignments. */
+ * getUserByName + notification pattern SundayLeaderTab uses for leader assignments —
+ * plus every Senior Pastor and Founder, regardless of whether they sit on the roster. */
 function ScheduleMeetingModal({ members, userProfile, onClose }) {
   const [form, setForm] = useState(BLANK_MEETING)
   const [saving, setSaving] = useState(false)
@@ -798,7 +809,7 @@ function monthSundays(year, month) {
   return dates
 }
 
-const EMPTY_LEADER_FORM = { leader: '', psalm: '' }
+const EMPTY_LEADER_FORM = { leader: '', psalm: '', announcements: '' }
 
 const PSALM_OPTIONS = Array.from({ length: 150 }, (_, i) => String(i + 1))
 
@@ -863,6 +874,21 @@ function SundayLeaderRow({ date, value, onChange, onReset, pool, dirty, hasAssig
           <span className={`text-sm ${value.psalm ? 'text-slate-700' : 'text-slate-400'}`}>{value.psalm ? `Psalm ${value.psalm}` : '—'}</span>
         )}
       </td>
+      <td className="px-4 py-3 align-top">
+        {loading ? (
+          <span className="text-sm text-slate-300">—</span>
+        ) : canEdit ? (
+          <input
+            type="text"
+            value={value.announcements}
+            onChange={(e) => onChange({ ...value, announcements: e.target.value })}
+            placeholder="Announcements…"
+            className="w-full min-w-[160px] px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm bg-white"
+          />
+        ) : (
+          <span className={`text-sm ${value.announcements ? 'text-slate-700' : 'text-slate-400'}`}>{value.announcements || '—'}</span>
+        )}
+      </td>
       <td className="px-4 py-3 align-top">{statusBadge}</td>
       <td className="px-4 py-3 align-top text-right">
         {canEdit && dirty && (
@@ -879,9 +905,13 @@ function SundayLeaderRow({ date, value, onChange, onReset, pool, dirty, hasAssig
 // Only counts/lists Sundays that have already occurred (date < today) — a future
 // assignment doesn't count toward a leader's duty total until that Sunday passes.
 
-function SundayLeaderHistoryModal({ entries, onClose }) {
+function SundayLeaderHistoryModal({ entries, pool, onClose }) {
   const [view, setView] = useState('stats') // 'stats' | 'history'
+  // `query` is the actual filter (an exact leader name, or '' for all leaders);
+  // `nameInput`/`nameDropdownOpen` drive the searchable-select UI on top of it.
   const [query, setQuery] = useState('')
+  const [nameInput, setNameInput] = useState('')
+  const [nameDropdownOpen, setNameDropdownOpen] = useState(false)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
 
@@ -899,10 +929,30 @@ function SundayLeaderHistoryModal({ entries, onClose }) {
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
   }, [pastEntries])
 
+  // Directory roster for the dropdown: current Sunday Leaders Pool + any name that
+  // actually appears in the history but has since been removed from the pool, so a
+  // past leader is still filterable even after they're no longer an approved leader.
+  const leaderNameOptions = useMemo(() => {
+    const fromPool = (pool || []).map((p) => p.name).filter(Boolean)
+    const fromHistory = pastEntries.map((e) => e.leader).filter(Boolean)
+    return [...new Set([...fromPool, ...fromHistory])].sort((a, b) => a.localeCompare(b))
+  }, [pool, pastEntries])
+
+  const filteredNameOptions = useMemo(() => {
+    const q = nameInput.trim().toLowerCase()
+    if (!q) return leaderNameOptions
+    return leaderNameOptions.filter((n) => n.toLowerCase().includes(q))
+  }, [leaderNameOptions, nameInput])
+
+  const selectLeaderName = (name) => {
+    setQuery(name)
+    setNameInput(name)
+    setNameDropdownOpen(false)
+  }
+
   const filteredHistory = useMemo(() => {
-    const q = query.trim().toLowerCase()
     return pastEntries.filter((e) => {
-      if (q && !e.leader.toLowerCase().includes(q)) return false
+      if (query && e.leader !== query) return false
       if (fromDate && e.date < fromDate) return false
       if (toDate && e.date > toDate) return false
       return true
@@ -956,14 +1006,52 @@ function SundayLeaderHistoryModal({ entries, onClose }) {
           ) : (
             <div className="space-y-3">
               <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 <input
                   type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  value={nameInput}
+                  onChange={(e) => { setNameInput(e.target.value); setQuery(''); setNameDropdownOpen(true) }}
+                  onFocus={() => setNameDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setNameDropdownOpen(false), 150)}
                   placeholder="Filter by leader name…"
-                  className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 text-sm"
+                  className="w-full pl-8 pr-8 py-2 rounded-lg border border-slate-300 text-sm"
                 />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => { setQuery(''); setNameInput('') }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+                {nameDropdownOpen && (
+                  <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => selectLeaderName('')}
+                      className="w-full text-left px-3 py-2 text-sm text-slate-500 hover:bg-indigo-50 border-b border-slate-100"
+                    >
+                      All Leaders
+                    </button>
+                    {filteredNameOptions.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-slate-400">No matching leaders</p>
+                    ) : (
+                      filteredNameOptions.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => selectLeaderName(name)}
+                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-indigo-50"
+                        >
+                          {name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -1073,9 +1161,10 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
           const val = {
             leader: e?.leader || '',
             psalm: savedPsalm || nextPsalm(priorPsalm),
+            announcements: e?.announcements || '',
           }
           nextEntries[date] = val
-          nextSaved[date] = e ? { leader: val.leader, psalm: savedPsalm } : undefined
+          nextSaved[date] = e ? { leader: val.leader, psalm: savedPsalm, announcements: val.announcements } : undefined
           priorPsalm = savedPsalm || val.psalm
         })
         setEntries(nextEntries)
@@ -1112,8 +1201,8 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
     const cur = entries[date] || EMPTY_LEADER_FORM
     const saved = savedEntries[date]
     return saved
-      ? (cur.leader !== saved.leader || cur.psalm !== saved.psalm)
-      : !!(cur.leader.trim() || cur.psalm)
+      ? (cur.leader !== saved.leader || cur.psalm !== saved.psalm || cur.announcements !== saved.announcements)
+      : !!(cur.leader.trim() || cur.psalm || cur.announcements?.trim())
   }
 
   const addToPool = async (person) => {
@@ -1144,6 +1233,7 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
         date,
         leader: (entries[date]?.leader || '').trim(),
         psalm: (entries[date]?.psalm || '').trim(),
+        announcements: (entries[date]?.announcements || '').trim(),
       }))
       await setSecCoreSundayLeaderMonth(payload, updatedBy)
 
@@ -1164,7 +1254,7 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
       }))
 
       const nextSaved = {}
-      payload.forEach((p) => { nextSaved[p.date] = { leader: p.leader, psalm: p.psalm } })
+      payload.forEach((p) => { nextSaved[p.date] = { leader: p.leader, psalm: p.psalm, announcements: p.announcements } })
       setSavedEntries(nextSaved)
       setSaveMessage(`${format(monthCursor, 'MMMM yyyy')} schedule saved · ${notifiedCount} leader${notifiedCount !== 1 ? 's' : ''} notified`)
       setEditMode(false)
@@ -1346,6 +1436,7 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
                 <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Date</th>
                 <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Leader</th>
                 <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Psalm</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Announcements</th>
                 <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Status</th>
                 <th className="text-right px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Actions</th>
               </tr>
@@ -1386,7 +1477,7 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
             <div className="bg-white rounded-2xl shadow-2xl px-6 py-4 text-sm text-slate-500" onClick={(e) => e.stopPropagation()}>Loading…</div>
           </div>
         ) : (
-          <SundayLeaderHistoryModal entries={historyEntries} onClose={() => setHistoryModalOpen(false)} />
+          <SundayLeaderHistoryModal entries={historyEntries} pool={pool} onClose={() => setHistoryModalOpen(false)} />
         )
       )}
     </div>
@@ -1824,17 +1915,45 @@ function BoardAgendaDrawer({ onClose, children }) {
 export function DirectorBoardPage({ canEdit, userProfile }) {
   const [agendaOpen, setAgendaOpen] = useState(false)
   const [agendaDate, setAgendaDate] = useState(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [pointsMeetingId, setPointsMeetingId] = useState(null)
 
   const openAgenda = (date) => { setAgendaDate(date); setAgendaOpen(true) }
 
+  // Deep-linked from a "Board Meeting: {title}" notification (see
+  // useActionNotifications.js's board_meeting_scheduled deep link) — open the
+  // Board Meeting Points modal pre-scoped to that meeting, then clear the param
+  // so a page refresh doesn't keep reopening it.
+  useEffect(() => {
+    const id = searchParams.get('openMeetingPoints')
+    if (!id) return
+    setPointsMeetingId(id)
+    const next = new URLSearchParams(searchParams)
+    next.delete('openMeetingPoints')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
   return (
     <div className="space-y-4">
-      <DirectorBoardTab canEdit={canEdit} userProfile={userProfile} onOpenMeetingAgenda={openAgenda} />
+      <DirectorBoardTab
+        canEdit={canEdit}
+        userProfile={userProfile}
+        onOpenMeetingAgenda={openAgenda}
+      />
 
       {agendaOpen && (
         <BoardAgendaDrawer onClose={() => setAgendaOpen(false)}>
           <BoardAgendaTab canEdit={canEdit} userProfile={userProfile} initialDate={agendaDate} />
         </BoardAgendaDrawer>
+      )}
+
+      {pointsMeetingId && (
+        <BoardPointsModal
+          department={userProfile?.departments?.[0] || 'Sec-Core'}
+          userEmail={userProfile?.email}
+          meetingId={pointsMeetingId}
+          onClose={() => setPointsMeetingId(null)}
+        />
       )}
     </div>
   )

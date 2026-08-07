@@ -4549,13 +4549,14 @@ export async function setSecCoreSundayLeaderPool(data, updatedBy) {
 export async function setSecCoreSundayLeaderMonth(entries, updatedBy) {
   if (!db || !entries?.length) return
   const batch = writeBatch(db)
-  entries.forEach(({ date, leader, coLeader, notes, psalm }) => {
+  entries.forEach(({ date, leader, coLeader, notes, psalm, announcements }) => {
     batch.set(doc(db, SEC_CORE_SUNDAY_LEADER, date), {
       date,
       leader: leader || '',
       coLeader: coLeader || '',
       notes: notes || '',
       psalm: psalm || '',
+      announcements: announcements || '',
       updatedBy: updatedBy || 'unknown',
       updatedAt: Timestamp.now(),
     }, { merge: true })
@@ -4573,14 +4574,28 @@ export async function getAllSecCoreSundayLeaderEntries() {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
-// Exact-name lookup against the users collection — used to resolve a Sunday Leader
-// Pool name to an actual app account before sending a workspace notification (most
-// pool members, drawn from the general People Directory, won't have one).
+// Exact-name lookup — used to resolve a Sunday Leader Pool name or a Director Board
+// roster name to an actual app account before sending a workspace notification (most
+// names, drawn from the general People Directory / board roster, won't have one).
+// Queries user_directory (open to any signed-in user), not `users` directly — the
+// `users` collection's rule only allows reading your own doc, so a name-search query
+// against it is denied outright for anyone who isn't Founder, silently dropping every
+// notification for a non-Founder caller (the original bug behind this fix).
 export async function getUserByName(name) {
   if (!db || !name) return null
-  const q = query(collection(db, 'users'), where('name', '==', name), limit(1))
+  const q = query(collection(db, USER_DIRECTORY), where('name', '==', name), limit(1))
   const snap = await getDocs(q)
   return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }
+}
+
+// Every user_directory entry with a given app role (e.g. 'Founder', 'Senior Pastor') —
+// used to notify church-wide leadership on events like a Board Meeting being scheduled,
+// regardless of which department the person who scheduled it belongs to.
+export async function getUsersByAppRole(role) {
+  if (!db || !role) return []
+  const q = query(collection(db, USER_DIRECTORY), where('role', '==', role))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
 const SEC_CORE_LEADER_NOTIF_COLLECTION = 'sec_core_leader_assignment_notifications'
