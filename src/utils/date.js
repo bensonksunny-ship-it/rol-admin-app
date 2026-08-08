@@ -135,6 +135,18 @@ export function formatTime12h(time24) {
   return `${h12}:${m[2]} ${period}`
 }
 
+/** Signed seconds → "mm:ss", with a leading "-" once past zero (overtime) — shared by
+ * the Board Agenda live controls and the /board-present countdown so both render the
+ * same clock format. */
+export function formatCountdown(seconds) {
+  const total = Math.round(seconds)
+  const sign = total < 0 ? '-' : ''
+  const abs = Math.abs(total)
+  const m = Math.floor(abs / 60)
+  const s = abs % 60
+  return `${sign}${m}:${String(s).padStart(2, '0')}`
+}
+
 /** minutes → "1 hr 15 min" / "45 min" / "2 hr" */
 export function formatDurationLong(minutes) {
   if (minutes == null || Number.isNaN(Number(minutes))) return null

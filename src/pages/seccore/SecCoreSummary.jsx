@@ -28,7 +28,7 @@ import {
   subscribeToBoardMeetings,
   createBoardMeetingNotification,
 } from '../../services/firestore'
-import { formatDisplayDate, formatTime12h, addMinutesToTime } from '../../utils/date'
+import { formatDisplayDate, formatTime12h, addMinutesToTime, formatCountdown } from '../../utils/date'
 import { DEPARTMENT_LIST } from '../../constants/departments'
 import BoardPointsModal from '../../components/BoardPointsModal'
 
