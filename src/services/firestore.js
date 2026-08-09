@@ -4658,33 +4658,50 @@ export async function getBoardMeeting(id) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null
 }
 
-const SEC_CORE_BOARD_MEETING_NOTIF_COLLECTION = 'sec_core_board_meeting_notifications'
+// Board meeting invitations are surfaced via the workspace banner
+// (BoardMeetingWorkspaceWidget reading sec_core_board_meetings directly), not via
+// per-user notification docs — so there is no notification collection here.
 
-/** Doc id `${uid}_${meetingId}` — same idempotent composite-key pattern as
- * createSundayLeaderAssignmentNotification, so re-notifying the same meeting
- * to the same person merges instead of duplicating. */
-export async function createBoardMeetingNotification({ uid, meetingId, meetingTitle, meetingDate, meetingTime, meetingVenue, role, name, createdBy }) {
-  if (!db || !uid || !meetingId) return
-  await setDoc(doc(db, SEC_CORE_BOARD_MEETING_NOTIF_COLLECTION, `${uid}_${meetingId}`), {
-    uid,
-    meetingId,
-    meetingTitle: meetingTitle || '',
-    meetingDate: meetingDate || '',
-    meetingTime: meetingTime || '',
-    meetingVenue: meetingVenue || '',
-    role: role || '',
-    name: name || '',
-    createdBy: createdBy || 'unknown',
-    createdAt: Timestamp.now(),
-  }, { merge: true })
+const DEFAULT_LIVE_STATE = { activePointId: null, status: 'idle', startedAt: null, pausedElapsedSeconds: 0 }
+
+// Dual-screen presentation sync — a `live` object on the meeting doc drives both the
+// admin controller's Live Controls bar and the full-screen /board-present view.
+// Firestore-synced (not BroadcastChannel) so the presentation window survives a
+// reload/crash independently of the controller tab.
+export function subscribeToBoardMeetingLive(meetingId, onChange) {
+  if (!db || !meetingId) { onChange(DEFAULT_LIVE_STATE); return () => {} }
+  return onSnapshot(doc(db, SEC_CORE_BOARD_MEETINGS_COLLECTION, meetingId), (snap) => {
+    onChange({ ...DEFAULT_LIVE_STATE, ...(snap.data()?.live || {}) })
+  }, () => onChange(DEFAULT_LIVE_STATE))
 }
 
-export function subscribeBoardMeetingNotifications(uid, onChange) {
-  if (!db || !uid) { onChange([]); return () => {} }
-  const q = query(collection(db, SEC_CORE_BOARD_MEETING_NOTIF_COLLECTION), where('uid', '==', uid))
-  return onSnapshot(q, (snap) => {
-    onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-  }, () => onChange([]))
+/** "Next Point" — selecting a new active point always resets it to idle/zeroed
+ * (Start is a separate explicit action, matching the controller's Start/Pause split). */
+export async function selectLivePoint(meetingId, pointId) {
+  if (!db || !meetingId) return
+  await updateDoc(doc(db, SEC_CORE_BOARD_MEETINGS_COLLECTION, meetingId), {
+    live: { activePointId: pointId, status: 'idle', startedAt: null, pausedElapsedSeconds: 0 },
+  })
+}
+
+/** 'running': starts (or resumes) the clock from now. 'paused': folds the just-elapsed
+ * running segment into pausedElapsedSeconds and stops the clock. */
+export async function setLiveStatus(meetingId, status) {
+  if (!db || !meetingId) return
+  const ref = doc(db, SEC_CORE_BOARD_MEETINGS_COLLECTION, meetingId)
+  if (status === 'running') {
+    await updateDoc(ref, { 'live.status': 'running', 'live.startedAt': serverTimestamp() })
+    return
+  }
+  const snap = await getDoc(ref)
+  const live = { ...DEFAULT_LIVE_STATE, ...(snap.data()?.live || {}) }
+  const startedAtMs = live.startedAt?.toMillis?.() ?? null
+  const ranSeconds = live.status === 'running' && startedAtMs ? (Date.now() - startedAtMs) / 1000 : 0
+  await updateDoc(ref, {
+    'live.status': 'paused',
+    'live.startedAt': null,
+    'live.pausedElapsedSeconds': (live.pausedElapsedSeconds || 0) + ranSeconds,
+  })
 }
 
 // Global "Pastoral Roster" — default Pastors/leadership shown as one-tap, pre-linked

@@ -158,7 +158,8 @@
       "Bash(grep -n \"SecCoreSummary.jsx\\\\|^C:\\\\\\\\\\\\\\\\Users\" /tmp/lint2.txt)",
       "Bash(grep -n \"SecCoreSummary\\\\|\\\\.jsx$\\\\|\\\\.js$\")",
       "Bash(grep -n \"// ─── Analytics Hub\" src/pages/seccore/SecCoreSummary.jsx)",
-      "Bash(grep -A5 \"pages\\\\\\\\\\\\\\\\DepartmentHub.jsx\" /tmp/lint5.txt)"
+      "Bash(grep -A5 \"pages\\\\\\\\\\\\\\\\DepartmentHub.jsx\" /tmp/lint5.txt)",
+      "Bash(echo \"exit code: $?\")"
     ]
   }
 }

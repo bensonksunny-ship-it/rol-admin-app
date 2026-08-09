@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Pencil, Copy, Play, Pause, MoreVertical, Type, ListPlus, FileText, Palette, Repeat, Save, Plus, ChevronDown } from 'lucide-react'
+import { Pencil, Copy, Play, Pause, MoreVertical, Type, ListPlus, FileText, Palette, Repeat, Save, Plus, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { addWorshipSong, updateWorshipSong, getWorshipTeamMembers } from '../../services/firestore'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -564,12 +564,22 @@ function AnnotatedLine({ line, transpose, useFlatKey, activeInstrument, onWordDo
 }
 
 // ── Segment section ───────────────────────────────────────────────────────────
-function SegmentSection({ seg, onUpdate, onDuplicate, onRemove, transpose, useFlatKey, beatsPerBar, isLast }) {
+function SegmentSection({ seg, onUpdate, onDuplicate, onRemove, onMove, canMoveLeft, canMoveRight, transpose, useFlatKey, beatsPerBar, isLast }) {
   const [activeInstrument, setActiveInstrument] = useState(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
   const paintLevelRef = useRef(0)
   const isPaintingRef = useRef(false)
+  const lyricsRef = useRef(null)
+
+  // Auto-grow the lyrics textarea to fit its content — no inner scrollbar, no
+  // clipped lines. Re-measures on mount and whenever the text changes.
+  useEffect(() => {
+    const el = lyricsRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [seg.rawText, seg.editing])
 
   // Close the section options menu on outside click
   useEffect(() => {
@@ -672,6 +682,22 @@ function SegmentSection({ seg, onUpdate, onDuplicate, onRemove, transpose, useFl
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Reorder — shifts this section's position within the arrangement. Order is
+              the segments array's own position (no separate index field), so this just
+              swaps neighbors, same as duplicateSegment's splice-based positioning. */}
+          <button type="button" onClick={() => onMove('left')}
+            disabled={!canMoveLeft}
+            title="Move section earlier"
+            className={`w-6 h-6 flex items-center justify-center rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${color.label} opacity-70 hover:opacity-100 hover:bg-white/60 disabled:hover:opacity-30 disabled:hover:bg-transparent`}>
+            <ChevronLeft size={14} />
+          </button>
+          <button type="button" onClick={() => onMove('right')}
+            disabled={!canMoveRight}
+            title="Move section later"
+            className={`w-6 h-6 flex items-center justify-center rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${color.label} opacity-70 hover:opacity-100 hover:bg-white/60 disabled:hover:opacity-30 disabled:hover:bg-transparent`}>
+            <ChevronRight size={14} />
+          </button>
+
           {/* Section Lead / Driven By — dropdown disguised as a pill badge, so it reads as
               "Lead: Keys" at a glance but is still a real, keyboard-accessible <select>. */}
           <div className="relative inline-flex shrink-0">
@@ -741,11 +767,15 @@ function SegmentSection({ seg, onUpdate, onDuplicate, onRemove, transpose, useFl
       {(!seg.parsed || seg.editing) && (
         <div className="px-4 pt-3 pb-2 space-y-2 bg-slate-50">
           <textarea
+            ref={lyricsRef}
             value={seg.rawText}
-            onChange={e => onUpdate(seg.id, { rawText: e.target.value, lines: [], parsed: false })}
-            rows={4}
+            onChange={e => {
+              onUpdate(seg.id, { rawText: e.target.value, lines: [], parsed: false })
+              e.target.style.height = 'auto'
+              e.target.style.height = `${e.target.scrollHeight}px`
+            }}
             placeholder={`Paste lyrics here.\nChords above lines or [G]inline format.`}
-            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-slate-300 bg-white text-slate-600 placeholder-slate-400"
+            className="w-full min-h-[6rem] border border-slate-200 rounded-xl px-3 py-2.5 font-mono text-sm resize-none overflow-hidden focus:outline-none focus:ring-2 focus:ring-slate-300 bg-white text-slate-600 placeholder-slate-400"
           />
           <div className="flex items-center justify-between">
             {seg.parsed
@@ -1115,6 +1145,21 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
     })
   }
 
+  // Reorders the active section by swapping it with its left/right neighbor — order
+  // is just the segments array's own position (no separate index field), same as
+  // duplicateSegment's splice-based positioning. activeIdx follows the moved section
+  // so the same card stays focused after the swap.
+  const moveActiveSegment = direction => {
+    const j = direction === 'left' ? activeIdx - 1 : activeIdx + 1
+    if (j < 0 || j >= segments.length) return
+    setSegments(prev => {
+      const next = [...prev]
+      ;[next[activeIdx], next[j]] = [next[j], next[activeIdx]]
+      return next
+    })
+    setActiveIdx(j)
+  }
+
   const buildPayload = () => {
     // Always resolve lines — fall back to parsing rawText so lyrics are never lost
     // if the user edited the textarea without clicking "Parse chords" again.
@@ -1400,6 +1445,9 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
               onUpdate={updateSegment}
               onDuplicate={duplicateSegment}
               onRemove={removeSegment}
+              onMove={moveActiveSegment}
+              canMoveLeft={activeIdx > 0}
+              canMoveRight={activeIdx < segments.length - 1}
               transpose={transpose}
               useFlatKey={useFlatKey}
               beatsPerBar={beatsPerBar}

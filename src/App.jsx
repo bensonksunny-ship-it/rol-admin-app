@@ -30,6 +30,7 @@ import SeniorPastorHub from './pages/SeniorPastorHub'
 import EntryPage from './pages/accounts/EntryPage'
 import DLightMembers from './pages/DLightMembers'
 import PeopleDirectory from './pages/PeopleDirectory'
+import BoardPresentView from './pages/BoardPresentView'
 import OfflineBanner from './components/OfflineBanner'
 
 function App() {
@@ -39,6 +40,14 @@ function App() {
         <ErrorBoundary>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route
+              path="/board-present/:meetingId"
+              element={
+                <ProtectedRoute>
+                  <BoardPresentView />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/"
               element={

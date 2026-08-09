@@ -5,7 +5,6 @@ import {
   subscribeDismissedNotificationIds, dismissNotification as dismissNotificationDoc,
   subscribeNotificationTodoAdditionIds, markNotificationAddedToTodo, createTask,
   subscribeSundayLeaderAssignmentNotifications,
-  subscribeBoardMeetingNotifications,
 } from '../services/firestore'
 import { formatDisplayDate } from '../utils/date'
 import { getDepartmentRole } from '../utils/access'
@@ -36,12 +35,6 @@ function buildNotificationDeepLink(n) {
   if (n.type === 'sunday_leader_assignment') {
     return '/department/sec-core?tab=sundayLeader'
   }
-  if (n.type === 'board_meeting_scheduled') {
-    // DirectorBoardPage reads ?openMeetingPoints= once mounted and opens the Board
-    // Meeting Points modal pre-scoped to this meeting (works whether the user is
-    // already on the page or navigating there fresh).
-    return `/department/sec-core?tab=directorBoard&openMeetingPoints=${encodeURIComponent(n.meetingId || '')}`
-  }
   return null
 }
 
@@ -57,7 +50,6 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   const [dlightConsultNotifications, setDlightConsultNotifications] = useState([])
   const [consultResponseNotifications, setConsultResponseNotifications] = useState([])
   const [sundayLeaderNotifications, setSundayLeaderNotifications] = useState([])
-  const [boardMeetingNotifications, setBoardMeetingNotifications] = useState([])
   const [dismissedIds, setDismissedIds] = useState(new Set())
   const [addedToTodoIds, setAddedToTodoIds] = useState(new Set())
   // Optimistic hide — set synchronously the instant Ignore/Add-to-Todo is clicked, so
@@ -166,24 +158,6 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     })
   }, [uid])
 
-  // Sec-Core: a Director Board meeting scheduled via "Schedule & Notify Board" —
-  // only created for roster members whose name resolves to an actual app account.
-  useEffect(() => {
-    if (!uid) { setBoardMeetingNotifications([]); return }
-    return subscribeBoardMeetingNotifications(uid, (docs) => {
-      setBoardMeetingNotifications(docs.map((d) => ({
-        id: d.id,
-        type: 'board_meeting_scheduled',
-        department: 'Sec-Core',
-        title: `Board Meeting: ${d.meetingTitle || 'Untitled'}`,
-        body: `${formatDisplayDate(d.meetingDate)}${d.meetingTime ? ` at ${d.meetingTime}` : ''}${d.meetingVenue ? ` · ${d.meetingVenue}` : ''}`,
-        cellName: '',
-        sentAt: typeof d.createdAt?.toDate === 'function' ? d.createdAt.toDate() : d.createdAt,
-        meetingId: d.meetingId,
-      })))
-    })
-  }, [uid])
-
   // Per-user "Ignore" state — hides an item from this feed everywhere it's rendered
   // without touching the underlying business record it was synthesized from.
   useEffect(() => {
@@ -201,10 +175,10 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   }, [uid])
 
   const notifications = useMemo(
-    () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications, ...boardMeetingNotifications]
+    () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
       .filter((n) => !dismissedIds.has(n.id) && !optimisticHiddenIds.has(n.id))
       .map((n) => ({ ...n, addedToTodo: addedToTodoIds.has(n.id) })),
-    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, boardMeetingNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds]
+    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds]
   )
 
   const handleNotifAction = (n) => {

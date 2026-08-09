@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { format, differenceInCalendarDays } from 'date-fns'
-import { Plus, X, MoreVertical, Pencil, Trash2, ClipboardList, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search } from 'lucide-react'
+import { Plus, X, MoreVertical, Pencil, Trash2, ClipboardList, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search, Monitor, Play, Pause, SkipForward } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import html2canvas from 'html2canvas'
 import {
@@ -16,7 +16,6 @@ import {
   subscribeToSundayLeaderPool,
   setSecCoreSundayLeaderPool,
   getUserByName,
-  getUsersByAppRole,
   createSundayLeaderAssignmentNotification,
   subscribeToBoardPoints,
   updateBoardPoint,
@@ -26,7 +25,9 @@ import {
   subscribeFinanceExpenseByDept,
   createBoardMeeting,
   subscribeToBoardMeetings,
-  createBoardMeetingNotification,
+  subscribeToBoardMeetingLive,
+  selectLivePoint,
+  setLiveStatus,
 } from '../../services/firestore'
 import { formatDisplayDate, formatTime12h, addMinutesToTime, formatCountdown } from '../../utils/date'
 import { DEPARTMENT_LIST } from '../../constants/departments'
@@ -594,11 +595,10 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
 
 const BLANK_MEETING = { title: '', date: '', time: '', venue: '' }
 
-/** Schedules a Director Board meeting and notifies every active roster member
- * (Secretary/Director/Coordinator) who has a resolvable app account — same
- * getUserByName + notification pattern SundayLeaderTab uses for leader assignments —
- * plus every Senior Pastor and Founder, regardless of whether they sit on the roster. */
-function ScheduleMeetingModal({ members, userProfile, initialDate = null, onClose }) {
+/** Schedules a Director Board meeting. Notifying the roster is handled by
+ * BoardMeetingWorkspaceWidget reading sec_core_board_meetings directly (the workspace
+ * banner) rather than by writing per-user notification docs here. */
+function ScheduleMeetingModal({ userProfile, initialDate = null, onClose }) {
   const [form, setForm] = useState(() => (initialDate ? { ...BLANK_MEETING, date: initialDate } : BLANK_MEETING))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -611,46 +611,13 @@ function ScheduleMeetingModal({ members, userProfile, initialDate = null, onClos
     setError('')
     const createdBy = userProfile?.displayName || userProfile?.email || 'unknown'
     try {
-      const meetingId = await createBoardMeeting({
+      await createBoardMeeting({
         title: form.title.trim(),
         date: form.date,
         time: form.time,
         venue: form.venue.trim(),
         createdBy,
       })
-
-      const today = format(new Date(), 'yyyy-MM-dd')
-      const activeMembers = (members || []).filter(m => !m.to || m.to >= today)
-      const notifiedUids = new Set()
-      const notifyPayload = (extra) => ({
-        meetingId,
-        meetingTitle: form.title.trim(),
-        meetingDate: form.date,
-        meetingTime: form.time,
-        meetingVenue: form.venue.trim(),
-        createdBy,
-        ...extra,
-      })
-
-      await Promise.all(activeMembers.map(async (m) => {
-        if (!m.name) return
-        const account = await getUserByName(m.name).catch(() => null)
-        if (!account || notifiedUids.has(account.id)) return
-        notifiedUids.add(account.id)
-        await createBoardMeetingNotification(notifyPayload({ uid: account.id, role: m.type || '', name: m.name })).catch(() => {})
-      }))
-
-      // Church-wide leadership always gets notified too, whether or not they sit on
-      // the Director Board roster — a board meeting concerns them regardless.
-      const [seniorPastors, founders] = await Promise.all([
-        getUsersByAppRole('Senior Pastor').catch(() => []),
-        getUsersByAppRole('Founder').catch(() => []),
-      ])
-      await Promise.all([...seniorPastors, ...founders].map(async (u) => {
-        if (!u.id || notifiedUids.has(u.id)) return
-        notifiedUids.add(u.id)
-        await createBoardMeetingNotification(notifyPayload({ uid: u.id, role: u.role || '', name: u.name || '' })).catch(() => {})
-      }))
 
       onClose()
     } catch (e) {
@@ -1503,7 +1470,7 @@ function sundayDateChips() {
   })
 }
 
-export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onScheduleMeeting }) {
+export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onScheduleMeeting, members = [] }) {
   const [allPoints, setAllPoints] = useState([])
   const [loading, setLoading]     = useState(true)
   const [selectedDate, setSelectedDate] = useState(null)
@@ -1555,16 +1522,48 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
   // include it explicitly so its chip still appears and gets auto-selected.
   const allDates     = [...new Set([...pointDates, ...upcomingChips, ...(initialDate ? [initialDate] : [])])].sort()
 
-  const datePoints   = selectedDate ? allPoints.filter(p => p.meetingDate === selectedDate) : []
+  const datePoints   = useMemo(
+    () => selectedDate ? allPoints.filter(p => p.meetingDate === selectedDate) : [],
+    [allPoints, selectedDate]
+  )
   const fixedPoints  = datePoints.filter(p => p.slNo && p.allottedTime).sort((a, b) => Number(a.slNo) - Number(b.slNo))
   const unfixedPoints = datePoints.filter(p => !p.slNo || !p.allottedTime)
-  const sortedPoints = [...fixedPoints, ...unfixedPoints]
 
   // A calendar Sunday is auto-selected by default (sundayDateChips()[0]) whether or
   // not a Board Meeting was actually scheduled for it — this distinguishes "there's a
   // real meeting on this date" from "this is just the next Sunday" so the agenda sheet
   // can give way to a clean empty state instead of a meeting-shaped card with nothing in it.
   const hasScheduledMeeting = !!selectedDate && meetings.some(m => m.date === selectedDate)
+
+  // Active Director for each department (for the table's Director Name column) —
+  // same active-membership rule ScheduleMeetingModal used to use to decide who's
+  // currently on the roster.
+  const activeDirectorByDept = useMemo(() => {
+    const today = format(new Date(), 'yyyy-MM-dd')
+    const map = {}
+    members.forEach(m => {
+      if ((m.type && m.type !== 'director') || !m.department) return
+      if (m.to && m.to < today) return
+      if (!map[m.department]) map[m.department] = m.name
+    })
+    return map
+  }, [members])
+
+  // One row-group per registered department, in canonical DEPARTMENT_LIST order —
+  // every department always shows up, whether or not it submitted anything for this
+  // date, so the table reads as the full roster rather than just who spoke up.
+  const deptRows = useMemo(() => {
+    return DEPARTMENT_LIST.map(dept => {
+      const deptPoints = datePoints
+        .filter(p => p.department === dept.name)
+        .sort((a, b) => {
+          const aFixed = !!(a.slNo && a.allottedTime), bFixed = !!(b.slNo && b.allottedTime)
+          if (aFixed && bFixed) return Number(a.slNo) - Number(b.slNo)
+          return aFixed ? -1 : bFixed ? 1 : 0
+        })
+      return { dept: dept.name, director: activeDirectorByDept[dept.name] || '', points: deptPoints }
+    })
+  }, [datePoints, activeDirectorByDept])
 
   // Live per-point time windows, derived from Start Time + each accepted point's
   // durationMinutes in Sl No order — recalculates automatically whenever Start Time
@@ -1589,6 +1588,52 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
   const cumulativeMinutes = fixedPoints.reduce((s, bp) => s + (Number(bp.durationMinutes) || 0), 0)
   const nextSlNo = fixedPoints.length + 1
 
+  // ── Dual-screen presentation live sync — drives both this controller's Live
+  // Controls bar and the full-screen /board-present view, via a `live` object on
+  // the meeting doc (Firestore, not BroadcastChannel, so the presentation window
+  // survives a reload independently of this tab). ──────────────────────────────
+  const activeMeeting = meetings.find(m => m.date === selectedDate)
+  const [liveState, setLiveState] = useState({ activePointId: null, status: 'idle', startedAt: null, pausedElapsedSeconds: 0 })
+
+  useEffect(() => {
+    if (!activeMeeting?.id) {
+      setLiveState({ activePointId: null, status: 'idle', startedAt: null, pausedElapsedSeconds: 0 })
+      return
+    }
+    return subscribeToBoardMeetingLive(activeMeeting.id, setLiveState)
+  }, [activeMeeting?.id])
+
+  // Ticks once a second while running so the local countdown mirror stays live
+  // without waiting on a fresh Firestore snapshot every second.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (liveState.status !== 'running') return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [liveState.status])
+
+  const livePoint = fixedPoints.find(p => p.id === liveState.activePointId) || null
+  const liveRemainingSeconds = livePoint
+    ? (Number(livePoint.durationMinutes) || 0) * 60
+      - (liveState.pausedElapsedSeconds || 0)
+      - (liveState.status === 'running' && liveState.startedAt?.toMillis ? (now - liveState.startedAt.toMillis()) / 1000 : 0)
+    : null
+
+  const handleTogglePresentStatus = () => {
+    if (!activeMeeting?.id || !livePoint) return
+    setLiveStatus(activeMeeting.id, liveState.status === 'running' ? 'paused' : 'running')
+  }
+
+  // Selects the fixed point right after the current one (wrapping to the first),
+  // or the first point if nothing is selected yet. Doesn't auto-start — Start is
+  // always a separate explicit action.
+  const handleNextLivePoint = () => {
+    if (!activeMeeting?.id || fixedPoints.length === 0) return
+    const idx = fixedPoints.findIndex(p => p.id === liveState.activePointId)
+    const next = idx === -1 ? fixedPoints[0] : fixedPoints[(idx + 1) % fixedPoints.length]
+    selectLivePoint(activeMeeting.id, next.id)
+  }
+
   const handleAcceptPoint = async (bp) => {
     const mins = Number(editVals.durationMinutes)
     if (!mins || mins <= 0) return
@@ -1607,6 +1652,15 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
       setAllPoints(prev => prev.map(p => p.id === bp.id ? { ...p, ...patch } : p))
       setEditId(null)
       setEditVals({ durationMinutes: '' })
+      // Only auto-stage this point as the live/presenting one if nothing is live
+      // yet — e.g. right after the meeting starts, so the presentation view isn't
+      // stuck on "Waiting for the next point…" until someone remembers to press
+      // Next Point. If a point is already being presented, accepting a different
+      // one must NOT interrupt it — switching is always an explicit Present/Next
+      // Point click (see the per-row "Present" action and the Live Controls bar).
+      if (activeMeeting?.id && !liveState.activePointId) {
+        await selectLivePoint(activeMeeting.id, bp.id)
+      }
     } finally {
       setSaving(false)
     }
@@ -1774,12 +1828,25 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
         </div>
       )}
 
-      {/* ── A5 agenda sheet ── */}
+      {/* ── Board meeting + department table ── */}
       {selectedDate && hasScheduledMeeting && (
-        <div className="mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden w-full" style={{ maxWidth: 480 }}>
+        <div className="mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden w-full max-w-4xl">
 
           {/* Header */}
-          <div className="px-6 py-5 bg-gradient-to-br from-indigo-700 to-indigo-900 text-white">
+          <div className="relative px-6 py-5 bg-gradient-to-br from-indigo-700 to-indigo-900 text-white">
+            {/* Present — desktop-only (the extended-display flow needs a real window
+                to send to a second screen, not a phone) — opens the full-screen
+                /board-present view in a new tab, synced via the meeting doc's `live`
+                state rather than window.postMessage/BroadcastChannel. */}
+            {activeMeeting && (
+              <button
+                type="button"
+                onClick={() => window.open(`/board-present/${activeMeeting.id}`, '_blank')}
+                className="hidden sm:flex absolute top-3 right-3 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors"
+              >
+                <Monitor size={13} /> Present
+              </button>
+            )}
             <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-300 mb-0.5">ROL Board Meeting</p>
             <p className="text-xl font-black">{format(new Date(selectedDate + 'T00:00:00'), 'EEEE, d MMMM yyyy')}</p>
             <p className="text-xs text-indigo-300 mt-1.5">
@@ -1787,108 +1854,165 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
             </p>
           </div>
 
-          {/* Agenda rows */}
-          <div className="divide-y divide-slate-100">
-            {sortedPoints.length === 0 && (
-              <p className="px-6 py-6 text-center text-slate-400 text-sm">
-                No points submitted for this Sunday yet.
-              </p>
-            )}
+          {/* Live Controls — Start/Pause/Next Point, synced in real time to
+              whichever /board-present window is open on the extended display. */}
+          {canEdit && fixedPoints.length > 0 && activeMeeting && (
+            <div className="px-6 py-3 bg-slate-800 text-white flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Presenting</p>
+                <p className="text-sm font-semibold truncate">
+                  {livePoint ? livePoint.department : 'Nothing selected yet'}
+                  {livePoint && liveRemainingSeconds != null && (
+                    <span className={`ml-2 font-mono ${liveRemainingSeconds < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {formatCountdown(liveRemainingSeconds)}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={handleTogglePresentStatus}
+                  disabled={!livePoint}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold transition-colors"
+                >
+                  {liveState.status === 'running' ? <><Pause size={13} /> Pause</> : <><Play size={13} /> Start</>}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNextLivePoint}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold transition-colors"
+                >
+                  <SkipForward size={13} /> Next Point
+                </button>
+              </div>
+            </div>
+          )}
 
-            {sortedPoints.map(bp => {
-              const isFixed   = !!(bp.slNo && bp.allottedTime)
-              const isEditing = editId === bp.id
+          {/* Department table — every registered department gets a row (or one row
+              per point it submitted); departments with nothing yet show the
+              empty-state label instead of just vanishing from the sheet. */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100">
+                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Department</th>
+                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Director Name</th>
+                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Discussion Points</th>
+                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Requested Time</th>
+                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Time Allotted</th>
+                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deptRows.flatMap(row => {
+                  if (row.points.length === 0) {
+                    return (
+                      <tr key={row.dept} className="border-b border-slate-100 last:border-0">
+                        <td className="px-4 py-3 align-top text-sm font-semibold text-slate-800 whitespace-nowrap">{row.dept}</td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-600 whitespace-nowrap">{row.director || '—'}</td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-400 italic">No discussion points to discuss</td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
+                      </tr>
+                    )
+                  }
 
-              return (
-                <div key={bp.id} className={`px-5 py-4 transition-colors ${isFixed ? 'bg-emerald-50/40' : 'bg-white'}`}>
-                  <div className="flex items-start gap-3">
+                  return row.points.map(bp => {
+                    const isFixed   = !!(bp.slNo && bp.allottedTime)
+                    const isEditing = editId === bp.id
 
-                    {/* Sl No circle */}
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-black mt-0.5 ${
-                      isFixed ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-100 text-slate-400'
-                    }`}>
-                      {isFixed ? bp.slNo : '—'}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide">{bp.department}</p>
-                      <p className="text-sm text-slate-800 leading-snug mt-0.5">{bp.point}</p>
-                      {bp.timeNeeded && (
-                        <p className="text-[10px] text-slate-400 mt-0.5">Requested: {bp.timeNeeded}</p>
-                      )}
-
-                      {/* Duration entry + Accept for unfixed items — Sl No and the
-                          time window are both derived automatically (next slot in
-                          order, Start Time + running duration total) rather than
-                          typed in by hand. */}
-                      {!isFixed && canEdit && (
-                        isEditing ? (
-                          <div className="mt-2.5 flex items-center gap-2 flex-wrap">
-                            <input
-                              type="number"
-                              min="1"
-                              placeholder="Duration"
-                              autoFocus
-                              value={editVals.durationMinutes}
-                              onChange={e => setEditVals({ durationMinutes: e.target.value })}
-                              onKeyDown={e => e.key === 'Enter' && handleAcceptPoint(bp)}
-                              className="w-20 px-2 py-1.5 rounded-lg border border-indigo-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                            />
-                            <span className="text-xs text-slate-500">min</span>
-                            {startTime && editVals.durationMinutes && Number(editVals.durationMinutes) > 0 && (
-                              <span className="text-xs text-indigo-600 font-semibold whitespace-nowrap">
-                                → Point {nextSlNo}: {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes))} – {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes + Number(editVals.durationMinutes)))}
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              disabled={!editVals.durationMinutes || Number(editVals.durationMinutes) <= 0 || saving}
-                              onClick={() => handleAcceptPoint(bp)}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                            >{saving ? '…' : 'Accept Point'}</button>
-                            <button
-                              type="button"
-                              onClick={() => { setEditId(null); setEditVals({ durationMinutes: '' }) }}
-                              className="text-slate-400 hover:text-slate-600 text-sm leading-none px-1"
-                            >✕</button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditId(bp.id)
-                              // Prefill from the submitter's requested time if it's a bare number.
-                              const guess = /^\d+$/.test(String(bp.timeNeeded || '').trim()) ? bp.timeNeeded.trim() : ''
-                              setEditVals({ durationMinutes: guess })
-                            }}
-                            className="mt-2 text-xs text-emerald-600 font-semibold hover:underline"
-                          >Accept Point →</button>
-                        )
-                      )}
-                      {!isFixed && !canEdit && (
-                        <span className="mt-1.5 inline-block text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Awaiting schedule</span>
-                      )}
-                    </div>
-
-                    {/* Fixed badge + unlock */}
-                    {isFixed && (
-                      <div className="flex-shrink-0 flex flex-col items-end gap-1">
-                        <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
-                          {fixedPointTimes[fixedPoints.indexOf(bp)] || bp.allottedTime}
-                        </span>
-                        {canEdit && (
-                          <button
-                            type="button"
-                            onClick={() => handleUnfix(bp.id)}
-                            className="text-[10px] text-slate-400 hover:text-red-500 transition-colors"
-                          >unlock</button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+                    return (
+                      <tr key={bp.id} className={`border-b border-slate-100 last:border-0 transition-colors ${isFixed ? 'bg-emerald-50/30' : ''}`}>
+                        <td className="px-4 py-3 align-top text-sm font-semibold text-slate-800 whitespace-nowrap">{row.dept}</td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-600 whitespace-nowrap">{row.director || '—'}</td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-800 leading-snug">{bp.point}</td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-500 whitespace-nowrap">{bp.timeNeeded || '—'}</td>
+                        <td className="px-4 py-3 align-top text-sm whitespace-nowrap">
+                          {isFixed ? (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
+                              {fixedPointTimes[fixedPoints.indexOf(bp)] || bp.allottedTime}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 align-top text-sm whitespace-nowrap">
+                          {isFixed ? (
+                            canEdit ? (
+                              <div className="flex items-center gap-2">
+                                {liveState.activePointId === bp.id ? (
+                                  <span className="text-xs font-bold text-indigo-600">Presenting</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => activeMeeting?.id && selectLivePoint(activeMeeting.id, bp.id)}
+                                    className="text-xs text-indigo-600 font-semibold hover:underline"
+                                  >Present</button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnfix(bp.id)}
+                                  className="text-xs text-slate-400 hover:text-red-500 transition-colors"
+                                >Unfix</button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )
+                          ) : canEdit ? (
+                            isEditing ? (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  placeholder="Duration"
+                                  autoFocus
+                                  value={editVals.durationMinutes}
+                                  onChange={e => setEditVals({ durationMinutes: e.target.value })}
+                                  onKeyDown={e => e.key === 'Enter' && handleAcceptPoint(bp)}
+                                  className="w-16 px-2 py-1.5 rounded-lg border border-indigo-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                />
+                                <span className="text-xs text-slate-500">min</span>
+                                {startTime && editVals.durationMinutes && Number(editVals.durationMinutes) > 0 && (
+                                  <span className="text-xs text-indigo-600 font-semibold whitespace-nowrap">
+                                    → {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes))} – {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes + Number(editVals.durationMinutes)))}
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={!editVals.durationMinutes || Number(editVals.durationMinutes) <= 0 || saving}
+                                  onClick={() => handleAcceptPoint(bp)}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                                >{saving ? '…' : 'Accept Point'}</button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setEditId(null); setEditVals({ durationMinutes: '' }) }}
+                                  className="text-slate-400 hover:text-slate-600 text-sm leading-none px-1"
+                                >✕</button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditId(bp.id)
+                                  // Prefill from the submitter's requested time if it's a bare number.
+                                  const guess = /^\d+$/.test(String(bp.timeNeeded || '').trim()) ? bp.timeNeeded.trim() : ''
+                                  setEditVals({ durationMinutes: guess })
+                                }}
+                                className="text-xs text-emerald-600 font-semibold hover:underline"
+                              >Accept Point</button>
+                            )
+                          ) : (
+                            <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full whitespace-nowrap">Awaiting schedule</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })
+                })}
+              </tbody>
+            </table>
           </div>
 
           {/* Footer */}
@@ -1929,7 +2053,7 @@ function BoardAgendaDrawer({ onClose, children }) {
       onClick={onClose}
     >
       <div
-        className="bg-slate-50 rounded-3xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col"
+        className="bg-slate-50 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-white rounded-t-3xl flex-shrink-0">
@@ -1963,10 +2087,12 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
   // Schedule Board Meeting — owned here (not inside DirectorBoardTab) so both the
   // roster page's own "Schedule Meeting" icon AND the Board Agenda drawer's new
   // "No Board Meeting Scheduled" empty-state button can open the same modal.
-  const [members, setMembers] = useState([])
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [schedulePrefillDate, setSchedulePrefillDate] = useState(null)
 
+  // Director Board roster — needed by BoardAgendaTab's table to resolve each
+  // department's active Director for the Director Name column.
+  const [members, setMembers] = useState([])
   useEffect(() => {
     const unsub = subscribeToDirectorBoard(
       (d) => setMembers(d.members || []),
@@ -1982,10 +2108,12 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
 
   const openAgenda = (date) => { setAgendaDate(date); setAgendaOpen(true) }
 
-  // Deep-linked from a "Board Meeting: {title}" notification (see
-  // useActionNotifications.js's board_meeting_scheduled deep link) — open the
-  // Board Meeting Points modal pre-scoped to that meeting, then clear the param
-  // so a page refresh doesn't keep reopening it.
+  // ?openMeetingPoints= deep link — opens the Board Meeting Points modal
+  // pre-scoped to that meeting, then clears the param so a page refresh doesn't
+  // keep reopening it. Kept for any pre-existing To-Do task whose stored deepLink
+  // still points here from before board meeting invites moved to the workspace
+  // banner (BoardMeetingWorkspaceWidget's "More" already opens the modal directly,
+  // without going through this URL param).
   useEffect(() => {
     const id = searchParams.get('openMeetingPoints')
     if (!id) return
@@ -2011,13 +2139,13 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
             userProfile={userProfile}
             initialDate={agendaDate}
             onScheduleMeeting={openScheduleMeeting}
+            members={members}
           />
         </BoardAgendaDrawer>
       )}
 
       {scheduleOpen && (
         <ScheduleMeetingModal
-          members={members}
           userProfile={userProfile}
           initialDate={schedulePrefillDate}
           onClose={() => { setScheduleOpen(false); setSchedulePrefillDate(null) }}
