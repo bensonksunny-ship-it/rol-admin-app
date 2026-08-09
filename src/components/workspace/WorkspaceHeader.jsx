@@ -11,11 +11,16 @@ import BoardPointsModal from '../BoardPointsModal'
 
 const SEC_CORE_DEPARTMENT = 'Sec-Core'
 
-// True if the user directs any department they belong to, or is Founder/Admin.
-function isDirectorOrAdmin(userProfile, isFounder, isAdmin) {
-  if (isFounder || isAdmin) return true
+// The department this user actually directs (first match), or null if they don't
+// direct any department they belong to. Used both to decide whether to show the
+// icon at all, and — critically — as the department a submitted board point gets
+// tagged with, so canAccessDept(department) in firestore.rules passes for THIS
+// account. Previously this modal always submitted under a hardcoded 'Sec-Core',
+// which any non-Sec-Core Director (Worship, Cell, etc.) doesn't have access to —
+// "Missing or insufficient permissions" on every submission.
+function findDirectedDepartment(userProfile) {
   const departments = userProfile?.departments || (userProfile?.department ? [userProfile.department] : [])
-  return departments.some((d) => getDepartmentRole(userProfile, d) === 'DIRECTOR')
+  return departments.find((d) => getDepartmentRole(userProfile, d) === 'DIRECTOR') || null
 }
 
 // Top-right action row for My Workspace: Sunday Plan preview, notifications, direct
@@ -26,26 +31,29 @@ function isDirectorOrAdmin(userProfile, isFounder, isAdmin) {
 // avatar lives in the sidebar rail now, not here.
 export default function WorkspaceHeader({ notifications, onNotifAction, onDismissNotification, onAddNotificationToTodo }) {
   const { user, userProfile, isFounder, isAdmin } = useAuth()
-  const showDirectorBoard = isDirectorOrAdmin(userProfile, isFounder, isAdmin)
+  const myDirectedDept = findDirectedDepartment(userProfile)
+  const showDirectorBoard = isFounder || isAdmin || !!myDirectedDept
 
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
 
   // Director Board — opens the same BoardPointsModal the department hubs use, scoped
-  // to Sec-Core (the Secretary Core department that owns the church-wide board
-  // agenda), so a Director can see/submit points from My Workspace without having to
+  // to the department this Director actually leads (Founder/Admin fall back to
+  // Sec-Core, harmless since isFullAccess() bypasses the department check for
+  // them), so a Director can see/submit points from My Workspace without having to
   // first navigate into a specific department page.
   const [boardPointsOpen, setBoardPointsOpen] = useState(false)
   const [boardPointCount, setBoardPointCount] = useState(0)
+  const myBoardDepartment = myDirectedDept || SEC_CORE_DEPARTMENT
 
   useEffect(() => {
     if (!showDirectorBoard) { setBoardPointCount(0); return }
     let alive = true
-    getBoardPoints(SEC_CORE_DEPARTMENT)
+    getBoardPoints(myBoardDepartment)
       .then((pts) => { if (alive) setBoardPointCount(pts.filter((p) => p.status === 'pending').length) })
       .catch(() => { if (alive) setBoardPointCount(0) })
     return () => { alive = false }
-  }, [showDirectorBoard])
+  }, [showDirectorBoard, myBoardDepartment])
 
   const [messagesOpen, setMessagesOpen] = useState(false)
   const msgRef = useRef(null)
@@ -152,7 +160,7 @@ export default function WorkspaceHeader({ notifications, onNotifAction, onDismis
 
       {boardPointsOpen && (
         <BoardPointsModal
-          department={SEC_CORE_DEPARTMENT}
+          department={myBoardDepartment}
           userEmail={userProfile?.email}
           onClose={() => setBoardPointsOpen(false)}
         />
