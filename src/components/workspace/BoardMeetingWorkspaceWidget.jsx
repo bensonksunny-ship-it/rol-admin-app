@@ -26,14 +26,23 @@ export default function BoardMeetingWorkspaceWidget() {
     return unsub
   }, [])
 
-  const myName = (userProfile?.displayName || userProfile?.name || '').trim().toLowerCase()
   const myFirstName = (userProfile?.displayName || userProfile?.name || '').split(' ')[0] || 'there'
+  const myUid = userProfile?.id || ''
+  const myEmail = (userProfile?.email || '').trim().toLowerCase()
 
+  // Strict identity match — a roster entry's stored userId/email (resolved once,
+  // server-side, when a director adds/edits that entry — see DirectorBoardTab's
+  // resolveAccount) against this signed-in account's own uid/email. Deliberately
+  // NOT a display-name comparison: two different people can share a display name,
+  // which let an unrelated account see another director's meeting invite.
   const isRosterMember = useMemo(() => {
-    if (!myName) return false
+    if (!myUid && !myEmail) return false
     const today = format(new Date(), 'yyyy-MM-dd')
-    return members.some((m) => (m.name || '').trim().toLowerCase() === myName && (!m.to || m.to >= today))
-  }, [members, myName])
+    return members.some((m) => {
+      if (m.to && m.to < today) return false
+      return (!!myUid && m.userId === myUid) || (!!myEmail && (m.email || '').toLowerCase() === myEmail)
+    })
+  }, [members, myUid, myEmail])
 
   const upcomingMeetings = useMemo(() => {
     const today = format(new Date(), 'yyyy-MM-dd')

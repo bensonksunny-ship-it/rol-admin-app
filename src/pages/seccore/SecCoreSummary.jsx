@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { format, differenceInCalendarDays } from 'date-fns'
@@ -282,7 +282,7 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
     return meetings.filter(m => m.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6)
   }, [meetings])
 
-  const save = async (nextMembers) => {
+  const save = useCallback(async (nextMembers) => {
     setSaving(true)
     setSaveError('')
     try {
@@ -293,35 +293,60 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
     } finally {
       setSaving(false)
     }
+  }, [userProfile?.displayName, userProfile?.email])
+
+  // Resolves a roster entry's name to its actual signed-in account (uid + email),
+  // same lookup the app already uses elsewhere (Sunday Leader assignments, the old
+  // board meeting notify flow) — stored on the member record itself so workspace
+  // banner visibility (BoardMeetingWorkspaceWidget) can match on a stable identifier
+  // instead of comparing display-name strings, which breaks on name collisions.
+  const resolveAccount = async (name) => {
+    if (!name) return { userId: '', email: '' }
+    const account = await getUserByName(name).catch(() => null)
+    return { userId: account?.id || '', email: (account?.email || '').toLowerCase() }
   }
 
-  const addMember = () => {
+  const addMember = async () => {
     if (!newMember.name.trim()) return
+    const name = newMember.name.trim()
+    const { userId, email } = await resolveAccount(name)
     const next = [...members, {
       personId: newMember.personId || '',
-      name: newMember.name.trim(),
+      name,
       role: newMember.role.trim(),
       type: newMember.type,
       department: newMember.department?.trim() || '',
       from: newMember.from || '',
       to: newMember.to || '',
+      userId,
+      email,
     }]
     setNewMember(BLANK_MEMBER)
     setShowForm(false)
     save(next)
   }
 
-  const applyEdit = () => {
+  const applyEdit = async () => {
     if (editIdx == null) return
+    const existing = members[editIdx]
+    const name = newMember.name.trim() || existing.name
+    // Only re-resolve the account if the name actually changed — avoids an extra
+    // lookup (and a possible transient failure clobbering a good stored link) on
+    // every unrelated edit (role, department, tenure dates, etc.).
+    const { userId, email } = name === existing.name && existing.userId
+      ? { userId: existing.userId, email: existing.email || '' }
+      : await resolveAccount(name)
     const next = members.map((m, i) =>
       i === editIdx ? {
         personId: newMember.personId || m.personId || '',
-        name: newMember.name.trim() || m.name,
+        name,
         role: newMember.role.trim(),
         type: newMember.type,
         department: newMember.department?.trim() || '',
         from: newMember.from || '',
         to: newMember.to || '',
+        userId,
+        email,
       } : m
     )
     setEditIdx(null)
@@ -330,6 +355,27 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
   }
 
   const removeMember = (idx) => save(members.filter((_, i) => i !== idx))
+
+  // One-time self-healing backfill: roster entries saved before userId/email
+  // tracking existed only carry personId+name. Resolving those here (canEdit-gated,
+  // only once per entry — `userId === undefined` is "never attempted", not "no
+  // account found") means the workspace banner's strict uid/email match doesn't
+  // quietly stop working for pre-existing directors until someone happens to
+  // re-save their row.
+  useEffect(() => {
+    if (!canEdit || loading) return
+    const missing = members.filter(m => m.userId === undefined)
+    if (missing.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      const resolved = await Promise.all(missing.map(async (m) => ({ name: m.name, ...(await resolveAccount(m.name)) })))
+      if (cancelled) return
+      const byName = new Map(resolved.map(r => [r.name, r]))
+      const next = members.map(m => byName.has(m.name) ? { ...m, ...byName.get(m.name) } : m)
+      save(next)
+    })()
+    return () => { cancelled = true }
+  }, [members, canEdit, loading, save])
 
   if (loading) return <p className="text-sm text-slate-400">Loading…</p>
 
