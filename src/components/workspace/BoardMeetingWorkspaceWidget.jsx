@@ -35,14 +35,15 @@ export default function BoardMeetingWorkspaceWidget() {
   // resolveAccount) against this signed-in account's own uid/email. Deliberately
   // NOT a display-name comparison: two different people can share a display name,
   // which let an unrelated account see another director's meeting invite.
-  const isRosterMember = useMemo(() => {
-    if (!myUid && !myEmail) return false
+  const myRosterEntry = useMemo(() => {
+    if (!myUid && !myEmail) return null
     const today = format(new Date(), 'yyyy-MM-dd')
-    return members.some((m) => {
+    return members.find((m) => {
       if (m.to && m.to < today) return false
       return (!!myUid && m.userId === myUid) || (!!myEmail && (m.email || '').toLowerCase() === myEmail)
-    })
+    }) || null
   }, [members, myUid, myEmail])
+  const isRosterMember = !!myRosterEntry
 
   const upcomingMeetings = useMemo(() => {
     const today = format(new Date(), 'yyyy-MM-dd')
@@ -75,7 +76,14 @@ export default function BoardMeetingWorkspaceWidget() {
 
       {pointsMeetingId && (
         <BoardPointsModal
-          department={userProfile?.departments?.[0] || 'Sec-Core'}
+          // The department this board member represents (per their roster entry,
+          // set by whoever added them) — not a guess from this account's own
+          // departments[], which can lag a step behind a freshly assigned role
+          // (see firestore.rules' canAccessDept comment) and would otherwise
+          // submit the point under the wrong department, which Firestore then
+          // correctly rejects since this account doesn't actually have access to
+          // whatever department got guessed.
+          department={myRosterEntry?.department || userProfile?.departments?.[0] || 'Sec-Core'}
           userEmail={userProfile?.email}
           meetingId={pointsMeetingId}
           onClose={() => setPointsMeetingId(null)}

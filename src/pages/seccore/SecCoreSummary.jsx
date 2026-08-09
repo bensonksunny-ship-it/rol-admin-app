@@ -2137,7 +2137,8 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
   const [schedulePrefillDate, setSchedulePrefillDate] = useState(null)
 
   // Director Board roster — needed by BoardAgendaTab's table to resolve each
-  // department's active Director for the Director Name column.
+  // department's active Director for the Director Name column, and to resolve
+  // *this* signed-in user's own roster entry below.
   const [members, setMembers] = useState([])
   useEffect(() => {
     const unsub = subscribeToDirectorBoard(
@@ -2146,6 +2147,23 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
     )
     return unsub
   }, [])
+
+  // Same identity match as BoardMeetingWorkspaceWidget's myRosterEntry — the
+  // department this signed-in board member actually represents, used below so
+  // BoardPointsModal submits under a department this account genuinely has
+  // access to (see firestore.rules' canAccessDept), instead of guessing from
+  // userProfile.departments[0], which can be empty/stale and fall through to a
+  // hardcoded 'Sec-Core' that this account might not actually have.
+  const myUid = userProfile?.id || ''
+  const myEmail = (userProfile?.email || '').trim().toLowerCase()
+  const myRosterEntry = useMemo(() => {
+    if (!myUid && !myEmail) return null
+    const today = format(new Date(), 'yyyy-MM-dd')
+    return members.find((m) => {
+      if (m.to && m.to < today) return false
+      return (!!myUid && m.userId === myUid) || (!!myEmail && (m.email || '').toLowerCase() === myEmail)
+    }) || null
+  }, [members, myUid, myEmail])
 
   const openScheduleMeeting = (date = null) => {
     setSchedulePrefillDate(date)
@@ -2200,7 +2218,7 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
 
       {pointsMeetingId && (
         <BoardPointsModal
-          department={userProfile?.departments?.[0] || 'Sec-Core'}
+          department={myRosterEntry?.department || userProfile?.departments?.[0] || 'Sec-Core'}
           userEmail={userProfile?.email}
           meetingId={pointsMeetingId}
           onClose={() => setPointsMeetingId(null)}
