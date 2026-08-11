@@ -658,8 +658,13 @@ service cloud.firestore {
 
     match /board_meeting_points/{docId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
-      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
+      // Sec-Core manages the whole board agenda across every department (accepting,
+      // scheduling, staging for presentation), not just points its own account
+      // happens to have department access to — same "Sec-Core gets blanket access"
+      // pattern as sec_core_board_meetings below. A department also keeps managing
+      // its own submitted points via the existing per-point-department check.
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core') || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core') || canAccessDept(request.resource.data.department));
     }
 
     match /sec_core/{docId} {
