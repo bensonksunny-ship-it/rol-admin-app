@@ -6,15 +6,49 @@ import {
   CreditCard, Banknote, Building2, Landmark,
 } from 'lucide-react'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
+import { DEPARTMENT_LIST } from '../constants/departments'
 import { ACCOUNTS_ENTRY_BASE_PATH } from './accountsEntryAccess'
 import { visibleCellTabs } from './cellTabVisibility'
-import { getAllowedWorshipTabs, shouldBypassWorshipGrid } from './worshipAccess'
+import { getAllowedWorshipTabs, shouldBypassWorshipGrid, hasFullWorshipAccess } from './worshipAccess'
+import { hasAccess } from './access'
 
 /**
  * Single source of truth for "what are this department's subpages, and where do they
  * link" — used by DepartmentDock's folder modal (the single nav dock at every screen
  * size) in place of the old per-page DepartmentTabBar pill row.
  */
+
+/** The user's own assigned departments — Founder sees every department in the app.
+ * Lives here (not in DepartmentDock.jsx) so any nav surface — the dock, a future
+ * desktop navbar, dev previews — can share one definition of "what departments does
+ * this person see" instead of each re-deriving it. */
+export function myDepartmentNames(userProfile, isFounder) {
+  if (isFounder) return DEPARTMENT_LIST.map((d) => d.name)
+  const fromPositions = Array.isArray(userProfile?.positions)
+    ? userProfile.positions.map((p) => p?.department).filter(Boolean)
+    : []
+  const fromDepartments = Array.isArray(userProfile?.departments)
+    ? userProfile.departments.filter(Boolean)
+    : []
+  const fromPrimary = userProfile?.department ? [userProfile.department] : []
+  const candidates = [...new Set([...fromPositions, ...fromDepartments, ...fromPrimary])]
+  // A department name merely appearing in positions[]/departments[]/department isn't
+  // enough on its own — those can go stale (e.g. departments[] not fully re-synced
+  // after a position change) or name a non-head position (e.g. "Associate"). The dock
+  // is for departments this person actually runs, so gate on the same Director/
+  // Coordinator-tier check (hasAccess → getDepartmentRole) the rest of the app already
+  // uses for real access control, not just "was this department ever mentioned".
+  return candidates.filter((n) => {
+    // Worship is stricter than every other department: Team members, Worship Leader/
+    // Member, and even a Coordinator-tier Worship position all already get everything
+    // they need (roster, setlist, "My Part") straight from the Upcoming Worship
+    // workspace widget — the dock icon is reserved exclusively for whoever actually
+    // holds Director - Worship (or a Global/System Admin), not the generic Director-
+    // or-Coordinator tier `hasAccess` grants every other department below.
+    if (String(n).trim().toLowerCase() === 'worship') return hasFullWorshipAccess(userProfile)
+    return hasAccess(userProfile, n)
+  })
+}
 
 function getTabLabel(tab) {
   switch (tab) {

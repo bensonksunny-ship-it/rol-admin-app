@@ -2,45 +2,14 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { PenLine, LayoutGrid } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { DEPARTMENT_LIST, getDepartmentByName, getDepartmentPath, getDepartmentIcon } from '../../constants/departments'
+import { getDepartmentByName, getDepartmentPath, getDepartmentIcon } from '../../constants/departments'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
-import { getDepartmentSubpages } from '../../utils/departmentSubpages'
-import { hasFullWorshipAccess } from '../../utils/worshipAccess'
-import { hasAccess } from '../../utils/access'
+import { getDepartmentSubpages, myDepartmentNames } from '../../utils/departmentSubpages'
 import DepartmentFolderModal from '../DepartmentFolderModal'
 
 function displayDeptName(deptName) {
   if (deptName === 'Event M') return 'Event Management'
   return deptName
-}
-
-// The user's own assigned departments — Founder sees every department in the app.
-function myDepartmentNames(userProfile, isFounder) {
-  if (isFounder) return DEPARTMENT_LIST.map((d) => d.name)
-  const fromPositions = Array.isArray(userProfile?.positions)
-    ? userProfile.positions.map((p) => p?.department).filter(Boolean)
-    : []
-  const fromDepartments = Array.isArray(userProfile?.departments)
-    ? userProfile.departments.filter(Boolean)
-    : []
-  const fromPrimary = userProfile?.department ? [userProfile.department] : []
-  const candidates = [...new Set([...fromPositions, ...fromDepartments, ...fromPrimary])]
-  // A department name merely appearing in positions[]/departments[]/department isn't
-  // enough on its own — those can go stale (e.g. departments[] not fully re-synced
-  // after a position change) or name a non-head position (e.g. "Associate"). The dock
-  // is for departments this person actually runs, so gate on the same Director/
-  // Coordinator-tier check (hasAccess → getDepartmentRole) the rest of the app already
-  // uses for real access control, not just "was this department ever mentioned".
-  return candidates.filter((n) => {
-    // Worship is stricter than every other department: Team members, Worship Leader/
-    // Member, and even a Coordinator-tier Worship position all already get everything
-    // they need (roster, setlist, "My Part") straight from the Upcoming Worship
-    // workspace widget — the dock icon is reserved exclusively for whoever actually
-    // holds Director - Worship (or a Global/System Admin), not the generic Director-
-    // or-Coordinator tier `hasAccess` grants every other department below.
-    if (String(n).trim().toLowerCase() === 'worship') return hasFullWorshipAccess(userProfile)
-    return hasAccess(userProfile, n)
-  })
 }
 
 // Floating, single nameless launcher button, fixed bottom-center — the sole

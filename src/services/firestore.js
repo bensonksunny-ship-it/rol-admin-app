@@ -4662,45 +4662,57 @@ export async function getBoardMeeting(id) {
 // (BoardMeetingWorkspaceWidget reading sec_core_board_meetings directly), not via
 // per-user notification docs — so there is no notification collection here.
 
-const DEFAULT_LIVE_STATE = { activePointId: null, status: 'idle', startedAt: null, pausedElapsedSeconds: 0 }
+// Dual-screen presentation sync — "which point is active" and its timer both live
+// directly on that point's own board_meeting_points doc (isActive/presentStatus/
+// presentStartedAt/presentPausedElapsedSeconds), not as a separate reference on the
+// meeting doc. The controller and /board-present already both subscribe to
+// subscribeToBoardPoints for everything else, so deriving "the active point" is a
+// plain `.find(p => p.isActive)` over data they already have — no cross-document
+// join, so it can't disagree with what's actually in the points collection the way
+// a stale meeting-doc reference could. See docs/superpowers/specs/
+// 2026-08-10-board-agenda-live-point-redesign.md.
 
-// Dual-screen presentation sync — a `live` object on the meeting doc drives both the
-// admin controller's Live Controls bar and the full-screen /board-present view.
-// Firestore-synced (not BroadcastChannel) so the presentation window survives a
-// reload/crash independently of the controller tab.
-export function subscribeToBoardMeetingLive(meetingId, onChange) {
-  if (!db || !meetingId) { onChange(DEFAULT_LIVE_STATE); return () => {} }
-  return onSnapshot(doc(db, SEC_CORE_BOARD_MEETINGS_COLLECTION, meetingId), (snap) => {
-    onChange({ ...DEFAULT_LIVE_STATE, ...(snap.data()?.live || {}) })
-  }, () => onChange(DEFAULT_LIVE_STATE))
-}
+const IDLE_PRESENT_STATE = { isActive: false, presentStatus: 'idle', presentStartedAt: null, presentPausedElapsedSeconds: 0 }
 
-/** "Next Point" — selecting a new active point always resets it to idle/zeroed
- * (Start is a separate explicit action, matching the controller's Start/Pause split). */
-export async function selectLivePoint(meetingId, pointId) {
-  if (!db || !meetingId) return
-  await updateDoc(doc(db, SEC_CORE_BOARD_MEETINGS_COLLECTION, meetingId), {
-    live: { activePointId: pointId, status: 'idle', startedAt: null, pausedElapsedSeconds: 0 },
+/** Accept Point, "Present" (a specific row), and "Next Point" all call this —
+ * exactly one atomic batch that clears any previously-active point(s) and stages
+ * the target, optionally folding in extra field changes (Accept Point's accepted-
+ * point patch) so "accept" and "stage" can never partially succeed. Always
+ * overwrites whichever point was previously active — there is no "only if nothing
+ * is live" branch; every stage is an explicit, unconditional switch. */
+export async function stagePoint(pointId, { extraPatch = {}, previousActiveIds = [] } = {}) {
+  if (!db || !pointId) return
+  const batch = writeBatch(db)
+  previousActiveIds.forEach((id) => {
+    if (!id || id === pointId) return
+    batch.update(doc(db, BOARD_POINTS_COLLECTION, id), IDLE_PRESENT_STATE)
   })
+  batch.update(doc(db, BOARD_POINTS_COLLECTION, pointId), {
+    ...IDLE_PRESENT_STATE,
+    isActive: true,
+    ...extraPatch,
+  })
+  await batch.commit()
 }
 
-/** 'running': starts (or resumes) the clock from now. 'paused': folds the just-elapsed
- * running segment into pausedElapsedSeconds and stops the clock. */
-export async function setLiveStatus(meetingId, status) {
-  if (!db || !meetingId) return
-  const ref = doc(db, SEC_CORE_BOARD_MEETINGS_COLLECTION, meetingId)
+/** 'running': starts (or resumes) the clock from now. 'paused': folds the just-
+ * elapsed running segment into presentPausedElapsedSeconds and stops the clock.
+ * `currentPoint` is the caller's already-loaded point object (from its own
+ * subscribeToBoardPoints subscription) — no extra read needed to compute elapsed
+ * time, unlike the old meeting-doc version of this function. */
+export async function setPresentStatus(pointId, status, currentPoint) {
+  if (!db || !pointId) return
+  const ref = doc(db, BOARD_POINTS_COLLECTION, pointId)
   if (status === 'running') {
-    await updateDoc(ref, { 'live.status': 'running', 'live.startedAt': serverTimestamp() })
+    await updateDoc(ref, { presentStatus: 'running', presentStartedAt: serverTimestamp() })
     return
   }
-  const snap = await getDoc(ref)
-  const live = { ...DEFAULT_LIVE_STATE, ...(snap.data()?.live || {}) }
-  const startedAtMs = live.startedAt?.toMillis?.() ?? null
-  const ranSeconds = live.status === 'running' && startedAtMs ? (Date.now() - startedAtMs) / 1000 : 0
+  const startedAtMs = currentPoint?.presentStartedAt?.toMillis?.() ?? null
+  const ranSeconds = currentPoint?.presentStatus === 'running' && startedAtMs ? (Date.now() - startedAtMs) / 1000 : 0
   await updateDoc(ref, {
-    'live.status': 'paused',
-    'live.startedAt': null,
-    'live.pausedElapsedSeconds': (live.pausedElapsedSeconds || 0) + ranSeconds,
+    presentStatus: 'paused',
+    presentStartedAt: null,
+    presentPausedElapsedSeconds: (currentPoint?.presentPausedElapsedSeconds || 0) + ranSeconds,
   })
 }
 
@@ -4883,6 +4895,10 @@ function mapBoardPoint(d) {
     durationMinutes: data.durationMinutes ?? null,
     createdAt: toDate(data.createdAt),
     createdBy: data.createdBy || '',
+    isActive: data.isActive === true,
+    presentStatus: data.presentStatus || 'idle',
+    presentStartedAt: data.presentStartedAt || null,
+    presentPausedElapsedSeconds: data.presentPausedElapsedSeconds || 0,
   }
 }
 
@@ -4941,6 +4957,10 @@ export async function updateBoardPoint(id, data) {
   if (data.allottedTime !== undefined) payload.allottedTime = String(data.allottedTime)
   if (data.approvedBy !== undefined) payload.approvedBy = String(data.approvedBy)
   if (data.durationMinutes !== undefined) payload.durationMinutes = data.durationMinutes === null ? null : Number(data.durationMinutes)
+  if (data.isActive !== undefined) payload.isActive = !!data.isActive
+  if (data.presentStatus !== undefined) payload.presentStatus = String(data.presentStatus)
+  if (data.presentStartedAt !== undefined) payload.presentStartedAt = data.presentStartedAt
+  if (data.presentPausedElapsedSeconds !== undefined) payload.presentPausedElapsedSeconds = Number(data.presentPausedElapsedSeconds)
   if (Object.keys(payload).length) await updateDoc(doc(db, BOARD_POINTS_COLLECTION, id), payload)
 }
 

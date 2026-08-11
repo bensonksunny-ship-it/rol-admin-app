@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { format, differenceInCalendarDays } from 'date-fns'
-import { Plus, X, MoreVertical, Pencil, Trash2, ClipboardList, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search, Monitor, Play, Pause, SkipForward } from 'lucide-react'
+import { Plus, X, MoreVertical, Pencil, Trash2, ClipboardList, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search, Monitor, Play, Pause, SkipForward, RotateCcw } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import html2canvas from 'html2canvas'
 import {
@@ -25,9 +25,8 @@ import {
   subscribeFinanceExpenseByDept,
   createBoardMeeting,
   subscribeToBoardMeetings,
-  subscribeToBoardMeetingLive,
-  selectLivePoint,
-  setLiveStatus,
+  stagePoint,
+  setPresentStatus,
 } from '../../services/firestore'
 import { formatDisplayDate, formatTime12h, addMinutesToTime, formatCountdown } from '../../utils/date'
 import { DEPARTMENT_LIST } from '../../constants/departments'
@@ -1634,79 +1633,112 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
   const cumulativeMinutes = fixedPoints.reduce((s, bp) => s + (Number(bp.durationMinutes) || 0), 0)
   const nextSlNo = fixedPoints.length + 1
 
-  // ── Dual-screen presentation live sync — drives both this controller's Live
-  // Controls bar and the full-screen /board-present view, via a `live` object on
-  // the meeting doc (Firestore, not BroadcastChannel, so the presentation window
-  // survives a reload independently of this tab). ──────────────────────────────
+  // ── Dual-screen presentation live sync — "which point is active" and its own
+  // timer live directly on that point's board_meeting_points doc (isActive/
+  // presentStatus/presentStartedAt/presentPausedElapsedSeconds), derived straight
+  // from fixedPoints (already subscribed via subscribeToBoardPoints). No separate
+  // meeting-doc listener, no cross-document reference to resolve or go stale —
+  // see docs/superpowers/specs/2026-08-10-board-agenda-live-point-redesign.md.
   const activeMeeting = meetings.find(m => m.date === selectedDate)
-  const [liveState, setLiveState] = useState({ activePointId: null, status: 'idle', startedAt: null, pausedElapsedSeconds: 0 })
+  // Surfaces failures from the live-sync writes below (e.g. a Firestore permission
+  // error) instead of leaving the Live Controls bar silently stuck.
+  const [liveError, setLiveError] = useState('')
 
-  useEffect(() => {
-    if (!activeMeeting?.id) {
-      setLiveState({ activePointId: null, status: 'idle', startedAt: null, pausedElapsedSeconds: 0 })
-      return
-    }
-    return subscribeToBoardMeetingLive(activeMeeting.id, setLiveState)
-  }, [activeMeeting?.id])
+  const livePoint = fixedPoints.find(p => p.isActive) || null
 
   // Ticks once a second while running so the local countdown mirror stays live
   // without waiting on a fresh Firestore snapshot every second.
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (liveState.status !== 'running') return
+    if (livePoint?.presentStatus !== 'running') return
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [liveState.status])
+  }, [livePoint?.presentStatus])
 
-  const livePoint = fixedPoints.find(p => p.id === liveState.activePointId) || null
   const liveRemainingSeconds = livePoint
     ? (Number(livePoint.durationMinutes) || 0) * 60
-      - (liveState.pausedElapsedSeconds || 0)
-      - (liveState.status === 'running' && liveState.startedAt?.toMillis ? (now - liveState.startedAt.toMillis()) / 1000 : 0)
+      - (livePoint.presentPausedElapsedSeconds || 0)
+      - (livePoint.presentStatus === 'running' && livePoint.presentStartedAt?.toMillis ? (now - livePoint.presentStartedAt.toMillis()) / 1000 : 0)
     : null
 
   const handleTogglePresentStatus = () => {
-    if (!activeMeeting?.id || !livePoint) return
-    setLiveStatus(activeMeeting.id, liveState.status === 'running' ? 'paused' : 'running')
+    if (!livePoint) return
+    setLiveError('')
+    setPresentStatus(livePoint.id, livePoint.presentStatus === 'running' ? 'paused' : 'running', livePoint)
+      .catch(e => { console.error('setPresentStatus failed:', e); setLiveError(e?.message || 'Failed to update presentation state.') })
   }
 
   // Selects the fixed point right after the current one (wrapping to the first),
   // or the first point if nothing is selected yet. Doesn't auto-start — Start is
-  // always a separate explicit action.
+  // always a separate explicit action. Always overwrites whichever point was
+  // previously active, same as Accept Point and the per-row "Present" action.
   const handleNextLivePoint = () => {
-    if (!activeMeeting?.id || fixedPoints.length === 0) return
-    const idx = fixedPoints.findIndex(p => p.id === liveState.activePointId)
+    if (fixedPoints.length === 0) return
+    const idx = fixedPoints.findIndex(p => p.id === livePoint?.id)
     const next = idx === -1 ? fixedPoints[0] : fixedPoints[(idx + 1) % fixedPoints.length]
-    selectLivePoint(activeMeeting.id, next.id)
+    setLiveError('')
+    stagePoint(next.id, { previousActiveIds: fixedPoints.filter(p => p.isActive).map(p => p.id) })
+      .catch(e => { console.error('stagePoint (Next Point) failed:', e); setLiveError(e?.message || 'Failed to select the next point.') })
+  }
+
+  // Resets everything back to the start: every accepted point in this meeting
+  // reverts to pending, and its active/timer fields clear in the same patch —
+  // /board-present already renders "Waiting for the next point…" once nothing has
+  // isActive: true, so no separate step is needed for that.
+  const handleRestartMeeting = async () => {
+    if (!activeMeeting?.id) return
+    if (!window.confirm('Restart this meeting? Every accepted point will revert to pending, and the presentation will go back to the beginning. This cannot be undone.')) return
+    setSaving(true)
+    setLiveError('')
+    try {
+      const resetPatch = {
+        slNo: '', allottedTime: '', status: 'pending', approvedBy: '', durationMinutes: null,
+        isActive: false, presentStatus: 'idle', presentStartedAt: null, presentPausedElapsedSeconds: 0,
+      }
+      await Promise.all(fixedPoints.map(bp => updateBoardPoint(bp.id, resetPatch)))
+      setAllPoints(prev => prev.map(p => fixedPoints.some(bp => bp.id === p.id) ? { ...p, ...resetPatch } : p))
+    } catch (e) {
+      console.error('handleRestartMeeting failed:', e)
+      setLiveError(e?.message || 'Failed to restart the meeting.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleAcceptPoint = async (bp) => {
     const mins = Number(editVals.durationMinutes)
     if (!mins || mins <= 0) return
     setSaving(true)
+    setLiveError('')
     try {
       const start = startTime ? addMinutesToTime(startTime, cumulativeMinutes) : ''
       const end = start ? addMinutesToTime(start, mins) : ''
-      const patch = {
+      const acceptPatch = {
         slNo: nextSlNo,
         durationMinutes: mins,
         allottedTime: start && end ? `${formatTime12h(start)} – ${formatTime12h(end)}` : `${mins} min`,
         status: 'approved',
         approvedBy: userProfile?.displayName || userProfile?.email || 'Sec-Core',
       }
-      await updateBoardPoint(bp.id, patch)
-      setAllPoints(prev => prev.map(p => p.id === bp.id ? { ...p, ...patch } : p))
+      // Accept + stage as the presented point in one atomic batch — accepting
+      // always takes over presentation (no "only if nothing is live" branch), so
+      // this can never leave "accepted but not staged" or a dangling stale
+      // reference the way two sequential writes could.
+      await stagePoint(bp.id, {
+        extraPatch: acceptPatch,
+        previousActiveIds: fixedPoints.filter(p => p.isActive).map(p => p.id),
+      })
+      const idleTimer = { isActive: false, presentStatus: 'idle', presentStartedAt: null, presentPausedElapsedSeconds: 0 }
+      setAllPoints(prev => prev.map(p => {
+        if (p.id === bp.id) return { ...p, ...acceptPatch, ...idleTimer, isActive: true }
+        if (p.isActive) return { ...p, ...idleTimer }
+        return p
+      }))
       setEditId(null)
       setEditVals({ durationMinutes: '' })
-      // Only auto-stage this point as the live/presenting one if nothing is live
-      // yet — e.g. right after the meeting starts, so the presentation view isn't
-      // stuck on "Waiting for the next point…" until someone remembers to press
-      // Next Point. If a point is already being presented, accepting a different
-      // one must NOT interrupt it — switching is always an explicit Present/Next
-      // Point click (see the per-row "Present" action and the Live Controls bar).
-      if (activeMeeting?.id && !liveState.activePointId) {
-        await selectLivePoint(activeMeeting.id, bp.id)
-      }
+    } catch (e) {
+      console.error('Accept Point failed:', e)
+      setLiveError(e?.message || 'Failed to accept this point.')
     } finally {
       setSaving(false)
     }
@@ -1715,7 +1747,10 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
   const handleUnfix = async (id) => {
     setSaving(true)
     try {
-      const patch = { slNo: '', allottedTime: '', status: 'pending', approvedBy: '', durationMinutes: null }
+      const patch = {
+        slNo: '', allottedTime: '', status: 'pending', approvedBy: '', durationMinutes: null,
+        isActive: false, presentStatus: 'idle', presentStartedAt: null, presentPausedElapsedSeconds: 0,
+      }
       await updateBoardPoint(id, patch)
       setAllPoints(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
     } finally {
@@ -1922,7 +1957,7 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
                   disabled={!livePoint}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold transition-colors"
                 >
-                  {liveState.status === 'running' ? <><Pause size={13} /> Pause</> : <><Play size={13} /> Start</>}
+                  {livePoint?.presentStatus === 'running' ? <><Pause size={13} /> Pause</> : <><Play size={13} /> Start</>}
                 </button>
                 <button
                   type="button"
@@ -1931,8 +1966,20 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
                 >
                   <SkipForward size={13} /> Next Point
                 </button>
+                <button
+                  type="button"
+                  onClick={handleRestartMeeting}
+                  disabled={saving}
+                  title="Restart Meeting"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-red-500/80 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold transition-colors"
+                >
+                  <RotateCcw size={13} /> Restart Meeting
+                </button>
               </div>
             </div>
+          )}
+          {liveError && (
+            <p className="px-6 py-2 bg-red-50 border-b border-red-100 text-xs text-red-600">{liveError}</p>
           )}
 
           {/* Department table — every registered department gets a row (or one row
@@ -1988,12 +2035,16 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
                           {isFixed ? (
                             canEdit ? (
                               <div className="flex items-center gap-2">
-                                {liveState.activePointId === bp.id ? (
+                                {bp.isActive ? (
                                   <span className="text-xs font-bold text-indigo-600">Presenting</span>
                                 ) : (
                                   <button
                                     type="button"
-                                    onClick={() => activeMeeting?.id && selectLivePoint(activeMeeting.id, bp.id)}
+                                    onClick={() => {
+                                      setLiveError('')
+                                      stagePoint(bp.id, { previousActiveIds: fixedPoints.filter(p => p.isActive).map(p => p.id) })
+                                        .catch(e => { console.error('stagePoint (row Present) failed:', e); setLiveError(e?.message || 'Failed to present this point.') })
+                                    }}
                                     className="text-xs text-indigo-600 font-semibold hover:underline"
                                   >Present</button>
                                 )}
@@ -2016,7 +2067,7 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
                                   autoFocus
                                   value={editVals.durationMinutes}
                                   onChange={e => setEditVals({ durationMinutes: e.target.value })}
-                                  onKeyDown={e => e.key === 'Enter' && handleAcceptPoint(bp)}
+                                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAcceptPoint(bp) } }}
                                   className="w-16 px-2 py-1.5 rounded-lg border border-indigo-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
                                 />
                                 <span className="text-xs text-slate-500">min</span>

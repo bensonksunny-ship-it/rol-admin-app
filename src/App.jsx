@@ -31,6 +31,7 @@ import EntryPage from './pages/accounts/EntryPage'
 import DLightMembers from './pages/DLightMembers'
 import PeopleDirectory from './pages/PeopleDirectory'
 import BoardPresentView from './pages/BoardPresentView'
+import NavPreview from './pages/dev/NavPreview'
 import OfflineBanner from './components/OfflineBanner'
 
 function App() {
@@ -45,6 +46,16 @@ function App() {
               element={
                 <ProtectedRoute>
                   <BoardPresentView />
+                </ProtectedRoute>
+              }
+            />
+            {/* Throwaway nav-pattern comparison prototype — see NavPreview.jsx header
+                comment. Delete this route + the file once the real design is picked. */}
+            <Route
+              path="/dev/nav-preview"
+              element={
+                <ProtectedRoute>
+                  <NavPreview />
                 </ProtectedRoute>
               }
             />
