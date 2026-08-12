@@ -2,13 +2,14 @@ import { Outlet } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import useActionNotifications from '../../hooks/useActionNotifications'
 import Sidebar from './Sidebar'
+import DesktopDepartmentNav from './DesktopDepartmentNav'
 import DepartmentDock from '../workspace/DepartmentDock'
 
 // ─── Main Layout ──────────────────────────────────────────────────────────────
 // The sidebar is a permanent slim icon rail (~64px) at lg+ on every route, so
 // content only ever needs to clear that width, not a full-width labeled sidebar.
-// DepartmentDock is the sole navigation dock at every screen size (mobile included) —
-// pb-24 / pb-[7rem] keeps page content clear of it either way.
+// DepartmentDock is mobile's navigation dock (lg:hidden below the DesktopDepartmentNav
+// breakpoint) — pb-24 / pb-[7rem] keeps mobile page content clear of it.
 //
 // Every page's content is centered inside a single shared max-w-5xl column here —
 // the one place this needs to be set for it to apply app-wide, rather than each page
@@ -34,10 +35,10 @@ export default function MainLayout() {
         onAddNotificationToTodo={addNotificationToTodo}
       />
       <main className="lg:ml-16 min-h-screen flex flex-col">
-        <div
-          className="flex-1 pb-[calc(7rem_+_env(safe-area-inset-bottom,0px))] lg:pb-24"
-          style={{ paddingTop: 'calc(3rem + env(safe-area-inset-top, 24px))' }}
-        >
+        <DesktopDepartmentNav />
+        {/* pt- clears MobileHeader's fixed top bar, pb- clears DepartmentDock's floating
+            button — both lg:hidden now, so both offsets zero out at lg: too. */}
+        <div className="flex-1 pt-[calc(3rem_+_env(safe-area-inset-top,24px))] lg:pt-0 pb-[calc(7rem_+_env(safe-area-inset-bottom,0px))] lg:pb-0">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
             <Outlet context={{ notifications, handleNotifAction, dismissNotification, addNotificationToTodo }} />
           </div>

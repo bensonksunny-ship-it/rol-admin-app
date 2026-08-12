@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { format, differenceInCalendarDays } from 'date-fns'
-import { Plus, X, MoreVertical, Pencil, Trash2, ClipboardList, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search, Monitor, Play, Pause, SkipForward, RotateCcw } from 'lucide-react'
+import { Plus, X, MoreVertical, Pencil, Trash2, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search, Monitor, Play, Pause, SkipForward, RotateCcw } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import html2canvas from 'html2canvas'
 import {
@@ -530,19 +530,11 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
         </div>
       </div>
 
-      {/* Scheduled Meetings — each opens the Board Agenda drawer pre-selected to that
-          meeting's date; "View full board agenda" is the old always-available entry
-          point, now living here instead of its own header icon. */}
+      {/* Scheduled Meetings — each row opens the Board Agenda drawer pre-selected to
+          that meeting's date. */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
+        <div className="flex items-center px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
           <h3 className="font-semibold text-slate-800 text-sm">Scheduled Meetings</h3>
-          <button
-            type="button"
-            onClick={() => onOpenMeetingAgenda?.(null)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:underline"
-          >
-            <ClipboardList size={13} /> View full board agenda
-          </button>
         </div>
         {upcomingMeetings.length === 0 ? (
           <p className="px-5 py-4 text-sm text-slate-400">No upcoming meetings scheduled.</p>
@@ -1523,6 +1515,10 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
   const [editVals, setEditVals]   = useState({ durationMinutes: '' })
   const [saving, setSaving]       = useState(false)
   const [meetings, setMeetings]   = useState([])
+  // Discussion Points column shows a fixed-height "Click to open" chip instead of the
+  // raw text, so row height stays uniform regardless of point length — the full text
+  // renders in a nested modal instead. Holds { dept, director, point } or null.
+  const [openDiscussionPoint, setOpenDiscussionPoint] = useState(null)
 
   useEffect(() => {
     const unsub = subscribeToBoardMeetings(setMeetings, () => setMeetings([]))
@@ -1597,8 +1593,10 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
   // One row-group per registered department, in canonical DEPARTMENT_LIST order —
   // every department always shows up, whether or not it submitted anything for this
   // date, so the table reads as the full roster rather than just who spoke up.
+  // Sec-Core runs the meeting rather than submitting a point to its own agenda, so
+  // it doesn't get a row here.
   const deptRows = useMemo(() => {
-    return DEPARTMENT_LIST.map(dept => {
+    return DEPARTMENT_LIST.filter(dept => dept.name !== 'Sec-Core').map(dept => {
       const deptPoints = datePoints
         .filter(p => p.department === dept.name)
         .sort((a, b) => {
@@ -2004,7 +2002,7 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
                       <tr key={row.dept} className="border-b border-slate-100 last:border-0">
                         <td className="px-4 py-3 align-top text-sm font-semibold text-slate-800 whitespace-nowrap">{row.dept}</td>
                         <td className="px-4 py-3 align-top text-sm text-slate-600 whitespace-nowrap">{row.director || '—'}</td>
-                        <td className="px-4 py-3 align-top text-sm text-slate-400 italic">No discussion points to discuss</td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
                         <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
                         <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
                         <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
@@ -2020,12 +2018,20 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
                       <tr key={bp.id} className={`border-b border-slate-100 last:border-0 transition-colors ${isFixed ? 'bg-emerald-50/30' : ''}`}>
                         <td className="px-4 py-3 align-top text-sm font-semibold text-slate-800 whitespace-nowrap">{row.dept}</td>
                         <td className="px-4 py-3 align-top text-sm text-slate-600 whitespace-nowrap">{row.director || '—'}</td>
-                        <td className="px-4 py-3 align-top text-sm text-slate-800 leading-snug">{bp.point}</td>
+                        <td className="px-4 py-3 align-top text-sm whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setOpenDiscussionPoint({ dept: row.dept, director: row.director, point: bp.point, timeNeeded: bp.timeNeeded })}
+                            className="text-xs font-semibold text-indigo-600 hover:underline"
+                          >
+                            Click to open
+                          </button>
+                        </td>
                         <td className="px-4 py-3 align-top text-sm text-slate-500 whitespace-nowrap">{bp.timeNeeded || '—'}</td>
                         <td className="px-4 py-3 align-top text-sm whitespace-nowrap">
                           {isFixed ? (
                             <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
-                              {fixedPointTimes[fixedPoints.indexOf(bp)] || bp.allottedTime}
+                              #{bp.slNo} · {fixedPointTimes[fixedPoints.indexOf(bp)] || bp.allottedTime}
                             </span>
                           ) : (
                             <span className="text-slate-300">—</span>
@@ -2125,7 +2131,60 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
           )}
         </div>
       )}
+
+      {openDiscussionPoint && (
+        <DiscussionPointModal data={openDiscussionPoint} onClose={() => setOpenDiscussionPoint(null)} />
+      )}
     </div>
+  )
+}
+
+// Nested modal for a single discussion point's full text — portal-rendered (like
+// BoardAgendaDrawer) so it's immune to the department table's horizontal scroll
+// clipping and never affects table row height. Sits above BoardAgendaDrawer's
+// z-[100] since it opens from inside it.
+function DiscussionPointModal({ data, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[110] bg-black/40 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Discussion Point"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-800 truncate">{data.dept}</p>
+            <p className="text-xs text-slate-400 mt-0.5 truncate">{data.director || '—'}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors flex-shrink-0"
+          >
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{data.point}</p>
+          {data.timeNeeded && (
+            <p className="text-xs text-slate-400 mt-3">Requested: {data.timeNeeded}</p>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
   )
 }
 

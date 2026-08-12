@@ -154,7 +154,7 @@ const DEFAULT_OPS_CHILDREN = [
   { key: 'planning',      label: 'Planning',        Icon: CalendarDays },
 ]
 
-function getOperationsChildren(slug) {
+export function getOperationsChildren(slug) {
   if (slug === 'd-light') {
     return DEFAULT_OPS_CHILDREN.map((c) => (c.key === 'subDepartment' ? { ...c, label: 'Sub Dept' } : c))
   }

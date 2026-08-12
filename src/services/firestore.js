@@ -3589,34 +3589,54 @@ export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onErr
  * approach as the rest of the Sunday attendance code.
  * Returns a Map<normalizedName, count>.
  */
+// Shared by getSundayAttendanceCountsByName and getSundayAttendanceCountsByNameInRange
+// so both count the same set of fields per report doc.
+function addSundayReportAttendanceCounts(counts, data) {
+  const namesThisWeek = new Set()
+  const addAll = (arr) => {
+    if (!Array.isArray(arr)) return
+    arr.forEach((n) => {
+      const norm = String(n).trim().toLowerCase()
+      if (norm) namesThisWeek.add(norm)
+    })
+  }
+  addAll(data.nonCell)
+  addAll(data.others)
+  addAll(data.newComers)
+  addAll(data.secondWeekAttendeesNames)
+  addAll(data.thirdWeekAttendeesNames)
+  addAll(data.fourthWeekAttendeesNames)
+  const sca = data.sundayCellAttendance
+  if (sca && typeof sca === 'object') {
+    Object.values(sca).forEach((arr) => addAll(arr))
+  }
+  namesThisWeek.forEach((norm) => {
+    counts.set(norm, (counts.get(norm) || 0) + 1)
+  })
+}
+
 export async function getSundayAttendanceCountsByName() {
   const counts = new Map()
   if (!db) return counts
   const snap = await getDocs(collection(db, SUNDAY_REPORTS_COLLECTION))
-  snap.docs.forEach((d) => {
-    const data = d.data()
-    const namesThisWeek = new Set()
-    const addAll = (arr) => {
-      if (!Array.isArray(arr)) return
-      arr.forEach((n) => {
-        const norm = String(n).trim().toLowerCase()
-        if (norm) namesThisWeek.add(norm)
-      })
-    }
-    addAll(data.nonCell)
-    addAll(data.others)
-    addAll(data.newComers)
-    addAll(data.secondWeekAttendeesNames)
-    addAll(data.thirdWeekAttendeesNames)
-    addAll(data.fourthWeekAttendeesNames)
-    const sca = data.sundayCellAttendance
-    if (sca && typeof sca === 'object') {
-      Object.values(sca).forEach((arr) => addAll(arr))
-    }
-    namesThisWeek.forEach((norm) => {
-      counts.set(norm, (counts.get(norm) || 0) + 1)
-    })
-  })
+  snap.docs.forEach((d) => addSundayReportAttendanceCounts(counts, d.data()))
+  return counts
+}
+
+// Same as getSundayAttendanceCountsByName but scoped to reports whose `date` (every
+// write path sets this to the doc's own Sunday-date ID) falls within [startDateStr,
+// endDateStr] inclusive — used by the D-Light Week Comer candidate filters, which need
+// attendance counts within a rolling window rather than all-time.
+export async function getSundayAttendanceCountsByNameInRange(startDateStr, endDateStr) {
+  const counts = new Map()
+  if (!db || !startDateStr || !endDateStr) return counts
+  const q = query(
+    collection(db, SUNDAY_REPORTS_COLLECTION),
+    where('date', '>=', startDateStr),
+    where('date', '<=', endDateStr)
+  )
+  const snap = await getDocs(q)
+  snap.docs.forEach((d) => addSundayReportAttendanceCounts(counts, d.data()))
   return counts
 }
 

@@ -160,7 +160,9 @@
       "Bash(grep -n \"// ─── Analytics Hub\" src/pages/seccore/SecCoreSummary.jsx)",
       "Bash(grep -A5 \"pages\\\\\\\\\\\\\\\\DepartmentHub.jsx\" /tmp/lint5.txt)",
       "Bash(echo \"exit code: $?\")",
-      "PowerShell(Start-Process \"http://localhost:5173/dev/nav-preview\")"
+      "PowerShell(Start-Process \"http://localhost:5173/dev/nav-preview\")",
+      "Bash(git fsck *)",
+      "Bash(grep -n \"getSundayAttendanceCountsByName,\\\\|import {\" src/pages/DepartmentHub.jsx)"
     ]
   }
 }

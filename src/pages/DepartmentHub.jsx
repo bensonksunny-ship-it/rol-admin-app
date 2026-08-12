@@ -126,6 +126,7 @@ import {
   completeCellVisitorProposal,
   dismissCellVisitorProposal,
   getSundayAttendanceCountsByName,
+  getSundayAttendanceCountsByNameInRange,
   subscribeToRecentSundayAttendanceWeeks,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
@@ -148,6 +149,8 @@ import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import FinanceTabBar from '../components/finance/FinanceTabBar'
+import OperationsTabBar from '../components/OperationsTabBar'
+import { getOperationsChildren } from '../utils/departmentSubpages'
 import SecCoreFinance from './seccore/SecCoreFinance'
 import AccountsExpensePage from './accounts/ExpensePage'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
@@ -500,6 +503,12 @@ export default function DepartmentHub() {
   const [weekComerCandidates, setWeekComerCandidates] = useState({ second: [], third: [], fourth: [] })
   const [loadingWeekComerCandidates, setLoadingWeekComerCandidates] = useState(false)
   const [markingWeekComerName, setMarkingWeekComerName] = useState(null)
+  // Manual search-and-add escape hatch per card — for visitors the automatic filters
+  // miss (e.g. they came back after a longer gap than the window covers). No
+  // validation against the card's own filter; any D-Light visitor can be added to
+  // any bucket.
+  const [weekComerAddOpenBucket, setWeekComerAddOpenBucket] = useState(null)
+  const [weekComerAddQuery, setWeekComerAddQuery] = useState('')
   const [delightVisitorModalOpen, setDelightVisitorModalOpen] = useState(false)
   const [editingDelightVisitorId, setEditingDelightVisitorId] = useState(null)
   const [_importingVisitors, setImportingVisitors] = useState(false)
@@ -1372,8 +1381,11 @@ export default function DepartmentHub() {
 
   // Second/Third/Fourth week comer candidates for the Follow-Up panel:
   // - Second week: D-Light visitors whose first attendedDate was exactly last week.
-  // - Third week: names Sunday Ministry already confirmed as second-week attendees last week.
-  // - Fourth week: names Sunday Ministry already confirmed as third-week attendees last week.
+  // - Third week: visitors who joined (attendedDate) in the last 90 days and have
+  //   exactly 2 logged Sunday attendances in that same window, prior to the target
+  //   Sunday. Self-healing vs. the old "chain from last week's confirmed list"
+  //   approach, which silently dropped anyone a leader forgot to mark.
+  // - Fourth week: same idea, 120-day window, exactly 3 prior attendances.
   // Each list excludes names already marked on the target Sunday's report.
   useEffect(() => {
     if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
@@ -1383,10 +1395,24 @@ export default function DepartmentHub() {
     lastWeek.setDate(target.getDate() - 7)
     const lastWeekWindowStart = new Date(lastWeek)
     lastWeekWindowStart.setDate(lastWeek.getDate() - 6)
-    const lastWeekStr = format(lastWeek, 'yyyy-MM-dd')
 
-    Promise.all([getSundayReport(weekComerDate), getSundayReport(lastWeekStr)])
-      .then(([targetReport, lastWeekReport]) => {
+    // Attendance counted only through the day before the target Sunday, so whatever's
+    // already on today's own report doesn't inflate the count we're deciding against.
+    const countRangeEnd = new Date(target)
+    countRangeEnd.setDate(target.getDate() - 1)
+    const countRangeEndStr = format(countRangeEnd, 'yyyy-MM-dd')
+    const daysAgoStr = (days) => {
+      const d = new Date(target)
+      d.setDate(target.getDate() - days)
+      return format(d, 'yyyy-MM-dd')
+    }
+
+    Promise.all([
+      getSundayReport(weekComerDate),
+      getSundayAttendanceCountsByNameInRange(daysAgoStr(90), countRangeEndStr),
+      getSundayAttendanceCountsByNameInRange(daysAgoStr(120), countRangeEndStr),
+    ])
+      .then(([targetReport, thirdWindowCounts, fourthWindowCounts]) => {
         const alreadyIn = (field) =>
           new Set((targetReport?.[field] || []).map((n) => String(n).trim().toLowerCase()))
         const alreadySecond = alreadyIn('secondWeekAttendeesNames')
@@ -1404,11 +1430,24 @@ export default function DepartmentHub() {
             .filter(Boolean)
         )].filter((n) => !alreadySecond.has(n.trim().toLowerCase()))
 
-        const thirdCandidates = [...new Set((lastWeekReport?.secondWeekAttendeesNames || []).filter(Boolean))]
-          .filter((n) => !alreadyThird.has(n.trim().toLowerCase()))
+        const computeAttendanceCandidates = (days, requiredCount, countsInRange, alreadyMarked) => {
+          const windowStart = new Date(target)
+          windowStart.setDate(target.getDate() - days)
+          return [...new Set(
+            delightVisitors
+              .filter((v) => {
+                if (!v.attendedDate) return false
+                const d = new Date(v.attendedDate + 'T00:00:00')
+                return d >= windowStart && d <= target
+              })
+              .filter((v) => countsInRange.get(String(v.name || '').trim().toLowerCase()) === requiredCount)
+              .map((v) => v.name)
+              .filter(Boolean)
+          )].filter((n) => !alreadyMarked.has(n.trim().toLowerCase()))
+        }
 
-        const fourthCandidates = [...new Set((lastWeekReport?.thirdWeekAttendeesNames || []).filter(Boolean))]
-          .filter((n) => !alreadyFourth.has(n.trim().toLowerCase()))
+        const thirdCandidates = computeAttendanceCandidates(90, 2, thirdWindowCounts, alreadyThird)
+        const fourthCandidates = computeAttendanceCandidates(120, 3, fourthWindowCounts, alreadyFourth)
 
         setWeekComerCandidates({ second: secondCandidates, third: thirdCandidates, fourth: fourthCandidates })
       })
@@ -1432,6 +1471,20 @@ export default function DepartmentHub() {
       alert('Failed to add — please try again.')
     }
     setMarkingWeekComerName(null)
+  }
+
+  // Manual search-and-add: appends a name straight to the local candidate list (no
+  // Firestore write until it's actually tapped via markWeekComer) so it renders and
+  // behaves exactly like an auto-recommended chip.
+  const addManualWeekComerCandidate = (bucket, name) => {
+    const norm = name.trim().toLowerCase()
+    setWeekComerCandidates((prev) =>
+      prev[bucket].some((n) => n.trim().toLowerCase() === norm)
+        ? prev
+        : { ...prev, [bucket]: [...prev[bucket], name.trim()] }
+    )
+    setWeekComerAddOpenBucket(null)
+    setWeekComerAddQuery('')
   }
 
   // Backs the "Add Member" person picker on every department's Team tab.
@@ -3194,30 +3247,83 @@ export default function DepartmentHub() {
                       { bucket: 'second', label: 'Second Week' },
                       { bucket: 'third', label: 'Third Week' },
                       { bucket: 'fourth', label: 'Fourth Week' },
-                    ].map(({ bucket, label }) => (
-                      <div key={bucket} className="bg-white rounded-xl border border-slate-200 p-3">
-                        <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">{label}</p>
-                        {loadingWeekComerCandidates ? (
-                          <p className="text-xs text-slate-400">Loading…</p>
-                        ) : weekComerCandidates[bucket].length === 0 ? (
-                          <p className="text-xs text-slate-400">No candidates.</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {weekComerCandidates[bucket].map((name) => (
-                              <button
-                                key={name}
-                                type="button"
-                                disabled={markingWeekComerName === name}
-                                onClick={() => markWeekComer(bucket, name)}
-                                className="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-50"
-                              >
-                                {markingWeekComerName === name ? 'Adding…' : `+ ${name}`}
-                              </button>
-                            ))}
+                    ].map(({ bucket, label }) => {
+                      const addOpen = weekComerAddOpenBucket === bucket
+                      const addQuery = weekComerAddQuery.trim().toLowerCase()
+                      const addResults = addOpen && addQuery.length > 0
+                        ? delightVisitors
+                            .filter((v) => {
+                              const name = (v.name || '').toLowerCase()
+                              return name.startsWith(addQuery) || name.split(' ').some((word) => word.startsWith(addQuery))
+                            })
+                            .slice(0, 6)
+                        : []
+                      return (
+                        <div key={bucket} className="bg-white rounded-xl border border-slate-200 p-3">
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">{label}</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setWeekComerAddOpenBucket(addOpen ? null : bucket)
+                                setWeekComerAddQuery('')
+                              }}
+                              className="text-[11px] font-semibold text-indigo-600 hover:underline flex-shrink-0"
+                            >
+                              {addOpen ? 'Cancel' : '+ Add'}
+                            </button>
                           </div>
-                        )}
-                      </div>
-                    ))}
+                          {addOpen && (
+                            <div className="relative mb-2">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={weekComerAddQuery}
+                                onChange={(e) => setWeekComerAddQuery(e.target.value)}
+                                placeholder="Search visitors…"
+                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                              />
+                              {addResults.length > 0 && (
+                                <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-lg border border-slate-200 shadow-lg z-20 overflow-hidden">
+                                  {addResults.map((v) => (
+                                    <button
+                                      key={v.id}
+                                      type="button"
+                                      onMouseDown={() => addManualWeekComerCandidate(bucket, v.name)}
+                                      className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-indigo-50 transition-colors"
+                                    >
+                                      {v.name}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              {addQuery.length > 0 && addResults.length === 0 && (
+                                <p className="text-[11px] text-slate-400 mt-1">No visitors found.</p>
+                              )}
+                            </div>
+                          )}
+                          {loadingWeekComerCandidates ? (
+                            <p className="text-xs text-slate-400">Loading…</p>
+                          ) : weekComerCandidates[bucket].length === 0 ? (
+                            <p className="text-xs text-slate-400">No candidates.</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {weekComerCandidates[bucket].map((name) => (
+                                <button
+                                  key={name}
+                                  type="button"
+                                  disabled={markingWeekComerName === name}
+                                  onClick={() => markWeekComer(bucket, name)}
+                                  className="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                                >
+                                  {markingWeekComerName === name ? 'Adding…' : `+ ${name}`}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -3251,6 +3357,8 @@ export default function DepartmentHub() {
                         key={v.id}
                         type="button"
                         onMouseDown={() => {
+                          // onMouseDown (not onClick) fires before the search input's
+                          // onBlur closes the dropdown, so the click still registers.
                           const yr = getVisitorYear(v)
                           if (yr === VISITOR_CURRENT_YEAR) {
                             setVisitorSubPage('current')
@@ -3258,6 +3366,14 @@ export default function DepartmentHub() {
                             setVisitorSubPage('previous')
                             setVisitorPrevYear(yr)
                           }
+                          setEditingDelightVisitorId(v.id)
+                          setDelightVisitorForm({
+                            name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '',
+                            email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '',
+                            serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '',
+                            howKnown: v.howKnown || '', source: v.source || '', year: yr,
+                          })
+                          setDelightVisitorModalOpen(true)
                           setVisitorSearch('')
                           setVisitorSearchOpen(false)
                         }}
@@ -3869,6 +3985,17 @@ export default function DepartmentHub() {
 
           {activeTab === 'finance' && slug === 'accounts' && financeSubTab === 'addDepartments' && (
             <AddDepartmentsPage />
+          )}
+
+          {activeTab === 'operations' && (
+            <OperationsTabBar
+              tabs={getOperationsChildren(slug)}
+              active={opsSubTab}
+              onChange={(key) => {
+                setOpsSubTab(key)
+                setSearchParams({ tab: 'operations', opsSub: key }, { replace: true })
+              }}
+            />
           )}
 
           {(activeTab === 'planning' || (activeTab === 'operations' && opsSubTab === 'planning')) && (

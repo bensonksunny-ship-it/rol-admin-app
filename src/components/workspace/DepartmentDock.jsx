@@ -12,10 +12,11 @@ function displayDeptName(deptName) {
   return deptName
 }
 
-// Floating, single nameless launcher button, fixed bottom-center — the sole
-// navigation surface on every screen size. There is no separate mobile bottom tab bar
-// anymore (Sidebar's MobileHeader is just the logo + profile avatar), so this is what
-// carries department navigation on phones too, with room for the home indicator via
+// Floating, single nameless launcher button, fixed bottom-center — mobile's
+// navigation surface (lg:hidden; desktop uses DesktopDepartmentNav instead, see
+// MainLayout.jsx). There is no separate mobile bottom tab bar (Sidebar's
+// MobileHeader is just the logo + profile avatar), so this is what carries
+// department navigation on phones, with room for the home indicator via
 // safe-area-inset-bottom.
 //
 // Previously this rendered one labeled tile per accessible department; now it's a
@@ -63,7 +64,7 @@ export default function DepartmentDock() {
 
   return (
     <nav
-      className="flex fixed left-1/2 -translate-x-1/2 z-40"
+      className="flex lg:hidden fixed left-1/2 -translate-x-1/2 z-40"
       style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
       aria-label="Department shortcuts"
     >
