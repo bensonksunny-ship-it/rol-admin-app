@@ -219,7 +219,12 @@ export function CellDirectorCockpit({
       .finally(() => setLoadingUnassigned(false))
   }, [loadingMembers, memberNamesSet])
 
-  // PCS referrals merged into the unassigned list — derived from live listener, not prop
+  // PCS referrals merged into the unassigned list — derived from live listener, not prop.
+  // Carries its own recommendation fields (rather than only ever being matched against
+  // dlightConsultByName) because the To-Do List's "Add [Name] to a cell group" click now
+  // opens DepartmentHub's Recommendation modal directly on *this same task doc*
+  // (?openPcsReferralTaskId=, see ToDoListCard.jsx + DepartmentHub.jsx) — submitting it
+  // writes recommendation/recommendedCellId/status:'Responded' straight onto here.
   const pcsReferrals = useMemo(
     () => livePcsTasks.map(t => ({
       name: t.pcsPersonName || (t.taskTitle || '').replace(/^Add /, '').replace(/ to a cell group$/, ''),
@@ -227,6 +232,10 @@ export function CellDirectorCockpit({
       visitorId: t.pcsPersonVisitorId || '',
       taskId: t.id,
       source: 'pcs',
+      status: t.status || 'Pending',
+      recommendation: t.recommendation || '',
+      recommendedCellId: t.recommendedCellId || '',
+      recommendedCellName: t.recommendedCellName || '',
     })),
     [livePcsTasks]
   )
@@ -364,6 +373,9 @@ export function CellDirectorCockpit({
           consultPersonVisitorId: item.visitorId || '',
           consultNote: consultNote.trim(),
           requestedBy: requestedByName,
+          // Identity + action-kind pair the To-Do List dedupes on (ToDoListCard.jsx).
+          personId: item.visitorId || item.phone || item.name,
+          taskType: 'cellAssignConsult',
         })
         showToast(`Requested D Light input for ${item.name}.`)
         setConsultOpenName(null)
@@ -585,7 +597,13 @@ export function CellDirectorCockpit({
               ) : (
                 visibleUnassigned.map((item) => {
                   const isPCS = item.source === 'pcs'
-                  const consultTask = dlightConsultByName.get(item.name.toLowerCase())
+                  // A PCS referral now carries its own recommendation (submitted straight
+                  // onto this same task doc via DepartmentHub's Recommendation modal —
+                  // see openPcsReferralTaskId), not a separate D-Light consult task, so it
+                  // is its own "consultTask" here rather than looked up by name.
+                  const consultTask = isPCS
+                    ? (item.status === 'Responded' ? item : null)
+                    : dlightConsultByName.get(item.name.toLowerCase())
                   return (
                     <div key={`${item.source}-${item.name}`} className="relative">
                       <div className={`flex items-center gap-3 bg-white border rounded-2xl px-4 py-3 shadow-sm ${
@@ -614,7 +632,7 @@ export function CellDirectorCockpit({
                             )}
                             {consultTask && (
                               <span
-                                title={consultTask.status === 'Responded' ? consultTask.recommendation || 'D Light responded' : 'Awaiting D Light Director input'}
+                                title={consultTask.status === 'Responded' ? consultTask.recommendation || (isPCS ? 'Recommendation submitted' : 'D Light responded') : 'Awaiting D Light Director input'}
                                 className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
                                   consultTask.status === 'Responded'
                                     ? 'bg-emerald-100 text-emerald-700'
@@ -623,8 +641,8 @@ export function CellDirectorCockpit({
                               >
                                 {consultTask.status === 'Responded'
                                   ? (consultTask.recommendedCellName
-                                      ? `D-Light Recommendation: ${consultTask.recommendedCellName}`
-                                      : 'D-Light Responded')
+                                      ? `Recommendation: ${consultTask.recommendedCellName}`
+                                      : (isPCS ? 'Recommendation Submitted' : 'D-Light Responded'))
                                   : 'Pending D Light Input'}
                               </span>
                             )}
@@ -752,7 +770,9 @@ export function CellDirectorCockpit({
                           <div className="p-3 border-t border-slate-100">
                             {consultTask ? (
                               <p className="text-xs text-slate-500 text-center">
-                                {consultTask.status === 'Responded' ? '✓ D Light has responded — see note above.' : '⏳ Awaiting D Light Director input.'}
+                                {isPCS
+                                  ? '✓ A recommendation has been submitted — see note above.'
+                                  : (consultTask.status === 'Responded' ? '✓ D Light has responded — see note above.' : '⏳ Awaiting D Light Director input.')}
                               </p>
                             ) : consultOpenName === item.name ? (
                               <div className="space-y-2">

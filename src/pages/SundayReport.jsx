@@ -31,6 +31,7 @@ import {
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
+import { computeWeekComerCandidates } from '../utils/weekComers'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'nonCell', title: 'Non Cell' },
@@ -1550,41 +1551,11 @@ export default function SundayReport({ embedded = false }) {
     })
   }, [membersForCell, delightVisitorsAll, peopleDirectory, cellGroups, expandedCellId])
 
-  // Every attendance category in one Sunday's report, for "was this person recorded
-  // attending that Sunday at all" — used by the milestone visitCount below. Broader
-  // on purpose than getRecentNonCellAttendeeNames(), which is scoped to just Non Cell
-  // for the Non Cell suggestion pool.
-  function unionAttendeeNames(reportDoc) {
-    const names = new Set()
-    const addAll = (arr) => (Array.isArray(arr) ? arr : []).forEach((n) => {
-      const t = String(n || '').trim().toLowerCase()
-      if (t) names.add(t)
-    })
-    if (!reportDoc) return names
-    addAll(reportDoc.pastoralAttendees)
-    addAll(reportDoc.nonCell)
-    addAll(reportDoc.others)
-    addAll(reportDoc.newComers)
-    addAll(reportDoc.secondWeekAttendeesNames)
-    addAll(reportDoc.thirdWeekAttendeesNames)
-    addAll(reportDoc.fourthWeekAttendeesNames)
-    if (reportDoc.sundayCellAttendance && typeof reportDoc.sundayCellAttendance === 'object') {
-      Object.values(reportDoc.sundayCellAttendance).forEach(addAll)
-    }
-    return names
-  }
-
-  // How many Sundays back to scan when counting a visitor's total check-ins. Wide
-  // enough to still catch a 4th-week visitor who skipped a Sunday along the way,
-  // without scanning the entire report history every time this page loads.
-  const MILESTONE_LOOKBACK_WEEKS = 10
-
   // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days
-  // before the Sunday) for "New Comers" suggestions, plus MILESTONE_LOOKBACK_WEEKS of
-  // past sunday_reports docs to compute each visitor's real visitCount — total Sundays
-  // they've actually been recorded attending since their first visit, not a single
-  // calendar-window guess and not "N consecutive Sundays." 2nd/3rd/4th Week Attendees
-  // are then exactly those with visitCount 2/3/4 respectively.
+  // before the Sunday) for "New Comers" suggestions, plus Second/Third/Fourth Week
+  // Comer candidates via computeWeekComerCandidates() (src/utils/weekComers.js) —
+  // shared with the D-Light Follow-Up panel (DepartmentHub.jsx) so both surfaces
+  // always suggest the same people. See that file for the exact rules.
   useEffect(() => {
     setLoadingDlight(true)
     setLoadingMilestoneSuggestions(true)
@@ -1592,15 +1563,9 @@ export default function SundayReport({ embedded = false }) {
     const weekAgo = new Date(sunday)
     weekAgo.setDate(sunday.getDate() - 6)
 
-    const weekDates = []
-    for (let d = new Date(sunday), i = 0; i < MILESTONE_LOOKBACK_WEEKS; i++) {
-      weekDates.push(format(d, 'yyyy-MM-dd'))
-      d.setDate(d.getDate() - 7)
-    }
-    const oldestTracked = new Date(weekDates[weekDates.length - 1] + 'T00:00:00')
-
-    Promise.all([getDelightVisitors(), Promise.all(weekDates.map((d) => getSundayReport(d)))])
-      .then(([visitors, reports]) => {
+    getDelightVisitors()
+      .then((visitors) => computeWeekComerCandidates(selectedDate, visitors).then((buckets) => [visitors, buckets]))
+      .then(([visitors, { second, third, fourth }]) => {
         const thisWeek = visitors.filter(v => {
           if (!v.attendedDate) return false
           const d = new Date(v.attendedDate + 'T00:00:00')
@@ -1608,49 +1573,12 @@ export default function SundayReport({ embedded = false }) {
         })
         setDlightSuggestions([...new Set(thisWeek.map(v => v.name).filter(Boolean))])
 
-        // date -> Set(lowercased names present that Sunday, any capacity)
-        const namesByDate = new Map(weekDates.map((d, i) => [d, unionAttendeeNames(reports[i])]))
-
-        // Already explicitly logged into a milestone bucket in a past report —
-        // don't re-suggest them even if the visitCount math would still land them
-        // in a bucket (e.g. re-opening an older, already-completed date).
-        const alreadyRecorded = new Set(
-          reports.flatMap((r) => [
-            ...(r?.secondWeekAttendeesNames || []),
-            ...(r?.thirdWeekAttendeesNames || []),
-            ...(r?.fourthWeekAttendeesNames || []),
-          ].map((n) => String(n).trim().toLowerCase()))
-        )
-
-        const buckets = { 2: [], 3: [], 4: [] }
-        const milestoneNames = new Set()
-
-        visitors.forEach((v) => {
-          const name = String(v.name || '').trim()
-          if (!name || !v.attendedDate) return
-          const firstVisit = new Date(v.attendedDate + 'T00:00:00')
-          if (firstVisit > sunday || firstVisit < oldestTracked) return
-
-          const key = name.toLowerCase()
-          if (alreadyRecorded.has(key)) return
-
-          let visitCount = 0
-          weekDates.forEach((d) => {
-            const wkDate = new Date(d + 'T00:00:00')
-            if (wkDate < firstVisit || wkDate > sunday) return
-            if (namesByDate.get(d)?.has(key)) visitCount++
-          })
-
-          if (visitCount >= 2 && visitCount <= 4) {
-            milestoneNames.add(key)
-            buckets[visitCount].push(name)
-          }
-        })
-
-        setSecondWeekSuggestions([...new Set(buckets[2])])
-        setThirdWeekSuggestions([...new Set(buckets[3])])
-        setFourthWeekSuggestions([...new Set(buckets[4])])
-        setMilestoneSuggestionNames(milestoneNames)
+        setSecondWeekSuggestions(second)
+        setThirdWeekSuggestions(third)
+        setFourthWeekSuggestions(fourth)
+        setMilestoneSuggestionNames(new Set(
+          [...second, ...third, ...fourth].map((n) => String(n).trim().toLowerCase())
+        ))
       })
       .catch(() => {
         setDlightSuggestions([])

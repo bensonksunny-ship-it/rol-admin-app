@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { auth, db, functions, httpsCallable } from '../lib/firebase'
-import { ROLES, ROLE_PERMISSIONS, deriveRoleFromPositions } from '../constants/roles'
+import { ROLES, ROLE_PERMISSIONS, deriveRoleFromPositions, deriveDepartmentsFromPositions } from '../constants/roles'
 import { getDepartmentBySlug } from '../constants/departments'
 import { GLOBAL_ROLES, hasAccess, getDepartmentRole, isFounder as isFounderGlobal } from '../utils/access'
 import { upsertUserDirectoryEntry, syncAllUsersToDirectory } from '../services/firestore'
@@ -39,18 +39,30 @@ export function AuthProvider({ children }) {
         const snap = await getDoc(profileRef)
         const data = snap.exists() ? { id: snap.id, ...snap.data() } : null
         if (data) {
-          const positionsDepts = Array.isArray(data.positions)
-            ? data.positions.map((p) => p?.department).filter(Boolean)
-            : []
-          const derivedFromPositions = Array.from(new Set(positionsDepts))
+          // A `positions` field that exists (even as `[]`, e.g. an admin removed someone's
+          // last remaining position) means this account is managed through the positions
+          // system, and positions[] is the single source of truth for departments[] —
+          // AdminUserManagement's deriveDepartmentsFromPositions already treats it that way
+          // on every admin edit. Only a genuinely legacy account with no positions field at
+          // all falls back to whatever's already stored in departments[]/department, since
+          // there's nothing to reconcile against there.
+          const hasPositionsField = Array.isArray(data.positions)
+          const derivedFromPositions = deriveDepartmentsFromPositions(hasPositionsField ? data.positions : [])
 
-          // Support multiple departments: use "departments" array if set, else single "department"
-          const departments = Array.isArray(data.departments) && data.departments.length
+          // Reconciled both ways — newly granted departments AND revoked ones dropped.
+          // Previously this only ever unioned in new departments and never removed one a
+          // position was taken off of (or all positions removed), so a department a user
+          // was reassigned away from kept leaking its tasks/notifications into their To-Do
+          // list indefinitely (see ToDoListCard.jsx's department-scoped task subscription).
+          const legacyDepartments = Array.isArray(data.departments) && data.departments.length
             ? data.departments
             : (data.department ? [data.department] : [])
+          const reconciledDepartments = hasPositionsField ? derivedFromPositions : legacyDepartments
+
           const merged = {
             ...data,
-            departments: Array.from(new Set([...(departments || []), ...(derivedFromPositions || [])])),
+            departments: reconciledDepartments,
+            department: hasPositionsField ? (reconciledDepartments[0] || '') : data.department,
             // If claim says Founder but Firestore isn't updated yet, treat as Founder in UI immediately.
             globalRole: tokenGlobalRole === 'FOUNDER' ? 'FOUNDER' : (data.globalRole || null),
           }
@@ -62,18 +74,24 @@ export function AuthProvider({ children }) {
           }
           setUserProfile(merged)
 
-          // Best-effort: ensure departments[] exists for rules (derived from positions[]).
-          // This is critical for multi-department users like Cell Directors whose primary department isn't Cell.
-          if (!syncedDepartments && derivedFromPositions.length) {
-            const existing = Array.isArray(data.departments) ? data.departments.filter(Boolean) : []
-            const next = Array.from(new Set([...existing, ...derivedFromPositions]))
-            const changed = next.length !== existing.length
-            if (changed) {
+          // Best-effort: reconcile the stored departments[]/department with positions[] —
+          // this is critical for multi-department users like Cell Directors whose primary
+          // department isn't Cell, and equally for cleaning up a department a position was
+          // since removed from. Runs once per session, right after login, so any stale
+          // department left over from a past role assignment gets cleaned out of Firestore
+          // immediately rather than persisting indefinitely.
+          if (!syncedDepartments && hasPositionsField) {
+            const existingDepartments = Array.isArray(data.departments) ? data.departments.filter(Boolean) : []
+            const departmentsChanged = existingDepartments.length !== derivedFromPositions.length ||
+              !derivedFromPositions.every((d) => existingDepartments.includes(d))
+            const nextDepartment = derivedFromPositions[0] || ''
+            const departmentChanged = (data.department || '') !== nextDepartment
+            if (departmentsChanged || departmentChanged) {
               setSyncedDepartments(true)
               try {
-                await updateDoc(profileRef, { departments: next })
+                await updateDoc(profileRef, { departments: derivedFromPositions, department: nextDepartment })
               } catch (e) {
-                console.warn('Failed to sync departments from positions:', e)
+                console.warn('Failed to reconcile departments from positions:', e)
               }
             }
           }

@@ -5624,6 +5624,19 @@ export async function getPCSFillInvitationByEntry(pcsEntryId) {
   return { id: d.id, ...data, sentAt: toDate(data.sentAt), completedAt: toDate(data.completedAt) }
 }
 
+// Direct by-id fetch, independent of the viewer's own cellId — used for the To-Do
+// List's deep link (?openFillInvite=), which any Cell-department-visible user
+// (Director, Founder) can click even though the cell-scoped subscription below only
+// ever returns invitations for the *viewer's own* cell (i.e. only ever populated for
+// the specific Cell Leader it was addressed to).
+export async function getPCSFillInvitationById(id) {
+  if (!db || !id) return null
+  const snap = await getDoc(doc(db, PCS_FILL_INVITATIONS, id))
+  if (!snap.exists()) return null
+  const data = snap.data()
+  return { id: snap.id, ...data, sentAt: toDate(data.sentAt), completedAt: toDate(data.completedAt) }
+}
+
 export function subscribePCSFillInvitationsByCellId(cellId, onChange) {
   if (!db || !cellId) return () => {}
   const q = query(

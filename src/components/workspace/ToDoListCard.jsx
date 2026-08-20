@@ -19,12 +19,18 @@ function taskDeepLink(t) {
   if (t.deepLink) return t.deepLink
   if (t.cellAssignConsult) return `/department/d-light?tab=summary&openConsultId=${t.id}`
   // `pcsReferral` is shared by two different task shapes (DepartmentHub.jsx):
-  // "Add [Name] to a cell group" (Caring -> Cell, carries memberId) and "Add [Name] to
-  // D-Light" (Caring -> D-Light, no memberId). Only the first has anywhere useful to
-  // deep-link into — send it straight to that person's PCS profile drawer instead of
-  // falling through to the D-Light route below, which is for the other task shape.
-  if (t.pcsReferral && t.memberId) return `/department/caring?tab=pcs&memberId=${encodeURIComponent(t.memberId)}`
-  if (t.pcsReferral) return '/department/d-light?tab=visitorEntry'
+  // "Add [Name] to a cell group" (Caring -> Cell) and "Add [Name] to D-Light"
+  // (Caring -> D-Light). Each has its own specific place to land: the "Recommendation
+  // for [Name]" popup pre-loaded with this referral (DepartmentHub reads
+  // openPcsReferralTaskId — same modal/write path as a D-Light consult response, just
+  // targeting the referral task directly), or the D-Light Visitor Entry tab's
+  // "Forwarded from PCS" section pre-expanded and scrolled to this person's row
+  // (DepartmentHub reads openPcsForwardTaskId) — never just the bare Visitor Entry tab.
+  // Discriminated by `department` (always stamped at creation: 'Cell' vs 'D Light'),
+  // not by field presence like memberId — a Cell referral missing that field for any
+  // reason must still never fall through to the D-Light branch below it.
+  if (t.pcsReferral && t.department === 'Cell') return `/department/cell?openPcsReferralTaskId=${encodeURIComponent(t.id)}`
+  if (t.pcsReferral && t.department === 'D Light') return `/department/d-light?tab=visitorEntry&openPcsForwardTaskId=${encodeURIComponent(t.id)}`
   if (t.department) return getDepartmentPath(t.department)
   return '/tasks'
 }
@@ -48,6 +54,37 @@ function taskAnchorTime(t) {
   return d && !isNaN(d.getTime()) ? d.getTime() : Date.now()
 }
 
+// Groups a task into "the same pending action" as any other task sharing this key.
+// Every createTask() call site that's about a specific person now stamps personId +
+// taskType directly (see DepartmentHub.jsx, CellDirectorCockpit.jsx, MidweekMinistry.jsx,
+// useActionNotifications.js) — grouping on that pair is what lets a re-sent PCS
+// referral, a re-triggered consult reminder, etc. collapse into one row instead of a
+// duplicate. Older tasks written before that tagging existed fall back to the same
+// identity fields those flows have always used for their own "already sent?" checks
+// (memberId/pcsPersonVisitorId/consultPersonVisitorId + a phone fallback), so this
+// still dedupes without needing a data migration. A task with no recognizable identity
+// at all (e.g. a free-form entry from the admin Tasks page) gets its own unique key —
+// it never merges with anything.
+function taskDedupeKey(t) {
+  if (t.taskType && t.personId) return `${t.taskType}:${t.personId}`
+  const legacyPersonId = t.memberId || t.pcsPersonVisitorId || t.consultPersonVisitorId ||
+    (t.memberPhone || t.pcsPersonPhone || t.consultPersonPhone || '').replace(/\s+/g, '')
+  if (!legacyPersonId) return null
+  const legacyType = t.pcsReferral ? `pcsReferral:${t.department || ''}`
+    : t.cellAssignConsult ? 'cellAssignConsult'
+    : t.cellAssignRecommendation ? 'cellAssignRecommendation'
+    : t.department || 'task'
+  return `${legacyType}:${legacyPersonId}`
+}
+
+// "Nth reminder"/"Urgent" pill shown on a row that collapsed 2+ pending duplicates —
+// see displayTasks below. Intentionally silent (returns null) for a single occurrence.
+function escalationBadge(count) {
+  if (count === 2) return { label: '2nd Reminder', cls: 'bg-amber-500 text-white' }
+  if (count >= 3) return { label: 'Urgent', cls: 'bg-red-600 text-white' }
+  return null
+}
+
 // Checklist card: mark a task Completed or Turned Down right here, or click it to jump
 // straight to its action modal / department tab (taskDeepLink above). Live view of the
 // same `tasks` collection via a real-time onSnapshot subscription — spans every
@@ -56,7 +93,7 @@ function taskAnchorTime(t) {
 // Completed/Turned Down items stay visible (greyed out) for 30 days instead of vanishing
 // the instant they're actioned — see taskAnchorTime above.
 export default function ToDoListCard() {
-  const { userProfile, isFounder } = useAuth()
+  const { userProfile, isFounder, user } = useAuth()
   const navigate = useNavigate()
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -99,13 +136,26 @@ export default function ToDoListCard() {
     return unsubscribe
   }, [isFounder, myDepts])
 
+  // subscribeTasksForDepartments queries by department only — it has no way to also
+  // scope to *who* a task is for, so any task stamped with an assignedToUid (personal
+  // items created via "+ Add to To-Do", e.g. a PCS "Fill profile for [Name]" request
+  // addressed to one specific Cell Leader) comes back for every department member,
+  // not just its intended recipient. Filter those out here before they ever reach the
+  // list a Cell Leader/Director sees — tasks with no assignedToUid are genuine
+  // department-wide broadcasts (referrals, consult requests) and stay visible to all.
+  const myUid = user?.uid
+  const scopedTasks = useMemo(
+    () => tasks.filter((t) => !t.assignedToUid || t.assignedToUid === myUid || isFounder),
+    [tasks, myUid, isFounder]
+  )
+
   // Every task within its 30-day retention window, regardless of status — this is the
   // full list rendered in the drawer. Active items surface first (soonest deadline
   // first); resolved items (Completed/Turned Down) sink below them, most recent first.
   const myTasks = useMemo(() => {
     const cutoff = Date.now() - THIRTY_DAYS_MS
     const relevant = ['Pending', 'In Progress', 'Completed', 'Turned Down']
-    return tasks
+    return scopedTasks
       .filter((t) => relevant.includes(t.status) && taskAnchorTime(t) >= cutoff)
       .sort((a, b) => {
         const aActive = a.status === 'Pending' || a.status === 'In Progress'
@@ -114,20 +164,50 @@ export default function ToDoListCard() {
         if (aActive) return (a.deadline && b.deadline) ? new Date(a.deadline) - new Date(b.deadline) : 0
         return taskAnchorTime(b) - taskAnchorTime(a)
       })
-  }, [tasks])
+  }, [scopedTasks])
+
+  // Collapses myTasks down to one row per taskDedupeKey — "each pending action appears
+  // only once in the list". When a key has 2+ still-active (Pending/In Progress)
+  // duplicates, the most recently triggered one is kept as the visible row (freshest
+  // title/notes/deadline) and the rest are folded into it via mergedTaskIds, so
+  // completing/turning-down the row resolves every duplicate at once instead of leaving
+  // a hidden one Pending. occurrenceCount drives the "2nd Reminder"/"Urgent" badge.
+  // Resolved (Completed/Turned Down) items never merge with each other — each keeps its
+  // own row in the 30-day history — only active duplicates collapse.
+  const displayTasks = useMemo(() => {
+    const groups = new Map()
+    const order = []
+    myTasks.forEach((t) => {
+      const key = taskDedupeKey(t)
+      const isActive = t.status === 'Pending' || t.status === 'In Progress'
+      const groupKey = key && isActive ? key : `__solo:${t.id}`
+      if (!groups.has(groupKey)) { groups.set(groupKey, []); order.push(groupKey) }
+      groups.get(groupKey).push(t)
+    })
+    return order.map((groupKey) => {
+      const items = groups.get(groupKey)
+      if (items.length === 1) return items[0]
+      const representative = items.reduce((latest, cur) => (taskAnchorTime(cur) > taskAnchorTime(latest) ? cur : latest))
+      return {
+        ...representative,
+        mergedTaskIds: items.map((i) => i.id),
+        occurrenceCount: items.length,
+      }
+    })
+  }, [myTasks])
 
   const activeTasks = useMemo(
-    () => myTasks.filter((t) => t.status === 'Pending' || t.status === 'In Progress'),
-    [myTasks]
+    () => displayTasks.filter((t) => t.status === 'Pending' || t.status === 'In Progress'),
+    [displayTasks]
   )
-  const completedCount = useMemo(() => myTasks.filter((t) => t.status === 'Completed').length, [myTasks])
-  const turnedDownCount = useMemo(() => myTasks.filter((t) => t.status === 'Turned Down').length, [myTasks])
+  const completedCount = useMemo(() => displayTasks.filter((t) => t.status === 'Completed').length, [displayTasks])
+  const turnedDownCount = useMemo(() => displayTasks.filter((t) => t.status === 'Turned Down').length, [displayTasks])
 
   const completeTask = async (t) => {
     if (completingIds.has(t.id)) return
     setCompletingIds((prev) => new Set(prev).add(t.id))
     try {
-      await markTaskCompleted(t.id)
+      await Promise.all((t.mergedTaskIds || [t.id]).map((id) => markTaskCompleted(id)))
     } finally {
       setCompletingIds((prev) => { const next = new Set(prev); next.delete(t.id); return next })
     }
@@ -137,15 +217,16 @@ export default function ToDoListCard() {
     if (turningDownIds.has(t.id)) return
     setTurningDownIds((prev) => new Set(prev).add(t.id))
     try {
-      await markTaskTurnedDown(t.id)
+      await Promise.all((t.mergedTaskIds || [t.id]).map((id) => markTaskTurnedDown(id)))
     } finally {
       setTurningDownIds((prev) => { const next = new Set(prev); next.delete(t.id); return next })
     }
   }
 
-  // Assigns the recommended/chosen person to a cell, completes this To-Do, and closes
-  // out the original D-Light consult task (if any) so its "pending" notification stops
-  // reappearing — mirrors CellDirectorCockpit's handleAssign exactly.
+  // Assigns the recommended/chosen person to a cell, completes this To-Do (and every
+  // duplicate merged into it), and closes out the original D-Light consult task(s) (if
+  // any) so their "pending" notification stops reappearing — mirrors
+  // CellDirectorCockpit's handleAssign exactly.
   const assignToCell = async (t, cellId) => {
     if (!cellId || assigningId) return
     setAssigningId(t.id)
@@ -156,7 +237,8 @@ export default function ToDoListCard() {
         ...(t.consultPersonPhone ? { phone: t.consultPersonPhone } : {}),
         ...(t.consultPersonVisitorId ? { visitorId: t.consultPersonVisitorId } : {}),
       })
-      await markTaskCompleted(t.id)
+      const mergedIds = t.mergedTaskIds || [t.id]
+      await Promise.all(mergedIds.map((id) => markTaskCompleted(id)))
       if (t.sourceConsultTaskId) {
         try { await markTaskCompleted(t.sourceConsultTaskId) } catch { /* non-fatal */ }
       }
@@ -203,7 +285,10 @@ export default function ToDoListCard() {
         )}
       </button>
 
-      {/* Expanded state: bottom-sheet drawer, opened on tap */}
+      {/* Expanded state: centered modal dialog (A4-proportioned max width),
+          opened on tap — was a full-width bottom sheet; the outer wrapper
+          is a pointer-events-none centering frame so clicks in the margin
+          around the panel still fall through to the backdrop's close handler. */}
       <AnimatePresence>
         {isOpen && (
           <>
@@ -215,20 +300,16 @@ export default function ToDoListCard() {
               className="fixed inset-0 bg-black/50 dark:bg-black/70 z-50"
               onClick={() => setIsOpen(false)}
             />
-            <motion.div
-              key="todo-sheet"
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-              className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col bg-gradient-to-b from-white to-white/95 dark:from-slate-900 dark:to-slate-900/95 backdrop-blur-md"
-            >
-              {/* Drag handle */}
-              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-                <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700" />
-              </div>
-
-              <div className="px-5 pb-4 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+              <motion.div
+                key="todo-sheet"
+                initial={{ opacity: 0, scale: 0.95, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 8 }}
+                transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+                className="w-full max-w-[640px] max-h-[85vh] rounded-3xl shadow-2xl flex flex-col bg-gradient-to-b from-white to-white/95 dark:from-slate-900 dark:to-slate-900/95 backdrop-blur-md pointer-events-auto"
+              >
+              <div className="px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
                     <span className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
@@ -265,13 +346,14 @@ export default function ToDoListCard() {
               <div className="flex-1 overflow-y-auto overscroll-contain">
                 {loading ? (
                   <p className="px-5 py-5 text-sm text-center text-slate-400 dark:text-slate-500">Loading…</p>
-                ) : myTasks.length === 0 ? (
+                ) : displayTasks.length === 0 ? (
                   <p className="px-5 py-8 text-sm text-center text-slate-400 dark:text-slate-500">All clear — no open tasks 🎉</p>
                 ) : (
                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
                     <AnimatePresence initial={false}>
-                      {myTasks.map((t) => {
+                      {displayTasks.map((t) => {
                         const isResolved = t.status === 'Completed' || t.status === 'Turned Down'
+                        const badge = escalationBadge(t.occurrenceCount)
                         return (
                         <motion.div
                           key={t.id}
@@ -279,12 +361,26 @@ export default function ToDoListCard() {
                           initial={{ opacity: 0, y: 8 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
-                          className={`group w-full px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${isResolved ? 'grayscale opacity-60' : ''}`}
+                          className={`group w-full px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${isResolved ? 'grayscale opacity-60' : ''} ${
+                            badge ? (t.occurrenceCount >= 3
+                              ? 'border-l-4 border-red-500 bg-red-50/50 dark:bg-red-500/10'
+                              : 'border-l-4 border-amber-400 bg-amber-50/50 dark:bg-amber-500/10')
+                              : ''
+                          }`}
                         >
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => { setIsOpen(false); navigate(taskDeepLink(t)) }}
+                              onClick={(e) => {
+                                // type="button" already keeps this out of any form-submit/
+                                // native-navigation path, but stop it explicitly too — this
+                                // row's own client-side navigate() below is the only
+                                // navigation that should ever fire from this click.
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setIsOpen(false)
+                                navigate(taskDeepLink(t))
+                              }}
                               className="flex-1 min-w-0 flex items-center gap-3 text-left min-h-[44px]"
                             >
                               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
@@ -294,7 +390,18 @@ export default function ToDoListCard() {
                               }`} />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{t.taskTitle || t.task || 'Untitled'}</p>
-                                <div className="flex items-center gap-1.5 mt-0.5">
+                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                  {/* Escalation pill — this row folded in 2+ still-pending
+                                      duplicate triggers for the same person/action (see
+                                      displayTasks); occurrenceCount tracks how many. */}
+                                  {badge && (
+                                    <span
+                                      title={`Triggered ${t.occurrenceCount} times`}
+                                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${badge.cls}`}
+                                    >
+                                      {badge.label}
+                                    </span>
+                                  )}
                                   {t.department && (
                                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
                                       [{t.department}]
@@ -378,7 +485,8 @@ export default function ToDoListCard() {
                   </div>
                 )}
               </div>
-            </motion.div>
+              </motion.div>
+            </div>
           </>
         )}
       </AnimatePresence>

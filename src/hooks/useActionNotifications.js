@@ -19,7 +19,10 @@ function buildNotificationDeepLink(n) {
     return '/department/cell?tab=shepherdCare&openFillInvite=' + (n.inviteId || '')
   }
   if (n.type === 'visitor_proposal') {
-    return '/department/d-light?tab=visitorEntry'
+    // Deep-link straight into the "Visitors from Cell Reports" row for this proposal
+    // (DepartmentHub reads ?openVisitorProposalId=) instead of just the bare Visitor
+    // Entry tab with that section collapsed.
+    return `/department/d-light?tab=visitorEntry&openVisitorProposalId=${encodeURIComponent(n.id || '')}`
   }
   if (n.type === 'dlight_consult') {
     // Deep-link straight into the Respond modal: DepartmentHub reads
@@ -36,6 +39,20 @@ function buildNotificationDeepLink(n) {
     return '/department/sec-core?tab=sundayLeader'
   }
   return null
+}
+
+// Maps a bell notification's type onto the same taskType label used at the other
+// createTask() call sites for that kind of action (see ToDoListCard.jsx's dedupe key),
+// so a personal "+ Add to To-Do" copy of a notification merges into one row with any
+// matching task rather than ever showing as a second entry for the same person.
+function notificationTaskType(n) {
+  if (n.type === 'sunday_leader_assignment') return `sundayLeaderAssignment:${n.date || ''}`
+  return {
+    pcs_fill: 'fillProfile',
+    visitor_proposal: 'addToDLight',
+    dlight_consult: 'cellAssignConsult',
+    consult_response: 'cellAssignRecommendation',
+  }[n.type] || n.type || 'task'
 }
 
 // Single source of truth for the app's cross-department "pending action" feed —
@@ -71,6 +88,10 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         body: `Fill profile for ${inv.personName || 'a member'}`,
         cellName: inv.cellName || '',
         sentAt: inv.sentAt,
+        // Identity used both to dedupe To-Do rows for this person (ToDoListCard.jsx)
+        // and, since it's the same field, to detect a re-sent invitation for someone
+        // who already has one pending.
+        personId: inv.visitorId || inv.pcsEntryId || '',
       })))
     })
   }, [userProfile?.cellGroupId, userProfile?.cellId])
@@ -89,6 +110,10 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         body: `${p.visitorName || 'Someone'} was flagged for D-Light registration`,
         cellName: p.cellName || p.sentByName || '',
         sentAt: typeof p.createdAt?.toDate === 'function' ? p.createdAt.toDate() : p.createdAt,
+        // Phone is the only stable identity cell_visitor_proposals carries — used for
+        // To-Do dedupe (ToDoListCard.jsx), including merging with a PCS→D-Light forward
+        // for the same person if both exist.
+        personId: (p.phone || '').replace(/\s+/g, '') || p.visitorName || '',
       })))
     })
   }, [userProfile, isFounder])
@@ -106,6 +131,12 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         body: `${t.consultPersonName || 'Someone'} needs a cell placement recommendation`,
         cellName: t.requestedBy || '',
         sentAt: typeof t.createdAt?.toDate === 'function' ? t.createdAt.toDate() : t.createdAt,
+        // Used for To-Do dedupe (ToDoListCard.jsx) — same taskType as the underlying
+        // cellAssignConsult task itself, so a personal "add to my to-do" copy of this
+        // notification merges into one row with it instead of showing twice.
+        consultPersonVisitorId: t.consultPersonVisitorId || '',
+        consultPersonPhone: t.consultPersonPhone || '',
+        personId: t.consultPersonVisitorId || t.consultPersonPhone || '',
       })))
     })
   }, [userProfile, isFounder])
@@ -136,6 +167,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
             recommendation: t.recommendation || '',
             recommendedCellId: t.recommendedCellId || '',
             recommendedCellName: t.recommendedCellName || '',
+            // Used for To-Do dedupe (ToDoListCard.jsx).
+            personId: t.consultPersonVisitorId || t.consultPersonPhone || '',
           }))
       )
     })
@@ -154,6 +187,10 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         body: `You're scheduled for ${formatDisplayDate(d.date)}`,
         cellName: '',
         sentAt: typeof d.createdAt?.toDate === 'function' ? d.createdAt.toDate() : d.createdAt,
+        // Used for To-Do dedupe (ToDoListCard.jsx) — scoped per date so next month's
+        // assignment isn't merged with this one.
+        date: d.date || '',
+        personId: uid,
       })))
     })
   }, [uid])
@@ -229,6 +266,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         notes: n.title || '',
         sourceNotificationId: n.id,
         deepLink: buildNotificationDeepLink(n),
+        personId: n.personId || '',
+        taskType: notificationTaskType(n),
         // Cell-assignment recommendations get inline "Assign to [cell]" controls on
         // the To-Do List card (ToDoListCard.jsx) — sourceConsultTaskId lets it also
         // close out the original D-Light consult task once acted on.

@@ -118,6 +118,7 @@ import {
   sendPCSFillInvitation,
   getPCSFillInvitationByEntry,
   subscribePCSFillInvitationsByCellId,
+  getPCSFillInvitationById,
   completePCSFillInvitation,
   getFinanceIncome,
   getFinanceExpense,
@@ -126,12 +127,12 @@ import {
   completeCellVisitorProposal,
   dismissCellVisitorProposal,
   getSundayAttendanceCountsByName,
-  getSundayAttendanceCountsByNameInRange,
   subscribeToRecentSundayAttendanceWeeks,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
+import { computeWeekComerCandidates } from '../utils/weekComers'
 import { differenceInDays, differenceInYears, differenceInMonths, format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
 import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
@@ -631,19 +632,25 @@ export default function DepartmentHub() {
     setFillInviteLoading(false)
   }
 
-  // Deep-link from the notification bell's "Tap to fill" (Sidebar.jsx): once the
-  // pending fill invitations have loaded, auto-open the Fill Profile modal for the
-  // invitation id passed in via ?openFillInvite=, then strip it from the URL so it
-  // doesn't re-trigger on refresh/back-navigation.
+  // Deep-link from the notification bell's "Tap to fill" and the To-Do List: auto-open
+  // the Fill Profile modal for the invitation id passed in via ?openFillInvite=, then
+  // strip it from the URL so it doesn't re-trigger on refresh/back-navigation. Fetches
+  // the invitation directly by id rather than matching it against pendingFillInvitations
+  // (scoped to the *viewer's own* cellId) — the underlying To-Do task is tagged
+  // department: 'Cell', so a Director or Founder can click it too even though they have
+  // no cellId of their own, and the cell-scoped list would never contain it for them.
   const openFillInviteId = searchParams.get('openFillInvite') || null
   useEffect(() => {
-    if (!openFillInviteId || slug !== 'cell' || pendingFillInvitations.length === 0) return
-    const inv = pendingFillInvitations.find(i => i.id === openFillInviteId)
-    if (inv) openFillInviteModal(inv)
+    if (!openFillInviteId || slug !== 'cell') return
+    let cancelled = false
+    getPCSFillInvitationById(openFillInviteId)
+      .then((inv) => { if (!cancelled && inv) openFillInviteModal(inv) })
+      .catch(() => {})
     const next = new URLSearchParams(searchParams)
     next.delete('openFillInvite')
     setSearchParams(next, { replace: true })
-  }, [openFillInviteId, slug, pendingFillInvitations])
+    return () => { cancelled = true }
+  }, [openFillInviteId, slug])
 
   const [cellReferralTasks, setCellReferralTasks] = useState([])
   const [cellReferralAdding, setCellReferralAdding] = useState(new Set())
@@ -722,26 +729,84 @@ export default function DepartmentHub() {
     setSearchParams(next, { replace: true })
   }, [openConsultId, slug, tasks])
 
-  // Deep-link from the To-Do List (ToDoListCard.jsx's taskDeepLink): once PCS entries
-  // have loaded, auto-expand the matching person's inline profile for the id passed in
-  // via ?memberId=, then strip it from the URL so it doesn't re-trigger on refresh.
-  // Matches personId first, then falls back to the PCS entry's own doc id, since
-  // memberId is stamped as `entry.personId || entry.id` at task-creation time
-  // (see DepartmentHub.jsx's "Add to a cell group" referral button).
-  const openMemberId = searchParams.get('memberId') || null
+  // Deep-link from the To-Do List (ToDoListCard.jsx's taskDeepLink): once the shared
+  // `tasks` list has loaded, auto-open the same "Recommendation for [Name]" modal used
+  // for D-Light consults, but targeting the "Add [Name] to a cell group" referral task
+  // itself (task id passed in via ?openPcsReferralTaskId=) — submitting it writes
+  // recommendation/recommendedCellId/status:'Responded' straight onto that same task,
+  // which CellDirectorCockpit's Unassigned drawer reads directly (see its pcsReferrals
+  // mapping), no separate consult task needed. The modal is a page-level overlay (not
+  // gated by activeTab), so this works the same for a Cell Leader or a Director — it
+  // never depends on which cell tab the viewer is normally allowed to see. Strips the
+  // param from the URL after so it doesn't re-trigger on refresh/back-navigation.
+  const openPcsReferralTaskId = searchParams.get('openPcsReferralTaskId') || null
   useEffect(() => {
-    if (!openMemberId || slug !== 'caring' || pcsEntries.length === 0) return
-    const entry = pcsEntries.find((e) => e.personId === openMemberId || e.id === openMemberId)
-    if (entry) {
-      setPcsExpandedId(entry.id)
+    if (!openPcsReferralTaskId || slug !== 'cell' || tasks.length === 0) return
+    const t = tasks.find((x) => x.id === openPcsReferralTaskId && x.pcsReferral === true && x.memberId)
+    if (t) {
+      setDlightConsultTarget({ ...t, consultPersonName: t.pcsPersonName || t.memberName || '' })
+      setDlightConsultReply(t.recommendation || '')
+      setDlightConsultCellId(t.recommendedCellId || '')
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('openPcsReferralTaskId')
+    setSearchParams(next, { replace: true })
+  }, [openPcsReferralTaskId, slug, tasks])
+
+  // Deep-link from the To-Do List (ToDoListCard.jsx's taskDeepLink): once the shared
+  // `tasks` subscription has loaded, auto-expand "Forwarded from PCS" and scroll to the
+  // specific referral row for the task id passed in via ?openPcsForwardTaskId=, instead
+  // of just landing on the general Visitor Entry tab with that section collapsed. Strips
+  // the param from the URL after so it doesn't re-trigger on refresh/back-navigation.
+  const openPcsForwardTaskId = searchParams.get('openPcsForwardTaskId') || null
+  useEffect(() => {
+    if (!openPcsForwardTaskId || slug !== 'd-light' || tasks.length === 0) return
+    const t = tasks.find((x) => x.id === openPcsForwardTaskId && x.pcsReferral === true)
+    if (t) {
+      setPcsForwardOpen(true)
       setTimeout(() => {
-        document.getElementById(`pcs-entry-${entry.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        document.getElementById(`pcs-forward-${t.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }, 150)
     }
     const next = new URLSearchParams(searchParams)
-    next.delete('memberId')
+    next.delete('openPcsForwardTaskId')
     setSearchParams(next, { replace: true })
-  }, [openMemberId, slug, pcsEntries])
+  }, [openPcsForwardTaskId, slug, tasks])
+
+  // Deep-link from the notification bell's "Tap to review" on a visitor_proposal
+  // (useActionNotifications.js): once the live cellVisitorProposals listener has loaded,
+  // auto-expand "Visitors from Cell Reports" and scroll to the specific proposal row for
+  // the id passed in via ?openVisitorProposalId=, instead of landing on the general
+  // Visitor Entry tab with that section collapsed. Strips the param after.
+  const openVisitorProposalId = searchParams.get('openVisitorProposalId') || null
+  useEffect(() => {
+    if (!openVisitorProposalId || slug !== 'd-light' || cellVisitorProposals.length === 0) return
+    const p = cellVisitorProposals.find((x) => x.id === openVisitorProposalId)
+    if (p) {
+      setCellVisitorProposalOpen(true)
+      setTimeout(() => {
+        document.getElementById(`cell-visitor-proposal-${p.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 150)
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('openVisitorProposalId')
+    setSearchParams(next, { replace: true })
+  }, [openVisitorProposalId, slug, cellVisitorProposals])
+
+  // These four deep-link effects (openConsultId, openPcsReferralTaskId,
+  // openPcsForwardTaskId, openVisitorProposalId) each wait on some already-loaded list
+  // before they can resolve and strip their own query param — but `useEffect` only runs
+  // *after* the browser paints, so there's one real render (and one real paint) where
+  // `loading` has already flipped false but the effect hasn't fired yet. Without this,
+  // that single frame shows the full hub dashboard/tab underneath — a visible flash of
+  // "the general Cell/D-Light overview" before the target modal/row ever appears. Keep
+  // showing the loading state for as long as one of these params is still in the URL —
+  // every one of them unconditionally strips its own param once it runs (match or not),
+  // so this can never get stuck. Scoped to the matching slug too — each effect's own
+  // slug guard is what strips the param, so on any other slug it would never resolve.
+  const hasPendingDeepLink =
+    (slug === 'd-light' && !!(openConsultId || openPcsForwardTaskId || openVisitorProposalId)) ||
+    (slug === 'cell' && !!openPcsReferralTaskId)
 
   const [monthlyExpenseTotal, setMonthlyExpenseTotal] = useState(0)
   const [loadingMonthlyExpense, setLoadingMonthlyExpense] = useState(true)
@@ -1379,78 +1444,14 @@ export default function DepartmentHub() {
     getSundayAttendanceCountsByName().then(setVisitorSundayCounts).catch(() => setVisitorSundayCounts(new Map()))
   }, [slug, activeTab])
 
-  // Second/Third/Fourth week comer candidates for the Follow-Up panel:
-  // - Second week: D-Light visitors whose first attendedDate was exactly last week.
-  // - Third week: visitors who joined (attendedDate) in the last 90 days and have
-  //   exactly 2 logged Sunday attendances in that same window, prior to the target
-  //   Sunday. Self-healing vs. the old "chain from last week's confirmed list"
-  //   approach, which silently dropped anyone a leader forgot to mark.
-  // - Fourth week: same idea, 120-day window, exactly 3 prior attendances.
-  // Each list excludes names already marked on the target Sunday's report.
+  // Second/Third/Fourth week comer candidates for the Follow-Up panel. Shared with the
+  // Sunday Ministry Report page via computeWeekComerCandidates() (src/utils/weekComers.js)
+  // so both surfaces always suggest the same people — see that file for the exact rules.
   useEffect(() => {
     if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
     setLoadingWeekComerCandidates(true)
-    const target = new Date(weekComerDate + 'T00:00:00')
-    const lastWeek = new Date(target)
-    lastWeek.setDate(target.getDate() - 7)
-    const lastWeekWindowStart = new Date(lastWeek)
-    lastWeekWindowStart.setDate(lastWeek.getDate() - 6)
-
-    // Attendance counted only through the day before the target Sunday, so whatever's
-    // already on today's own report doesn't inflate the count we're deciding against.
-    const countRangeEnd = new Date(target)
-    countRangeEnd.setDate(target.getDate() - 1)
-    const countRangeEndStr = format(countRangeEnd, 'yyyy-MM-dd')
-    const daysAgoStr = (days) => {
-      const d = new Date(target)
-      d.setDate(target.getDate() - days)
-      return format(d, 'yyyy-MM-dd')
-    }
-
-    Promise.all([
-      getSundayReport(weekComerDate),
-      getSundayAttendanceCountsByNameInRange(daysAgoStr(90), countRangeEndStr),
-      getSundayAttendanceCountsByNameInRange(daysAgoStr(120), countRangeEndStr),
-    ])
-      .then(([targetReport, thirdWindowCounts, fourthWindowCounts]) => {
-        const alreadyIn = (field) =>
-          new Set((targetReport?.[field] || []).map((n) => String(n).trim().toLowerCase()))
-        const alreadySecond = alreadyIn('secondWeekAttendeesNames')
-        const alreadyThird = alreadyIn('thirdWeekAttendeesNames')
-        const alreadyFourth = alreadyIn('fourthWeekAttendeesNames')
-
-        const secondCandidates = [...new Set(
-          delightVisitors
-            .filter((v) => {
-              if (!v.attendedDate) return false
-              const d = new Date(v.attendedDate + 'T00:00:00')
-              return d >= lastWeekWindowStart && d <= lastWeek
-            })
-            .map((v) => v.name)
-            .filter(Boolean)
-        )].filter((n) => !alreadySecond.has(n.trim().toLowerCase()))
-
-        const computeAttendanceCandidates = (days, requiredCount, countsInRange, alreadyMarked) => {
-          const windowStart = new Date(target)
-          windowStart.setDate(target.getDate() - days)
-          return [...new Set(
-            delightVisitors
-              .filter((v) => {
-                if (!v.attendedDate) return false
-                const d = new Date(v.attendedDate + 'T00:00:00')
-                return d >= windowStart && d <= target
-              })
-              .filter((v) => countsInRange.get(String(v.name || '').trim().toLowerCase()) === requiredCount)
-              .map((v) => v.name)
-              .filter(Boolean)
-          )].filter((n) => !alreadyMarked.has(n.trim().toLowerCase()))
-        }
-
-        const thirdCandidates = computeAttendanceCandidates(90, 2, thirdWindowCounts, alreadyThird)
-        const fourthCandidates = computeAttendanceCandidates(120, 3, fourthWindowCounts, alreadyFourth)
-
-        setWeekComerCandidates({ second: secondCandidates, third: thirdCandidates, fourth: fourthCandidates })
-      })
+    computeWeekComerCandidates(weekComerDate, delightVisitors)
+      .then(setWeekComerCandidates)
       .catch(() => setWeekComerCandidates({ second: [], third: [], fourth: [] }))
       .finally(() => setLoadingWeekComerCandidates(false))
   }, [slug, activeTab, weekComerDate, delightVisitors])
@@ -2049,7 +2050,7 @@ export default function DepartmentHub() {
       <div className="space-y-6 py-4 px-2 lg:px-6">
       {isAccountsEntryRoute ? (
         <Outlet />
-      ) : loading ? (
+      ) : loading || hasPendingDeepLink ? (
         <div className="py-8 text-center text-slate-500">Loading...</div>
       ) : (
         <>
@@ -2898,7 +2899,7 @@ export default function DepartmentHub() {
                         const adding = pcsForwardAdding.has(t.id)
                         const dismissing = pcsForwardDismissing.has(t.id)
                         return (
-                          <li key={t.id} className="px-4 py-3 flex flex-wrap items-start gap-3">
+                          <li key={t.id} id={`pcs-forward-${t.id}`} className="px-4 py-3 flex flex-wrap items-start gap-3">
                             <div className="flex-1 min-w-0">
                               <p className="font-medium text-slate-800 text-sm truncate">{pName || t.taskTitle}</p>
                               {pPhone && <p className="text-xs text-slate-500">{pPhone}</p>}
@@ -3059,7 +3060,7 @@ export default function DepartmentHub() {
                   </p>
                   <ul className="divide-y divide-indigo-50">
                     {cellVisitorProposals.map((p) => (
-                      <li key={p.id} className="px-4 py-3 flex flex-wrap items-start gap-3">
+                      <li key={p.id} id={`cell-visitor-proposal-${p.id}`} className="px-4 py-3 flex flex-wrap items-start gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-slate-800 text-sm truncate">{p.visitorName}</p>
                           {p.phone && <p className="text-xs text-slate-500">{p.phone}</p>}
@@ -5784,6 +5785,10 @@ export default function DepartmentHub() {
                                           pcsPersonName: entry.name,
                                           pcsPersonPhone: entry.phone || '',
                                           pcsPersonVisitorId: entry.visitorId || '',
+                                          // Identity + action-kind pair the To-Do List dedupes on (ToDoListCard.jsx)
+                                          // so re-sending this referral never shows as a second row.
+                                          personId: entry.personId || entry.visitorId || entry.id,
+                                          taskType: 'addToCellGroup',
                                         })
                                         setPcsNotifiedIds(prev => new Set([...prev, entry.id]))
                                         setPcsToast(`Notification sent to Cell Director to assign ${entry.name}`)
@@ -6717,6 +6722,9 @@ export default function DepartmentHub() {
                                             pcsPersonName: name,
                                             pcsPersonPhone: phone || '',
                                             pcsPersonVisitorId: visitorId || '',
+                                            // Identity + action-kind pair the To-Do List dedupes on (ToDoListCard.jsx).
+                                            personId: visitorId || phone || name,
+                                            taskType: 'addToDLight',
                                           })
                                           await markPCSAddNotificationForwarded(notif.id)
                                         } catch (e) {

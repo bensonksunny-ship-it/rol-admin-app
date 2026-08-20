@@ -1459,6 +1459,10 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
         status: 'Pending',
         notes: `No Back to Bible study has been shared yet for the week of ${today}. Requested by ${userProfile?.name || userProfile?.email || 'a cell leader'} via Mid-week Ministry.`,
         createdBy: userProfile?.email || '',
+        // Identity + action-kind pair the To-Do List dedupes on (ToDoListCard.jsx) —
+        // scoped per cell per week so next week's reminder isn't merged with this one.
+        personId: selectedCellId,
+        taskType: `backToBibleReminder:${today}`,
       })
       setNotifiedDirector(true)
       setTimeout(() => setNotifiedDirector(false), 5000)

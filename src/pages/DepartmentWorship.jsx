@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2 } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -105,6 +105,22 @@ function roleCategoryLabel(category) {
   return ROLE_CATEGORY_LABELS[category] || category
 }
 
+// Individual Record modal's Role Summary buckets — folds the raw per-category
+// counts (byCategory) into the small set of groups worship leaders actually
+// think in, rather than a card-per-instrument breakdown.
+const ROLE_SUMMARY_GROUPS = [
+  { key: 'leadVocal', label: 'Lead Vocal', icon: Mic2, categories: ['Lead Vocal'] },
+  { key: 'partsBacking', label: 'Parts / Backing Vocal', icon: Users, categories: ['Parts', 'Choir member'] },
+  { key: 'instrumental', label: 'Instrumental', icon: Guitar, categories: ['Lead Guitar', 'Acoustic guitar', 'Bass Guitar', 'Keyboard', 'Drums'] },
+  { key: 'soundTech', label: 'Sound / Tech', icon: Volume2, categories: ['Sound Engineer'] },
+]
+function summarizeRoleGroups(byCategory) {
+  return ROLE_SUMMARY_GROUPS.map((g) => ({
+    ...g,
+    count: g.categories.reduce((sum, cat) => sum + (byCategory?.[cat] || 0), 0),
+  }))
+}
+
 // Compact abbreviations for the Assign tab's row label — full category names
 // (e.g. "Acoustic guitar") eat too much horizontal space next to the member
 // dropdown, especially on mobile cards. Row keys/data are unaffected; this only
@@ -134,7 +150,7 @@ function roleDisplayLabel(role) {
 function computeMemberSongStats(schedules) {
   const stats = {}
   const ensure = (id) => {
-    if (!stats[id]) stats[id] = { total: 0, byCategory: {}, history: [] }
+    if (!stats[id]) stats[id] = { total: 0, byCategory: {} }
     return stats[id]
   }
   for (const s of schedules || []) {
@@ -158,12 +174,8 @@ function computeMemberSongStats(schedules) {
       if (songsForThisRole.length === 0) continue
       bucket.total += songsForThisRole.length
       bucket.byCategory[category] = (bucket.byCategory[category] || 0) + songsForThisRole.length
-      for (const song of songsForThisRole) {
-        bucket.history.push({ date: s.date, songName: song.songName, key: song.key, role: a.role, category })
-      }
     }
   }
-  Object.values(stats).forEach((b) => b.history.sort((x, y) => (y.date || '').localeCompare(x.date || '')))
   return stats
 }
 
@@ -1292,23 +1304,22 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
             </div>
 
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Service History</p>
-              {(stats?.history || []).length === 0 ? (
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Role Summary</p>
+              {(stats?.total || 0) === 0 ? (
                 <p className="text-sm text-slate-400 italic">No recorded services yet.</p>
               ) : (
-                <div className="max-h-[70vh] overflow-y-auto space-y-1.5 pr-0.5">
-                  {stats.history.map((h, i) => {
-                    let fmtDate = h.date
-                    try { fmtDate = format(new Date(h.date + 'T12:00:00'), 'd MMM yyyy') } catch {}
-                    return (
-                      <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{h.songName}{h.key && <span className="text-violet-600 font-semibold"> ({h.key})</span>}</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">{fmtDate} · {roleCategoryLabel(h.category)}</p>
-                        </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {summarizeRoleGroups(stats?.byCategory).map((g) => (
+                    <div key={g.key} className="flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                      <span className="w-8 h-8 shrink-0 flex items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
+                        <g.icon size={15} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-base font-bold text-slate-800 leading-none">{g.count}</p>
+                        <p className="text-[10px] text-slate-400 mt-1 leading-snug">{g.label}</p>
                       </div>
-                    )
-                  })}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
