@@ -57,7 +57,7 @@ export default function IncomePage({ controlledMonth } = {}) {
   const [formError, setFormError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
-  const [editMode, setEditMode] = useState(false)
+  const [editSections, setEditSections] = useState({})
   const [openMenuId, setOpenMenuId] = useState(null)
   const [xlsxRows, setXlsxRows] = useState(null)
   const [xlsxError, setXlsxError] = useState('')
@@ -105,7 +105,13 @@ export default function IncomePage({ controlledMonth } = {}) {
   const totalIncome = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
   const categorized = categorizeEntries(entries)
   const offeringEntries = [...categorized.englishOffering, ...categorized.tamilOffering, ...categorized.onlineOffering]
-  const rowActionProps = { editMode, openMenuId, setOpenMenuId, deletingId, setDeletingId, onEdit: handleEdit, onDelete: handleDelete }
+  const rowActionProps = { openMenuId, setOpenMenuId, deletingId, setDeletingId, onEdit: handleEdit, onDelete: handleDelete }
+
+  function toggleSection(key) {
+    setEditSections(prev => ({ ...prev, [key]: !prev[key] }))
+    setOpenMenuId(null)
+    setDeletingId(null)
+  }
 
   function prevMonth() { setInternalMonth(m => subMonths(m, 1)) }
   function nextMonth() { setInternalMonth(m => addMonths(m, 1)) }
@@ -309,21 +315,7 @@ export default function IncomePage({ controlledMonth } = {}) {
         </div>
       )}
 
-      {/* Edit toggle */}
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-slate-600">Income Breakdown</h2>
-        <button
-          type="button"
-          onClick={() => { setEditMode(m => !m); setOpenMenuId(null); setDeletingId(null) }}
-          className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
-            editMode
-              ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
-              : 'border-slate-200 text-slate-600 hover:border-indigo-400 hover:text-indigo-700'
-          }`}
-        >
-          {editMode ? 'Done' : 'Edit'}
-        </button>
-      </div>
+      <h2 className="text-sm font-semibold text-slate-600">Income Breakdown</h2>
 
       {loading && (
         <div className="text-center text-sm text-slate-500 py-2">Loading…</div>
@@ -331,14 +323,51 @@ export default function IncomePage({ controlledMonth } = {}) {
 
       <IncomeSummaryTable entries={entries} />
 
-      <OfferingMatrixTable entries={offeringEntries} {...rowActionProps} />
+      <OfferingMatrixTable
+        entries={offeringEntries}
+        editMode={!!editSections.offering}
+        onToggleEdit={() => toggleSection('offering')}
+        {...rowActionProps}
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <CategoryListTable title="Tithe - English" entries={categorized.titheEnglish} {...rowActionProps} />
-        <CategoryListTable title="Tithe - Tamil" entries={categorized.titheTamil} {...rowActionProps} />
-        <CategoryListTable title="Contribution" entries={categorized.contribution} towardsColumn {...rowActionProps} />
-        <CategoryListTable title="Support from ROLCC" entries={categorized.supportFromROLCC} {...rowActionProps} />
-        <CategoryListTable title="Other Income" entries={categorized.otherIncome} towardsColumn {...rowActionProps} />
+        <CategoryListTable
+          title="Tithe - English"
+          entries={categorized.titheEnglish}
+          editMode={!!editSections.titheEnglish}
+          onToggleEdit={() => toggleSection('titheEnglish')}
+          {...rowActionProps}
+        />
+        <CategoryListTable
+          title="Tithe - Tamil"
+          entries={categorized.titheTamil}
+          editMode={!!editSections.titheTamil}
+          onToggleEdit={() => toggleSection('titheTamil')}
+          {...rowActionProps}
+        />
+        <CategoryListTable
+          title="Contribution"
+          entries={categorized.contribution}
+          towardsColumn
+          editMode={!!editSections.contribution}
+          onToggleEdit={() => toggleSection('contribution')}
+          {...rowActionProps}
+        />
+        <CategoryListTable
+          title="Support from ROLCC"
+          entries={categorized.supportFromROLCC}
+          editMode={!!editSections.supportFromROLCC}
+          onToggleEdit={() => toggleSection('supportFromROLCC')}
+          {...rowActionProps}
+        />
+        <CategoryListTable
+          title="Other Income"
+          entries={categorized.otherIncome}
+          towardsColumn
+          editMode={!!editSections.otherIncome}
+          onToggleEdit={() => toggleSection('otherIncome')}
+          {...rowActionProps}
+        />
       </div>
 
       {/* Bento grid: stats card + entry form */}

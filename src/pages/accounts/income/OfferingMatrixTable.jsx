@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react'
+import { Check, Pencil } from 'lucide-react'
 import { fmtDate, matchesCategory, sumAmount, toDate } from './incomeCategorize'
 import RowActionsMenu from './RowActionsMenu'
 
@@ -18,6 +19,7 @@ function toIso(date) {
 export default function OfferingMatrixTable({
   entries,
   editMode,
+  onToggleEdit,
   openMenuId,
   setOpenMenuId,
   deletingId,
@@ -40,8 +42,20 @@ export default function OfferingMatrixTable({
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/60">
+      <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-700">Offering</h3>
+        <button
+          type="button"
+          onClick={onToggleEdit}
+          aria-label={editMode ? 'Done editing' : 'Edit'}
+          className={`p-1.5 rounded-lg border transition-colors ${
+            editMode
+              ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+              : 'border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
+          }`}
+        >
+          {editMode ? <Check size={14} /> : <Pencil size={14} />}
+        </button>
       </div>
 
       {dates.length === 0 ? (

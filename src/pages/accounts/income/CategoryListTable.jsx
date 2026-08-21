@@ -1,3 +1,4 @@
+import { Check, Pencil } from 'lucide-react'
 import { fmtDate, sumAmount, toDate } from './incomeCategorize'
 import RowActionsMenu from './RowActionsMenu'
 
@@ -5,6 +6,7 @@ export default function CategoryListTable({
   title,
   entries,
   editMode,
+  onToggleEdit,
   openMenuId,
   setOpenMenuId,
   deletingId,
@@ -23,7 +25,21 @@ export default function CategoryListTable({
           <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
           <p className="text-xs text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
         </div>
-        <p className="text-sm font-bold text-slate-800">₹{total.toLocaleString('en-IN')}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-bold text-slate-800">₹{total.toLocaleString('en-IN')}</p>
+          <button
+            type="button"
+            onClick={onToggleEdit}
+            aria-label={editMode ? 'Done editing' : 'Edit'}
+            className={`p-1.5 rounded-lg border transition-colors ${
+              editMode
+                ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+                : 'border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
+            }`}
+          >
+            {editMode ? <Check size={14} /> : <Pencil size={14} />}
+          </button>
+        </div>
       </div>
 
       {sorted.length === 0 ? (
