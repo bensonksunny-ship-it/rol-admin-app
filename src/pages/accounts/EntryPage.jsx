@@ -24,7 +24,14 @@ export default function EntryPage() {
   const visibleTabs = weeklyOnly ? TABS.filter(t => t.key === 'weekly') : TABS
   const initialTab = TABS.find(t => t.key === searchParams.get('tab'))?.key
   const [subPage, setSubPage] = useState(weeklyOnly ? 'weekly' : (initialTab || 'income'))
-  const [activeMonth, setActiveMonth] = useState(startOfMonth(new Date()))
+  const yearParam = Number(searchParams.get('year'))
+  const monthParamRaw = searchParams.get('month')
+  const monthParam = monthParamRaw != null && monthParamRaw !== '' ? Number(monthParamRaw) : null
+  const [activeMonth, setActiveMonth] = useState(() => {
+    if (yearParam && monthParam != null) return startOfMonth(new Date(yearParam, monthParam, 1))
+    if (yearParam) return startOfMonth(new Date(yearParam, 0, 1))
+    return startOfMonth(new Date())
+  })
 
   if (!canAccess) return <Navigate to="/" replace />
 

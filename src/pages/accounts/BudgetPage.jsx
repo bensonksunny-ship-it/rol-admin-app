@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Plus } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { EXPENSE_CATEGORIES } from '../../constants/roles'
+import { EXPENSE_CATEGORIES, normalizeDepartmentName } from '../../constants/roles'
 import {
   getFinanceBudgetItems,
   addFinanceBudgetItem,
@@ -74,8 +74,8 @@ export default function BudgetPage({ department } = {}) {
   }
 
   const visible = (department || filterDept === 'all')
-    ? (department ? items.filter(i => i.department === department) : items)
-    : items.filter(i => i.department === filterDept)
+    ? (department ? items.filter(i => normalizeDepartmentName(i.department) === department) : items)
+    : items.filter(i => normalizeDepartmentName(i.department) === filterDept)
   const totalCost = visible.reduce((s, i) => s + (Number(i.totalCost) || 0), 0)
 
   function openAddModal() {
@@ -226,7 +226,7 @@ export default function BudgetPage({ department } = {}) {
           </div>
         ) : (
           visible.map((item, idx) => {
-            const rowCanEdit = canEditRow(item.department)
+            const rowCanEdit = canEditRow(normalizeDepartmentName(item.department))
             return (
               <div key={item.id} className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -249,7 +249,7 @@ export default function BudgetPage({ department } = {}) {
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {item.department && (
                     <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                      {item.department}
+                      {normalizeDepartmentName(item.department)}
                     </span>
                   )}
                   {item.type && (

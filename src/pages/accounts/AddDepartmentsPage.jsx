@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { EXPENSE_CATEGORIES } from '../../constants/roles'
+import { DEPARTMENT_LIST, displayDeptName } from '../../constants/departments'
+import PersonSearchInput from '../../components/PersonSearchInput'
 import {
   getExpenseDepartments,
   addExpenseDepartment,
@@ -30,15 +32,21 @@ export default function AddDepartmentsPage() {
     }
   }
 
+  const existingNamesLower = [
+    ...EXPENSE_CATEGORIES.map(n => n.toLowerCase()),
+    ...departments.map(d => d.name.toLowerCase()),
+  ]
+
+  const departmentSuggestions = DEPARTMENT_LIST
+    .map(d => displayDeptName(d.name))
+    .filter(name => !existingNamesLower.includes(name.toLowerCase()))
+    .map(name => ({ id: name, name }))
+
   async function handleAdd(e) {
     e.preventDefault()
     const trimmed = newName.trim()
     if (!trimmed) { setError('Department name is required.'); return }
-    const allNames = [
-      ...EXPENSE_CATEGORIES.map(n => n.toLowerCase()),
-      ...departments.map(d => d.name.toLowerCase()),
-    ]
-    if (allNames.includes(trimmed.toLowerCase())) {
+    if (existingNamesLower.includes(trimmed.toLowerCase())) {
       setError('This department already exists.')
       return
     }
@@ -71,13 +79,14 @@ export default function AddDepartmentsPage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4">
         <h3 className="text-sm font-semibold text-slate-700">Add Department</h3>
         <form onSubmit={handleAdd} className="flex items-center gap-3">
-          <input
-            type="text"
-            value={newName}
-            onChange={e => { setNewName(e.target.value); setError('') }}
-            placeholder="Department name"
-            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
+          <div className="flex-1">
+            <PersonSearchInput
+              value={newName}
+              onChange={val => { setNewName(val); setError('') }}
+              people={departmentSuggestions}
+              placeholder="Department name"
+            />
+          </div>
           <button
             type="submit"
             disabled={saving}

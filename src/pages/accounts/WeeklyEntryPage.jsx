@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { format, addWeeks, subWeeks, startOfWeek, endOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry, canAccessWeeklyEntryOnly } from '../../utils/accountsEntryAccess'
-import { EXPENSE_CATEGORIES } from '../../constants/roles'
+import { EXPENSE_CATEGORIES, normalizeDepartmentName } from '../../constants/roles'
 import {
   getFinanceExpense,
   createFinanceExpense,
@@ -94,7 +94,7 @@ export default function WeeklyEntryPage() {
 
   const visibleEntries = filterDept === 'all'
     ? entries
-    : entries.filter(e => (e.department || e.category) === filterDept)
+    : entries.filter(e => normalizeDepartmentName(e.department || e.category) === filterDept)
 
   const pendingEntries = visibleEntries.filter(e => e.status !== 'approved')
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
@@ -148,7 +148,7 @@ export default function WeeklyEntryPage() {
 
   function handleEdit(entry) {
     setEditingId(entry.id)
-    setFilterDept(entry.department || entry.category || 'all')
+    setFilterDept(normalizeDepartmentName(entry.department || entry.category) || 'all')
     setForm({
       date: entry.date instanceof Date
         ? format(entry.date, 'yyyy-MM-dd')
@@ -480,7 +480,7 @@ export default function WeeklyEntryPage() {
                           <span className="text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Added</span>
                         )}
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
-                          {entry.department || entry.category}
+                          {normalizeDepartmentName(entry.department || entry.category)}
                         </span>
                       </div>
                     </div>
@@ -534,7 +534,7 @@ export default function WeeklyEntryPage() {
                             ? format(entry.date, 'dd/MM/yyyy')
                             : format(new Date(entry.date), 'dd/MM/yyyy')}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">{entry.department || entry.category}</td>
+                        <td className="px-4 py-3 text-slate-700">{normalizeDepartmentName(entry.department || entry.category)}</td>
                         <td className="px-4 py-3 text-slate-700">{entry.item || '—'}</td>
                         <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
                         <td className="px-4 py-3 text-right font-medium text-slate-800">

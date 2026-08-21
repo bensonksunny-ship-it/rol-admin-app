@@ -1,14 +1,9 @@
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { Home, PenLine } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { getDepartmentByName, getDepartmentPath, getDepartmentIcon } from '../../constants/departments'
+import { getDepartmentByName, getDepartmentPath, getDepartmentIcon, displayDeptName } from '../../constants/departments'
 import { getDepartmentSubpages, myDepartmentNames } from '../../utils/departmentSubpages'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
-
-function displayDeptName(deptName) {
-  if (deptName === 'Event M') return 'Event Management'
-  return deptName
-}
 
 // Desktop's persistent two-row department nav (lg: and up) — replaces
 // DepartmentDock's floating grid/modal as the primary nav surface on desktop;

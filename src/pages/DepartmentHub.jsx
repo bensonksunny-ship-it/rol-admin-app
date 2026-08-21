@@ -154,12 +154,16 @@ import FinanceTabBar from '../components/finance/FinanceTabBar'
 import OperationsTabBar from '../components/OperationsTabBar'
 import { getOperationsChildren } from '../utils/departmentSubpages'
 import SecCoreFinance from './seccore/SecCoreFinance'
-import AccountsExpensePage from './accounts/ExpensePage'
+import ExpensePage from './accounts/ExpensePage'
+import IncomePage from './accounts/IncomePage'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
 import BudgetPage from './accounts/BudgetPage'
 import UpcomingSunday from './UpcomingSunday'
 import { DirectorBoardPage, SundayLeaderTab, SecCoreAnalyticsHub } from './seccore/SecCoreSummary'
 import SundayPrepTracker from '../components/SundayPrepTracker'
+import useAccountsSummaryPeriod from '../hooks/useAccountsSummaryPeriod'
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -358,6 +362,7 @@ export default function DepartmentHub() {
   const [financeSubTab, setFinanceSubTab] = useState('expense')
   const [acctSummary, setAcctSummary] = useState(null)
   const [acctSummaryLoading, setAcctSummaryLoading] = useState(false)
+  const { selectedYear: acctSummaryYear, selectedMonth: acctSummaryMonth, setSelectedYear: setAcctSummaryYear, setSelectedMonth: setAcctSummaryMonth } = useAccountsSummaryPeriod()
   const [team, setTeam] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(false)
   const [teamError, setTeamError] = useState('')
@@ -1654,27 +1659,48 @@ export default function DepartmentHub() {
     if (slug !== 'accounts' || activeTab !== 'summary') return
     setAcctSummaryLoading(true)
     const now = new Date()
-    const year = now.getFullYear()
-    const month = now.getMonth()
-    const wkStart = startOfWeek(now, { weekStartsOn: 1 })
-    const wkEnd = endOfWeek(now, { weekStartsOn: 1 })
-    const wkEndMs = new Date(wkEnd); wkEndMs.setHours(23, 59, 59, 999)
-    Promise.all([
-      getFinanceIncome({ year, month }),
-      getFinanceExpense({ year, month }),
-      getFinanceExpense({ startDate: wkStart, endDate: wkEndMs }),
-    ]).then(([inc, exp, wkl]) => {
-      setAcctSummary({
-        incomeCount: inc.length,
-        incomeTotal: inc.reduce((s, e) => s + (Number(e.amount) || 0), 0),
-        expenseCount: exp.length,
-        expenseTotal: exp.reduce((s, e) => s + (Number(e.amount) || 0), 0),
-        weeklyCount: wkl.length,
-        weeklyPending: wkl.filter(e => e.status === 'pending').length,
-        weeklyApproved: wkl.filter(e => e.status === 'approved' || !e.status).length,
-      })
-    }).catch(() => {}).finally(() => setAcctSummaryLoading(false))
-  }, [slug, activeTab])
+    const isCurrentMonth = acctSummaryYear === now.getFullYear() && acctSummaryMonth === now.getMonth()
+
+    if (acctSummaryMonth != null) {
+      const fetches = [
+        getFinanceIncome({ year: acctSummaryYear, month: acctSummaryMonth }),
+        getFinanceExpense({ year: acctSummaryYear, month: acctSummaryMonth }),
+      ]
+      if (isCurrentMonth) {
+        const wkStart = startOfWeek(now, { weekStartsOn: 1 })
+        const wkEnd = endOfWeek(now, { weekStartsOn: 1 })
+        const wkEndMs = new Date(wkEnd); wkEndMs.setHours(23, 59, 59, 999)
+        fetches.push(getFinanceExpense({ startDate: wkStart, endDate: wkEndMs }))
+      }
+      Promise.all(fetches).then(([inc, exp, wkl]) => {
+        setAcctSummary({
+          isCurrentMonth,
+          incomeCount: inc.length,
+          incomeTotal: inc.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+          expenseCount: exp.length,
+          expenseTotal: exp.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+          ...(isCurrentMonth ? {
+            weeklyCount: wkl.length,
+            weeklyPending: wkl.filter(e => e.status === 'pending').length,
+            weeklyApproved: wkl.filter(e => e.status === 'approved' || !e.status).length,
+          } : {}),
+        })
+      }).catch(() => {}).finally(() => setAcctSummaryLoading(false))
+    } else {
+      Promise.all([
+        getFinanceIncome({ year: acctSummaryYear }),
+        getFinanceExpense({ year: acctSummaryYear }),
+      ]).then(([inc, exp]) => {
+        setAcctSummary({
+          isCurrentMonth: false,
+          incomeCount: inc.length,
+          incomeTotal: inc.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+          expenseCount: exp.length,
+          expenseTotal: exp.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+        })
+      }).catch(() => {}).finally(() => setAcctSummaryLoading(false))
+    }
+  }, [slug, activeTab, acctSummaryYear, acctSummaryMonth])
 
   // Live listener for cell-leader PCS referral tasks (Caring hub)
   useEffect(() => {
@@ -2649,11 +2675,47 @@ export default function DepartmentHub() {
                 </>
               ) : slug === 'accounts' ? (
                 <div className="space-y-4">
+                  {(() => {
+                    const nowYear = new Date().getFullYear()
+                    const yearOptions = Array.from({ length: 5 }, (_, i) => nowYear - i)
+                    const monthPills = [{ label: 'All', value: null }, ...MONTH_NAMES.map((label, value) => ({ label, value }))]
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-end">
+                          <select
+                            value={acctSummaryYear}
+                            onChange={(e) => setAcctSummaryYear(Number(e.target.value))}
+                            className="text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg px-2 py-1"
+                          >
+                            {yearOptions.map((y) => (
+                              <option key={y} value={y}>{y}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {monthPills.map(({ label, value }) => (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => setAcctSummaryMonth(value)}
+                              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                                acctSummaryMonth === value
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
                   {acctSummaryLoading || !acctSummary ? (
                     <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
                   ) : (() => {
                     const now = new Date()
-                    const monthLabel = format(now, 'MMMM yyyy')
+                    const monthLabel = acctSummaryMonth != null ? format(new Date(acctSummaryYear, acctSummaryMonth, 1), 'MMMM yyyy') : `Jan – Dec ${acctSummaryYear}`
                     const wkStart = startOfWeek(now, { weekStartsOn: 1 })
                     const wkEnd = endOfWeek(now, { weekStartsOn: 1 })
                     const weekLabel = `${format(wkStart, 'd MMM')} – ${format(wkEnd, 'd MMM yyyy')}`
@@ -2681,35 +2743,37 @@ export default function DepartmentHub() {
                           </div>
                         </div>
 
-                        {/* Weekly entries */}
-                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Weekly Entry</p>
-                            <p className="text-[10px] text-slate-400">{weekLabel}</p>
+                        {/* Weekly entries — only meaningful when viewing the actual current month */}
+                        {acctSummary.isCurrentMonth && (
+                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Weekly Entry</p>
+                              <p className="text-[10px] text-slate-400">{weekLabel}</p>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="flex-1 text-center">
+                                <p className="text-2xl font-black text-slate-700">{acctSummary.weeklyCount}</p>
+                                <p className="text-[10px] text-slate-400 mt-0.5">Total entries</p>
+                              </div>
+                              <div className="w-px h-10 bg-slate-100" />
+                              <div className="flex-1 text-center">
+                                <p className="text-2xl font-black text-amber-600">{acctSummary.weeklyPending}</p>
+                                <p className="text-[10px] text-amber-500 mt-0.5">Pending</p>
+                              </div>
+                              <div className="w-px h-10 bg-slate-100" />
+                              <div className="flex-1 text-center">
+                                <p className="text-2xl font-black text-emerald-600">{acctSummary.weeklyApproved}</p>
+                                <p className="text-[10px] text-emerald-500 mt-0.5">Approved</p>
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-4">
-                            <div className="flex-1 text-center">
-                              <p className="text-2xl font-black text-slate-700">{acctSummary.weeklyCount}</p>
-                              <p className="text-[10px] text-slate-400 mt-0.5">Total entries</p>
-                            </div>
-                            <div className="w-px h-10 bg-slate-100" />
-                            <div className="flex-1 text-center">
-                              <p className="text-2xl font-black text-amber-600">{acctSummary.weeklyPending}</p>
-                              <p className="text-[10px] text-amber-500 mt-0.5">Pending</p>
-                            </div>
-                            <div className="w-px h-10 bg-slate-100" />
-                            <div className="flex-1 text-center">
-                              <p className="text-2xl font-black text-emerald-600">{acctSummary.weeklyApproved}</p>
-                              <p className="text-[10px] text-emerald-500 mt-0.5">Approved</p>
-                            </div>
-                          </div>
-                        </div>
+                        )}
 
                         {/* Quick-nav tiles */}
                         <div className="grid grid-cols-3 gap-3">
                           {[
-                            { label: 'Income', path: '/department/accounts/entry?tab=income', icon: '💰', desc: 'View income entries' },
-                            { label: 'Expense', path: '/department/accounts/entry?tab=expense', icon: '📤', desc: 'View expense entries' },
+                            { label: 'Income', path: `/department/accounts/entry?tab=income${acctSummary.isCurrentMonth ? '' : `&year=${acctSummaryYear}${acctSummaryMonth != null ? `&month=${acctSummaryMonth}` : ''}`}`, icon: '💰', desc: 'View income entries' },
+                            { label: 'Expense', path: `/department/accounts/entry?tab=expense${acctSummary.isCurrentMonth ? '' : `&year=${acctSummaryYear}${acctSummaryMonth != null ? `&month=${acctSummaryMonth}` : ''}`}`, icon: '📤', desc: 'View expense entries' },
                             { label: 'Weekly', path: '/department/accounts/entry?tab=weekly', icon: '📋', desc: 'Weekly entry log' },
                           ].map(({ label, icon, desc, path }) => (
                             <button
@@ -3983,7 +4047,7 @@ export default function DepartmentHub() {
 
           {activeTab === 'finance' && slug !== 'sec-core' && (
             <FinanceTabBar
-              tabs={slug === 'accounts' ? ['expense', 'budget', 'addDepartments'] : ['expense', 'budget', 'payout']}
+              tabs={['expense', 'budget', 'payout']}
               active={financeSubTab}
               onChange={(key) => {
                 setFinanceSubTab(key)
@@ -3993,24 +4057,30 @@ export default function DepartmentHub() {
           )}
 
           {activeTab === 'finance' && slug !== 'sec-core' && financeSubTab === 'expense' && department?.name && (
-            slug === 'accounts'
-              ? <AccountsExpensePage />
-              : <DeptExpenseTab department={department.name} />
+            <DeptExpenseTab department={department.name} />
           )}
 
           {activeTab === 'finance' && slug !== 'sec-core' && financeSubTab === 'budget' && (
-            <BudgetPage department={slug === 'accounts' ? undefined : department?.name} />
+            <BudgetPage department={department?.name} />
           )}
 
-          {activeTab === 'finance' && slug !== 'sec-core' && financeSubTab === 'payout' && slug !== 'accounts' && (
+          {activeTab === 'finance' && slug !== 'sec-core' && financeSubTab === 'payout' && (
             <div className="space-y-4">
               {slug === 'administration' && <AdvancePayoutReviewer />}
               <AdvancePayoutTab departmentSlug={slug} departmentName={department?.name || slug} />
             </div>
           )}
 
-          {activeTab === 'finance' && slug === 'accounts' && financeSubTab === 'addDepartments' && (
-            <AddDepartmentsPage />
+          {activeTab === 'income' && slug === 'accounts' && (
+            <IncomePage />
+          )}
+
+          {activeTab === 'expense' && slug === 'accounts' && (
+            <ExpensePage />
+          )}
+
+          {activeTab === 'budget' && slug === 'accounts' && (
+            <BudgetPage />
           )}
 
           {activeTab === 'operations' && (
@@ -4022,6 +4092,10 @@ export default function DepartmentHub() {
                 setSearchParams({ tab: 'operations', opsSub: key }, { replace: true })
               }}
             />
+          )}
+
+          {activeTab === 'operations' && opsSubTab === 'addDepartments' && slug === 'accounts' && (
+            <AddDepartmentsPage />
           )}
 
           {(activeTab === 'planning' || (activeTab === 'operations' && opsSubTab === 'planning')) && (

@@ -26,6 +26,12 @@ export const DEPARTMENT_LIST = [
   { name: 'Administration', slug: 'administration', customPage: null },
 ]
 
+/** Display name for a department (a few stored names get a friendlier label). */
+export function displayDeptName(deptName) {
+  if (deptName === 'Event M') return 'Event Management'
+  return deptName
+}
+
 export function getDepartmentBySlug(slug) {
   return DEPARTMENT_LIST.find((d) => d.slug === slug) || null
 }

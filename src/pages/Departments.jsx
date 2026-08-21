@@ -1,15 +1,10 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { DEPARTMENT_LIST, getDepartmentPath, getDepartmentIcon } from '../constants/departments'
+import { DEPARTMENT_LIST, getDepartmentPath, getDepartmentIcon, displayDeptName } from '../constants/departments'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 
 export default function Departments() {
   const { userProfile, canSeeAllDepartments, isCellDirector } = useAuth()
-
-  const displayDeptName = (deptName) => {
-    if (deptName === 'Event M') return 'Event Management'
-    return deptName
-  }
 
   const normDept = (s) => String(s || '').trim().toLowerCase().replace(/-/g, ' ')
 

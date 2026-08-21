@@ -7,7 +7,6 @@ import {
 } from 'lucide-react'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { DEPARTMENT_LIST } from '../constants/departments'
-import { ACCOUNTS_ENTRY_BASE_PATH } from './accountsEntryAccess'
 import { visibleCellTabs } from './cellTabVisibility'
 import { getAllowedWorshipTabs, shouldBypassWorshipGrid, hasFullWorshipAccess } from './worshipAccess'
 import { hasAccess } from './access'
@@ -78,6 +77,8 @@ function getTabLabel(tab) {
     case 'budget':            return 'Budget'
     case 'history':           return 'History'
     case 'entry':             return 'Entry'
+    case 'income':            return 'Income'
+    case 'expense':           return 'Expense'
     case 'insights':          return 'Insights'
     case 'visitorEntry':      return 'Visitors'
     case 'register':          return 'Kids Register'
@@ -123,6 +124,8 @@ function getTabIcon(tab) {
     case 'budget':             return Wallet
     case 'history':            return History
     case 'entry':              return PenSquare
+    case 'income':             return Banknote
+    case 'expense':            return CreditCard
     case 'insights':           return LineChart
     case 'visitorEntry':       return UserPlus
     case 'register':           return ClipboardList
@@ -158,6 +161,9 @@ export function getOperationsChildren(slug) {
   if (slug === 'd-light') {
     return DEFAULT_OPS_CHILDREN.map((c) => (c.key === 'subDepartment' ? { ...c, label: 'Sub Dept' } : c))
   }
+  if (slug === 'accounts') {
+    return [...DEFAULT_OPS_CHILDREN, { key: 'addDepartments', label: 'Add Departments', Icon: Building2 }]
+  }
   return DEFAULT_OPS_CHILDREN
 }
 
@@ -170,18 +176,12 @@ const DEFAULT_FINANCE_CHILDREN = [
   { key: 'payout',  label: 'Payout Request', Icon: Banknote },
 ]
 
-function getFinanceChildren(slug) {
-  if (slug === 'accounts') {
-    return DEFAULT_FINANCE_CHILDREN.map((c) =>
-      c.key === 'payout' ? { key: 'addDepartments', label: 'Add Departments', Icon: Building2 } : c
-    )
-  }
+function getFinanceChildren() {
   return DEFAULT_FINANCE_CHILDREN
 }
 
 // Tabs that link to a dedicated standalone route instead of `?tab=` on the generic hub.
 function getTabPath(slug, tab) {
-  if (tab === 'entry' && slug === 'accounts') return ACCOUNTS_ENTRY_BASE_PATH
   if (tab === 'sunday')               return '/department/sunday-ministry/sunday'
   if (tab === 'sundayReport')         return '/department/sunday-ministry/sunday-report'
   if (tab === 'sundayReportsHistory') return '/department/sunday-ministry/reports'

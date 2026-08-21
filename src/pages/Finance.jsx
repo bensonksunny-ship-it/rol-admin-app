@@ -27,7 +27,7 @@ import {
   rejectFinanceVoucherRequest,
 } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
-import { INCOME_TYPES, EXPENSE_CATEGORIES, DEPARTMENT_TAGS } from '../constants/roles'
+import { INCOME_TYPES, EXPENSE_CATEGORIES, DEPARTMENT_TAGS, normalizeDepartmentName } from '../constants/roles'
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
 
@@ -242,7 +242,7 @@ export default function Finance() {
 
   const expenseByCat = EXPENSE_CATEGORIES.map((cat) => ({
     name: cat,
-    value: expense.filter((e) => e.category === cat).reduce((s, e) => s + (Number(e.amount) || 0), 0),
+    value: expense.filter((e) => normalizeDepartmentName(e.department || e.category) === cat).reduce((s, e) => s + (Number(e.amount) || 0), 0),
   })).filter((x) => x.value > 0)
 
   const recentTransactions = [

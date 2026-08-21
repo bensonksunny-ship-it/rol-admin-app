@@ -6037,22 +6037,21 @@ export function subscribeCellUnassignedDismissals(onChange) {
 
 // ─── Founder Worklist Sheet ─────────────────────────────────────────────────
 // Digitized version of the Founder's handwritten Worklist Sheet: each doc is one
-// "page", holding 4 fixed color blocks of 10 rows each (No/Date/Work/RMRK).
-// Shared across all Founder accounts — not per-user. See docs/superpowers/specs/
-// 2026-08-20-founder-worklist-sheet-design.md for the full design.
+// "page" of up to WORKLIST_ROWS_PER_SHEET rows (No/Date/Work/RMRK). Pages fill
+// automatically — see the auto-page-creation effect in WorklistSheet.jsx — so
+// there's no manual "add page" step. Shared across all Founder accounts — not
+// per-user. See docs/superpowers/specs/2026-08-20-founder-worklist-sheet-design.md
+// for the full design.
 const WORKLIST_SHEETS = 'worklist_sheets'
-const WORKLIST_BLOCK_COLORS = ['green', 'yellow', 'red', 'blue']
-const WORKLIST_ROWS_PER_BLOCK = 10
+export const WORKLIST_ROWS_PER_SHEET = 30
 
-function makeWorklistBlocks() {
-  return WORKLIST_BLOCK_COLORS.map((color) => ({
-    color,
-    rows: Array.from({ length: WORKLIST_ROWS_PER_BLOCK }, (_, i) => ({
-      no: i + 1,
-      date: '',
-      work: '',
-      doneDate: '',
-    })),
+function makeWorklistRows() {
+  return Array.from({ length: WORKLIST_ROWS_PER_SHEET }, (_, i) => ({
+    no: i + 1,
+    date: '',
+    work: '',
+    doneDate: '',
+    department: '',
   }))
 }
 
@@ -6068,7 +6067,7 @@ export async function createWorklistSheet(order, label) {
   const ref = await addDoc(collection(db, WORKLIST_SHEETS), {
     order,
     label,
-    blocks: makeWorklistBlocks(),
+    rows: makeWorklistRows(),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -6076,55 +6075,50 @@ export async function createWorklistSheet(order, label) {
 }
 
 // Firestore's dotted-path update syntax (`updateDoc(ref, {'a.b.c': v})`) only descends
-// through nested MAPS — it can't index into an array element. `blocks` is an array, so
-// a path like `blocks.2.rows.5.work` doesn't reach into it; Firestore instead writes a
-// literal map key named "2" onto the `blocks` field, silently turning it from an array
-// into a map and breaking every reader that expects `blocks.forEach` to exist. The fix
-// is a normal read-modify-write on the whole `blocks` array — callers pass the current
-// `blocks` array (already in hand from the live subscription) and get back the array
-// with one row replaced, which is then written back as a single whole-array field.
-function replaceWorklistRow(blocks, blockIndex, rowIndex, updateRow) {
-  return blocks.map((block, bi) => {
-    if (bi !== blockIndex) return block
-    return {
-      ...block,
-      rows: block.rows.map((row, ri) => (ri !== rowIndex ? row : updateRow(row))),
-    }
-  })
+// through nested MAPS — it can't index into an array element. `rows` is an array, so a
+// path like `rows.5.work` doesn't reach into it; Firestore instead writes a literal map
+// key named "5" onto the `rows` field, silently turning it from an array into a map and
+// breaking every reader that expects `rows.forEach` to exist. The fix is a normal
+// read-modify-write on the whole `rows` array — callers pass the current `rows` array
+// (already in hand from the live subscription) and get back the array with one row
+// replaced, which is then written back as a single whole-array field.
+function replaceWorklistRow(rows, rowIndex, updateRow) {
+  return rows.map((row, ri) => (ri !== rowIndex ? row : updateRow(row)))
 }
 
-export async function updateWorklistCell(sheetId, blocks, blockIndex, rowIndex, field, value) {
-  const newBlocks = replaceWorklistRow(blocks, blockIndex, rowIndex, (row) => ({ ...row, [field]: value }))
-  await updateDoc(doc(db, WORKLIST_SHEETS, sheetId), { blocks: newBlocks, updatedAt: serverTimestamp() })
+export async function updateWorklistCell(sheetId, rows, rowIndex, field, value) {
+  const newRows = replaceWorklistRow(rows, rowIndex, (row) => ({ ...row, [field]: value }))
+  await updateDoc(doc(db, WORKLIST_SHEETS, sheetId), { rows: newRows, updatedAt: serverTimestamp() })
 }
 
 // A row's Date column is its entry date, not something the Founder should have to fill
 // in by hand every time — so the first time Work is typed into a still-blank row, Date
 // auto-populates with today. `hadDate` tells us whether the row already carried a Date
 // (manually entered or previously auto-set) so re-editing Work never overwrites it.
-export async function updateWorklistWork(sheetId, blocks, blockIndex, rowIndex, work, hadDate) {
-  const newBlocks = replaceWorklistRow(blocks, blockIndex, rowIndex, (row) => ({
+export async function updateWorklistWork(sheetId, rows, rowIndex, work, hadDate) {
+  const newRows = replaceWorklistRow(rows, rowIndex, (row) => ({
     ...row,
     work,
     date: work && !hadDate ? new Date().toISOString().slice(0, 10) : row.date,
   }))
-  await updateDoc(doc(db, WORKLIST_SHEETS, sheetId), { blocks: newBlocks, updatedAt: serverTimestamp() })
+  await updateDoc(doc(db, WORKLIST_SHEETS, sheetId), { rows: newRows, updatedAt: serverTimestamp() })
 }
 
-export async function clearWorklistRow(sheetId, blocks, blockIndex, rowIndex) {
-  const newBlocks = replaceWorklistRow(blocks, blockIndex, rowIndex, () => ({ no: blocks[blockIndex].rows[rowIndex].no, date: '', work: '', doneDate: '' }))
-  await updateDoc(doc(db, WORKLIST_SHEETS, sheetId), { blocks: newBlocks, updatedAt: serverTimestamp() })
+export async function clearWorklistRow(sheetId, rows, rowIndex) {
+  const newRows = replaceWorklistRow(rows, rowIndex, (row) => ({ no: row.no, date: '', work: '', doneDate: '', department: '' }))
+  await updateDoc(doc(db, WORKLIST_SHEETS, sheetId), { rows: newRows, updatedAt: serverTimestamp() })
 }
 
 export async function deleteWorklistSheet(sheetId) {
   await deleteDoc(doc(db, WORKLIST_SHEETS, sheetId))
 }
 
-// Repairs a sheet whose `blocks` field was corrupted by the old dot-path array-update
-// bug (see replaceWorklistRow above) — overwrites it with a fresh, empty 4x10 skeleton.
-export async function resetWorklistSheetBlocks(sheetId) {
+// Repairs a sheet whose `rows` field was corrupted by the old dot-path array-update bug
+// (see replaceWorklistRow above), or that still carries the old blocks[4]x10 shape from
+// before rows were flattened — overwrites it with a fresh, empty skeleton.
+export async function resetWorklistSheetRows(sheetId) {
   await updateDoc(doc(db, WORKLIST_SHEETS, sheetId), {
-    blocks: makeWorklistBlocks(),
+    rows: makeWorklistRows(),
     updatedAt: serverTimestamp(),
   })
 }
