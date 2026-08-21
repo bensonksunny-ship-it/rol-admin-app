@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react'
-import { fmtDate, sumAmount, toDate } from './incomeCategorize'
+import { fmtDate, matchesCategory, sumAmount, toDate } from './incomeCategorize'
 import RowActionsMenu from './RowActionsMenu'
 
 const COLUMNS = [
@@ -35,7 +35,7 @@ export default function OfferingMatrixTable({
   }
   const dates = [...byDate.keys()].sort()
 
-  const columnTotals = COLUMNS.map(col => sumAmount(entries.filter(e => e.category === col.key)))
+  const columnTotals = COLUMNS.map(col => sumAmount(entries.filter(e => matchesCategory(e, col.key))))
   const grandTotal = sumAmount(entries)
 
   return (
@@ -66,7 +66,7 @@ export default function OfferingMatrixTable({
                     <tr className="hover:bg-slate-50 transition">
                       <td className="px-4 py-3 text-slate-700">{fmtDate(iso)}</td>
                       {COLUMNS.map(col => {
-                        const colEntries = dayEntries.filter(e => e.category === col.key)
+                        const colEntries = dayEntries.filter(e => matchesCategory(e, col.key))
                         const amount = sumAmount(colEntries)
                         return (
                           <td key={col.key} className="px-4 py-3 text-right">
