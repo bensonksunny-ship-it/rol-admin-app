@@ -92,7 +92,7 @@ export default function OfferingMatrixTable({
                           <div className="space-y-1.5">
                             {dayEntries.map(entry => (
                               <div key={entry.id} className="flex items-center justify-between gap-3 text-xs bg-white rounded-lg border border-slate-100 px-3 py-2">
-                                <span className="text-slate-500 w-20 shrink-0">{entry.category.replace(' Offering', '')}</span>
+                                <span className="text-slate-500 w-20 shrink-0">{entry.category.replace(/ offering/i, '')}</span>
                                 <span className="text-slate-600 flex-1 truncate">{entry.giverName || '—'}</span>
                                 <span className="font-medium text-slate-800 w-20 text-right shrink-0">₹{Number(entry.amount).toLocaleString('en-IN')}</span>
                                 {editMode && (
