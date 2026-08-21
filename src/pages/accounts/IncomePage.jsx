@@ -10,7 +10,7 @@ import {
   updateFinanceIncome,
   deleteFinanceIncome,
 } from '../../services/firestore'
-import { categorizeEntries } from './income/incomeCategorize'
+import { categorizeEntries, isOtherIncomeCategory } from './income/incomeCategorize'
 import IncomeSummaryTable from './income/IncomeSummaryTable'
 import OfferingMatrixTable from './income/OfferingMatrixTable'
 import CategoryListTable from './income/CategoryListTable'
@@ -338,7 +338,7 @@ export default function IncomePage({ controlledMonth } = {}) {
         <CategoryListTable title="Tithe - Tamil" entries={categorized.titheTamil} {...rowActionProps} />
         <CategoryListTable title="Contribution" entries={categorized.contribution} towardsColumn {...rowActionProps} />
         <CategoryListTable title="Support from ROLCC" entries={categorized.supportFromROLCC} {...rowActionProps} />
-        <CategoryListTable title="Other Income" entries={categorized.otherIncome} {...rowActionProps} />
+        <CategoryListTable title="Other Income" entries={categorized.otherIncome} towardsColumn {...rowActionProps} />
       </div>
 
       {/* Bento grid: stats card + entry form */}
@@ -415,14 +415,14 @@ export default function IncomePage({ controlledMonth } = {}) {
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
               />
             </div>
-            {form.category === 'Contribution' && (
+            {(form.category === 'Contribution' || isOtherIncomeCategory(form.category)) && (
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-slate-500">Towards <span className="text-slate-400 font-normal">(opt.)</span></label>
                 <input
                   type="text"
                   value={form.towards}
                   onChange={e => setForm(f => ({ ...f, towards: e.target.value }))}
-                  placeholder="What the contribution is for"
+                  placeholder="What this income is for"
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
                 />
               </div>
