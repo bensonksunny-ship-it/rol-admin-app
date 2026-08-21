@@ -14,6 +14,10 @@ export const NAMED_CATEGORIES = [
 // split). Those are folded into Tithe - English rather than Other Income.
 const LEGACY_TITHE_CATEGORY = 'Tithe'
 
+// Pre-refactor entries were saved with the category 'DON U'. Those are folded
+// into Support from ROLCC rather than Other Income.
+const LEGACY_DON_U_CATEGORY = 'DON U'
+
 // Older entries were saved with inconsistent casing/whitespace (e.g. "English
 // offering" instead of "English Offering"), so category matching is
 // case/whitespace-insensitive rather than an exact string match.
@@ -31,7 +35,9 @@ export function isOtherIncome(entry) {
 
 export function isOtherIncomeCategory(category) {
   const norm = normalizeCategory(category)
-  return !NAMED_CATEGORIES.some(cat => normalizeCategory(cat) === norm) && norm !== normalizeCategory(LEGACY_TITHE_CATEGORY)
+  return !NAMED_CATEGORIES.some(cat => normalizeCategory(cat) === norm)
+    && norm !== normalizeCategory(LEGACY_TITHE_CATEGORY)
+    && norm !== normalizeCategory(LEGACY_DON_U_CATEGORY)
 }
 
 export function categorizeEntries(entries) {
@@ -43,7 +49,7 @@ export function categorizeEntries(entries) {
     titheEnglish: [...byCategory('Tithe - English'), ...byCategory(LEGACY_TITHE_CATEGORY)],
     titheTamil: byCategory('Tithe - Tamil'),
     contribution: byCategory('Contribution'),
-    supportFromROLCC: byCategory('Support from ROLCC'),
+    supportFromROLCC: [...byCategory('Support from ROLCC'), ...byCategory(LEGACY_DON_U_CATEGORY)],
     otherIncome: entries.filter(isOtherIncome),
   }
 }
