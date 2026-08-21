@@ -26,7 +26,12 @@ export function matchesCategory(entry, cat) {
 }
 
 export function isOtherIncome(entry) {
-  return !NAMED_CATEGORIES.some(cat => matchesCategory(entry, cat)) && !matchesCategory(entry, LEGACY_TITHE_CATEGORY)
+  return isOtherIncomeCategory(entry.category)
+}
+
+export function isOtherIncomeCategory(category) {
+  const norm = normalizeCategory(category)
+  return !NAMED_CATEGORIES.some(cat => normalizeCategory(cat) === norm) && norm !== normalizeCategory(LEGACY_TITHE_CATEGORY)
 }
 
 export function categorizeEntries(entries) {
