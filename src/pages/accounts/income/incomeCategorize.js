@@ -11,6 +11,11 @@ export const NAMED_CATEGORIES = [
   'RSM Salary',
 ]
 
+// Category choices offered by the inline add/edit form for cards that span
+// more than one underlying category.
+export const OFFERING_CATEGORY_OPTIONS = ['Online Offering', 'English Offering', 'Tamil Offering']
+export const OTHER_INCOME_CATEGORY_OPTIONS = ['Missions', 'RSM', 'RFF', 'Donations']
+
 // Pre-refactor entries were saved with the plain 'Tithe' category (no language
 // split). Those are folded into Tithe - English rather than Other Income.
 const LEGACY_TITHE_CATEGORY = 'Tithe'

@@ -1,5 +1,6 @@
 import { Check, Pencil, Plus } from 'lucide-react'
 import { fmtDate, sumAmount, toDate } from './incomeCategorize'
+import InlineEntryForm from './InlineEntryForm'
 import RowActionsMenu from './RowActionsMenu'
 
 export default function CategoryListTable({
@@ -8,6 +9,15 @@ export default function CategoryListTable({
   editMode,
   onToggleEdit,
   onAddNew,
+  isAdding,
+  editingId,
+  categoryOptions,
+  form,
+  onFormChange,
+  onSave,
+  onCancel,
+  saving,
+  formError,
   openMenuId,
   setOpenMenuId,
   deletingId,
@@ -18,6 +28,7 @@ export default function CategoryListTable({
 }) {
   const total = sumAmount(entries)
   const sorted = [...entries].sort((a, b) => toDate(b.date) - toDate(a.date))
+  const columnCount = 3 + (towardsColumn ? 1 : 0) + (editMode ? 1 : 0)
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
@@ -51,8 +62,21 @@ export default function CategoryListTable({
         </div>
       </div>
 
+      {isAdding && (
+        <InlineEntryForm
+          categoryOptions={categoryOptions}
+          showTowards={towardsColumn}
+          form={form}
+          onChange={onFormChange}
+          onSave={onSave}
+          onCancel={onCancel}
+          saving={saving}
+          formError={formError}
+        />
+      )}
+
       {sorted.length === 0 ? (
-        <div className="p-4 text-center text-xs text-slate-400">No entries</div>
+        !isAdding && <div className="p-4 text-center text-xs text-slate-400">No entries</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -67,29 +91,46 @@ export default function CategoryListTable({
             </thead>
             <tbody className="divide-y divide-slate-50">
               {sorted.map(entry => (
-                <tr key={entry.id} className="hover:bg-slate-50 transition">
-                  <td className="px-3 py-2 text-slate-700">{fmtDate(entry.date)}</td>
-                  <td className="px-3 py-2 text-slate-600">{entry.giverName || '—'}</td>
-                  {towardsColumn && <td className="px-3 py-2 text-slate-600">{entry.towards || '—'}</td>}
-                  <td className="px-3 py-2 text-right font-medium text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
-                  {editMode && (
-                    <td className="px-3 py-2 text-right">
-                      {deletingId === entry.id ? (
-                        <span className="flex items-center justify-end gap-1.5 text-[11px] text-slate-600 whitespace-nowrap">
-                          <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
-                          <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
-                        </span>
-                      ) : (
-                        <RowActionsMenu
-                          isOpen={openMenuId === entry.id}
-                          onToggle={() => setOpenMenuId(openMenuId === entry.id ? null : entry.id)}
-                          onEdit={() => { setOpenMenuId(null); onEdit(entry) }}
-                          onDelete={() => { setOpenMenuId(null); setDeletingId(entry.id) }}
-                        />
-                      )}
+                editingId === entry.id ? (
+                  <tr key={entry.id}>
+                    <td colSpan={columnCount} className="p-0">
+                      <InlineEntryForm
+                        categoryOptions={categoryOptions}
+                        showTowards={towardsColumn}
+                        form={form}
+                        onChange={onFormChange}
+                        onSave={onSave}
+                        onCancel={onCancel}
+                        saving={saving}
+                        formError={formError}
+                      />
                     </td>
-                  )}
-                </tr>
+                  </tr>
+                ) : (
+                  <tr key={entry.id} className="hover:bg-slate-50 transition">
+                    <td className="px-3 py-2 text-slate-700">{fmtDate(entry.date)}</td>
+                    <td className="px-3 py-2 text-slate-600">{entry.giverName || '—'}</td>
+                    {towardsColumn && <td className="px-3 py-2 text-slate-600">{entry.towards || '—'}</td>}
+                    <td className="px-3 py-2 text-right font-medium text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
+                    {editMode && (
+                      <td className="px-3 py-2 text-right">
+                        {deletingId === entry.id ? (
+                          <span className="flex items-center justify-end gap-1.5 text-[11px] text-slate-600 whitespace-nowrap">
+                            <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
+                            <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+                          </span>
+                        ) : (
+                          <RowActionsMenu
+                            isOpen={openMenuId === entry.id}
+                            onToggle={() => setOpenMenuId(openMenuId === entry.id ? null : entry.id)}
+                            onEdit={() => { setOpenMenuId(null); onEdit(entry) }}
+                            onDelete={() => { setOpenMenuId(null); setDeletingId(entry.id) }}
+                          />
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                )
               ))}
             </tbody>
             <tfoot>

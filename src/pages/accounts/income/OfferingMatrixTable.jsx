@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react'
 import { Check, Pencil, Plus } from 'lucide-react'
 import { fmtDate, matchesCategory, sumAmount, toDate } from './incomeCategorize'
+import InlineEntryForm from './InlineEntryForm'
 import RowActionsMenu from './RowActionsMenu'
 
 const COLUMNS = [
@@ -21,6 +22,15 @@ export default function OfferingMatrixTable({
   editMode,
   onToggleEdit,
   onAddNew,
+  isAdding,
+  editingId,
+  categoryOptions,
+  form,
+  onFormChange,
+  onSave,
+  onCancel,
+  saving,
+  formError,
   openMenuId,
   setOpenMenuId,
   deletingId,
@@ -48,7 +58,7 @@ export default function OfferingMatrixTable({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => onAddNew()}
+            onClick={onAddNew}
             aria-label="Add entry"
             className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors"
           >
@@ -69,8 +79,21 @@ export default function OfferingMatrixTable({
         </div>
       </div>
 
+      {isAdding && (
+        <InlineEntryForm
+          categoryOptions={categoryOptions}
+          showTowards={false}
+          form={form}
+          onChange={onFormChange}
+          onSave={onSave}
+          onCancel={onCancel}
+          saving={saving}
+          formError={formError}
+        />
+      )}
+
       {dates.length === 0 ? (
-        <div className="p-6 text-center text-sm text-slate-400">No offering entries this month.</div>
+        !isAdding && <div className="p-6 text-center text-sm text-slate-400">No offering entries this month.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -116,26 +139,41 @@ export default function OfferingMatrixTable({
                         <td colSpan={COLUMNS.length + 2} className="px-4 py-3">
                           <div className="space-y-1.5">
                             {dayEntries.map(entry => (
-                              <div key={entry.id} className="flex items-center justify-between gap-3 text-xs bg-white rounded-lg border border-slate-100 px-3 py-2">
-                                <span className="text-slate-500 w-20 shrink-0">{entry.category.replace(/ offering/i, '')}</span>
-                                <span className="text-slate-600 flex-1 truncate">{entry.giverName || '—'}</span>
-                                <span className="font-medium text-slate-800 w-20 text-right shrink-0">₹{Number(entry.amount).toLocaleString('en-IN')}</span>
-                                {editMode && (
-                                  deletingId === entry.id ? (
-                                    <span className="flex items-center gap-1.5 shrink-0">
-                                      <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
-                                      <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
-                                    </span>
-                                  ) : (
-                                    <RowActionsMenu
-                                      isOpen={openMenuId === entry.id}
-                                      onToggle={() => setOpenMenuId(openMenuId === entry.id ? null : entry.id)}
-                                      onEdit={() => { setOpenMenuId(null); onEdit(entry) }}
-                                      onDelete={() => { setOpenMenuId(null); setDeletingId(entry.id) }}
-                                    />
-                                  )
-                                )}
-                              </div>
+                              editingId === entry.id ? (
+                                <div key={entry.id} className="rounded-lg overflow-hidden border border-indigo-100">
+                                  <InlineEntryForm
+                                    categoryOptions={categoryOptions}
+                                    showTowards={false}
+                                    form={form}
+                                    onChange={onFormChange}
+                                    onSave={onSave}
+                                    onCancel={onCancel}
+                                    saving={saving}
+                                    formError={formError}
+                                  />
+                                </div>
+                              ) : (
+                                <div key={entry.id} className="flex items-center justify-between gap-3 text-xs bg-white rounded-lg border border-slate-100 px-3 py-2">
+                                  <span className="text-slate-500 w-20 shrink-0">{entry.category.replace(/ offering/i, '')}</span>
+                                  <span className="text-slate-600 flex-1 truncate">{entry.giverName || '—'}</span>
+                                  <span className="font-medium text-slate-800 w-20 text-right shrink-0">₹{Number(entry.amount).toLocaleString('en-IN')}</span>
+                                  {editMode && (
+                                    deletingId === entry.id ? (
+                                      <span className="flex items-center gap-1.5 shrink-0">
+                                        <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
+                                        <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+                                      </span>
+                                    ) : (
+                                      <RowActionsMenu
+                                        isOpen={openMenuId === entry.id}
+                                        onToggle={() => setOpenMenuId(openMenuId === entry.id ? null : entry.id)}
+                                        onEdit={() => { setOpenMenuId(null); onEdit(entry) }}
+                                        onDelete={() => { setOpenMenuId(null); setDeletingId(entry.id) }}
+                                      />
+                                    )
+                                  )}
+                                </div>
+                              )
                             ))}
                           </div>
                         </td>
