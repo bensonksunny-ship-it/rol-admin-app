@@ -1,4 +1,4 @@
-import { Check, Pencil } from 'lucide-react'
+import { Check, Pencil, Plus } from 'lucide-react'
 import { fmtDate, sumAmount, toDate } from './incomeCategorize'
 import RowActionsMenu from './RowActionsMenu'
 
@@ -7,6 +7,7 @@ export default function CategoryListTable({
   entries,
   editMode,
   onToggleEdit,
+  onAddNew,
   openMenuId,
   setOpenMenuId,
   deletingId,
@@ -27,6 +28,14 @@ export default function CategoryListTable({
         </div>
         <div className="flex items-center gap-2">
           <p className="text-sm font-bold text-slate-800">₹{total.toLocaleString('en-IN')}</p>
+          <button
+            type="button"
+            onClick={onAddNew}
+            aria-label="Add entry"
+            className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors"
+          >
+            <Plus size={14} />
+          </button>
           <button
             type="button"
             onClick={onToggleEdit}

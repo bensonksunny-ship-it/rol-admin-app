@@ -166,6 +166,13 @@ export default function IncomePage({ controlledMonth } = {}) {
     formRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  function handleAddForCategory(category) {
+    setEditingId(null)
+    setFormError('')
+    setForm({ ...EMPTY_FORM, category: category || EMPTY_FORM.category })
+    formRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
   function handleCancelEdit() {
     setEditingId(null)
     setForm(EMPTY_FORM)
@@ -327,6 +334,7 @@ export default function IncomePage({ controlledMonth } = {}) {
         entries={offeringEntries}
         editMode={!!editSections.offering}
         onToggleEdit={() => toggleSection('offering')}
+        onAddNew={handleAddForCategory}
         {...rowActionProps}
       />
 
@@ -336,6 +344,7 @@ export default function IncomePage({ controlledMonth } = {}) {
           entries={categorized.titheEnglish}
           editMode={!!editSections.titheEnglish}
           onToggleEdit={() => toggleSection('titheEnglish')}
+          onAddNew={() => handleAddForCategory('Tithe - English')}
           {...rowActionProps}
         />
         <CategoryListTable
@@ -343,6 +352,7 @@ export default function IncomePage({ controlledMonth } = {}) {
           entries={categorized.titheTamil}
           editMode={!!editSections.titheTamil}
           onToggleEdit={() => toggleSection('titheTamil')}
+          onAddNew={() => handleAddForCategory('Tithe - Tamil')}
           {...rowActionProps}
         />
         <CategoryListTable
@@ -351,6 +361,7 @@ export default function IncomePage({ controlledMonth } = {}) {
           towardsColumn
           editMode={!!editSections.contribution}
           onToggleEdit={() => toggleSection('contribution')}
+          onAddNew={() => handleAddForCategory('Contribution')}
           {...rowActionProps}
         />
         <CategoryListTable
@@ -358,6 +369,7 @@ export default function IncomePage({ controlledMonth } = {}) {
           entries={categorized.supportFromROLCC}
           editMode={!!editSections.supportFromROLCC}
           onToggleEdit={() => toggleSection('supportFromROLCC')}
+          onAddNew={() => handleAddForCategory('Support from ROLCC')}
           {...rowActionProps}
         />
         <CategoryListTable
@@ -365,6 +377,7 @@ export default function IncomePage({ controlledMonth } = {}) {
           entries={categorized.otherIncome}
           towardsColumn
           editMode={!!editSections.otherIncome}
+          onAddNew={() => handleAddForCategory()}
           onToggleEdit={() => toggleSection('otherIncome')}
           {...rowActionProps}
         />
@@ -373,6 +386,7 @@ export default function IncomePage({ controlledMonth } = {}) {
           entries={categorized.rsmSalary}
           editMode={!!editSections.rsmSalary}
           onToggleEdit={() => toggleSection('rsmSalary')}
+          onAddNew={() => handleAddForCategory('RSM Salary')}
           {...rowActionProps}
         />
       </div>
