@@ -81,6 +81,7 @@ import {
   patchSundayReportRiverKids,
   getSundayReport,
   patchSundayReportNameField,
+  patchSundayReportCellAttendance,
   getPCSLookup,
   getDepartmentEvents,
   addDepartmentEvent,
@@ -504,6 +505,10 @@ export default function DepartmentHub() {
   const [weekComerCandidates, setWeekComerCandidates] = useState({ second: [], third: [], fourth: [] })
   const [loadingWeekComerCandidates, setLoadingWeekComerCandidates] = useState(false)
   const [markingWeekComerName, setMarkingWeekComerName] = useState(null)
+  // All active cell members across every cell, for the mark-present routing below:
+  // a person already in a cell gets checked into that cell's Sunday attendance;
+  // everyone else gets checked into Non Cell.
+  const [weekComerCellMembers, setWeekComerCellMembers] = useState([])
   // Manual search-and-add escape hatch per card — for visitors the automatic filters
   // miss (e.g. they came back after a longer gap than the window covers). No
   // validation against the card's own filter; any D-Light visitor can be added to
@@ -1456,17 +1461,37 @@ export default function DepartmentHub() {
       .finally(() => setLoadingWeekComerCandidates(false))
   }, [slug, activeTab, weekComerDate, delightVisitors])
 
-  const WEEK_COMER_FIELDS = { second: 'secondWeekAttendeesNames', third: 'thirdWeekAttendeesNames', fourth: 'fourthWeekAttendeesNames' }
+  useEffect(() => {
+    if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
+    getAllCellGroupMembers().then(setWeekComerCellMembers).catch(() => setWeekComerCellMembers([]))
+  }, [slug, activeTab])
 
+  // Marking someone present from the Follow-Up panel routes their attendance straight
+  // into the Sunday Ministry Report for weekComerDate — into their own cell's roster if
+  // they're an active cell member, otherwise into Non Cell — instead of a separate
+  // "Nth Week Attendees" bucket, so they're counted exactly once in that Sunday's total.
   const markWeekComer = async (bucket, name) => {
-    const fieldKey = WEEK_COMER_FIELDS[bucket]
     setMarkingWeekComerName(name)
     try {
+      const trimmedName = name.trim()
+      const norm = trimmedName.toLowerCase()
+      const updatedBy = userProfile?.email || userProfile?.displayName || 'unknown'
       const current = await getSundayReport(weekComerDate)
-      const existing = current?.[fieldKey] || []
-      const norm = name.trim().toLowerCase()
-      const next = existing.some((n) => String(n).trim().toLowerCase() === norm) ? existing : [...existing, name.trim()]
-      await patchSundayReportNameField(weekComerDate, fieldKey, next, userProfile?.email || userProfile?.displayName || 'unknown')
+
+      const membership = weekComerCellMembers.find((m) =>
+        m.status !== 'inactive' && String(m.name || '').trim().toLowerCase() === norm
+      )
+
+      if (membership) {
+        const existing = current?.sundayCellAttendance?.[membership.cellId] || []
+        const next = existing.some((n) => String(n).trim().toLowerCase() === norm) ? existing : [...existing, trimmedName]
+        await patchSundayReportCellAttendance(weekComerDate, membership.cellId, next, updatedBy)
+      } else {
+        const existing = current?.nonCell || []
+        const next = existing.some((n) => String(n).trim().toLowerCase() === norm) ? existing : [...existing, trimmedName]
+        await patchSundayReportNameField(weekComerDate, 'nonCell', next, updatedBy)
+      }
+
       setWeekComerCandidates((prev) => ({ ...prev, [bucket]: prev[bucket].filter((n) => n !== name) }))
     } catch {
       alert('Failed to add — please try again.')
@@ -5789,6 +5814,10 @@ export default function DepartmentHub() {
                                           // so re-sending this referral never shows as a second row.
                                           personId: entry.personId || entry.visitorId || entry.id,
                                           taskType: 'addToCellGroup',
+                                          // This is a placement decision, not a specific leader's action — only the
+                                          // Cell Director should see it, never every Cell Leader in the department
+                                          // (ToDoListCard.jsx filters on this against getDepartmentRole()).
+                                          visibleToRole: 'DIRECTOR',
                                         })
                                         setPcsNotifiedIds(prev => new Set([...prev, entry.id]))
                                         setPcsToast(`Notification sent to Cell Director to assign ${entry.name}`)
@@ -6725,6 +6754,9 @@ export default function DepartmentHub() {
                                             // Identity + action-kind pair the To-Do List dedupes on (ToDoListCard.jsx).
                                             personId: visitorId || phone || name,
                                             taskType: 'addToDLight',
+                                            // Registration decision, not shared team work — D-Light Director only,
+                                            // mirrors the Cell "Add to a cell group" scoping (ToDoListCard.jsx).
+                                            visibleToRole: 'DIRECTOR',
                                           })
                                           await markPCSAddNotificationForwarded(notif.id)
                                         } catch (e) {

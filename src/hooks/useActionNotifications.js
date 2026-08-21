@@ -97,9 +97,11 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   }, [userProfile?.cellGroupId, userProfile?.cellId])
 
   // D-Light: visitor proposals forwarded by Cell/Caring — surfaced so a D-Light user
-  // doesn't have to already be on the Visitor Entry tab to know one arrived.
+  // doesn't have to already be on the Visitor Entry tab to know one arrived. Registering
+  // a visitor is a D-Light Director decision (mirrors the Cell "Add to a cell group"
+  // scoping) — a Coordinator/Leader in D-Light shouldn't have this in their feed.
   useEffect(() => {
-    const canSeeDLight = isFounder || !!getDepartmentRole(userProfile, 'D Light')
+    const canSeeDLight = isFounder || getDepartmentRole(userProfile, 'D Light') === 'DIRECTOR'
     if (!canSeeDLight) return
     return subscribeCellVisitorProposals((proposals) => {
       setVisitorProposalNotifications(proposals.map((p) => ({
@@ -118,9 +120,11 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     })
   }, [userProfile, isFounder])
 
-  // D-Light: Cell Director consult requests ("Consult D Light Director").
+  // D-Light: Cell Director consult requests ("Consult D Light Director") — the
+  // recommendation D-Light sends back is a departmental position, so only the D-Light
+  // Director fields it, same reasoning as the visitor-proposal scoping above.
   useEffect(() => {
-    const canSeeDLight = isFounder || !!getDepartmentRole(userProfile, 'D Light')
+    const canSeeDLight = isFounder || getDepartmentRole(userProfile, 'D Light') === 'DIRECTOR'
     if (!canSeeDLight) return
     return subscribeCellDlightConsultTasks((consults) => {
       setDlightConsultNotifications(consults.map((t) => ({

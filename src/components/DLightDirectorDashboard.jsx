@@ -1,8 +1,28 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { getSundayAttendanceNameSetsInRange } from '../services/firestore'
+import { SECOND_WEEK_WINDOW_DAYS } from '../utils/weekComers'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const normalizeName = (n) => String(n || '').trim().toLowerCase()
+const toDateStr = (d) => format(d, 'yyyy-MM-dd')
+
+const RETURN_PERIODS = [
+  { key: 'thisMonth', label: 'This Month' },
+  { key: 'last30', label: 'Last 30 Days' },
+  { key: 'ytd', label: 'Year-to-Date' },
+]
+
+function returnPeriodStart(periodKey, today) {
+  if (periodKey === 'last30') {
+    const d = new Date(today)
+    d.setDate(d.getDate() - 30)
+    return d
+  }
+  if (periodKey === 'ytd') return new Date(today.getFullYear(), 0, 1)
+  return new Date(today.getFullYear(), today.getMonth(), 1)
+}
 
 function topGroups(items, keyFn, colors, maxItems = 4) {
   const counts = {}
@@ -53,6 +73,45 @@ function KpiTile({ label, value, sub, valueColor = 'text-slate-800' }) {
 export default function DLightDirectorDashboard({ visitors = [], team = [], subDepartments = [], tasks = [], loading = false, currentYear }) {
   const now = new Date()
   const currentMonth = now.getMonth()
+
+  const [returnPeriod, setReturnPeriod] = useState('thisMonth')
+  const [attendanceNameSets, setAttendanceNameSets] = useState([])
+  const [loadingReturnRate, setLoadingReturnRate] = useState(false)
+
+  const todayStr = toDateStr(now)
+  const periodStartStr = toDateStr(returnPeriodStart(returnPeriod, now))
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingReturnRate(true)
+    getSundayAttendanceNameSetsInRange(periodStartStr, todayStr)
+      .then((sets) => { if (!cancelled) setAttendanceNameSets(sets) })
+      .catch(() => { if (!cancelled) setAttendanceNameSets([]) })
+      .finally(() => { if (!cancelled) setLoadingReturnRate(false) })
+    return () => { cancelled = true }
+  }, [periodStartStr, todayStr])
+
+  const returnRateStats = useMemo(() => {
+    const firstTimers = visitors.filter((v) => {
+      if (!v.attendedDate) return false
+      return v.attendedDate >= periodStartStr && v.attendedDate <= todayStr
+    })
+
+    const returned = firstTimers.filter((v) => {
+      const windowEnd = new Date(v.attendedDate + 'T00:00:00')
+      windowEnd.setDate(windowEnd.getDate() + SECOND_WEEK_WINDOW_DAYS)
+      const windowEndStr = toDateStr(windowEnd)
+      const cappedWindowEndStr = windowEndStr < todayStr ? windowEndStr : todayStr
+      const name = normalizeName(v.name)
+      if (!name) return false
+      return attendanceNameSets.some(
+        (w) => w.date > v.attendedDate && w.date <= cappedWindowEndStr && w.names.has(name)
+      )
+    })
+
+    const rate = firstTimers.length ? Math.round((returned.length / firstTimers.length) * 100) : 0
+    return { total: firstTimers.length, returned: returned.length, rate }
+  }, [visitors, attendanceNameSets, periodStartStr, todayStr])
 
   const visitorsThisYear = useMemo(
     () => visitors.filter((v) => (v.year || currentYear) === currentYear),
@@ -192,6 +251,37 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
           sub={`${completedTasks.length} completed`}
           valueColor={openTasks.length > 0 ? 'text-amber-500' : 'text-emerald-600'}
         />
+      </div>
+
+      {/* 2nd Week Return Rate */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">2nd Week Return Rate</p>
+            <p className={`text-3xl font-extrabold leading-none ${returnRateStats.total > 0 ? 'text-indigo-600' : 'text-slate-800'}`}>
+              {loadingReturnRate ? '—' : `${returnRateStats.rate}%`}
+            </p>
+          </div>
+          <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+            {RETURN_PERIODS.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => setReturnPeriod(p.key)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                  returnPeriod === p.key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-xs text-slate-400">
+          {returnRateStats.total === 0
+            ? 'No first-time visitors in this period'
+            : `${returnRateStats.returned} of ${returnRateStats.total} first-time visitors returned within 4 weeks`}
+        </p>
       </div>
 
       {/* Charts Row 1: Monthly Trend + YoY */}

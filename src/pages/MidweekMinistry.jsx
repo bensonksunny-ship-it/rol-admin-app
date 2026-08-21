@@ -1463,6 +1463,9 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
         // scoped per cell per week so next week's reminder isn't merged with this one.
         personId: selectedCellId,
         taskType: `backToBibleReminder:${today}`,
+        // Function is literally "notify Director" — this was never meant to also land
+        // on every other Cell Leader's To-Do list (ToDoListCard.jsx).
+        visibleToRole: 'DIRECTOR',
       })
       setNotifiedDirector(true)
       setTimeout(() => setNotifiedDirector(false), 5000)

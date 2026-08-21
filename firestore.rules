@@ -130,6 +130,11 @@ service cloud.firestore {
       allow write: if isFullAccess();
     }
 
+    // Founder's personal Worklist Sheet tracker — fully Founder-only, no department scoping.
+    match /worklist_sheets/{sheetId} {
+      allow read, write: if isFullAccess();
+    }
+
     // Global app settings (e.g. settings/pastoral_roster — default Pastors shown as
     // pre-linked suggestions on every Sunday report). Read by anyone signed in since
     // every Sunday report editor needs it; write restricted to Founder, same governance

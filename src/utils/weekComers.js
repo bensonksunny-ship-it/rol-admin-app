@@ -20,9 +20,33 @@ export const FOURTH_WEEK_REQUIRED_COUNT = 3
 
 const normalizeName = (n) => String(n || '').trim().toLowerCase()
 
+// Everyone already recorded present on a sunday_reports doc, in any capacity — Cell,
+// Non Cell, Others, New Comers, or (for reports written before the mark-present routing
+// below existed) the legacy Nth Week Attendees fields. Marking someone present from the
+// Follow-Up panel routes them into their Cell or Non Cell (see markWeekComer in
+// DepartmentHub.jsx), so this is what "already marked, don't re-suggest" now checks.
+function namesAlreadyPresent(reportDoc) {
+  const names = new Set()
+  const addAll = (arr) => (Array.isArray(arr) ? arr : []).forEach((n) => {
+    const t = normalizeName(n)
+    if (t) names.add(t)
+  })
+  if (!reportDoc) return names
+  addAll(reportDoc.nonCell)
+  addAll(reportDoc.others)
+  addAll(reportDoc.newComers)
+  addAll(reportDoc.secondWeekAttendeesNames)
+  addAll(reportDoc.thirdWeekAttendeesNames)
+  addAll(reportDoc.fourthWeekAttendeesNames)
+  if (reportDoc.sundayCellAttendance && typeof reportDoc.sundayCellAttendance === 'object') {
+    Object.values(reportDoc.sundayCellAttendance).forEach(addAll)
+  }
+  return names
+}
+
 /**
  * Computes Second/Third/Fourth Week Comer candidates for a target Sunday.
- * Each list excludes names already marked on the target Sunday's own report.
+ * Each list excludes names already recorded present on the target Sunday's own report.
  *
  * @param {string} targetDateStr - target Sunday, 'yyyy-MM-dd'
  * @param {Array<{name: string, attendedDate: string}>} visitors - D-Light visitors
@@ -49,10 +73,7 @@ export async function computeWeekComerCandidates(targetDateStr, visitors) {
     getSundayAttendanceCountsByNameInRange(daysAgoStr(FOURTH_WEEK_WINDOW_DAYS), countRangeEndStr),
   ])
 
-  const alreadyIn = (field) => new Set((targetReport?.[field] || []).map(normalizeName))
-  const alreadySecond = alreadyIn('secondWeekAttendeesNames')
-  const alreadyThird = alreadyIn('thirdWeekAttendeesNames')
-  const alreadyFourth = alreadyIn('fourthWeekAttendeesNames')
+  const alreadyPresent = namesAlreadyPresent(targetReport)
 
   const second = [...new Set(
     visitors
@@ -63,9 +84,9 @@ export async function computeWeekComerCandidates(targetDateStr, visitors) {
       })
       .map((v) => v.name)
       .filter(Boolean)
-  )].filter((n) => !alreadySecond.has(normalizeName(n)))
+  )].filter((n) => !alreadyPresent.has(normalizeName(n)))
 
-  const computeAttendanceCandidates = (days, requiredCount, countsInRange, alreadyMarked) => {
+  const computeAttendanceCandidates = (days, requiredCount, countsInRange) => {
     const start = windowStart(days)
     return [...new Set(
       visitors
@@ -77,11 +98,11 @@ export async function computeWeekComerCandidates(targetDateStr, visitors) {
         .filter((v) => countsInRange.get(normalizeName(v.name)) === requiredCount)
         .map((v) => v.name)
         .filter(Boolean)
-    )].filter((n) => !alreadyMarked.has(normalizeName(n)))
+    )].filter((n) => !alreadyPresent.has(normalizeName(n)))
   }
 
-  const third = computeAttendanceCandidates(THIRD_WEEK_WINDOW_DAYS, THIRD_WEEK_REQUIRED_COUNT, thirdWindowCounts, alreadyThird)
-  const fourth = computeAttendanceCandidates(FOURTH_WEEK_WINDOW_DAYS, FOURTH_WEEK_REQUIRED_COUNT, fourthWindowCounts, alreadyFourth)
+  const third = computeAttendanceCandidates(THIRD_WEEK_WINDOW_DAYS, THIRD_WEEK_REQUIRED_COUNT, thirdWindowCounts)
+  const fourth = computeAttendanceCandidates(FOURTH_WEEK_WINDOW_DAYS, FOURTH_WEEK_REQUIRED_COUNT, fourthWindowCounts)
 
   return { second, third, fourth }
 }

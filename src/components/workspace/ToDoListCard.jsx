@@ -6,6 +6,7 @@ import { subscribeTasksForDepartments, markTaskCompleted, markTaskTurnedDown, ge
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { formatDMY } from '../../utils/date'
+import { getDepartmentRole } from '../../utils/access'
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -142,11 +143,20 @@ export default function ToDoListCard() {
   // addressed to one specific Cell Leader) comes back for every department member,
   // not just its intended recipient. Filter those out here before they ever reach the
   // list a Cell Leader/Director sees — tasks with no assignedToUid are genuine
-  // department-wide broadcasts (referrals, consult requests) and stay visible to all.
+  // department-wide broadcasts (referrals, consult requests) and stay visible to all,
+  // UNLESS the task also carries visibleToRole (e.g. "Add [Name] to a cell group" is a
+  // placement decision meant only for the Cell Director, not every Cell Leader in the
+  // department) — that's checked against the viewer's actual role in that department,
+  // the same DIRECTOR/COORDINATOR distinction getDepartmentRole() already uses to gate
+  // department-head-only UI elsewhere in the app.
   const myUid = user?.uid
   const scopedTasks = useMemo(
-    () => tasks.filter((t) => !t.assignedToUid || t.assignedToUid === myUid || isFounder),
-    [tasks, myUid, isFounder]
+    () => tasks.filter((t) => {
+      if (t.assignedToUid && t.assignedToUid !== myUid && !isFounder) return false
+      if (t.visibleToRole && !isFounder && getDepartmentRole(userProfile, t.department) !== t.visibleToRole) return false
+      return true
+    }),
+    [tasks, myUid, isFounder, userProfile]
   )
 
   // Every task within its 30-day retention window, regardless of status — this is the

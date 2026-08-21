@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Home, Menu, Moon, Sun, UserCog, Users } from 'lucide-react'
+import { ClipboardList, Home, Menu, Moon, Sun, UserCog, Users } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import RailTooltip from '../RailTooltip'
 import ProfileDrawer from '../ProfileDrawer'
@@ -21,10 +21,10 @@ function getInitials(profile) {
 // theme, sign out). Department/report navigation lives entirely in the global floating
 // dock (DepartmentDock, rendered from MainLayout) and My Workspace itself — neither
 // surface here duplicates that as a per-role nav-item list. The exceptions are User
-// Management (`/admin/users`) and People Directory (`/people`): both are Founder-only,
-// have no department tile of their own, and aren't linked from anywhere else, so both
-// rails render them — gated on `isFounder` — right after My Workspace. The mobile drawer
-// is otherwise a slim w-16 icon-only rail
+// Management (`/admin/users`), People Directory (`/people`), and Worklist Sheet
+// (`/worklist`): all three are Founder-only, have no department tile of their own, and
+// aren't linked from anywhere else, so both rails render them — gated on `isFounder` —
+// right after My Workspace. The mobile drawer is otherwise a slim w-16 icon-only rail
 // carrying the same account-level actions as IconRail (profile, home, theme, sign out)
 // — no text labels, no full-width nav-list panel.
 //
@@ -245,6 +245,20 @@ export default function Sidebar({ notifications, onNotifAction, onDismissNotific
             </NavLink>
           )}
 
+          {isFounder && (
+            <NavLink
+              to="/worklist"
+              title="Worklist Sheet"
+              aria-label="Worklist Sheet"
+              onClick={() => setDrawerOpen(false)}
+              className={({ isActive }) =>
+                `${mobileRailBtnClass} w-12 h-12 ${isActive ? navLinkActive : navLinkInactive}`
+              }
+            >
+              <ClipboardList size={22} strokeWidth={1.75} />
+            </NavLink>
+          )}
+
           <div className="flex-1" />
 
           <button
@@ -327,6 +341,22 @@ export default function Sidebar({ notifications, onNotifAction, onDismissNotific
             }
           >
             <Users size={20} strokeWidth={1.75} />
+          </NavLink>
+        </RailTooltip>
+      )}
+
+      {isFounder && (
+        <RailTooltip label="Worklist Sheet">
+          <NavLink
+            to="/worklist"
+            aria-label="Worklist Sheet"
+            className={({ isActive }) =>
+              `relative w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
+                isActive ? navLinkActive : navLinkInactive
+              }`
+            }
+          >
+            <ClipboardList size={20} strokeWidth={1.75} />
           </NavLink>
         </RailTooltip>
       )}

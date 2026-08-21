@@ -30,6 +30,7 @@ import SeniorPastorHub from './pages/SeniorPastorHub'
 import EntryPage from './pages/accounts/EntryPage'
 import DLightMembers from './pages/DLightMembers'
 import PeopleDirectory from './pages/PeopleDirectory'
+import WorklistSheet from './pages/WorklistSheet'
 import BoardPresentView from './pages/BoardPresentView'
 import OfflineBanner from './components/OfflineBanner'
 
@@ -67,6 +68,7 @@ function App() {
               <Route path="reports" element={<Reports />} />
               <Route path="admin/users" element={<AdminUserManagement />} />
               <Route path="people" element={<PeopleDirectory />} />
+              <Route path="worklist" element={<WorklistSheet />} />
               <Route path="cell/users" element={<CellUserManagement />} />
               <Route path="department/worship" element={<DepartmentWorship />} />
               <Route path="department/worship/applications" element={<WorshipApplicationsPage />} />

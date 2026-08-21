@@ -376,6 +376,9 @@ export function CellDirectorCockpit({
           // Identity + action-kind pair the To-Do List dedupes on (ToDoListCard.jsx).
           personId: item.visitorId || item.phone || item.name,
           taskType: 'cellAssignConsult',
+          // D-Light's recommendation is a departmental position, not shared team work —
+          // Director only (matches the useActionNotifications.js bell-notification gate).
+          visibleToRole: 'DIRECTOR',
         })
         showToast(`Requested D Light input for ${item.name}.`)
         setConsultOpenName(null)

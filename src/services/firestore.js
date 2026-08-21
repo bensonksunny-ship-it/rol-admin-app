@@ -3589,9 +3589,9 @@ export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onErr
  * approach as the rest of the Sunday attendance code.
  * Returns a Map<normalizedName, count>.
  */
-// Shared by getSundayAttendanceCountsByName and getSundayAttendanceCountsByNameInRange
-// so both count the same set of fields per report doc.
-function addSundayReportAttendanceCounts(counts, data) {
+// Shared by addSundayReportAttendanceCounts and getSundayAttendanceNameSetsInRange so
+// every caller unions the same set of fields per report doc.
+function extractAttendanceNamesFromReport(data) {
   const namesThisWeek = new Set()
   const addAll = (arr) => {
     if (!Array.isArray(arr)) return
@@ -3610,7 +3610,13 @@ function addSundayReportAttendanceCounts(counts, data) {
   if (sca && typeof sca === 'object') {
     Object.values(sca).forEach((arr) => addAll(arr))
   }
-  namesThisWeek.forEach((norm) => {
+  return namesThisWeek
+}
+
+// Shared by getSundayAttendanceCountsByName and getSundayAttendanceCountsByNameInRange
+// so both count the same set of fields per report doc.
+function addSundayReportAttendanceCounts(counts, data) {
+  extractAttendanceNamesFromReport(data).forEach((norm) => {
     counts.set(norm, (counts.get(norm) || 0) + 1)
   })
 }
@@ -3638,6 +3644,24 @@ export async function getSundayAttendanceCountsByNameInRange(startDateStr, endDa
   const snap = await getDocs(q)
   snap.docs.forEach((d) => addSundayReportAttendanceCounts(counts, d.data()))
   return counts
+}
+
+// Like getSundayAttendanceCountsByNameInRange, but returns per-week detail instead of
+// an aggregate count — used by the D-Light 2nd Week Return Rate KPI, which needs to know
+// *which* Sundays a name attended (to check they fall inside a specific visitor's own
+// return window) rather than just a total count across the whole range.
+export async function getSundayAttendanceNameSetsInRange(startDateStr, endDateStr) {
+  if (!db || !startDateStr || !endDateStr) return []
+  const q = query(
+    collection(db, SUNDAY_REPORTS_COLLECTION),
+    where('date', '>=', startDateStr),
+    where('date', '<=', endDateStr)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({
+    date: d.id,
+    names: extractAttendanceNamesFromReport(d.data()),
+  }))
 }
 
 export async function getRecentSundayReports(numWeeks = 8) {
@@ -6009,4 +6033,64 @@ export function subscribeCellUnassignedDismissals(onChange) {
   return onSnapshot(collection(db, CELL_UNASSIGNED_DISMISSALS), (snap) => {
     onChange(new Set(snap.docs.map((d) => d.id)))
   }, () => {})
+}
+
+// ─── Founder Worklist Sheet ─────────────────────────────────────────────────
+// Digitized version of the Founder's handwritten Worklist Sheet: each doc is one
+// "page", holding 4 fixed color blocks of 10 rows each (No/Date/Work/RMRK).
+// Shared across all Founder accounts — not per-user. See docs/superpowers/specs/
+// 2026-08-20-founder-worklist-sheet-design.md for the full design.
+const WORKLIST_SHEETS = 'worklist_sheets'
+const WORKLIST_BLOCK_COLORS = ['green', 'yellow', 'red', 'blue']
+const WORKLIST_ROWS_PER_BLOCK = 10
+
+function makeWorklistBlocks() {
+  return WORKLIST_BLOCK_COLORS.map((color) => ({
+    color,
+    rows: Array.from({ length: WORKLIST_ROWS_PER_BLOCK }, (_, i) => ({
+      no: i + 1,
+      date: '',
+      work: '',
+      doneDate: '',
+    })),
+  }))
+}
+
+export function subscribeWorklistSheets(onChange) {
+  if (!db) return () => {}
+  const q = query(collection(db, WORKLIST_SHEETS), orderBy('order'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  }, () => {})
+}
+
+export async function createWorklistSheet(order, label) {
+  const ref = await addDoc(collection(db, WORKLIST_SHEETS), {
+    order,
+    label,
+    blocks: makeWorklistBlocks(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function updateWorklistCell(sheetId, blockIndex, rowIndex, field, value) {
+  await updateDoc(doc(db, WORKLIST_SHEETS, sheetId), {
+    [`blocks.${blockIndex}.rows.${rowIndex}.${field}`]: value,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function clearWorklistRow(sheetId, blockIndex, rowIndex) {
+  await updateDoc(doc(db, WORKLIST_SHEETS, sheetId), {
+    [`blocks.${blockIndex}.rows.${rowIndex}.date`]: '',
+    [`blocks.${blockIndex}.rows.${rowIndex}.work`]: '',
+    [`blocks.${blockIndex}.rows.${rowIndex}.doneDate`]: '',
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function deleteWorklistSheet(sheetId) {
+  await deleteDoc(doc(db, WORKLIST_SHEETS, sheetId))
 }
