@@ -41,10 +41,26 @@ const DEFAULT_DEPT_STATE = {
   editError: '',
 }
 
+// Parses a pasted/typed date, always treating numeric d/m/y-style strings as
+// DAY-first (dd/mm/yyyy, d/m/yy, dd-mm-yy, dd.mm.yyyy, …) — the format used when
+// pasting from Excel in this app. JS's native `new Date(string)` parses ambiguous
+// slash dates as MONTH-first (US style), which silently swaps day and month for
+// anything like "05/08/2026", so it's not used for this shape of input.
 function parseFlexibleDate(raw) {
   const trimmed = String(raw || '').trim()
   if (!trimmed) return ''
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+
+  const dmy = trimmed.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/)
+  if (dmy) {
+    let [, d, m, y] = dmy.map(Number)
+    if (y < 100) y += y <= 69 ? 2000 : 1900
+    if (d < 1 || d > 31 || m < 1 || m > 12) return ''
+    const date = new Date(y, m - 1, d)
+    const isRealDate = date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d
+    return isRealDate ? format(date, 'yyyy-MM-dd') : ''
+  }
+
   const d = new Date(trimmed)
   return isNaN(d) ? '' : format(d, 'yyyy-MM-dd')
 }
