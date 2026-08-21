@@ -10,8 +10,12 @@ export const NAMED_CATEGORIES = [
   'Support from ROLCC',
 ]
 
+// Pre-refactor entries were saved with the plain 'Tithe' category (no language
+// split). Those are folded into Tithe - English rather than Other Income.
+const LEGACY_TITHE_CATEGORY = 'Tithe'
+
 export function isOtherIncome(entry) {
-  return !NAMED_CATEGORIES.includes(entry.category)
+  return !NAMED_CATEGORIES.includes(entry.category) && entry.category !== LEGACY_TITHE_CATEGORY
 }
 
 export function categorizeEntries(entries) {
@@ -20,7 +24,7 @@ export function categorizeEntries(entries) {
     englishOffering: byCategory('English Offering'),
     tamilOffering: byCategory('Tamil Offering'),
     onlineOffering: byCategory('Online Offering'),
-    titheEnglish: byCategory('Tithe - English'),
+    titheEnglish: [...byCategory('Tithe - English'), ...byCategory(LEGACY_TITHE_CATEGORY)],
     titheTamil: byCategory('Tithe - Tamil'),
     contribution: byCategory('Contribution'),
     supportFromROLCC: byCategory('Support from ROLCC'),
