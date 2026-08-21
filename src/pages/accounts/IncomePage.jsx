@@ -42,6 +42,7 @@ const EMPTY_FORM = {
   category: INCOME_TYPES[0],
   amount: '',
   giverName: '',
+  towards: '',
 }
 
 export default function IncomePage({ controlledMonth } = {}) {
@@ -127,6 +128,7 @@ export default function IncomePage({ controlledMonth } = {}) {
         category: form.category,
         amount: Number(form.amount),
         giverName: form.giverName.trim(),
+        towards: form.towards.trim(),
       }
       if (editingId) {
         await updateFinanceIncome(editingId, payload)
@@ -153,6 +155,7 @@ export default function IncomePage({ controlledMonth } = {}) {
       category: entry.category || INCOME_TYPES[0],
       amount: String(entry.amount ?? ''),
       giverName: entry.giverName || '',
+      towards: entry.towards || '',
     })
     formRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
@@ -333,7 +336,7 @@ export default function IncomePage({ controlledMonth } = {}) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <CategoryListTable title="Tithe - English" entries={categorized.titheEnglish} {...rowActionProps} />
         <CategoryListTable title="Tithe - Tamil" entries={categorized.titheTamil} {...rowActionProps} />
-        <CategoryListTable title="Contribution" entries={categorized.contribution} {...rowActionProps} />
+        <CategoryListTable title="Contribution" entries={categorized.contribution} towardsColumn {...rowActionProps} />
         <CategoryListTable title="Support from ROLCC" entries={categorized.supportFromROLCC} {...rowActionProps} />
         <CategoryListTable title="Other Income" entries={categorized.otherIncome} {...rowActionProps} />
       </div>
@@ -412,6 +415,18 @@ export default function IncomePage({ controlledMonth } = {}) {
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
               />
             </div>
+            {form.category === 'Contribution' && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-500">Towards <span className="text-slate-400 font-normal">(opt.)</span></label>
+                <input
+                  type="text"
+                  value={form.towards}
+                  onChange={e => setForm(f => ({ ...f, towards: e.target.value }))}
+                  placeholder="What the contribution is for"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+                />
+              </div>
+            )}
           </div>
 
           {formError && (

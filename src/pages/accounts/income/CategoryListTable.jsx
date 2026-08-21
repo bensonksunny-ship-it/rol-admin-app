@@ -11,6 +11,7 @@ export default function CategoryListTable({
   setDeletingId,
   onEdit,
   onDelete,
+  towardsColumn = false,
 }) {
   const total = sumAmount(entries)
   const sorted = [...entries].sort((a, b) => toDate(b.date) - toDate(a.date))
@@ -34,6 +35,7 @@ export default function CategoryListTable({
               <tr className="text-left text-slate-500 border-b border-slate-100">
                 <th className="px-3 py-2 font-medium">Date</th>
                 <th className="px-3 py-2 font-medium">Name</th>
+                {towardsColumn && <th className="px-3 py-2 font-medium">Towards</th>}
                 <th className="px-3 py-2 font-medium text-right">Amount</th>
                 {editMode && <th className="px-3 py-2"></th>}
               </tr>
@@ -43,6 +45,7 @@ export default function CategoryListTable({
                 <tr key={entry.id} className="hover:bg-slate-50 transition">
                   <td className="px-3 py-2 text-slate-700">{fmtDate(entry.date)}</td>
                   <td className="px-3 py-2 text-slate-600">{entry.giverName || '—'}</td>
+                  {towardsColumn && <td className="px-3 py-2 text-slate-600">{entry.towards || '—'}</td>}
                   <td className="px-3 py-2 text-right font-medium text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
                   {editMode && (
                     <td className="px-3 py-2 text-right">
@@ -66,7 +69,7 @@ export default function CategoryListTable({
             </tbody>
             <tfoot>
               <tr className="border-t border-slate-100 bg-slate-50/40">
-                <td className="px-3 py-2 font-semibold text-slate-600" colSpan={2}>Total</td>
+                <td className="px-3 py-2 font-semibold text-slate-600" colSpan={towardsColumn ? 3 : 2}>Total</td>
                 <td className="px-3 py-2 text-right font-bold text-slate-800">₹{total.toLocaleString('en-IN')}</td>
                 {editMode && <td></td>}
               </tr>
