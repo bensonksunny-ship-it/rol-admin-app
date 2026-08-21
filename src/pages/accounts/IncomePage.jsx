@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Navigate } from 'react-router-dom'
 import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
@@ -9,8 +9,11 @@ import {
   createFinanceIncome,
   updateFinanceIncome,
   deleteFinanceIncome,
-  deleteAllFinanceIncomeForMonth,
 } from '../../services/firestore'
+import { categorizeEntries } from './income/incomeCategorize'
+import IncomeSummaryTable from './income/IncomeSummaryTable'
+import OfferingMatrixTable from './income/OfferingMatrixTable'
+import CategoryListTable from './income/CategoryListTable'
 
 // Pure integer Excel serial → yyyy-MM-dd. Zero JS Date usage — no timezone involved.
 // Excel serial 1 = Jan 1 1900. Serial 60 is Excel's fake Feb 29 1900 (off-by-1 bug).
@@ -53,14 +56,15 @@ export default function IncomePage({ controlledMonth } = {}) {
   const [formError, setFormError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
-  const [confirmRemoveAll, setConfirmRemoveAll] = useState(false)
-  const [removingAll, setRemovingAll] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [openMenuId, setOpenMenuId] = useState(null)
   const [xlsxRows, setXlsxRows] = useState(null)
   const [xlsxError, setXlsxError] = useState('')
   const [xlsxResult, setXlsxResult] = useState(null)
   const [pendingImports, setPendingImports] = useState([])
   const [savingImports, setSavingImports] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const formRef = useRef(null)
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
@@ -68,6 +72,15 @@ export default function IncomePage({ controlledMonth } = {}) {
     if (!canAccess) return
     load()
   }, [activeMonth, canAccess])
+
+  useEffect(() => {
+    if (!openMenuId) return
+    function handleClickOutside(e) {
+      if (!e.target.closest('[data-row-menu]')) setOpenMenuId(null)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [openMenuId])
 
   if (!canAccess) return <Navigate to="/" replace />
 
@@ -89,6 +102,9 @@ export default function IncomePage({ controlledMonth } = {}) {
   }
 
   const totalIncome = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  const categorized = categorizeEntries(entries)
+  const offeringEntries = [...categorized.englishOffering, ...categorized.tamilOffering, ...categorized.onlineOffering]
+  const rowActionProps = { editMode, openMenuId, setOpenMenuId, deletingId, setDeletingId, onEdit: handleEdit, onDelete: handleDelete }
 
   function prevMonth() { setInternalMonth(m => subMonths(m, 1)) }
   function nextMonth() { setInternalMonth(m => addMonths(m, 1)) }
@@ -138,7 +154,7 @@ export default function IncomePage({ controlledMonth } = {}) {
       amount: String(entry.amount ?? ''),
       giverName: entry.giverName || '',
     })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    formRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
   function handleCancelEdit() {
@@ -155,20 +171,6 @@ export default function IncomePage({ controlledMonth } = {}) {
     } catch {
       setSaveError('Failed to delete. Please try again.')
       setTimeout(() => setSaveError(''), 4000)
-    }
-  }
-
-  async function handleRemoveAll() {
-    setRemovingAll(true)
-    try {
-      await deleteAllFinanceIncomeForMonth(activeMonth.getFullYear(), activeMonth.getMonth())
-      setEntries([])
-    } catch {
-      setSaveError('Failed to remove all. Please try again.')
-      setTimeout(() => setSaveError(''), 4000)
-    } finally {
-      setRemovingAll(false)
-      setConfirmRemoveAll(false)
     }
   }
 
@@ -296,8 +298,48 @@ export default function IncomePage({ controlledMonth } = {}) {
         </div>
       )}
 
+      {/* Load error */}
+      {loadError && (
+        <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <p className="text-sm text-red-700 font-medium">{loadError}</p>
+          <button type="button" onClick={load} className="text-xs text-red-600 font-semibold hover:underline">Retry</button>
+        </div>
+      )}
+
+      {/* Edit toggle */}
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-slate-600">Income Breakdown</h2>
+        <button
+          type="button"
+          onClick={() => { setEditMode(m => !m); setOpenMenuId(null); setDeletingId(null) }}
+          className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+            editMode
+              ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+              : 'border-slate-200 text-slate-600 hover:border-indigo-400 hover:text-indigo-700'
+          }`}
+        >
+          {editMode ? 'Done' : 'Edit'}
+        </button>
+      </div>
+
+      {loading && (
+        <div className="text-center text-sm text-slate-500 py-2">Loading…</div>
+      )}
+
+      <IncomeSummaryTable entries={entries} />
+
+      <OfferingMatrixTable entries={offeringEntries} {...rowActionProps} />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <CategoryListTable title="Tithe - English" entries={categorized.titheEnglish} {...rowActionProps} />
+        <CategoryListTable title="Tithe - Tamil" entries={categorized.titheTamil} {...rowActionProps} />
+        <CategoryListTable title="Contribution" entries={categorized.contribution} {...rowActionProps} />
+        <CategoryListTable title="Support from ROLCC" entries={categorized.supportFromROLCC} {...rowActionProps} />
+        <CategoryListTable title="Other Income" entries={categorized.otherIncome} {...rowActionProps} />
+      </div>
+
       {/* Bento grid: stats card + entry form */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+      <div ref={formRef} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
 
         {/* Stats card — compact, square-ish */}
         <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl shadow-lg p-5 text-white flex flex-col justify-between min-h-[148px]">
@@ -453,118 +495,6 @@ export default function IncomePage({ controlledMonth } = {}) {
           </div>
         </div>
       )}
-
-      {/* Load error */}
-      {loadError && (
-        <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-          <p className="text-sm text-red-700 font-medium">{loadError}</p>
-          <button type="button" onClick={load} className="text-xs text-red-600 font-semibold hover:underline">Retry</button>
-        </div>
-      )}
-
-      {/* Income list */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="p-6 text-center text-slate-500 text-sm">Loading…</div>
-        ) : entries.length === 0 ? (
-          <div className="p-6 text-center text-slate-400 text-sm">
-            No income recorded for this month.
-          </div>
-        ) : (
-          <>
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60">
-            <span className="text-xs text-slate-500">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</span>
-            {confirmRemoveAll ? (
-              <span className="flex items-center gap-2 text-xs text-slate-600">
-                <span>Remove all {entries.length} entries?</span>
-                <button type="button" onClick={handleRemoveAll} disabled={removingAll} className="text-red-600 font-semibold hover:underline disabled:opacity-50">
-                  {removingAll ? 'Removing…' : 'Yes, Remove All'}
-                </button>
-                <button type="button" onClick={() => setConfirmRemoveAll(false)} className="text-slate-500 hover:underline">Cancel</button>
-              </span>
-            ) : (
-              <button type="button" onClick={() => setConfirmRemoveAll(true)} className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline">Remove All</button>
-            )}
-          </div>
-
-          {/* Mobile cards */}
-          <div className="sm:hidden divide-y divide-slate-100">
-            {entries.map((entry, idx) => (
-              <div key={entry.id} className="p-4 space-y-1.5">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-slate-800 text-sm">
-                      <span className="text-xs font-normal text-slate-400 mr-1">#{idx + 1}</span>
-                      ₹{Number(entry.amount).toLocaleString('en-IN')}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {entry.date instanceof Date ? format(entry.date, 'dd/MM/yyyy') : format(new Date(entry.date), 'dd/MM/yyyy')}
-                    </p>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 shrink-0">{entry.category}</span>
-                </div>
-                {entry.giverName && <p className="text-xs text-slate-500">{entry.giverName}</p>}
-                {deletingId === entry.id ? (
-                  <div className="flex items-center gap-3 text-xs pt-1">
-                    <span className="text-slate-600">Confirm delete?</span>
-                    <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-medium">Yes</button>
-                    <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500">No</button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 pt-0.5">
-                    <button type="button" onClick={() => handleEdit(entry)} className="text-xs text-indigo-600 font-medium hover:underline">Edit</button>
-                    <button type="button" onClick={() => setDeletingId(entry.id)} className="text-xs text-red-500 hover:underline">Delete</button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Desktop table */}
-          <div className="hidden sm:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                  <th className="px-4 py-3 text-center w-10">No.</th>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Income Type</th>
-                  <th className="px-4 py-3">Given By</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {entries.map((entry, idx) => (
-                  <tr key={entry.id} className="hover:bg-slate-50 transition">
-                    <td className="px-4 py-3 text-center text-xs text-slate-400 font-medium">{idx + 1}</td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {entry.date instanceof Date ? format(entry.date, 'dd/MM/yyyy') : format(new Date(entry.date), 'dd/MM/yyyy')}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{entry.category}</td>
-                    <td className="px-4 py-3 text-slate-600">{entry.giverName || '—'}</td>
-                    <td className="px-4 py-3 text-right font-medium text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
-                    <td className="px-4 py-3 text-right">
-                      {deletingId === entry.id ? (
-                        <span className="flex items-center justify-end gap-2 text-xs text-slate-600">
-                          <span>Confirm delete?</span>
-                          <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
-                          <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
-                        </span>
-                      ) : (
-                        <span className="flex items-center justify-end gap-2">
-                          <button type="button" onClick={() => handleEdit(entry)} className="p-1.5 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition" aria-label="Edit">✏️</button>
-                          <button type="button" onClick={() => setDeletingId(entry.id)} className="p-1.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition" aria-label="Delete">🗑️</button>
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          </>
-        )}
-      </div>
 
       {/* Excel preview modal */}
       {xlsxRows && (
