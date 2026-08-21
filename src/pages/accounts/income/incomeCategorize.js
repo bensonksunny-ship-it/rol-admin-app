@@ -8,6 +8,7 @@ export const NAMED_CATEGORIES = [
   'Tithe - Tamil',
   'Contribution',
   'Support from ROLCC',
+  'RSM Salary',
 ]
 
 // Pre-refactor entries were saved with the plain 'Tithe' category (no language
@@ -50,6 +51,7 @@ export function categorizeEntries(entries) {
     titheTamil: byCategory('Tithe - Tamil'),
     contribution: byCategory('Contribution'),
     supportFromROLCC: [...byCategory('Support from ROLCC'), ...byCategory(LEGACY_DON_U_CATEGORY)],
+    rsmSalary: byCategory('RSM Salary'),
     otherIncome: entries.filter(isOtherIncome),
   }
 }

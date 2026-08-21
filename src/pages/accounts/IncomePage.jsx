@@ -368,6 +368,13 @@ export default function IncomePage({ controlledMonth } = {}) {
           onToggleEdit={() => toggleSection('otherIncome')}
           {...rowActionProps}
         />
+        <CategoryListTable
+          title="RSM Salary"
+          entries={categorized.rsmSalary}
+          editMode={!!editSections.rsmSalary}
+          onToggleEdit={() => toggleSection('rsmSalary')}
+          {...rowActionProps}
+        />
       </div>
 
       {/* Bento grid: stats card + entry form */}

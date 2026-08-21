@@ -255,6 +255,7 @@ export const INCOME_TYPES = [
   'Support from ROLCC',
   'Missions',
   'RSM',
+  'RSM Salary',
   'RFF',
   'Donations',
 ]
@@ -264,7 +265,7 @@ export const EXPENSE_CATEGORIES = [
   'Cell Ministry',
   'Caring',
   'Sunday Ministry',
-  'Junior Church',
+  'River Kids',
   'Outreach',
   'Building',
   'Media',
@@ -274,6 +275,14 @@ export const EXPENSE_CATEGORIES = [
   'Thunderstorm',
   'SP Office',
 ]
+
+// "Junior Church" was this department's old expense/budget category label — the rest
+// of the app (nav, department pages) has always called it "River Kids". Existing
+// finance_expense/finance_budget_items records may still carry the old label, so
+// treat it as an alias when matching a record's department against the category list.
+export function normalizeDepartmentName(name) {
+  return name === 'Junior Church' ? 'River Kids' : name
+}
 
 export const DEPARTMENT_TAGS = [
   'General',
