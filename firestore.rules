@@ -552,6 +552,10 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    match /finance_savings/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
     match /expense_departments/{docId} {
       allow read, write: if isSignedIn();
     }

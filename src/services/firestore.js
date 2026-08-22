@@ -1323,9 +1323,10 @@ export function listenFinanceExpense(filters = {}, callback, onError) {
 }
 
 export async function createFinanceExpense(data) {
+  const [y, m, d] = String(data.date).split('-').map(Number)
   const ref = await addDoc(collection(db, 'finance_expense'), {
     ...data,
-    date: Timestamp.fromDate(new Date(data.date)),
+    date: Timestamp.fromDate(new Date(y, m - 1, d)),
     amount: Number(data.amount) || 0,
     status: data.status || 'pending',
     createdAt: Timestamp.now(),
@@ -1342,8 +1343,9 @@ export async function updateFinanceExpenseStatus(id, status, approvedBy) {
 }
 
 export async function updateFinanceExpense(id, data) {
+  const [y, m, d] = String(data.date).split('-').map(Number)
   await updateDoc(doc(db, 'finance_expense', id), {
-    date: Timestamp.fromDate(new Date(data.date)),
+    date: Timestamp.fromDate(new Date(y, m - 1, d)),
     department: data.department,
     item: data.item || '',
     billNo: data.billNo || '',
@@ -1354,6 +1356,87 @@ export async function updateFinanceExpense(id, data) {
 
 export async function deleteFinanceExpense(id) {
   await deleteDoc(doc(db, 'finance_expense', id))
+}
+
+// `sheetYear`/`sheetMonth` are optional and independent of `date` — they record which
+// month sheet an expense was deliberately entered/kept under, which can differ from its
+// transaction date (e.g. a January-dated entry kept under the July sheet on purpose).
+// Only ExpensePage.jsx's department cards read/write these fields today; every other
+// finance_expense query in this file is untouched and still filters by `date` alone.
+export function listenFinanceExpenseBySheet({ year, month }, callback, onError) {
+  const q = query(
+    collection(db, 'finance_expense'),
+    where('sheetYear', '==', year),
+    where('sheetMonth', '==', month),
+  )
+  return onSnapshot(
+    q,
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }))),
+    onError,
+  )
+}
+
+export async function updateFinanceExpenseSheet(id, { sheetYear, sheetMonth }) {
+  await updateDoc(doc(db, 'finance_expense', id), { sheetYear, sheetMonth })
+}
+
+// ── Savings ────────────────────────────────────────────────────────────────
+// Deposits/withdrawals against fixed savings funds (Emergency Reserve, Building
+// Fund, …), tracked in their own collection so they never affect Expense totals.
+// Unlike Expense, a fund's balance is a running total that never resets — so
+// this listens to the whole collection with no month filter, and SavingsPage
+// computes each fund's balance client-side from every one of its transactions.
+// A month filter on that page only changes which rows are *displayed*, never
+// which ones count toward the balance.
+
+export function listenFinanceSavings(callback, onError) {
+  const q = query(collection(db, 'finance_savings'), orderBy('date', 'asc'))
+  return onSnapshot(
+    q,
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }))),
+    onError,
+  )
+}
+
+// One-shot fetch of every savings transaction, no date filter — used by the
+// Accounts Hub's "Total Savings" summary card, which (like SavingsPage's own
+// banner) is always an all-time balance, never scoped to the Hub's year/month
+// picker.
+export async function getFinanceSavings() {
+  if (!db) return []
+  const snap = await getDocs(query(collection(db, 'finance_savings'), orderBy('date', 'asc')))
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, date: toDate(data.date) }
+  })
+}
+
+export async function createFinanceSavings(data) {
+  const [y, m, d] = String(data.date).split('-').map(Number)
+  const ref = await addDoc(collection(db, 'finance_savings'), {
+    ...data,
+    date: Timestamp.fromDate(new Date(y, m - 1, d)),
+    amount: Number(data.amount) || 0,
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateFinanceSavings(id, data) {
+  const [y, m, d] = String(data.date).split('-').map(Number)
+  await updateDoc(doc(db, 'finance_savings', id), {
+    date: Timestamp.fromDate(new Date(y, m - 1, d)),
+    fund: data.fund,
+    type: data.type,
+    item: data.item || '',
+    reference: data.reference || '',
+    amount: Number(data.amount) || 0,
+    updatedAt: Timestamp.now(),
+  })
+}
+
+export async function deleteFinanceSavings(id) {
+  await deleteDoc(doc(db, 'finance_savings', id))
 }
 
 export async function getFinanceExpenseByDept(department) {

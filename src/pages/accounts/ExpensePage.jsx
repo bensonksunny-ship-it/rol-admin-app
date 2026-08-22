@@ -1,31 +1,51 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Navigate } from 'react-router-dom'
 import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
 import { EXPENSE_CATEGORIES, normalizeDepartmentName } from '../../constants/roles'
+import { parseFlexibleDate, toDisplayDate, parseFlexibleAmount } from '../../utils/entryTableHelpers'
+import RowActionsMenu from '../../components/RowActionsMenu'
 import {
   listenFinanceExpense,
+  listenFinanceExpenseBySheet,
   createFinanceExpense,
   updateFinanceExpense,
+  updateFinanceExpenseSheet,
   deleteFinanceExpense,
   getExpenseDepartments,
 } from '../../services/firestore'
 import WeeklyEntryPage from './WeeklyEntryPage'
 
-const EMPTY_FORM = {
-  date: format(new Date(), 'yyyy-MM-dd'),
-  item: '',
-  billNo: '',
-  amount: '',
-}
-
 const ROW_FIELDS = ['date', 'item', 'billNo', 'amount']
 const BLANK_ROW = { date: '', item: '', billNo: '', amount: '' }
-const BLANK_ROWS_COUNT = 10
+const BLANK_ROWS_COUNT = 1
+
+// A stable per-row identity independent of array position. handleSaveRows's async
+// save loop must locate a row by this key (not by its index at snapshot time) —
+// the live Firestore listener can trigger the reconciliation effect mid-loop,
+// which removes/reorders newRows and would otherwise attach a just-created
+// savedId to whichever row now happens to sit at the stale captured index.
+let rowKeyCounter = 0
+function newRowKey() {
+  rowKeyCounter += 1
+  return `row-${Date.now()}-${rowKeyCounter}`
+}
 
 function blankRows(count = BLANK_ROWS_COUNT) {
-  return Array.from({ length: count }, () => ({ ...BLANK_ROW }))
+  return Array.from({ length: count }, () => ({ ...BLANK_ROW, _key: newRowKey() }))
+}
+
+function isRowBlank(r) {
+  return !r.savedId && !r.date && !r.item && !r.billNo && !r.amount
+}
+
+// Guarantees the grid always ends with at least one empty, editable row, so there's
+// always somewhere to type without first clicking "+ Add more rows".
+function ensureTrailingBlank(rows) {
+  const last = rows[rows.length - 1]
+  return last && isRowBlank(last) ? rows : [...rows, { ...BLANK_ROW, _key: newRowKey() }]
 }
 
 // Per-department in-progress edit state, so multiple department cards can be
@@ -35,34 +55,11 @@ const DEFAULT_DEPT_STATE = {
   newRows: blankRows(),
   savingRows: false,
   rowsError: '',
-  isEditingSaved: false,
+  hideBlankRows: false,
+  undoStack: [],
+  // Already-saved "Entered" rows currently unlocked for inline editing — a subset,
+  // not all-or-nothing. Saved by the same bottom "Save rows" button as newRows.
   editRows: [],
-  editSaving: false,
-  editError: '',
-}
-
-// Parses a pasted/typed date, always treating numeric d/m/y-style strings as
-// DAY-first (dd/mm/yyyy, d/m/yy, dd-mm-yy, dd.mm.yyyy, …) — the format used when
-// pasting from Excel in this app. JS's native `new Date(string)` parses ambiguous
-// slash dates as MONTH-first (US style), which silently swaps day and month for
-// anything like "05/08/2026", so it's not used for this shape of input.
-function parseFlexibleDate(raw) {
-  const trimmed = String(raw || '').trim()
-  if (!trimmed) return ''
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
-
-  const dmy = trimmed.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/)
-  if (dmy) {
-    let [, d, m, y] = dmy.map(Number)
-    if (y < 100) y += y <= 69 ? 2000 : 1900
-    if (d < 1 || d > 31 || m < 1 || m > 12) return ''
-    const date = new Date(y, m - 1, d)
-    const isRealDate = date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d
-    return isRealDate ? format(date, 'yyyy-MM-dd') : ''
-  }
-
-  const d = new Date(trimmed)
-  return isNaN(d) ? '' : format(d, 'yyyy-MM-dd')
 }
 
 export default function ExpensePage({ controlledMonth } = {}) {
@@ -70,18 +67,13 @@ export default function ExpensePage({ controlledMonth } = {}) {
   const [internalMonth, setInternalMonth] = useState(startOfMonth(new Date()))
   const activeMonth = controlledMonth || internalMonth
   const [entries, setEntries] = useState([])
+  const [anchoredEntries, setAnchoredEntries] = useState([])
   const [loading, setLoading] = useState(false)
-  const [form, setForm] = useState(EMPTY_FORM)
-  const [editingId, setEditingId] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+  const [undoDelete, setUndoDelete] = useState(null)
+  const [saveWarning, setSaveWarning] = useState(null) // { dept, count } — pending "Save rows" click blocked by a date-mismatch confirmation
   const [filterDept, setFilterDept] = useState('all')
-  const [xlsxRows, setXlsxRows] = useState(null)
-  const [xlsxError, setXlsxError] = useState('')
-  const [importingXlsx, setImportingXlsx] = useState(false)
-  const [xlsxResult, setXlsxResult] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [viewMode, setViewMode] = useState('grid')
   const [expandedDepts, setExpandedDepts] = useState([])
@@ -99,7 +91,6 @@ export default function ExpensePage({ controlledMonth } = {}) {
   }
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
-  const isMonthLocked = activeMonth >= new Date(2026, 6, 1)
   const [deptOptions, setDeptOptions] = useState(EXPENSE_CATEGORIES)
 
   useEffect(() => {
@@ -111,10 +102,76 @@ export default function ExpensePage({ controlledMonth } = {}) {
   }, [])
 
   const unsubRef = useRef(null)
+  const sheetUnsubRef = useRef(null)
   const formRef = useRef(null)
-  const autoSaveTimersRef = useRef({})   // { [dept]: timeoutId }
-  const prevNewRowsRef = useRef({})      // { [dept]: newRows array reference last seen }
-  const autoSavingRef = useRef({})       // { [dept]: bool }
+  const expandedCardRef = useRef(null)   // DOM node of whichever department card is currently expanded
+  const undoTimerRef = useRef(null)
+  const [openActionMenu, setOpenActionMenu] = useState(null)
+
+  useEffect(() => () => { if (undoTimerRef.current) clearTimeout(undoTimerRef.current) }, [])
+
+  function offerUndo(payload) {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    setUndoDelete(payload)
+    undoTimerRef.current = setTimeout(() => setUndoDelete(null), 6000)
+  }
+
+  async function handleUndoDelete() {
+    if (!undoDelete) return
+    const payload = undoDelete
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    setUndoDelete(null)
+    try {
+      await createFinanceExpense(payload)
+    } catch {
+      // best effort — if this fails there's nothing more to offer
+    }
+  }
+
+  // Collapse the expanded department card when the user clicks anywhere outside it.
+  // Clicks on anything inside the card (inputs, buttons, the paste grid, etc.) are
+  // inside expandedCardRef's subtree, so contains() lets them through untouched.
+  // The row-actions (⋮) dropdown and the save-warning modal are portaled to
+  // document.body, so they're NOT DOM descendants of the card — both are marked
+  // with data-row-menu-overlay so clicks inside them are also let through instead
+  // of being treated as "outside" and collapsing the card.
+  useEffect(() => {
+    if (expandedDepts.length === 0) return
+    function handleClickOutside(event) {
+      if (event.target.closest?.('[data-row-menu-overlay]')) return
+      if (expandedCardRef.current && !expandedCardRef.current.contains(event.target)) {
+        setExpandedDepts([])
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [expandedDepts])
+
+  function undoLastChange(dept) {
+    updateDeptState(dept, (current) => {
+      if (!current.undoStack.length) return {}
+      const prevRows = current.undoStack[current.undoStack.length - 1]
+      return { newRows: prevRows, undoStack: current.undoStack.slice(0, -1) }
+    })
+  }
+
+  // Ctrl+Z (Cmd+Z on Mac) undoes the last paste or Excel upload into the currently
+  // expanded department's "Add new" grid. Only intercepts the keystroke when there's
+  // actually something of ours to undo — otherwise it's left alone so the browser's
+  // normal per-field undo still works for regular typing.
+  useEffect(() => {
+    if (expandedDepts.length === 0) return
+    const dept = expandedDepts[0]
+    function handleKeyDown(e) {
+      const isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'
+      if (!isUndo) return
+      if (!getDeptState(dept).undoStack.length) return
+      e.preventDefault()
+      undoLastChange(dept)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [expandedDepts, deptEditState])
 
   useEffect(() => {
     if (!canAccess) return
@@ -129,47 +186,62 @@ export default function ExpensePage({ controlledMonth } = {}) {
     return () => { if (unsubRef.current) { unsubRef.current(); unsubRef.current = null } }
   }, [activeMonth, canAccess])
 
-  // Auto-save any blank row that already has a valid date + amount, a moment after
-  // the user stops typing/pasting, so entries survive even if "Save rows" is never clicked.
-  // Each expanded department gets its own independent debounce timer, keyed off whether
-  // that department's newRows array reference actually changed — so typing in one
-  // department never resets or delays another's pending auto-save.
+  // Entries explicitly kept under this month's sheet (via sheetYear/sheetMonth) even
+  // though their own date falls in a different month — loaded separately since the
+  // query above only ever matches by date.
   useEffect(() => {
-    expandedDepts.forEach(dept => {
-      const rows = getDeptState(dept).newRows
-      if (prevNewRowsRef.current[dept] === rows) return
-      prevNewRowsRef.current[dept] = rows
-      if (autoSaveTimersRef.current[dept]) clearTimeout(autoSaveTimersRef.current[dept])
-      const hasFillable = rows.some(r => parseFlexibleDate(r.date) && Number(r.amount) > 0)
-      if (!hasFillable) return
-      autoSaveTimersRef.current[dept] = setTimeout(() => {
-        autoSaveFillableRows(dept, rows)
-      }, 900)
-    })
-    Object.keys(autoSaveTimersRef.current).forEach(dept => {
-      if (!expandedDepts.includes(dept)) {
-        clearTimeout(autoSaveTimersRef.current[dept])
-        delete autoSaveTimersRef.current[dept]
-        delete prevNewRowsRef.current[dept]
-      }
-    })
-  }, [deptEditState, expandedDepts])
+    if (!canAccess) return
+    if (sheetUnsubRef.current) { sheetUnsubRef.current(); sheetUnsubRef.current = null }
+    sheetUnsubRef.current = listenFinanceExpenseBySheet(
+      { year: activeMonth.getFullYear(), month: activeMonth.getMonth() },
+      (data) => setAnchoredEntries(data),
+      (err) => console.error(err),
+    )
+    return () => { if (sheetUnsubRef.current) { sheetUnsubRef.current(); sheetUnsubRef.current = null } }
+  }, [activeMonth, canAccess])
 
-  useEffect(() => () => {
-    Object.values(autoSaveTimersRef.current).forEach(clearTimeout)
-  }, [])
+  // The entries this page actually shows/counts for the active month: date-matched
+  // entries, MINUS any that have been explicitly anchored to a different month's sheet
+  // (so they don't also count there once moved), PLUS entries anchored to *this* sheet
+  // regardless of their own date.
+  const combinedEntries = (() => {
+    const y = activeMonth.getFullYear(), m = activeMonth.getMonth()
+    const dateMatched = entries.filter(e => !(e.sheetYear != null && e.sheetMonth != null && (e.sheetYear !== y || e.sheetMonth !== m)))
+    const byId = new Map(dateMatched.map(e => [e.id, e]))
+    anchoredEntries.forEach(e => byId.set(e.id, e))
+    return [...byId.values()]
+  })()
+
+  // Once a saved draft row's id shows up in the live entries feed, it's already
+  // rendered in the "Entered" section above — drop it from the draft rows so it
+  // doesn't also render (and visually double-count) as a checkmarked row below.
+  useEffect(() => {
+    Object.keys(deptEditState).forEach(dept => {
+      const state = deptEditState[dept]
+      if (!state || !state.newRows.some(r => r.savedId)) return
+      const liveIds = new Set(
+        combinedEntries
+          .filter(e => normalizeDepartmentName(e.department || e.category) === dept)
+          .map(e => e.id)
+      )
+      if (!state.newRows.some(r => r.savedId && liveIds.has(r.savedId))) return
+      updateDeptState(dept, (current) => ({
+        newRows: ensureTrailingBlank(current.newRows.filter(r => !(r.savedId && liveIds.has(r.savedId)))),
+      }))
+    })
+  }, [combinedEntries])
 
   if (!canAccess) return <Navigate to="/" replace />
 
   const visibleEntries = filterDept === 'all'
-    ? entries
-    : entries.filter(e => normalizeDepartmentName(e.department || e.category) === filterDept)
+    ? combinedEntries
+    : combinedEntries.filter(e => normalizeDepartmentName(e.department || e.category) === filterDept)
 
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
-  const grandTotal = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  const grandTotal = combinedEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
   const deptStats = deptOptions.map(dept => {
-    const rows = entries.filter(e => normalizeDepartmentName(e.department || e.category) === dept)
+    const rows = combinedEntries.filter(e => normalizeDepartmentName(e.department || e.category) === dept)
     return {
       dept,
       rows,
@@ -188,52 +260,46 @@ export default function ExpensePage({ controlledMonth } = {}) {
 
   // Accordion: opening a department closes whichever one was open before it, so
   // other cards stay at their normal tile size until you actually select them.
+  // Collapsing/reopening a card must not touch its saved-in-place rows or anything
+  // else the user typed — only the expanded/collapsed flag changes here.
+  // getDeptState() already falls back to a fresh DEFAULT_DEPT_STATE the first time
+  // a department is ever opened, so no explicit reset is needed here.
   function toggleExpand(dept) {
     setExpandedDepts(prev => (prev.includes(dept) ? [] : [dept]))
-    setDeptEditState(prev => ({ ...prev, [dept]: { ...DEFAULT_DEPT_STATE, newRows: blankRows() } }))
   }
 
   function editRowsFromEntries(rows) {
     return rows.map(r => ({
       id: r.id,
-      date: r.date instanceof Date ? format(r.date, 'yyyy-MM-dd') : format(new Date(r.date), 'yyyy-MM-dd'),
+      // Always dd.MM.yyyy — matches the format handleEditDateBlur() converts a row to
+      // once the user finishes typing, so a row looks the same whether it's freshly
+      // loaded or already edited, instead of showing ISO yyyy-MM-dd until first touched.
+      date: format(r.date instanceof Date ? r.date : new Date(r.date), 'dd.MM.yyyy'),
       item: r.item || '',
       billNo: r.billNo || '',
       amount: String(r.amount ?? ''),
     }))
   }
 
-  function handleStartEditSaved(dept, rows) {
-    updateDeptState(dept, () => ({
-      editRows: editRowsFromEntries(rows),
-      editError: '',
-      isEditingSaved: true,
-    }))
+  // Unlocks a single already-saved "Entered" row for inline editing, in place —
+  // mirrors how a locked draft row unlocks via its own ⋮ → Edit. No separate bulk
+  // "edit mode" toggle; every row's edit state is independent, and there's one save
+  // path (the bottom "Save rows" button) for both this and new draft rows.
+  function handleUnlockEnteredRow(dept, entry) {
+    updateDeptState(dept, (current) => (
+      current.editRows.some(r => r.id === entry.id)
+        ? current
+        : { editRows: [...current.editRows, ...editRowsFromEntries([entry])] }
+    ))
   }
 
-  function handleQuickEdit(dept, rows) {
-    setExpandedDepts([dept])
-    if (rows.length) {
-      updateDeptState(dept, () => ({
-        newRows: blankRows(),
-        rowsError: '',
-        editRows: editRowsFromEntries(rows),
-        editError: '',
-        isEditingSaved: true,
-      }))
-    } else {
-      updateDeptState(dept, () => ({
-        newRows: blankRows(),
-        rowsError: '',
-        isEditingSaved: false,
-        editRows: [],
-        editError: '',
-      }))
-    }
-  }
-
-  function handleCancelEditSaved(dept) {
-    updateDeptState(dept, () => ({ isEditingSaved: false, editRows: [], editError: '' }))
+  // Immediate, no-confirmation delete for a single unlocked "Entered" row — the ⋮
+  // icon. Removes it from Firestore via the shared handleDelete (which also offers
+  // the usual Undo toast), then drops it from this dept's local editRows list so it
+  // disappears from the inline-edit view right away.
+  async function handleDeleteEditRow(dept, id) {
+    await handleDelete(id)
+    updateDeptState(dept, (current) => ({ editRows: current.editRows.filter(r => r.id !== id) }))
   }
 
   function updateEditRowField(dept, idx, field, value) {
@@ -242,28 +308,11 @@ export default function ExpensePage({ controlledMonth } = {}) {
     }))
   }
 
-  async function handleSaveEditedRows(dept) {
-    updateDeptState(dept, () => ({ editSaving: true, editError: '' }))
-    const editRows = getDeptState(dept).editRows
-    let failed = 0
-    for (const row of editRows) {
-      const date = parseFlexibleDate(row.date)
-      const amount = Number(row.amount)
-      if (!date || !amount || amount <= 0) { failed++; continue }
-      try {
-        await updateFinanceExpense(row.id, { date, department: dept, item: row.item, billNo: row.billNo, amount })
-      } catch {
-        failed++
-      }
-    }
-    if (failed > 0) {
-      updateDeptState(dept, () => ({
-        editSaving: false,
-        editError: `${failed} row${failed === 1 ? '' : 's'} could not be saved (need a valid date and amount).`,
-      }))
-      return
-    }
-    updateDeptState(dept, () => ({ editSaving: false, isEditingSaved: false, editRows: [] }))
+  // Reformats a date box to dd.MM.yyyy once the user finishes typing (on blur) —
+  // reformatting mid-keystroke would fight with what they're still typing.
+  function handleEditDateBlur(dept, idx, value) {
+    const parsed = parseFlexibleDate(value)
+    if (parsed) updateEditRowField(dept, idx, 'date', toDisplayDate(parsed))
   }
 
   function updateRowField(dept, idx, field, value) {
@@ -272,8 +321,42 @@ export default function ExpensePage({ controlledMonth } = {}) {
     }))
   }
 
-  function addMoreRows(dept, count = 5) {
-    updateDeptState(dept, (current) => ({ newRows: [...current.newRows, ...blankRows(count)] }))
+  function handleDateBlur(dept, idx, value) {
+    const parsed = parseFlexibleDate(value)
+    if (parsed) updateRowField(dept, idx, 'date', toDisplayDate(parsed))
+  }
+
+  function addMoreRows(dept, count = 1) {
+    updateDeptState(dept, (current) => ({ newRows: [...current.newRows, ...blankRows(count)], hideBlankRows: false }))
+  }
+
+  // Unlocks a saved row back into an editable input row, in place, for a quick fix.
+  function unlockRow(dept, idx) {
+    updateDeptState(dept, (current) => ({
+      newRows: current.newRows.map((r, i) => (i === idx ? { ...r, unlocked: true } : r)),
+    }))
+  }
+
+  async function handleDeleteNewRow(dept, idx, savedId) {
+    const row = getDeptState(dept).newRows[idx]
+    try {
+      await deleteFinanceExpense(savedId)
+      if (row) {
+        offerUndo({
+          department: dept,
+          date: parseFlexibleDate(row.date) || row.date,
+          item: row.item || '',
+          billNo: row.billNo || '',
+          amount: parseFlexibleAmount(row.amount),
+        })
+      }
+    } catch {
+      // ignore — worst case the row stays as it was and the user can retry
+    }
+    setDeletingId(null)
+    updateDeptState(dept, (current) => ({
+      newRows: ensureTrailingBlank(current.newRows.map((r, i) => (i === idx ? { ...BLANK_ROW, _key: newRowKey() } : r))),
+    }))
   }
 
   function handlePasteRow(e, dept, idx, field) {
@@ -286,39 +369,119 @@ export default function ExpensePage({ controlledMonth } = {}) {
       const next = [...current.newRows]
       pastedRows.forEach((rowText, r) => {
         const targetRowIdx = idx + r
-        while (next.length <= targetRowIdx) next.push({ ...BLANK_ROW })
+        while (next.length <= targetRowIdx) next.push({ ...BLANK_ROW, _key: newRowKey() })
         const cells = rowText.split('\t')
         cells.forEach((cellText, c) => {
           const fieldIdx = startFieldIdx + c
           if (fieldIdx >= ROW_FIELDS.length) return
           const fieldName = ROW_FIELDS[fieldIdx]
-          const value = fieldName === 'date' ? (parseFlexibleDate(cellText) || cellText.trim()) : cellText.trim()
-          next[targetRowIdx] = { ...next[targetRowIdx], [fieldName]: value }
+          let cellValue = cellText.trim()
+          if (fieldName === 'date') {
+            const parsedDate = parseFlexibleDate(cellValue)
+            if (parsedDate) cellValue = toDisplayDate(parsedDate)
+          }
+          next[targetRowIdx] = { ...next[targetRowIdx], [fieldName]: cellValue }
         })
       })
-      return { newRows: next }
+      return { newRows: ensureTrailingBlank(next), undoStack: [...current.undoStack, current.newRows].slice(-10) }
     })
   }
 
-  async function handleSaveRows(dept) {
-    const fillable = getDeptState(dept).newRows.filter(r => r.date || r.item || r.billNo || r.amount)
-    if (!fillable.length) return
+  // Saves every filled row right away (rather than waiting for auto-save's debounce)
+  // Saves every filled row immediately (rather than waiting for auto-save's debounce)
+  // and marks each with a checkmark. It never clears or blanks a row — the row stays
+  // exactly as typed, whether it saved successfully or not, so nothing ever disappears
+  // from the grid on its own. The saved data is also visible read-only in the
+  // "Entered" list above, via the live entries listener.
+  // The single save action for the whole card: persists new draft rows AND any
+  // "Entered" rows currently unlocked for inline editing, together, in one click —
+  // there is no separate top "Save Changes" button any more.
+  async function handleSaveRows(dept, { force = false } = {}) {
+    const fillable = getDeptState(dept).newRows
+      .filter(r => r.date || r.item || r.billNo || r.amount)
+    const editFillable = getDeptState(dept).editRows
+    if (!fillable.length && !editFillable.length) return
+
+    // Block the save (and the auto-collapse) behind an explicit confirmation whenever
+    // a row's own date falls outside the sheet month it's about to be saved under —
+    // the entry still gets anchored to this sheet either way (see the
+    // createFinanceExpense call below), this just makes sure that's a deliberate choice
+    // rather than something the user only notices after the card has already collapsed.
+    if (!force) {
+      const isMismatched = (dateStr) => {
+        const parsed = parseFlexibleDate(dateStr)
+        if (!parsed) return false
+        const [ry, rm] = parsed.split('-').map(Number)
+        return ry !== activeMonth.getFullYear() || (rm - 1) !== activeMonth.getMonth()
+      }
+      const mismatched = [
+        ...fillable.filter(r => !r.savedId && isMismatched(r.date)),
+        ...editFillable.filter(r => isMismatched(r.date)),
+      ]
+      if (mismatched.length > 0) {
+        const exampleDate = toDisplayDate(parseFlexibleDate(mismatched[0].date))
+        setSaveWarning({ dept, count: mismatched.length, exampleDate })
+        return
+      }
+    }
+
     updateDeptState(dept, () => ({ savingRows: true, rowsError: '' }))
     let imported = 0, failed = 0
     for (const row of fillable) {
       const date = parseFlexibleDate(row.date)
-      const amount = Number(row.amount)
+      const amount = parseFlexibleAmount(row.amount)
       if (!date || !amount || amount <= 0) { failed++; continue }
+      // Entries typed directly into this Expense tab are entered by Accounts/Founder
+      // staff (this page is only reachable by that access tier — see canAccessAccountsEntry),
+      // so they're auto-approved. "Pending" is reserved for the Weekly submission form,
+      // which restricted Department Director accounts use and which explicitly sets
+      // status: 'pending' for the Accounts Director to review.
+      const payload = { date, department: dept, item: row.item, billNo: row.billNo, amount, status: 'approved' }
       try {
-        await createFinanceExpense({ date, department: dept, item: row.item, billNo: row.billNo, amount })
+        if (row.savedId) {
+          // Updating an already-saved row never touches sheetYear/sheetMonth — if it
+          // was previously moved to a different month's sheet, that anchor is kept.
+          await updateFinanceExpense(row.savedId, payload)
+        } else {
+          // New entries are anchored to whichever month sheet you're viewing right now,
+          // independent of the typed date — see combinedEntries above for why.
+          const id = await createFinanceExpense({ ...payload, sheetYear: activeMonth.getFullYear(), sheetMonth: activeMonth.getMonth() })
+          updateDeptState(dept, (current) => ({
+            newRows: current.newRows.map((r) => (r._key === row._key && !r.savedId ? { ...r, savedId: id } : r)),
+          }))
+        }
         imported++
       } catch { failed++ }
     }
-    updateDeptState(dept, () => ({
+    const editFailedIds = new Set()
+    for (const row of editFillable) {
+      const date = parseFlexibleDate(row.date)
+      const amount = parseFlexibleAmount(row.amount)
+      if (!date || !amount || amount <= 0) { failed++; editFailedIds.add(row.id); continue }
+      try {
+        // Editing an already-saved "Entered" row never touches sheetYear/sheetMonth —
+        // same reasoning as the draft-row update branch above.
+        await updateFinanceExpense(row.id, { date, department: dept, item: row.item, billNo: row.billNo, amount })
+        imported++
+      } catch { failed++; editFailedIds.add(row.id) }
+    }
+    updateDeptState(dept, (current) => ({
       savingRows: false,
       rowsError: failed > 0 ? `${imported} saved, ${failed} skipped (need a valid date and amount).` : '',
-      newRows: blankRows(),
+      hideBlankRows: true,
+      newRows: ensureTrailingBlank(current.newRows),
+      // Successfully-saved entered-row edits drop out of editRows and revert to the
+      // normal read-only "Entered" display, sourced fresh from the live listener.
+      // Failed ones stay editable so the error and the row are still visible.
+      editRows: current.editRows.filter(r => editFailedIds.has(r.id)),
     }))
+    // Collapse the card back to its compact tile once everything saved cleanly.
+    // If any row failed, or this save went through "Save Anyway" past a date-mismatch
+    // warning, stay expanded so the error message / the newly red-highlighted rows
+    // stay visible instead of being hidden behind a collapsed tile.
+    if (failed === 0 && imported > 0 && !force) {
+      setExpandedDepts([])
+    }
   }
 
   async function handleUploadDeptExcel(e, dept) {
@@ -342,184 +505,60 @@ export default function ExpensePage({ controlledMonth } = {}) {
         const item = String(r['item'] ?? r['description'] ?? r['particulars'] ?? r['narration'] ?? '').trim()
         const billNo = String(r['billno'] ?? r['bill'] ?? r['billnumber'] ?? r['invoiceno'] ?? '').trim()
         const amount = r['amount'] ?? r['amountrs'] ?? r['rs'] ?? r['total'] ?? ''
-        const date = rawDate instanceof Date ? format(rawDate, 'yyyy-MM-dd') : parseFlexibleDate(rawDate)
-        return { date, item, billNo, amount: String(amount) }
+        // Auto-parsed and shown as a full dd.MM.yyyy date; falls back to the raw cell
+        // text if it isn't a recognizable date, so the user can see and fix it.
+        const rawDateText = rawDate instanceof Date ? format(rawDate, 'dd.MM.yyyy') : String(rawDate).trim()
+        const parsedUploadDate = rawDate instanceof Date ? format(rawDate, 'yyyy-MM-dd') : parseFlexibleDate(rawDateText)
+        const date = parsedUploadDate ? toDisplayDate(parsedUploadDate) : rawDateText
+        return { date, item, billNo, amount: String(amount), _key: newRowKey() }
       }).filter(r => r.date || r.item || r.billNo || r.amount)
 
       if (!parsed.length) { updateDeptState(dept, () => ({ rowsError: 'Could not find any usable rows. Columns expected: Date, Item, Bill No, Amount.' })); return }
       setExpandedDepts([dept])
-      updateDeptState(dept, () => ({ newRows: [...parsed, ...blankRows(5)] }))
+      updateDeptState(dept, (current) => ({
+        newRows: [...current.newRows, ...parsed, ...blankRows(1)],
+        hideBlankRows: false,
+        undoStack: [...current.undoStack, current.newRows].slice(-10),
+      }))
     } catch (err) {
       console.error(err)
       updateDeptState(dept, () => ({ rowsError: 'Failed to read the file. Make sure it is a valid .xlsx or .xls file.' }))
     }
   }
 
-  async function autoSaveFillableRows(dept, rows) {
-    if (autoSavingRef.current[dept]) return
-    const ready = rows
-      .map((r, idx) => ({ ...r, idx }))
-      .filter(r => parseFlexibleDate(r.date) && Number(r.amount) > 0)
-    if (!ready.length) return
-    autoSavingRef.current[dept] = true
-    updateDeptState(dept, () => ({ savingRows: true }))
-    const savedIdx = []
-    for (const row of ready) {
-      try {
-        await createFinanceExpense({
-          date: parseFlexibleDate(row.date),
-          department: dept,
-          item: row.item,
-          billNo: row.billNo,
-          amount: Number(row.amount),
-        })
-        savedIdx.push(row.idx)
-      } catch {
-        // leave it in place — either auto-save retries after the next change, or the user hits "Save rows"
-      }
-    }
-    if (savedIdx.length) {
-      updateDeptState(dept, (current) => ({
-        newRows: current.newRows.map((r, i) => (savedIdx.includes(i) ? { ...BLANK_ROW } : r)),
-      }))
-    }
-    updateDeptState(dept, () => ({ savingRows: false }))
-    autoSavingRef.current[dept] = false
-  }
-
-  function validate() {
-    if (filterDept === 'all') return 'Select a department before adding an entry.'
-    if (!form.date) return 'Date is required.'
-    if (!form.amount || Number(form.amount) <= 0) return 'Amount must be greater than 0.'
-    return ''
-  }
-
-  async function handleSave(e) {
-    e.preventDefault()
-    const err = validate()
-    if (err) { setFormError(err); return }
-    setFormError('')
-    setSaving(true)
-    try {
-      const payload = {
-        date: form.date,
-        department: filterDept,
-        item: form.item,
-        billNo: form.billNo,
-        amount: Number(form.amount),
-      }
-      if (editingId) {
-        await updateFinanceExpense(editingId, payload)
-      } else {
-        await createFinanceExpense(payload)
-      }
-      setForm(EMPTY_FORM)
-      setEditingId(null)
-    } catch {
-      setSaveError('Failed to save. Please try again.')
-      setTimeout(() => setSaveError(''), 4000)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function handleEdit(entry) {
-    setEditingId(entry.id)
-    setFilterDept(normalizeDepartmentName(entry.department || entry.category) || 'all')
-    setForm({
-      date: entry.date instanceof Date
-        ? format(entry.date, 'yyyy-MM-dd')
-        : format(new Date(entry.date), 'yyyy-MM-dd'),
-      item: entry.item || '',
-      billNo: entry.billNo || '',
-      amount: String(entry.amount ?? ''),
-    })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  function handleCancelEdit() {
-    setEditingId(null)
-    setForm(EMPTY_FORM)
-    setFormError('')
-  }
-
   async function handleDelete(id) {
+    const entry = combinedEntries.find(e => e.id === id)
     try {
       await deleteFinanceExpense(id)
       setDeletingId(null)
       setEntries(prev => prev.filter(e => e.id !== id))
+      setAnchoredEntries(prev => prev.filter(e => e.id !== id))
+      if (entry) {
+        offerUndo({
+          department: normalizeDepartmentName(entry.department || entry.category),
+          date: entry.date instanceof Date ? format(entry.date, 'yyyy-MM-dd') : format(new Date(entry.date), 'yyyy-MM-dd'),
+          item: entry.item || '',
+          billNo: entry.billNo || '',
+          amount: Number(entry.amount) || 0,
+        })
+      }
     } catch {
       setSaveError('Failed to delete. Please try again.')
       setTimeout(() => setSaveError(''), 4000)
     }
   }
 
-  async function handleXlsxFile(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
-    setXlsxError('')
-    setXlsxRows(null)
-    setXlsxResult(null)
+  // The explicit, manual "move" action — re-anchors an entry to whatever month its own
+  // date actually falls in, instead of the sheet it was originally saved under.
+  async function handleMoveToCorrectMonth(entry) {
+    const d = entry.date instanceof Date ? entry.date : new Date(entry.date)
     try {
-      const XLSX = await import('xlsx')
-      const data = await file.arrayBuffer()
-      const wb = XLSX.read(data, { type: 'array', cellDates: true })
-      const ws = wb.Sheets[wb.SheetNames[0]]
-      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
-      if (!raw.length) { setXlsxError('No data found in the file.'); return }
-
-      const norm = (key) => String(key).toLowerCase().replace(/[\s_\-]/g, '')
-      const rows = raw.map((row, i) => {
-        const r = {}
-        for (const [k, v] of Object.entries(row)) r[norm(k)] = v
-        const rawDate = r['date'] ?? r['entrydate'] ?? ''
-        const dept = String(r['department'] ?? r['dept'] ?? r['category'] ?? '').trim()
-        const item = String(r['item'] ?? r['description'] ?? r['particulars'] ?? r['narration'] ?? '').trim()
-        const billNo = String(r['billno'] ?? r['bill'] ?? r['billnumber'] ?? r['invoiceno'] ?? '').trim()
-        const amount = Number(r['amount'] ?? r['amountrs'] ?? r['rs'] ?? r['total'] ?? 0) || 0
-
-        let date = ''
-        if (rawDate instanceof Date) date = format(rawDate, 'yyyy-MM-dd')
-        else if (rawDate) { const d = new Date(rawDate); if (!isNaN(d)) date = format(d, 'yyyy-MM-dd') }
-
-        const error = !date ? 'Missing date' : !dept ? 'Missing department' : amount <= 0 ? 'Invalid amount' : ''
-        return { _row: i + 2, date, department: dept, item, billNo, amount, _valid: !error, _error: error }
-      })
-
-      if (rows.every(r => !r._valid)) {
-        setXlsxError('Could not parse rows. Make sure columns are: Date, Department, Item, Bill No, Amount')
-        return
-      }
-      setXlsxRows(rows)
-    } catch (err) {
-      console.error(err)
-      setXlsxError('Failed to read file. Make sure it is a valid .xlsx or .xls file.')
+      await updateFinanceExpenseSheet(entry.id, { sheetYear: d.getFullYear(), sheetMonth: d.getMonth() })
+    } catch {
+      setSaveError('Failed to move entry. Please try again.')
+      setTimeout(() => setSaveError(''), 4000)
     }
   }
-
-  async function handleImportAll() {
-    const valid = (xlsxRows || []).filter(r => r._valid)
-    if (!valid.length) return
-    setImportingXlsx(true)
-    let imported = 0, failed = 0
-    for (const row of valid) {
-      try {
-        await createFinanceExpense({ date: row.date, department: row.department, item: row.item, billNo: row.billNo, amount: row.amount, status: 'approved' })
-        imported++
-      } catch { failed++ }
-    }
-    setImportingXlsx(false)
-    setXlsxRows(null)
-    setXlsxResult({ imported, failed, skipped: (xlsxRows || []).filter(r => !r._valid).length })
-  }
-
-  const xlsxByDept = xlsxRows
-    ? [...new Set(xlsxRows.map(r => r.department || '(No dept)'))].map(dept => ({
-        dept,
-        rows: xlsxRows.filter(r => (r.department || '(No dept)') === dept),
-      }))
-    : []
 
   return (
     <div className="space-y-5 pb-12">
@@ -562,20 +601,55 @@ export default function ExpensePage({ controlledMonth } = {}) {
         </div>
       )}
 
-      {/* Excel upload result toast */}
-      {xlsxResult && (
-        <div className="flex items-center justify-between gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-          <p className="text-sm text-emerald-800 font-medium">
-            Imported {xlsxResult.imported} {xlsxResult.imported === 1 ? 'entry' : 'entries'}
-            {xlsxResult.skipped > 0 && ` · ${xlsxResult.skipped} skipped`}
-            {xlsxResult.failed > 0 && ` · ${xlsxResult.failed} failed`}
+      {/* Undo-delete toast */}
+      {undoDelete && (
+        <div className="flex items-center justify-between gap-3 bg-slate-800 text-white rounded-xl px-4 py-3">
+          <p className="text-sm">
+            Deleted {undoDelete.item || undoDelete.department} · ₹{undoDelete.amount.toLocaleString('en-IN')}
           </p>
-          <button type="button" onClick={() => setXlsxResult(null)} className="text-emerald-600 hover:text-emerald-800 text-lg leading-none">×</button>
+          <div className="flex items-center gap-3 shrink-0">
+            <button type="button" onClick={handleUndoDelete} className="text-sm font-semibold text-indigo-300 hover:text-indigo-200">Undo</button>
+            <button type="button" onClick={() => setUndoDelete(null)} className="text-slate-400 hover:text-slate-200 text-lg leading-none">×</button>
+          </div>
         </div>
       )}
 
+      {/* Date-mismatch warning — blocks "Save rows" until the user explicitly picks
+          "Fix Dates" (cancel, keep the card open to edit) or "Save Anyway" (save,
+          entries stay anchored to this sheet and get the usual red highlight). */}
+      {saveWarning && createPortal(
+        <div data-row-menu-overlay="true" className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 space-y-3">
+            <p className="text-sm font-semibold text-red-700">⚠ Cannot Save Rows</p>
+            <p className="text-sm text-slate-600">
+              {saveWarning.count} {saveWarning.count === 1 ? 'entry is' : 'entries are'} dated outside {format(activeMonth, 'MMMM yyyy')}
+              {saveWarning.exampleDate && <> (e.g. {saveWarning.exampleDate})</>}.
+              Please correct the date{saveWarning.count === 1 ? '' : 's'} before saving, or choose "Save Anyway" to keep{saveWarning.count === 1 ? ' it' : ' them'} on this
+              sheet — you can move {saveWarning.count === 1 ? 'it' : 'them'} to the right month afterward using "↷ Move" in the Entered list above.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setSaveWarning(null)}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-semibold hover:border-slate-300 transition-colors"
+              >
+                Fix Dates
+              </button>
+              <button
+                type="button"
+                onClick={() => { const dept = saveWarning.dept; setSaveWarning(null); handleSaveRows(dept, { force: true }) }}
+                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold transition-colors"
+              >
+                Save Anyway
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* Department grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
         <button
           type="button"
           onClick={() => selectDept('all')}
@@ -587,14 +661,29 @@ export default function ExpensePage({ controlledMonth } = {}) {
         >
           <p className="text-xs font-semibold text-slate-600">All</p>
           <p className="text-lg font-bold text-slate-900 mt-1">₹{grandTotal.toLocaleString('en-IN')}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{combinedEntries.length} {combinedEntries.length === 1 ? 'entry' : 'entries'}</p>
         </button>
         {deptStats.map(({ dept, total, count, rows }) => {
           const isExpanded = expandedDepts.includes(dept)
-          const { newRows, savingRows, rowsError, isEditingSaved, editRows, editSaving, editError } = getDeptState(dept)
+          const { newRows, savingRows, rowsError, hideBlankRows, undoStack, editRows } = getDeptState(dept)
+          // Keeps each row's real position in `newRows` (via _idx) so edit/delete/paste
+          // handlers still target the right slot after blank rows are filtered out.
+          // When hideBlankRows is on, every blank row is hidden except the very last —
+          // that one stays so there's always an empty row ready for immediate typing.
+          const visibleNewRows = newRows
+            .map((r, _idx) => ({ ...r, _idx }))
+            .filter((r, i, arr) => !hideBlankRows || !isRowBlank(r) || i === arr.length - 1)
+          const otherMonthCount = visibleNewRows.filter(r => {
+            if (!r.savedId || r.unlocked) return false
+            const parsed = parseFlexibleDate(r.date)
+            if (!parsed) return false
+            const [ry, rm] = parsed.split('-').map(Number)
+            return ry !== activeMonth.getFullYear() || (rm - 1) !== activeMonth.getMonth()
+          }).length
           return (
           <div
             key={dept}
+            ref={isExpanded ? expandedCardRef : null}
             className={`rounded-2xl border overflow-hidden transition-colors ${
               isExpanded
                 ? 'border-indigo-400 ring-1 ring-indigo-300 col-span-2 sm:col-span-3 lg:col-span-2'
@@ -611,14 +700,6 @@ export default function ExpensePage({ controlledMonth } = {}) {
                 <p className="text-lg font-bold text-slate-900 mt-1">₹{total.toLocaleString('en-IN')}</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">{count} {count === 1 ? 'entry' : 'entries'}</p>
               </button>
-              <button
-                type="button"
-                onClick={() => handleQuickEdit(dept, rows)}
-                title="Edit entries"
-                className="m-2 p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-100/60 transition-colors shrink-0"
-              >
-                ✏️
-              </button>
               <label
                 className="m-2 p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-100/60 cursor-pointer transition-colors shrink-0"
                 title="Upload Excel"
@@ -630,91 +711,81 @@ export default function ExpensePage({ controlledMonth } = {}) {
 
             {isExpanded && (
               <div className="border-t border-slate-100 bg-white">
-                {rows.length > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between px-3 pt-3 pb-1.5">
+                <div>
+                  {rows.length > 0 && (
+                    <div className="px-3 pt-3 pb-1.5">
                       <p className="text-[11px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" /> Entered
                       </p>
-                      {!isEditingSaved ? (
-                        <button
-                          type="button"
-                          onClick={() => handleStartEditSaved(dept, rows)}
-                          title="Edit entries"
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                        >
-                          ✏️
-                        </button>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          {editError && <p className="text-[10px] font-medium text-red-600">{editError}</p>}
-                          <button
-                            type="button"
-                            onClick={() => handleSaveEditedRows(dept)}
-                            disabled={editSaving}
-                            className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold disabled:opacity-50 transition-colors"
-                          >
-                            {editSaving ? 'Saving…' : 'Save Changes'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleCancelEditSaved(dept)}
-                            className="px-3 py-1 rounded-lg border border-slate-200 text-slate-500 text-xs font-medium hover:border-slate-300 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      )}
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm border-collapse">
-                        <thead>
-                          <tr className="text-left text-indigo-700 bg-gradient-to-r from-indigo-50 via-violet-50 to-rose-50">
-                            <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide w-10 border-b-2 border-indigo-100">Sl</th>
-                            <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide border-b-2 border-indigo-100">Date</th>
-                            <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide border-b-2 border-indigo-100">Item</th>
-                            <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide border-b-2 border-indigo-100">Bill No</th>
-                            <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide text-right border-b-2 border-indigo-100">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {!isEditingSaved ? rows.map((entry, idx) => (
+                  )}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm border-collapse table-fixed">
+                      <thead>
+                        <tr className="text-left text-indigo-700 bg-gradient-to-r from-indigo-50 via-violet-50 to-rose-50">
+                          <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide w-10 border-b-2 border-indigo-100">Sl</th>
+                          <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide w-32 border-b-2 border-indigo-100">Date</th>
+                          <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide border-b-2 border-indigo-100">Item</th>
+                          <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide w-20 border-b-2 border-indigo-100">Bill No</th>
+                          <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide text-right w-24 border-b-2 border-indigo-100">Amount</th>
+                          <th className="px-3 py-2 border-b-2 border-indigo-100 w-16" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((entry, idx) => {
+                          const editIdx = editRows.findIndex(r => r.id === entry.id)
+                          const row = editIdx === -1 ? null : editRows[editIdx]
+
+                          // Unlocked for inline editing — recomputed fresh from the row's own
+                          // current values on every render, so the red styling tracks live
+                          // edits instead of a stale flag, clearing itself the moment the
+                          // date/amount is corrected.
+                          if (row) {
+                            const editParsedDate = parseFlexibleDate(row.date)
+                            const editDateMismatch = editParsedDate
+                              ? (() => {
+                                  const [ry, rm] = editParsedDate.split('-').map(Number)
+                                  return ry !== activeMonth.getFullYear() || (rm - 1) !== activeMonth.getMonth()
+                                })()
+                              : false
+                            const editInvalid = !editParsedDate || parseFlexibleAmount(row.amount) <= 0
+                            const editHasError = editInvalid || editDateMismatch
+                            return (
                             <tr
-                              key={entry.id}
-                              className={`border-b border-slate-100 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/70' : 'bg-white'}`}
+                              key={row.id}
+                              className={editHasError
+                                ? 'bg-red-50/80 border-2 border-red-400 text-red-900'
+                                : `border-b border-slate-100 ${idx % 2 === 1 ? 'bg-slate-50/70' : 'bg-white'}`}
                             >
                               <td className="px-3 py-2.5">
-                                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold">{idx + 1}</span>
-                              </td>
-                              <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap font-medium">
-                                {entry.date instanceof Date ? format(entry.date, 'dd/MM') : format(new Date(entry.date), 'dd/MM')}
-                              </td>
-                              <td className="px-3 py-2.5 text-slate-700 truncate max-w-[220px]" title={entry.item || ''}>{entry.item || '—'}</td>
-                              <td className="px-3 py-2.5">
-                                {entry.billNo
-                                  ? <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[11px] font-medium">{entry.billNo}</span>
-                                  : <span className="text-slate-300">—</span>}
-                              </td>
-                              <td className="px-3 py-2.5 text-right font-bold text-rose-600">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
-                            </tr>
-                          )) : editRows.map((row, idx) => (
-                            <tr key={row.id} className={`border-b border-slate-100 ${idx % 2 === 1 ? 'bg-slate-50/70' : 'bg-white'}`}>
-                              <td className="px-3 py-2.5">
-                                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold">{idx + 1}</span>
+                                <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${editHasError ? 'bg-red-500 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+                                  {editHasError ? '!' : idx + 1}
+                                </span>
                               </td>
                               <td className="p-1">
-                                <input
-                                  type="text"
-                                  value={row.date}
-                                  onChange={e => updateEditRowField(dept, idx, 'date', e.target.value)}
-                                  className="w-full rounded-lg border border-slate-200 bg-white hover:border-indigo-300 focus:border-indigo-400 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-colors"
-                                />
+                                <div className="relative">
+                                  <input
+                                    type="text"
+                                    value={row.date}
+                                    onChange={e => updateEditRowField(dept, editIdx, 'date', e.target.value)}
+                                    onBlur={e => handleEditDateBlur(dept, editIdx, e.target.value)}
+                                    title={editDateMismatch ? `Dated outside ${format(activeMonth, 'MMMM yyyy')}` : ''}
+                                    className={`w-full rounded-lg border bg-white px-2 py-1.5 text-sm focus:outline-none focus:ring-2 transition-colors ${
+                                      editDateMismatch
+                                        ? 'border-red-400 pr-6 text-red-700 focus:border-red-500 focus:ring-red-200'
+                                        : 'border-slate-200 hover:border-indigo-300 focus:border-indigo-400 focus:ring-indigo-200'
+                                    }`}
+                                  />
+                                  {editDateMismatch && (
+                                    <span title={`Outside ${format(activeMonth, 'MMMM yyyy')}`} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-red-500 text-xs pointer-events-none">⚠</span>
+                                  )}
+                                </div>
                               </td>
                               <td className="p-1">
                                 <input
                                   type="text"
                                   value={row.item}
-                                  onChange={e => updateEditRowField(dept, idx, 'item', e.target.value)}
+                                  onChange={e => updateEditRowField(dept, editIdx, 'item', e.target.value)}
                                   className="w-full rounded-lg border border-slate-200 bg-white hover:border-indigo-300 focus:border-indigo-400 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-colors"
                                 />
                               </td>
@@ -722,7 +793,7 @@ export default function ExpensePage({ controlledMonth } = {}) {
                                 <input
                                   type="text"
                                   value={row.billNo}
-                                  onChange={e => updateEditRowField(dept, idx, 'billNo', e.target.value)}
+                                  onChange={e => updateEditRowField(dept, editIdx, 'billNo', e.target.value)}
                                   className="w-full rounded-lg border border-slate-200 bg-white hover:border-amber-300 focus:border-amber-400 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 transition-colors"
                                 />
                               </td>
@@ -730,81 +801,196 @@ export default function ExpensePage({ controlledMonth } = {}) {
                                 <input
                                   type="text"
                                   value={row.amount}
-                                  onChange={e => updateEditRowField(dept, idx, 'amount', e.target.value)}
+                                  onChange={e => updateEditRowField(dept, editIdx, 'amount', e.target.value)}
                                   className="w-full rounded-lg border border-slate-200 bg-white hover:border-rose-300 focus:border-rose-400 px-2 py-1.5 text-sm text-right font-medium text-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200 transition-colors"
                                 />
                               </td>
+                              <td className="px-3 py-2.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteEditRow(dept, row.id)}
+                                  title="Delete this row"
+                                  className="w-6 h-6 flex items-center justify-center p-1.5 rounded-lg hover:bg-red-50 text-slate-500 hover:text-red-600 text-base leading-none transition-colors mx-auto"
+                                >
+                                  ⋮
+                                </button>
+                              </td>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+                            )
+                          }
 
-                {/* Blank rows — paste a block copied from Excel into any cell to fill multiple rows at once */}
-                <p className="px-3 pt-3 pb-1.5 text-[11px] font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Add new — type or paste from Excel
-                </p>
-                <div className="overflow-x-auto px-3 pb-1">
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="text-left text-emerald-700 bg-gradient-to-r from-emerald-50 via-teal-50 to-amber-50">
-                        <th className="px-2 py-2 font-semibold text-[11px] uppercase tracking-wide w-10 rounded-l-lg">Sl</th>
-                        <th className="px-2 py-2 font-semibold text-[11px] uppercase tracking-wide">Date</th>
-                        <th className="px-2 py-2 font-semibold text-[11px] uppercase tracking-wide">Item</th>
-                        <th className="px-2 py-2 font-semibold text-[11px] uppercase tracking-wide">Bill No</th>
-                        <th className="px-2 py-2 font-semibold text-[11px] uppercase tracking-wide text-right rounded-r-lg">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {newRows.map((row, idx) => (
-                        <tr key={idx} className={idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}>
-                          <td className="px-2 py-1.5 text-center">
-                            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">{idx + 1}</span>
-                          </td>
-                          <td className="p-1">
-                            <input
-                              type="text"
-                              value={row.date}
-                              onChange={e => updateRowField(dept, idx, 'date', e.target.value)}
-                              onPaste={e => handlePasteRow(e, dept, idx, 'date')}
-                              className="w-full rounded-lg border border-slate-200 bg-white hover:border-indigo-300 focus:border-indigo-400 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-colors"
-                            />
-                          </td>
-                          <td className="p-1">
-                            <input
-                              type="text"
-                              value={row.item}
-                              onChange={e => updateRowField(dept, idx, 'item', e.target.value)}
-                              onPaste={e => handlePasteRow(e, dept, idx, 'item')}
-                              className="w-full rounded-lg border border-slate-200 bg-white hover:border-indigo-300 focus:border-indigo-400 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-colors"
-                            />
-                          </td>
-                          <td className="p-1">
-                            <input
-                              type="text"
-                              value={row.billNo}
-                              onChange={e => updateRowField(dept, idx, 'billNo', e.target.value)}
-                              onPaste={e => handlePasteRow(e, dept, idx, 'billNo')}
-                              className="w-full rounded-lg border border-slate-200 bg-white hover:border-amber-300 focus:border-amber-400 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 transition-colors"
-                            />
-                          </td>
-                          <td className="p-1">
-                            <input
-                              type="text"
-                              value={row.amount}
-                              onChange={e => updateRowField(dept, idx, 'amount', e.target.value)}
-                              onPaste={e => handlePasteRow(e, dept, idx, 'amount')}
-                              className="w-full rounded-lg border border-slate-200 bg-white hover:border-rose-300 focus:border-rose-400 px-2 py-1.5 text-sm text-right font-medium text-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200 transition-colors"
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          const entryDate = entry.date instanceof Date ? entry.date : new Date(entry.date)
+                          const isAnchoredElsewhere = entry.sheetYear != null && entry.sheetMonth != null &&
+                            (entry.sheetYear !== entryDate.getFullYear() || entry.sheetMonth !== entryDate.getMonth())
+                          return (
+                          <tr
+                            key={entry.id}
+                            className={`border-b transition-colors ${isAnchoredElsewhere ? 'bg-red-50/60 border-red-100' : `border-slate-100 ${idx % 2 === 1 ? 'bg-slate-50/70' : 'bg-white'}`}`}
+                          >
+                            <td className="px-3 py-2.5">
+                              <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${isAnchoredElsewhere ? 'bg-red-500 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+                                {isAnchoredElsewhere ? '!' : idx + 1}
+                              </span>
+                            </td>
+                            <td
+                              className={`px-3 py-2.5 whitespace-nowrap font-medium ${isAnchoredElsewhere ? 'text-red-700' : 'text-slate-700'}`}
+                              title={isAnchoredElsewhere ? `Dated outside this sheet's month — kept here until you move it` : ''}
+                            >
+                              {format(entryDate, 'dd.MM.yyyy')}
+                            </td>
+                            <td className="px-3 py-2.5 text-slate-700 truncate" title={entry.item || ''}>{entry.item || '—'}</td>
+                            <td className="px-3 py-2.5">
+                              {entry.billNo
+                                ? <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[11px] font-medium">{entry.billNo}</span>
+                                : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className={`px-3 py-2.5 text-right font-bold ${isAnchoredElsewhere ? 'text-red-600' : 'text-rose-600'}`}>₹{Number(entry.amount).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2.5 text-center">
+                              {deletingId === entry.id ? (
+                                <div className="flex items-center justify-center gap-1.5 text-[10px]">
+                                  <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-semibold hover:underline">Yes</button>
+                                  <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-center gap-1">
+                                  {isAnchoredElsewhere && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveToCorrectMonth(entry)}
+                                      title={`Move to ${format(entryDate, 'MMMM yyyy')}`}
+                                      className="px-1.5 py-1 rounded text-[10px] font-semibold text-red-600 hover:bg-red-100 transition-colors"
+                                    >
+                                      ↷ Move
+                                    </button>
+                                  )}
+                                  <RowActionsMenu
+                                    menuKey={`entered-${entry.id}`}
+                                    openKey={openActionMenu}
+                                    onOpen={setOpenActionMenu}
+                                    onClose={() => setOpenActionMenu(null)}
+                                    onEdit={() => handleUnlockEnteredRow(dept, entry)}
+                                    onDelete={() => setDeletingId(entry.id)}
+                                  />
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                          )
+                        })}
+
+                        {/* Draft rows attach directly beneath — a faint emerald tint marks them as
+                            open for typing or pasting, no separate header needed. */}
+                        {visibleNewRows.map((row, seq) => {
+                          const idx = row._idx
+                          const slNumber = rows.length + seq + 1
+                          const isLocked = row.savedId && !row.unlocked
+                          const isFirstDraftRow = !isLocked && (seq === 0 || (visibleNewRows[seq - 1].savedId && !visibleNewRows[seq - 1].unlocked))
+                          if (isLocked) {
+                            const parsedRowDate = parseFlexibleDate(row.date)
+                            const isOtherMonth = parsedRowDate
+                              ? (() => {
+                                  const [ry, rm] = parsedRowDate.split('-').map(Number)
+                                  return ry !== activeMonth.getFullYear() || (rm - 1) !== activeMonth.getMonth()
+                                })()
+                              : false
+                            return (
+                              <tr key={row._key} className={isOtherMonth ? 'bg-red-50/60 border-b border-red-100' : 'bg-emerald-50/50 border-b border-emerald-100'}>
+                                <td className="px-3 py-2.5 text-center">
+                                  <span
+                                    title={isOtherMonth ? `Saved, but dated outside ${format(activeMonth, 'MMMM yyyy')} — not counted in this total` : 'Already saved'}
+                                    className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] font-bold ${isOtherMonth ? 'bg-red-500' : 'bg-emerald-500'}`}
+                                  >
+                                    {isOtherMonth ? '!' : '✓'}
+                                  </span>
+                                </td>
+                                <td className={`px-3 py-2.5 whitespace-nowrap font-medium ${isOtherMonth ? 'text-red-700' : 'text-slate-700'}`}>{row.date}</td>
+                                <td className={`px-3 py-2.5 truncate ${isOtherMonth ? 'text-red-700' : 'text-slate-700'}`} title={row.item}>{row.item || '—'}</td>
+                                <td className="px-3 py-2.5">
+                                  {row.billNo
+                                    ? <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[11px] font-medium">{row.billNo}</span>
+                                    : <span className="text-slate-300">—</span>}
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-bold ${isOtherMonth ? 'text-red-600' : 'text-rose-600'}`}>₹{parseFlexibleAmount(row.amount).toLocaleString('en-IN')}</td>
+                                <td className="px-3 py-2.5 text-center">
+                                  {deletingId === row.savedId ? (
+                                    <div className="flex items-center justify-center gap-1.5 text-[10px]">
+                                      <button type="button" onClick={() => handleDeleteNewRow(dept, idx, row.savedId)} className="text-red-600 font-semibold hover:underline">Yes</button>
+                                      <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+                                    </div>
+                                  ) : (
+                                    <RowActionsMenu
+                                      menuKey={`addnew-${dept}-${row.savedId}`}
+                                      openKey={openActionMenu}
+                                      onOpen={setOpenActionMenu}
+                                      onClose={() => setOpenActionMenu(null)}
+                                      onEdit={() => unlockRow(dept, idx)}
+                                      onDelete={() => setDeletingId(row.savedId)}
+                                    />
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          }
+                          return (
+                          <tr key={row._key} className={`bg-emerald-50/30 ${isFirstDraftRow ? 'border-t-2 border-dashed border-emerald-300' : 'border-t border-emerald-100/70'}`}>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">{slNumber}</span>
+                            </td>
+                            <td className="p-1">
+                              <input
+                                type="text"
+                                value={row.date}
+                                onChange={e => updateRowField(dept, idx, 'date', e.target.value)}
+                                onPaste={e => handlePasteRow(e, dept, idx, 'date')}
+                                onBlur={e => handleDateBlur(dept, idx, e.target.value)}
+                                placeholder="dd.mm.yyyy"
+                                className="w-full rounded-lg border border-transparent bg-white/70 hover:border-emerald-300 focus:border-emerald-400 px-2 py-1.5 text-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors"
+                              />
+                            </td>
+                            <td className="p-1">
+                              <input
+                                type="text"
+                                value={row.item}
+                                onChange={e => updateRowField(dept, idx, 'item', e.target.value)}
+                                onPaste={e => handlePasteRow(e, dept, idx, 'item')}
+                                placeholder="Item"
+                                className="w-full rounded-lg border border-transparent bg-white/70 hover:border-emerald-300 focus:border-emerald-400 px-2 py-1.5 text-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors"
+                              />
+                            </td>
+                            <td className="p-1">
+                              <input
+                                type="text"
+                                value={row.billNo}
+                                onChange={e => updateRowField(dept, idx, 'billNo', e.target.value)}
+                                onPaste={e => handlePasteRow(e, dept, idx, 'billNo')}
+                                placeholder="Bill No"
+                                className="w-full rounded-lg border border-transparent bg-white/70 hover:border-amber-300 focus:border-amber-400 px-2 py-1.5 text-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-200 transition-colors"
+                              />
+                            </td>
+                            <td className="p-1">
+                              <input
+                                type="text"
+                                value={row.amount}
+                                onChange={e => updateRowField(dept, idx, 'amount', e.target.value)}
+                                onPaste={e => handlePasteRow(e, dept, idx, 'amount')}
+                                placeholder="0"
+                                className="w-full rounded-lg border border-transparent bg-white/70 hover:border-rose-300 focus:border-rose-400 px-2 py-1.5 text-sm text-right font-medium text-rose-600 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-rose-200 transition-colors"
+                              />
+                            </td>
+                            <td />
+                          </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
+                {otherMonthCount > 0 && (
+                  <p className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border-t border-red-100">
+                    ⚠ {otherMonthCount} row{otherMonthCount === 1 ? '' : 's'} in red {otherMonthCount === 1 ? 'is' : 'are'} dated outside {format(activeMonth, 'MMMM yyyy')} — still counted here on this sheet. Use "↷ Move" above once you've confirmed the date, or fix a typo directly.
+                  </p>
+                )}
                 {rowsError && <p className="px-3 py-1.5 text-xs font-medium text-red-600">{rowsError}</p>}
                 <div className="p-3 bg-gradient-to-r from-slate-50 to-indigo-50/50 border-t border-slate-100 flex items-center gap-2">
                   <button
@@ -817,11 +1003,22 @@ export default function ExpensePage({ controlledMonth } = {}) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => addMoreRows(dept, 5)}
-                    className="px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-medium hover:border-emerald-300 hover:text-emerald-700 transition-colors"
+                    onClick={() => addMoreRows(dept, 1)}
+                    title="Add row"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 text-base font-semibold hover:border-emerald-300 hover:text-emerald-700 transition-colors"
                   >
-                    + Add more rows
+                    +
                   </button>
+                  {undoStack.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => undoLastChange(dept)}
+                      title="Undo last paste/upload (Ctrl+Z)"
+                      className="px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-medium hover:border-indigo-300 hover:text-indigo-700 transition-colors"
+                    >
+                      ↺ Undo
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -830,118 +1027,22 @@ export default function ExpensePage({ controlledMonth } = {}) {
         })}
       </div>
 
-      {/* Bento: stat card + entry form */}
-      <div ref={formRef} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start scroll-mt-4">
-
-        {/* Stat card */}
-        <div className="bg-gradient-to-br from-rose-500 to-rose-600 rounded-2xl shadow-lg p-5 text-white flex flex-col justify-between min-h-[148px]">
+      {/* Total Expense summary — reflects whichever department is selected via the grid above */}
+      <div ref={formRef} className="bg-gradient-to-br from-rose-500 to-rose-600 rounded-2xl shadow-lg p-5 text-white flex items-center justify-between scroll-mt-4">
+        <div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-rose-100">Total Expense</p>
-          <div>
-            <p className="text-2xl font-bold leading-tight mt-1">
-              ₹{totalExpense.toLocaleString('en-IN')}
-            </p>
-            <p className="text-xs text-rose-200 mt-1.5">
-              {visibleEntries.length} {visibleEntries.length === 1 ? 'entry' : 'entries'} · {format(activeMonth, 'MMM yyyy')}
-            </p>
-            {filterDept !== 'all' && (
-              <p className="text-[10px] text-rose-300 mt-0.5">{filterDept}</p>
-            )}
-          </div>
+          <p className="text-2xl font-bold leading-tight mt-1">
+            ₹{totalExpense.toLocaleString('en-IN')}
+          </p>
         </div>
-
-        {/* Entry form */}
-        {isMonthLocked ? (
-          <div className="sm:col-span-2 bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_4px_24px_rgba(99,102,241,0.08)] ring-1 ring-inset ring-slate-100 p-5 flex items-center justify-center min-h-[148px]">
-            <p className="text-sm text-slate-400 text-center">Expense entry is closed from July 2026 onwards.</p>
-          </div>
-        ) : (
-        <form
-          onSubmit={handleSave}
-          className="sm:col-span-2 bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200/70 shadow-[0_4px_24px_rgba(99,102,241,0.08)] ring-1 ring-inset ring-slate-100 p-5 space-y-4"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-slate-700">
-              {editingId ? 'Edit Expense Entry' : 'Add Expense Entry'}
-            </h3>
-            <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors shadow-sm">
-              <span>📊</span> Upload Excel
-              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
-            </label>
-          </div>
-          {xlsxError && <p className="text-xs font-medium text-red-600">{xlsxError}</p>}
-
-          {filterDept === 'all' ? (
-            <p className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Select a department above to add an entry.
-            </p>
-          ) : (
-            <p className="text-xs text-slate-500">
-              Adding expense for <span className="font-semibold text-slate-700">{filterDept}</span>
-            </p>
+        <div className="text-right">
+          <p className="text-xs text-rose-200">
+            {visibleEntries.length} {visibleEntries.length === 1 ? 'entry' : 'entries'} · {format(activeMonth, 'MMM yyyy')}
+          </p>
+          {filterDept !== 'all' && (
+            <p className="text-[10px] text-rose-300 mt-0.5">{filterDept}</p>
           )}
-
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-500">Date</label>
-              <input
-                type="date"
-                value={form.date}
-                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-500">Amount (₹)</label>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={form.amount}
-                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                placeholder="0"
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-500">Bill No <span className="text-slate-400 font-normal">(opt.)</span></label>
-              <input
-                type="text"
-                value={form.billNo}
-                onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
-                placeholder="Bill number"
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1 col-span-2 lg:col-span-3">
-              <label className="text-xs font-medium text-slate-500">Item</label>
-              <input
-                type="text"
-                value={form.item}
-                onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
-                placeholder="Item description"
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
-              />
-            </div>
-          </div>
-
-          {formError && <p className="text-red-600 text-xs font-medium">{formError}</p>}
-
-          <div className="flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={saving || filterDept === 'all'}
-              className="px-5 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold disabled:opacity-50 transition-colors shadow-sm"
-            >
-              {saving ? 'Saving…' : editingId ? 'Update' : 'Save'}
-            </button>
-            {editingId && (
-              <button type="button" onClick={handleCancelEdit} className="text-sm text-slate-400 hover:text-slate-600 hover:underline">Cancel</button>
-            )}
-          </div>
-
-          {saveError && <p className="text-xs font-medium text-red-600">{saveError}</p>}
-        </form>
-        )}
+        </div>
       </div>
 
       {/* Load error */}
@@ -951,6 +1052,8 @@ export default function ExpensePage({ controlledMonth } = {}) {
           <button type="button" onClick={load} className="text-xs text-red-600 font-semibold hover:underline">Retry</button>
         </div>
       )}
+
+      {saveError && <p className="text-xs font-medium text-red-600">{saveError}</p>}
 
       {/* Expense list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -981,8 +1084,10 @@ export default function ExpensePage({ controlledMonth } = {}) {
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {entry.status === 'pending' && (
+                      {entry.status === 'pending' ? (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pending</span>
+                      ) : entry.status === 'approved' && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Confirmed</span>
                       )}
                       <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
                         {normalizeDepartmentName(entry.department || entry.category)}
@@ -995,22 +1100,11 @@ export default function ExpensePage({ controlledMonth } = {}) {
                       {entry.billNo && <p className="text-slate-400">Bill: {entry.billNo}</p>}
                     </div>
                   )}
-                  {deletingId === entry.id ? (
-                    <div className="flex items-center gap-3 text-xs pt-1">
-                      <span className="text-slate-600">Confirm delete?</span>
-                      <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-medium">Yes</button>
-                      <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500">No</button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 pt-1">
-                      <button type="button" onClick={() => handleEdit(entry)} className="text-xs text-indigo-600 font-medium hover:underline">Edit</button>
-                      <button type="button" onClick={() => setDeletingId(entry.id)} className="text-xs text-red-500 hover:underline">Delete</button>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
-            {/* Desktop table */}
+            {/* Desktop table — read-only aggregate audit view. Deletions happen only
+                inside the specific department card's own sheet, not from here. */}
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -1021,7 +1115,6 @@ export default function ExpensePage({ controlledMonth } = {}) {
                     <th className="px-4 py-3">Item</th>
                     <th className="px-4 py-3">Bill No</th>
                     <th className="px-4 py-3 text-right">Amount</th>
-                    <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1036,8 +1129,10 @@ export default function ExpensePage({ controlledMonth } = {}) {
                       <td className="px-4 py-3 text-slate-700">
                         <div className="flex items-center gap-1.5">
                           {normalizeDepartmentName(entry.department || entry.category)}
-                          {entry.status === 'pending' && (
+                          {entry.status === 'pending' ? (
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pending</span>
+                          ) : entry.status === 'approved' && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Confirmed</span>
                           )}
                         </div>
                       </td>
@@ -1045,20 +1140,6 @@ export default function ExpensePage({ controlledMonth } = {}) {
                       <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
                       <td className="px-4 py-3 text-right font-medium text-slate-800">
                         ₹{Number(entry.amount).toLocaleString('en-IN')}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {deletingId === entry.id ? (
-                          <span className="flex items-center justify-end gap-2 text-xs text-slate-600">
-                            <span>Confirm delete?</span>
-                            <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
-                            <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
-                          </span>
-                        ) : (
-                          <span className="flex items-center justify-end gap-2">
-                            <button type="button" onClick={() => handleEdit(entry)} className="p-1.5 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition" aria-label="Edit">✏️</button>
-                            <button type="button" onClick={() => setDeletingId(entry.id)} className="p-1.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition" aria-label="Delete">🗑️</button>
-                          </span>
-                        )}
                       </td>
                     </tr>
                   ))}
@@ -1068,78 +1149,6 @@ export default function ExpensePage({ controlledMonth } = {}) {
           </>
         )}
       </div>
-      {/* Excel preview modal */}
-      {xlsxRows && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
-          <div className="bg-white w-full sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col sm:max-w-3xl">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
-              <div>
-                <h2 className="font-semibold text-slate-800">Excel Preview</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {xlsxRows.filter(r => r._valid).length} valid · {xlsxRows.filter(r => !r._valid).length} skipped · {xlsxByDept.length} department{xlsxByDept.length !== 1 ? 's' : ''}
-                </p>
-              </div>
-              <button type="button" onClick={() => setXlsxRows(null)} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
-            </div>
-            <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
-              {xlsxByDept.map(({ dept, rows }) => (
-                <div key={dept}>
-                  <div className="px-5 py-2 bg-slate-50 flex items-center gap-2 sticky top-0">
-                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">{dept}</span>
-                    <span className="text-xs text-slate-400">{rows.filter(r => r._valid).length} valid</span>
-                  </div>
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-left text-slate-500 border-b border-slate-100">
-                        <th className="px-4 py-2 font-medium">Date</th>
-                        <th className="px-4 py-2 font-medium">Item</th>
-                        <th className="px-4 py-2 font-medium">Bill No</th>
-                        <th className="px-4 py-2 font-medium text-right">Amount</th>
-                        <th className="px-4 py-2 font-medium"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {rows.map((row) => (
-                        <tr key={row._row} className={row._valid ? '' : 'bg-red-50/60'}>
-                          <td className="px-4 py-2 text-slate-700">{row.date || '—'}</td>
-                          <td className="px-4 py-2 text-slate-700">{row.item || '—'}</td>
-                          <td className="px-4 py-2 text-slate-500">{row.billNo || '—'}</td>
-                          <td className="px-4 py-2 text-right font-medium text-slate-800">
-                            {row._valid ? `₹${row.amount.toLocaleString('en-IN')}` : '—'}
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            {row._valid
-                              ? <span className="text-emerald-600">✓</span>
-                              : <span className="text-red-500 text-[10px]">{row._error}</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-            </div>
-            <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
-              <p className="text-xs text-slate-500">
-                Hint: columns — <span className="font-mono">Date, Department, Item, Bill No, Amount</span>
-              </p>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setXlsxRows(null)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleImportAll}
-                  disabled={importingXlsx || !xlsxRows.some(r => r._valid)}
-                  className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium disabled:opacity-50 transition-colors"
-                >
-                  {importingXlsx ? 'Importing…' : `Import ${xlsxRows.filter(r => r._valid).length} rows`}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       </>
       )}
     </div>

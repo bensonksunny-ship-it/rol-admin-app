@@ -1,5 +1,9 @@
 # Worklist Sheet: Workhub Insights Panel
 
+**Status: Implemented 2026-08-22** — `WorkHub`/`StatCard` components added to `src/pages/WorklistSheet.jsx`, rendered between the page title and the sheet tabs. `formatDuration` was refactored into shared `daysBetween`/`formatDaysLabel` helpers so the Duration column and the Workhub's Avg. completion / Oldest open stats use one bucketing scheme.
+
+**2026-08-22 revision**: The first pass used a compact icon-badge pill per stat, which read as too small/cramped. `StatCard` was rebuilt to match the app's existing KPI-tile convention (`KpiTile` in `DLightDirectorDashboard.jsx`): `grid grid-cols-2 sm:grid-cols-4` layout, `text-3xl font-extrabold` value, small icon+label row above it, muted caption below (e.g. Assigned's caption is "of 30 rows", Completed's is "N% of assigned"). Department chips got bigger too (`text-sm`, more padding) with a small "By department" label above them.
+
 ## Problem
 
 The Worklist Sheet (`/worklist`, `src/pages/WorklistSheet.jsx`) tracks up to 30 tasks per sheet (`row.work`, `row.date`, `row.department`, `row.doneDate`) but gives the Founder no at-a-glance read on how a sheet is doing — how many tasks are assigned, how many are done, which departments the work is concentrated in, or what's been sitting open the longest. This adds a "Workhub" insights panel to answer those questions without leaving the page.

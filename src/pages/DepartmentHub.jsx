@@ -123,6 +123,7 @@ import {
   completePCSFillInvitation,
   getFinanceIncome,
   getFinanceExpense,
+  getFinanceSavings,
   subscribeFinanceExpenseByDept,
   subscribeCellVisitorProposals,
   completeCellVisitorProposal,
@@ -158,6 +159,7 @@ import ExpensePage from './accounts/ExpensePage'
 import IncomePage from './accounts/IncomePage'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
 import BudgetPage from './accounts/BudgetPage'
+import SavingsPage from './accounts/SavingsPage'
 import UpcomingSunday from './UpcomingSunday'
 import { DirectorBoardPage, SundayLeaderTab, SecCoreAnalyticsHub } from './seccore/SecCoreSummary'
 import SundayPrepTracker from '../components/SundayPrepTracker'
@@ -362,6 +364,7 @@ export default function DepartmentHub() {
   const [financeSubTab, setFinanceSubTab] = useState('expense')
   const [acctSummary, setAcctSummary] = useState(null)
   const [acctSummaryLoading, setAcctSummaryLoading] = useState(false)
+  const [acctSavingsTotal, setAcctSavingsTotal] = useState(null)
   const { selectedYear: acctSummaryYear, selectedMonth: acctSummaryMonth, setSelectedYear: setAcctSummaryYear, setSelectedMonth: setAcctSummaryMonth } = useAccountsSummaryPeriod()
   const [team, setTeam] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(false)
@@ -1702,6 +1705,18 @@ export default function DepartmentHub() {
     }
   }, [slug, activeTab, acctSummaryYear, acctSummaryMonth])
 
+  // Total Savings for the Hub's summary card — deliberately its own effect, not
+  // folded into the one above: savings is an all-time running balance (see
+  // SavingsPage), so it doesn't need to (and shouldn't) refetch every time the
+  // Hub's year/month picker changes the way Income/Expense do.
+  useEffect(() => {
+    if (slug !== 'accounts' || activeTab !== 'summary') return
+    getFinanceSavings().then(rows => {
+      const total = rows.reduce((s, e) => s + (e.type === 'withdrawal' ? -Number(e.amount) || 0 : Number(e.amount) || 0), 0)
+      setAcctSavingsTotal(total)
+    }).catch(() => {})
+  }, [slug, activeTab])
+
   // Live listener for cell-leader PCS referral tasks (Caring hub)
   useEffect(() => {
     if (slug !== 'caring') return
@@ -2742,6 +2757,21 @@ export default function DepartmentHub() {
                             <p className={`text-[10px] mt-1 ${net >= 0 ? 'text-indigo-400' : 'text-amber-500'}`}>{net >= 0 ? 'Surplus' : 'Deficit'}</p>
                           </div>
                         </div>
+
+                        {/* Total Savings — always the all-time running balance across every
+                            fund (see SavingsPage), so it's shown separately from the
+                            Income/Expense/Net row above rather than as a 4th month-scoped
+                            card, and labeled accordingly so it isn't read as scoped to
+                            {monthLabel} the way those three are. */}
+                        {acctSavingsTotal != null && (
+                          <div className="bg-gradient-to-br from-violet-50 to-violet-100 rounded-2xl border border-violet-200 shadow-sm px-4 py-3 flex items-center justify-between">
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-violet-500 mb-1">Total Savings</p>
+                              <p className="text-[10px] text-violet-400">Current balance, all-time</p>
+                            </div>
+                            <p className="text-xl font-black text-violet-700">₹{acctSavingsTotal.toLocaleString('en-IN')}</p>
+                          </div>
+                        )}
 
                         {/* Weekly entries — only meaningful when viewing the actual current month */}
                         {acctSummary.isCurrentMonth && (
@@ -4077,6 +4107,10 @@ export default function DepartmentHub() {
 
           {activeTab === 'expense' && slug === 'accounts' && (
             <ExpensePage />
+          )}
+
+          {activeTab === 'savings' && slug === 'accounts' && (
+            <SavingsPage />
           )}
 
           {activeTab === 'budget' && slug === 'accounts' && (
