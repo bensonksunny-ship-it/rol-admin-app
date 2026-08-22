@@ -16,6 +16,33 @@ export const NAMED_CATEGORIES = [
 export const OFFERING_CATEGORY_OPTIONS = ['Online Offering', 'English Offering', 'Tamil Offering']
 export const OTHER_INCOME_CATEGORY_OPTIONS = ['Missions', 'RSM', 'RFF', 'Donations']
 
+// Per-category color accent, shared by IncomeSummaryTable, OfferingMatrixTable,
+// and CategoryListTable so a category reads as the same color everywhere it
+// appears on the page. Full class strings (not interpolated) so Tailwind's
+// scanner picks them up.
+export const ACCENT_STYLES = {
+  emerald: { header: 'bg-emerald-50/70', accentBorder: 'border-emerald-400', dot: 'bg-emerald-500', text: 'text-emerald-700' },
+  indigo: { header: 'bg-indigo-50/70', accentBorder: 'border-indigo-400', dot: 'bg-indigo-500', text: 'text-indigo-700' },
+  violet: { header: 'bg-violet-50/70', accentBorder: 'border-violet-400', dot: 'bg-violet-500', text: 'text-violet-700' },
+  amber: { header: 'bg-amber-50/70', accentBorder: 'border-amber-400', dot: 'bg-amber-500', text: 'text-amber-700' },
+  teal: { header: 'bg-teal-50/70', accentBorder: 'border-teal-400', dot: 'bg-teal-500', text: 'text-teal-700' },
+  rose: { header: 'bg-rose-50/70', accentBorder: 'border-rose-400', dot: 'bg-rose-500', text: 'text-rose-700' },
+  cyan: { header: 'bg-cyan-50/70', accentBorder: 'border-cyan-400', dot: 'bg-cyan-500', text: 'text-cyan-700' },
+}
+
+// Maps each Income Summary row / category card to its accent color.
+export const CATEGORY_ACCENTS = {
+  englishOffering: 'emerald',
+  tamilOffering: 'emerald',
+  onlineOffering: 'emerald',
+  titheEnglish: 'indigo',
+  titheTamil: 'violet',
+  contribution: 'amber',
+  supportFromROLCC: 'teal',
+  otherIncome: 'rose',
+  rsmSalary: 'cyan',
+}
+
 // Pre-refactor entries were saved with the plain 'Tithe' category (no language
 // split). Those are folded into Tithe - English rather than Other Income.
 const LEGACY_TITHE_CATEGORY = 'Tithe'

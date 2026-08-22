@@ -1,10 +1,11 @@
 import { Check, Pencil, Plus } from 'lucide-react'
-import { fmtDate, sumAmount, toDate } from './incomeCategorize'
+import { ACCENT_STYLES, fmtDate, sumAmount, toDate } from './incomeCategorize'
 import InlineEntryForm from './InlineEntryForm'
 import RowActionsMenu from './RowActionsMenu'
 
 export default function CategoryListTable({
   title,
+  accent = 'indigo',
   entries,
   editMode,
   onToggleEdit,
@@ -29,16 +30,20 @@ export default function CategoryListTable({
   const total = sumAmount(entries)
   const sorted = [...entries].sort((a, b) => toDate(b.date) - toDate(a.date))
   const columnCount = 3 + (towardsColumn ? 1 : 0) + (editMode ? 1 : 0)
+  const styles = ACCENT_STYLES[accent]
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
-          <p className="text-xs text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
+    <div className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm overflow-hidden flex flex-col`}>
+      <div className={`px-5 py-3 border-b border-slate-100 ${styles.header} flex items-center justify-between gap-2`}>
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${styles.dot} shrink-0`} />
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
+            <p className="text-xs text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <p className="text-sm font-bold tabular-nums text-slate-800">₹{total.toLocaleString('en-IN')}</p>
+          <p className={`text-sm font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</p>
           <button
             type="button"
             onClick={onAddNew}
@@ -134,9 +139,9 @@ export default function CategoryListTable({
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t-2 border-slate-200 bg-slate-50/70">
+              <tr className={`border-t-2 border-slate-200 ${styles.header}`}>
                 <td className="px-4 py-2.5 font-semibold text-slate-600" colSpan={towardsColumn ? 3 : 2}>Total</td>
-                <td className="px-4 py-2.5 text-right font-bold tabular-nums text-slate-800">₹{total.toLocaleString('en-IN')}</td>
+                <td className={`px-4 py-2.5 text-right font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</td>
                 {editMode && <td></td>}
               </tr>
             </tfoot>

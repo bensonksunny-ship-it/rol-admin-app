@@ -1,4 +1,4 @@
-import { categorizeEntries, sumAmount } from './incomeCategorize'
+import { ACCENT_STYLES, CATEGORY_ACCENTS, categorizeEntries, sumAmount } from './incomeCategorize'
 
 const ROWS = [
   { key: 'englishOffering', label: 'English Offering' },
@@ -23,14 +23,22 @@ export default function IncomeSummaryTable({ entries }) {
       </div>
       <table className="w-full text-sm">
         <tbody className="divide-y divide-slate-100">
-          {ROWS.map((row, i) => (
-            <tr key={row.key} className={i % 2 === 1 ? 'bg-slate-50/50' : undefined}>
-              <td className="px-5 py-2.5 text-slate-600">{row.label}</td>
-              <td className="px-5 py-2.5 text-right font-medium tabular-nums text-slate-800">
-                ₹{sumAmount(categorized[row.key]).toLocaleString('en-IN')}
-              </td>
-            </tr>
-          ))}
+          {ROWS.map((row, i) => {
+            const dotClass = ACCENT_STYLES[CATEGORY_ACCENTS[row.key]].dot
+            return (
+              <tr key={row.key} className={i % 2 === 1 ? 'bg-slate-50/50' : undefined}>
+                <td className="px-5 py-2.5 text-slate-600">
+                  <span className="inline-flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${dotClass} shrink-0`} />
+                    {row.label}
+                  </span>
+                </td>
+                <td className="px-5 py-2.5 text-right font-medium tabular-nums text-slate-800">
+                  ₹{sumAmount(categorized[row.key]).toLocaleString('en-IN')}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-slate-200 bg-emerald-50/60">

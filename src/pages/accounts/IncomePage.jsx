@@ -248,6 +248,7 @@ export default function IncomePage({ controlledMonth } = {}) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <CategoryListTable
           title="Tithe - English"
+          accent="indigo"
           entries={categorized.titheEnglish}
           editMode={!!editSections.titheEnglish}
           onToggleEdit={() => toggleSection('titheEnglish')}
@@ -259,6 +260,7 @@ export default function IncomePage({ controlledMonth } = {}) {
         />
         <CategoryListTable
           title="Tithe - Tamil"
+          accent="violet"
           entries={categorized.titheTamil}
           editMode={!!editSections.titheTamil}
           onToggleEdit={() => toggleSection('titheTamil')}
@@ -270,6 +272,7 @@ export default function IncomePage({ controlledMonth } = {}) {
         />
         <CategoryListTable
           title="Contribution"
+          accent="amber"
           entries={categorized.contribution}
           towardsColumn
           editMode={!!editSections.contribution}
@@ -282,6 +285,7 @@ export default function IncomePage({ controlledMonth } = {}) {
         />
         <CategoryListTable
           title="Support from ROLCC"
+          accent="teal"
           entries={categorized.supportFromROLCC}
           editMode={!!editSections.supportFromROLCC}
           onToggleEdit={() => toggleSection('supportFromROLCC')}
@@ -293,6 +297,7 @@ export default function IncomePage({ controlledMonth } = {}) {
         />
         <CategoryListTable
           title="Other Income"
+          accent="rose"
           entries={categorized.otherIncome}
           towardsColumn
           editMode={!!editSections.otherIncome}
@@ -305,6 +310,7 @@ export default function IncomePage({ controlledMonth } = {}) {
         />
         <CategoryListTable
           title="RSM Salary"
+          accent="cyan"
           entries={categorized.rsmSalary}
           editMode={!!editSections.rsmSalary}
           onToggleEdit={() => toggleSection('rsmSalary')}

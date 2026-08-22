@@ -1,6 +1,8 @@
 import { Fragment, useState } from 'react'
 import { Check, Pencil, Trash2 } from 'lucide-react'
-import { fmtDate, matchesCategory, sumAmount, toDate } from './incomeCategorize'
+import { ACCENT_STYLES, fmtDate, matchesCategory, sumAmount, toDate } from './incomeCategorize'
+
+const styles = ACCENT_STYLES.emerald
 
 const COLUMNS = [
   { key: 'English Offering', label: 'English' },
@@ -170,9 +172,12 @@ export default function OfferingMatrixTable({
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-slate-700">Offering</h3>
+    <div className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm overflow-hidden`}>
+      <div className={`px-5 py-3 border-b border-slate-100 ${styles.header} flex items-center justify-between gap-2`}>
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${styles.dot} shrink-0`} />
+          <h3 className="text-sm font-semibold text-slate-700">Offering</h3>
+        </div>
         <button
           type="button"
           onClick={onToggleEdit}
@@ -270,12 +275,12 @@ export default function OfferingMatrixTable({
             })}
           </tbody>
           <tfoot>
-            <tr className="border-t-2 border-slate-200 bg-slate-50/70">
+            <tr className={`border-t-2 border-slate-200 ${styles.header}`}>
               <td className="px-5 py-3 font-semibold text-slate-600">Total</td>
               {columnTotals.map((t, i) => (
-                <td key={COLUMNS[i].key} className="px-5 py-3 text-right font-bold tabular-nums text-slate-800">₹{t.toLocaleString('en-IN')}</td>
+                <td key={COLUMNS[i].key} className={`px-5 py-3 text-right font-bold tabular-nums ${styles.text}`}>₹{t.toLocaleString('en-IN')}</td>
               ))}
-              <td className="px-5 py-3 text-right font-bold tabular-nums text-slate-800">₹{grandTotal.toLocaleString('en-IN')}</td>
+              <td className={`px-5 py-3 text-right font-bold tabular-nums ${styles.text}`}>₹{grandTotal.toLocaleString('en-IN')}</td>
             </tr>
           </tfoot>
         </table>
