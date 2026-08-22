@@ -184,7 +184,7 @@ export default function IncomePage({ controlledMonth } = {}) {
   }
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="max-w-[210mm] mx-auto space-y-5 pb-12">
 
       {/* Month picker — hidden when month is controlled by parent */}
       {!controlledMonth && (

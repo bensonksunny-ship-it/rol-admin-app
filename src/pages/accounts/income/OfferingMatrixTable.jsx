@@ -170,7 +170,7 @@ export default function OfferingMatrixTable({
   }
 
   return (
-    <div className="max-w-5xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-700">Offering</h3>
         <button
