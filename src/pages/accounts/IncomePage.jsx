@@ -10,7 +10,7 @@ import {
   updateFinanceIncome,
   deleteFinanceIncome,
 } from '../../services/firestore'
-import { categorizeEntries, OFFERING_CATEGORY_OPTIONS, OTHER_INCOME_CATEGORY_OPTIONS } from './income/incomeCategorize'
+import { categorizeEntries, OTHER_INCOME_CATEGORY_OPTIONS } from './income/incomeCategorize'
 import IncomeSummaryTable from './income/IncomeSummaryTable'
 import OfferingMatrixTable from './income/OfferingMatrixTable'
 import CategoryListTable from './income/CategoryListTable'
@@ -241,7 +241,6 @@ export default function IncomePage({ controlledMonth } = {}) {
         onToggleEdit={() => toggleSection('offering')}
         addingCell={addingCell}
         onAddCell={handleAddOfferingCell}
-        categoryOptions={OFFERING_CATEGORY_OPTIONS}
         {...inlineFormProps}
         {...rowActionProps}
       />

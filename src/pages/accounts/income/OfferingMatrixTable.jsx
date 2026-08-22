@@ -1,8 +1,6 @@
 import { Fragment, useState } from 'react'
-import { Check, Pencil } from 'lucide-react'
+import { Check, Pencil, Trash2 } from 'lucide-react'
 import { fmtDate, matchesCategory, sumAmount, toDate } from './incomeCategorize'
-import InlineEntryForm from './InlineEntryForm'
-import RowActionsMenu from './RowActionsMenu'
 
 const COLUMNS = [
   { key: 'English Offering', label: 'English' },
@@ -29,6 +27,28 @@ function sundaysInMonth(monthDate) {
   return isos
 }
 
+function CellAmountInput({ value, onChange, onCommit, onCancel, saving }) {
+  return (
+    <input
+      type="number"
+      min="0"
+      step="any"
+      autoFocus
+      disabled={saving}
+      value={value}
+      placeholder="0"
+      onChange={e => onChange(e.target.value)}
+      onFocus={e => e.target.select()}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { e.preventDefault(); onCommit() }
+        if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+      }}
+      onBlur={() => { if (value !== '' && Number(value) >= 0) onCommit(); else onCancel() }}
+      className="w-20 rounded-lg border border-indigo-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-50"
+    />
+  )
+}
+
 export default function OfferingMatrixTable({
   entries,
   activeMonth,
@@ -37,21 +57,17 @@ export default function OfferingMatrixTable({
   addingCell,
   onAddCell,
   editingId,
-  categoryOptions,
   form,
   onFormChange,
   onSave,
   onCancel,
   saving,
-  formError,
-  openMenuId,
-  setOpenMenuId,
   deletingId,
   setDeletingId,
   onEdit,
   onDelete,
 }) {
-  const [expandedDate, setExpandedDate] = useState(null)
+  const [expandedCell, setExpandedCell] = useState(null) // { date, category } | null — multi-entry breakdown only
 
   const byDate = new Map()
   for (const entry of entries) {
@@ -64,9 +80,93 @@ export default function OfferingMatrixTable({
   const columnTotals = COLUMNS.map(col => sumAmount(entries.filter(e => matchesCategory(e, col.key))))
   const grandTotal = sumAmount(entries)
 
-  function handleAddCellClick(iso, category) {
-    setExpandedDate(iso)
-    onAddCell(iso, category)
+  const isCellExpanded = (iso, category) => expandedCell?.date === iso && expandedCell?.category === category
+  const isCellAdding = (iso, category) => addingCell?.date === iso && addingCell?.category === category
+
+  function renderCell(iso, colEntries, category, label) {
+    if (isCellAdding(iso, category)) {
+      return (
+        <CellAmountInput
+          value={form.amount}
+          onChange={v => onFormChange('amount', v)}
+          onCommit={onSave}
+          onCancel={onCancel}
+          saving={saving}
+        />
+      )
+    }
+
+    if (colEntries.length === 0) {
+      return (
+        <button
+          type="button"
+          onClick={() => onAddCell(iso, category)}
+          aria-label={`Add ${label} offering for ${fmtDate(iso)}`}
+          className="w-full text-right text-slate-300 hover:text-indigo-500 cursor-pointer transition-colors"
+        >
+          –
+        </button>
+      )
+    }
+
+    if (colEntries.length === 1) {
+      const entry = colEntries[0]
+      if (editingId === entry.id) {
+        return (
+          <div className="flex items-center justify-end gap-1.5">
+            <CellAmountInput
+              value={form.amount}
+              onChange={v => onFormChange('amount', v)}
+              onCommit={onSave}
+              onCancel={onCancel}
+              saving={saving}
+            />
+          </div>
+        )
+      }
+      if (deletingId === entry.id) {
+        return (
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 whitespace-nowrap">
+            Delete?
+            <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-semibold hover:underline">Yes</button>
+            <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+          </span>
+        )
+      }
+      return (
+        <span className="inline-flex items-center justify-end gap-1.5 group">
+          <button
+            type="button"
+            onClick={() => onEdit(entry)}
+            className="font-medium tabular-nums text-slate-800 hover:text-indigo-600 cursor-pointer transition-colors"
+          >
+            ₹{Number(entry.amount).toLocaleString('en-IN')}
+          </button>
+          {editMode && (
+            <button
+              type="button"
+              onClick={() => setDeletingId(entry.id)}
+              aria-label="Delete entry"
+              className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </span>
+      )
+    }
+
+    // Multiple entries summed into one cell — rare; expand a small breakdown below the row.
+    const amount = sumAmount(colEntries)
+    return (
+      <button
+        type="button"
+        onClick={() => setExpandedCell(isCellExpanded(iso, category) ? null : { date: iso, category })}
+        className="font-medium tabular-nums text-slate-800 hover:text-indigo-600 cursor-pointer transition-colors"
+      >
+        ₹{amount.toLocaleString('en-IN')} <span className="text-[10px] text-indigo-500 align-super">{colEntries.length}</span>
+      </button>
+    )
   }
 
   return (
@@ -100,95 +200,67 @@ export default function OfferingMatrixTable({
             {dates.map((iso, i) => {
               const dayEntries = byDate.get(iso) || []
               const rowTotal = sumAmount(dayEntries)
-              const isExpanded = expandedDate === iso
-              const isAddingOnThisDate = addingCell?.date === iso
+              const expandedCol = COLUMNS.find(col => isCellExpanded(iso, col.key))
               return (
                 <Fragment key={iso}>
                   <tr className={`hover:bg-indigo-50/40 transition-colors ${i % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                     <td className="px-5 py-3 text-slate-700">{fmtDate(iso)}</td>
                     {COLUMNS.map(col => {
                       const colEntries = dayEntries.filter(e => matchesCategory(e, col.key))
-                      const amount = sumAmount(colEntries)
                       return (
                         <td key={col.key} className="px-5 py-3 text-right">
-                          {colEntries.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => setExpandedDate(isExpanded ? null : iso)}
-                              className="font-medium tabular-nums text-slate-800 hover:text-indigo-600 hover:underline underline-offset-2"
-                            >
-                              ₹{amount.toLocaleString('en-IN')}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleAddCellClick(iso, col.key)}
-                              aria-label={`Add ${col.label} offering for ${fmtDate(iso)}`}
-                              className="text-slate-300 hover:text-indigo-500 transition-colors"
-                            >
-                              –
-                            </button>
-                          )}
+                          {renderCell(iso, colEntries, col.key, col.label)}
                         </td>
                       )
                     })}
                     <td className="px-5 py-3 text-right font-semibold tabular-nums text-slate-800">₹{rowTotal.toLocaleString('en-IN')}</td>
                   </tr>
-                  {(isExpanded || isAddingOnThisDate) && (
+                  {expandedCol && (
                     <tr className="bg-indigo-50/30">
                       <td colSpan={COLUMNS.length + 2} className="px-5 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-500 mb-1.5">
+                          {expandedCol.label} — {fmtDate(iso)}
+                        </p>
                         <div className="space-y-1.5">
-                          {dayEntries.map(entry => (
-                            editingId === entry.id ? (
-                              <div key={entry.id} className="rounded-xl overflow-hidden border border-indigo-200 shadow-sm">
-                                <InlineEntryForm
-                                  categoryOptions={categoryOptions}
-                                  showTowards={false}
-                                  form={form}
-                                  onChange={onFormChange}
-                                  onSave={onSave}
+                          {dayEntries.filter(e => matchesCategory(e, expandedCol.key)).map(entry => (
+                            <div key={entry.id} className="flex items-center justify-between gap-3 text-xs bg-white rounded-xl border border-slate-100 px-3.5 py-2.5 shadow-sm">
+                              <span className="text-slate-600 flex-1 truncate">{entry.giverName || '—'}</span>
+                              {editingId === entry.id ? (
+                                <CellAmountInput
+                                  value={form.amount}
+                                  onChange={v => onFormChange('amount', v)}
+                                  onCommit={onSave}
                                   onCancel={onCancel}
                                   saving={saving}
-                                  formError={formError}
                                 />
-                              </div>
-                            ) : (
-                              <div key={entry.id} className="flex items-center justify-between gap-3 text-xs bg-white rounded-xl border border-slate-100 px-3.5 py-2.5 shadow-sm">
-                                <span className="text-slate-500 w-20 shrink-0">{entry.category.replace(/ offering/i, '')}</span>
-                                <span className="text-slate-600 flex-1 truncate">{entry.giverName || '—'}</span>
-                                <span className="font-medium tabular-nums text-slate-800 w-20 text-right shrink-0">₹{Number(entry.amount).toLocaleString('en-IN')}</span>
-                                {editMode && (
-                                  deletingId === entry.id ? (
-                                    <span className="flex items-center gap-1.5 shrink-0">
-                                      <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
-                                      <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
-                                    </span>
-                                  ) : (
-                                    <RowActionsMenu
-                                      isOpen={openMenuId === entry.id}
-                                      onToggle={() => setOpenMenuId(openMenuId === entry.id ? null : entry.id)}
-                                      onEdit={() => { setOpenMenuId(null); onEdit(entry) }}
-                                      onDelete={() => { setOpenMenuId(null); setDeletingId(entry.id) }}
-                                    />
-                                  )
-                                )}
-                              </div>
-                            )
-                          ))}
-                          {isAddingOnThisDate && (
-                            <div className="rounded-xl overflow-hidden border border-indigo-200 shadow-sm">
-                              <InlineEntryForm
-                                categoryOptions={[addingCell.category]}
-                                showTowards={false}
-                                form={form}
-                                onChange={onFormChange}
-                                onSave={onSave}
-                                onCancel={onCancel}
-                                saving={saving}
-                                formError={formError}
-                              />
+                              ) : deletingId === entry.id ? (
+                                <span className="flex items-center gap-1.5 shrink-0 text-[11px]">
+                                  <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-semibold hover:underline">Yes</button>
+                                  <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 shrink-0 group">
+                                  <button
+                                    type="button"
+                                    onClick={() => onEdit(entry)}
+                                    className="font-medium tabular-nums text-slate-800 hover:text-indigo-600 cursor-pointer"
+                                  >
+                                    ₹{Number(entry.amount).toLocaleString('en-IN')}
+                                  </button>
+                                  {editMode && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setDeletingId(entry.id)}
+                                      aria-label="Delete entry"
+                                      className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  )}
+                                </span>
+                              )}
                             </div>
-                          )}
+                          ))}
                         </div>
                       </td>
                     </tr>
