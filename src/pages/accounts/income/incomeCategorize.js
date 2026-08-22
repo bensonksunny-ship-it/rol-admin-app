@@ -8,13 +8,16 @@ export const NAMED_CATEGORIES = [
   'Tithe - Tamil',
   'Contribution',
   'Support from ROLCC',
+  'RSM',
   'RSM Salary',
+  'RFF',
 ]
 
 // Category choices offered by the inline add/edit form for cards that span
 // more than one underlying category.
 export const OFFERING_CATEGORY_OPTIONS = ['Online Offering', 'English Offering', 'Tamil Offering']
-export const OTHER_INCOME_CATEGORY_OPTIONS = ['Missions', 'RSM', 'RFF', 'Donations']
+export const RSM_CATEGORY_OPTIONS = ['RSM', 'RSM Salary', 'RFF']
+export const OTHER_INCOME_CATEGORY_OPTIONS = ['Missions', 'Donations']
 
 // Per-category color accent, shared by IncomeSummaryTable, OfferingMatrixTable,
 // and CategoryListTable so a category reads as the same color everywhere it
@@ -40,7 +43,7 @@ export const CATEGORY_ACCENTS = {
   contribution: 'amber',
   supportFromROLCC: 'teal',
   otherIncome: 'rose',
-  rsmSalary: 'cyan',
+  rsm: 'cyan',
 }
 
 // Pre-refactor entries were saved with the plain 'Tithe' category (no language
@@ -83,7 +86,7 @@ export function categorizeEntries(entries) {
     titheTamil: byCategory('Tithe - Tamil'),
     contribution: byCategory('Contribution'),
     supportFromROLCC: [...byCategory('Support from ROLCC'), ...byCategory(LEGACY_DON_U_CATEGORY)],
-    rsmSalary: byCategory('RSM Salary'),
+    rsm: [...byCategory('RSM'), ...byCategory('RSM Salary'), ...byCategory('RFF')],
     otherIncome: entries.filter(isOtherIncome),
   }
 }

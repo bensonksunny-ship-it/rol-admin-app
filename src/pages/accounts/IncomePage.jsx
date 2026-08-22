@@ -10,7 +10,7 @@ import {
   updateFinanceIncome,
   deleteFinanceIncome,
 } from '../../services/firestore'
-import { categorizeEntries, OTHER_INCOME_CATEGORY_OPTIONS } from './income/incomeCategorize'
+import { categorizeEntries, OTHER_INCOME_CATEGORY_OPTIONS, RSM_CATEGORY_OPTIONS } from './income/incomeCategorize'
 import IncomeSummaryTable from './income/IncomeSummaryTable'
 import OfferingMatrixTable from './income/OfferingMatrixTable'
 import CategoryListTable from './income/CategoryListTable'
@@ -309,14 +309,14 @@ export default function IncomePage({ controlledMonth } = {}) {
           {...rowActionProps}
         />
         <CategoryListTable
-          title="RSM Salary"
+          title="RSM"
           accent="cyan"
-          entries={categorized.rsmSalary}
-          editMode={!!editSections.rsmSalary}
-          onToggleEdit={() => toggleSection('rsmSalary')}
-          isAdding={addingSection === 'rsmSalary'}
-          onAddNew={() => handleAddForCategory('rsmSalary', 'RSM Salary')}
-          categoryOptions={['RSM Salary']}
+          entries={categorized.rsm}
+          editMode={!!editSections.rsm}
+          onToggleEdit={() => toggleSection('rsm')}
+          isAdding={addingSection === 'rsm'}
+          onAddNew={() => handleAddForCategory('rsm', RSM_CATEGORY_OPTIONS[0])}
+          categoryOptions={RSM_CATEGORY_OPTIONS}
           {...inlineFormProps}
           {...rowActionProps}
         />

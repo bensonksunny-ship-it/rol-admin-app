@@ -9,7 +9,7 @@ const ROWS = [
   { key: 'contribution', label: 'Contribution' },
   { key: 'otherIncome', label: 'Other Income' },
   { key: 'supportFromROLCC', label: 'Support from ROLCC' },
-  { key: 'rsmSalary', label: 'RSM Salary' },
+  { key: 'rsm', label: 'RSM' },
 ]
 
 export default function IncomeSummaryTable({ entries }) {
