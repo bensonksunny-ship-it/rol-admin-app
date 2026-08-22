@@ -175,7 +175,7 @@ export default function CategoryListTable({
         className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col cursor-pointer`}
       >
         {header}
-        {renderBody(0)}
+        {renderBody(5)}
       </div>
 
       {isExpanded && (
