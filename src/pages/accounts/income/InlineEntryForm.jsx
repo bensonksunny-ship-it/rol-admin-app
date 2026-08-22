@@ -32,6 +32,7 @@ export default function InlineEntryForm({ categoryOptions, showTowards, form, on
           <label className={labelClass}>Name</label>
           <input
             type="text"
+            autoFocus
             value={form.giverName}
             onChange={e => onChange('giverName', e.target.value)}
             placeholder="Optional"

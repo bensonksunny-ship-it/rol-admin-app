@@ -69,7 +69,7 @@ export default function CategoryListTable({
     </div>
   )
 
-  function renderBody(blankRows = 0) {
+  function renderBody(blankRows = 0, allowClickToAdd = false) {
     return (
       <>
         {isAdding && (
@@ -88,7 +88,14 @@ export default function CategoryListTable({
         )}
 
         {sorted.length === 0 && blankRows === 0 ? (
-          !isAdding && <div className="p-5 text-center text-xs text-slate-400">No entries</div>
+          !isAdding && (
+            <div
+              onClick={allowClickToAdd ? onAddNew : undefined}
+              className={`p-5 text-center text-xs text-slate-400 ${allowClickToAdd ? 'cursor-pointer hover:bg-slate-50/80 transition-colors' : ''}`}
+            >
+              No entries{allowClickToAdd ? ' — click to add one' : ''}
+            </div>
+          )
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs bg-white">
@@ -145,7 +152,11 @@ export default function CategoryListTable({
                   )
                 ))}
                 {Array.from({ length: blankRows }).map((_, i) => (
-                  <tr key={`blank-${i}`}>
+                  <tr
+                    key={`blank-${i}`}
+                    onClick={allowClickToAdd ? onAddNew : undefined}
+                    className={allowClickToAdd ? 'cursor-pointer hover:bg-slate-50/80 transition-colors' : undefined}
+                  >
                     <td className="px-4 py-2.5 text-slate-300">&nbsp;</td>
                     <td className="px-4 py-2.5"></td>
                     {towardsColumn && <td className="px-4 py-2.5"></td>}
@@ -189,7 +200,7 @@ export default function CategoryListTable({
           >
             {header}
             <div className="overflow-y-auto flex-1">
-              {renderBody(5)}
+              {renderBody(5, true)}
             </div>
           </div>
         </div>
