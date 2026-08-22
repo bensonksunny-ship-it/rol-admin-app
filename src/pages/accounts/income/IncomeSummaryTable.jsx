@@ -17,7 +17,7 @@ export default function IncomeSummaryTable({ entries }) {
   const total = sumAmount(entries)
 
   return (
-    <div className="max-w-md mx-auto bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60">
         <h3 className="text-sm font-semibold text-slate-700">Income Summary</h3>
       </div>
