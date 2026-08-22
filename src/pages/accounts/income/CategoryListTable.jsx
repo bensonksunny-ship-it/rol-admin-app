@@ -1,4 +1,4 @@
-import { Check, Pencil, Plus } from 'lucide-react'
+import { Check, ChevronDown, Pencil, Plus } from 'lucide-react'
 import { ACCENT_STYLES, fmtDate, sumAmount, toDate } from './incomeCategorize'
 import InlineEntryForm from './InlineEntryForm'
 import RowActionsMenu from './RowActionsMenu'
@@ -7,6 +7,8 @@ export default function CategoryListTable({
   title,
   accent = 'indigo',
   entries,
+  isExpanded,
+  onToggleExpand,
   editMode,
   onToggleEdit,
   onAddNew,
@@ -35,13 +37,22 @@ export default function CategoryListTable({
   return (
     <div className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm overflow-hidden flex flex-col`}>
       <div className={`px-5 py-3 border-b border-slate-100 ${styles.header} flex items-center justify-between gap-2`}>
-        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          className="flex items-center gap-2 text-left group cursor-pointer"
+        >
           <span className={`w-2 h-2 rounded-full ${styles.dot} shrink-0`} />
           <div>
             <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
             <p className="text-xs text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
           </div>
-        </div>
+          <ChevronDown
+            size={14}
+            className={`text-slate-400 group-hover:text-slate-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+          />
+        </button>
         <div className="flex items-center gap-2">
           <p className={`text-sm font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</p>
           <button
