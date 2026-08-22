@@ -32,6 +32,7 @@ export default function IncomePage({ controlledMonth } = {}) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
   const [addingSection, setAddingSection] = useState(null)
+  const [addingCell, setAddingCell] = useState(null)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [saveError, setSaveError] = useState('')
@@ -133,6 +134,7 @@ export default function IncomePage({ controlledMonth } = {}) {
 
   function handleEdit(entry) {
     setAddingSection(null)
+    setAddingCell(null)
     setEditingId(entry.id)
     setFormError('')
     setForm({
@@ -150,12 +152,22 @@ export default function IncomePage({ controlledMonth } = {}) {
     setEditingId(null)
     setFormError('')
     setAddingSection(section)
+    setAddingCell(null)
     setForm({ ...EMPTY_FORM, category })
+  }
+
+  function handleAddOfferingCell(date, category) {
+    setEditingId(null)
+    setFormError('')
+    setAddingSection('offering')
+    setAddingCell({ date, category })
+    setForm({ ...EMPTY_FORM, date, category })
   }
 
   function closeInlineForm() {
     setEditingId(null)
     setAddingSection(null)
+    setAddingCell(null)
     setForm(EMPTY_FORM)
     setFormError('')
   }
@@ -224,10 +236,11 @@ export default function IncomePage({ controlledMonth } = {}) {
 
       <OfferingMatrixTable
         entries={offeringEntries}
+        activeMonth={activeMonth}
         editMode={!!editSections.offering}
         onToggleEdit={() => toggleSection('offering')}
-        isAdding={addingSection === 'offering'}
-        onAddNew={() => handleAddForCategory('offering', OFFERING_CATEGORY_OPTIONS[0])}
+        addingCell={addingCell}
+        onAddCell={handleAddOfferingCell}
         categoryOptions={OFFERING_CATEGORY_OPTIONS}
         {...inlineFormProps}
         {...rowActionProps}
