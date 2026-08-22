@@ -87,7 +87,7 @@ export default function CategoryListTable({
           </div>
         )}
 
-        {sorted.length === 0 ? (
+        {sorted.length === 0 && blankRows === 0 ? (
           !isAdding && <div className="p-5 text-center text-xs text-slate-400">No entries</div>
         ) : (
           <div className="overflow-x-auto">
