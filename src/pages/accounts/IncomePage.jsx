@@ -100,7 +100,7 @@ export default function IncomePage({ controlledMonth } = {}) {
 
   function validate() {
     if (!form.date) return 'Date is required.'
-    if (!form.amount || Number(form.amount) <= 0) return 'Amount must be greater than 0.'
+    if (form.amount === '' || Number(form.amount) < 0) return 'Amount must be 0 or greater.'
     return ''
   }
 
