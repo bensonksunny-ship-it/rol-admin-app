@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Pencil, Plus } from 'lucide-react'
+import { Check, ChevronDown, Pencil, Plus, X } from 'lucide-react'
 import { ACCENT_STYLES, fmtDate, sumAmount, toDate } from './incomeCategorize'
 import InlineEntryForm from './InlineEntryForm'
 import RowActionsMenu from './RowActionsMenu'
@@ -34,50 +34,61 @@ export default function CategoryListTable({
   const columnCount = 3 + (towardsColumn ? 1 : 0) + (editMode ? 1 : 0)
   const styles = ACCENT_STYLES[accent]
 
-  return (
-    <div className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm overflow-hidden flex flex-col`}>
-      <div className={`px-5 py-3 border-b border-slate-100 ${styles.header} flex items-center justify-between gap-2`}>
+  const header = (
+    <div className={`px-5 py-3 border-b border-slate-100 ${styles.header} flex items-center justify-between gap-2`}>
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        aria-label={isExpanded ? 'Collapse' : 'Expand'}
+        className="flex items-center gap-2 text-left group cursor-pointer"
+      >
+        <span className={`w-2 h-2 rounded-full ${styles.dot} shrink-0`} />
+        <div>
+          <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
+          <p className="text-xs text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
+        </div>
+        {!isExpanded && (
+          <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600 transition-transform" />
+        )}
+      </button>
+      <div className="flex items-center gap-2">
+        <p className={`text-sm font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</p>
         <button
           type="button"
-          onClick={onToggleExpand}
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
-          className="flex items-center gap-2 text-left group cursor-pointer"
+          onClick={onAddNew}
+          aria-label="Add entry"
+          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors"
         >
-          <span className={`w-2 h-2 rounded-full ${styles.dot} shrink-0`} />
-          <div>
-            <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
-            <p className="text-xs text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
-          </div>
-          <ChevronDown
-            size={14}
-            className={`text-slate-400 group-hover:text-slate-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-          />
+          <Plus size={14} />
         </button>
-        <div className="flex items-center gap-2">
-          <p className={`text-sm font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</p>
+        <button
+          type="button"
+          onClick={onToggleEdit}
+          aria-label={editMode ? 'Done editing' : 'Edit'}
+          className={`p-1.5 rounded-lg border transition-colors ${
+            editMode
+              ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+              : 'border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
+          }`}
+        >
+          {editMode ? <Check size={14} /> : <Pencil size={14} />}
+        </button>
+        {isExpanded && (
           <button
             type="button"
-            onClick={onAddNew}
-            aria-label="Add entry"
-            className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors"
+            onClick={onToggleExpand}
+            aria-label="Close"
+            className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-slate-400 hover:text-slate-700 transition-colors"
           >
-            <Plus size={14} />
+            <X size={14} />
           </button>
-          <button
-            type="button"
-            onClick={onToggleEdit}
-            aria-label={editMode ? 'Done editing' : 'Edit'}
-            className={`p-1.5 rounded-lg border transition-colors ${
-              editMode
-                ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
-                : 'border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
-            }`}
-          >
-            {editMode ? <Check size={14} /> : <Pencil size={14} />}
-          </button>
-        </div>
+        )}
       </div>
+    </div>
+  )
 
+  const body = (
+    <>
       {isAdding && (
         <InlineEntryForm
           categoryOptions={categoryOptions}
@@ -159,6 +170,32 @@ export default function CategoryListTable({
           </table>
         </div>
       )}
-    </div>
+    </>
+  )
+
+  return (
+    <>
+      <div className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm overflow-hidden flex flex-col`}>
+        {header}
+        {body}
+      </div>
+
+      {isExpanded && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={onToggleExpand}
+        >
+          <div
+            className={`bg-white rounded-2xl border-t-4 ${styles.accentBorder} shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden`}
+            onClick={e => e.stopPropagation()}
+          >
+            {header}
+            <div className="overflow-y-auto flex-1">
+              {body}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

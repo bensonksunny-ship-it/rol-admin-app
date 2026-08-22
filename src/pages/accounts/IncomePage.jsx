@@ -251,104 +251,92 @@ export default function IncomePage({ controlledMonth } = {}) {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className={expandedCard === 'titheEnglish' ? 'sm:col-span-2' : undefined}>
-          <CategoryListTable
-            title="Tithe - English"
-            accent="indigo"
-            entries={categorized.titheEnglish}
-            isExpanded={expandedCard === 'titheEnglish'}
-            onToggleExpand={() => toggleExpandCard('titheEnglish')}
-            editMode={!!editSections.titheEnglish}
-            onToggleEdit={() => toggleSection('titheEnglish')}
-            isAdding={addingSection === 'titheEnglish'}
-            onAddNew={() => handleAddForCategory('titheEnglish', 'Tithe - English')}
-            categoryOptions={['Tithe - English']}
-            {...inlineFormProps}
-            {...rowActionProps}
-          />
-        </div>
-        <div className={expandedCard === 'titheTamil' ? 'sm:col-span-2' : undefined}>
-          <CategoryListTable
-            title="Tithe - Tamil"
-            accent="violet"
-            entries={categorized.titheTamil}
-            isExpanded={expandedCard === 'titheTamil'}
-            onToggleExpand={() => toggleExpandCard('titheTamil')}
-            editMode={!!editSections.titheTamil}
-            onToggleEdit={() => toggleSection('titheTamil')}
-            isAdding={addingSection === 'titheTamil'}
-            onAddNew={() => handleAddForCategory('titheTamil', 'Tithe - Tamil')}
-            categoryOptions={['Tithe - Tamil']}
-            {...inlineFormProps}
-            {...rowActionProps}
-          />
-        </div>
-        <div className={expandedCard === 'contribution' ? 'sm:col-span-2' : undefined}>
-          <CategoryListTable
-            title="Contribution"
-            accent="amber"
-            entries={categorized.contribution}
-            towardsColumn
-            isExpanded={expandedCard === 'contribution'}
-            onToggleExpand={() => toggleExpandCard('contribution')}
-            editMode={!!editSections.contribution}
-            onToggleEdit={() => toggleSection('contribution')}
-            isAdding={addingSection === 'contribution'}
-            onAddNew={() => handleAddForCategory('contribution', 'Contribution')}
-            categoryOptions={['Contribution']}
-            {...inlineFormProps}
-            {...rowActionProps}
-          />
-        </div>
-        <div className={expandedCard === 'supportFromROLCC' ? 'sm:col-span-2' : undefined}>
-          <CategoryListTable
-            title="Support from ROLCC"
-            accent="teal"
-            entries={categorized.supportFromROLCC}
-            isExpanded={expandedCard === 'supportFromROLCC'}
-            onToggleExpand={() => toggleExpandCard('supportFromROLCC')}
-            editMode={!!editSections.supportFromROLCC}
-            onToggleEdit={() => toggleSection('supportFromROLCC')}
-            isAdding={addingSection === 'supportFromROLCC'}
-            onAddNew={() => handleAddForCategory('supportFromROLCC', 'Support from ROLCC')}
-            categoryOptions={['Support from ROLCC']}
-            {...inlineFormProps}
-            {...rowActionProps}
-          />
-        </div>
-        <div className={expandedCard === 'otherIncome' ? 'sm:col-span-2' : undefined}>
-          <CategoryListTable
-            title="Other Income"
-            accent="rose"
-            entries={categorized.otherIncome}
-            towardsColumn
-            isExpanded={expandedCard === 'otherIncome'}
-            onToggleExpand={() => toggleExpandCard('otherIncome')}
-            editMode={!!editSections.otherIncome}
-            onToggleEdit={() => toggleSection('otherIncome')}
-            isAdding={addingSection === 'otherIncome'}
-            onAddNew={() => handleAddForCategory('otherIncome', OTHER_INCOME_CATEGORY_OPTIONS[0])}
-            categoryOptions={OTHER_INCOME_CATEGORY_OPTIONS}
-            {...inlineFormProps}
-            {...rowActionProps}
-          />
-        </div>
-        <div className={expandedCard === 'rsm' ? 'sm:col-span-2' : undefined}>
-          <CategoryListTable
-            title="RSM"
-            accent="cyan"
-            entries={categorized.rsm}
-            isExpanded={expandedCard === 'rsm'}
-            onToggleExpand={() => toggleExpandCard('rsm')}
-            editMode={!!editSections.rsm}
-            onToggleEdit={() => toggleSection('rsm')}
-            isAdding={addingSection === 'rsm'}
-            onAddNew={() => handleAddForCategory('rsm', RSM_CATEGORY_OPTIONS[0])}
-            categoryOptions={RSM_CATEGORY_OPTIONS}
-            {...inlineFormProps}
-            {...rowActionProps}
-          />
-        </div>
+        <CategoryListTable
+          title="Tithe - English"
+          accent="indigo"
+          entries={categorized.titheEnglish}
+          isExpanded={expandedCard === 'titheEnglish'}
+          onToggleExpand={() => toggleExpandCard('titheEnglish')}
+          editMode={!!editSections.titheEnglish}
+          onToggleEdit={() => toggleSection('titheEnglish')}
+          isAdding={addingSection === 'titheEnglish'}
+          onAddNew={() => handleAddForCategory('titheEnglish', 'Tithe - English')}
+          categoryOptions={['Tithe - English']}
+          {...inlineFormProps}
+          {...rowActionProps}
+        />
+        <CategoryListTable
+          title="Tithe - Tamil"
+          accent="violet"
+          entries={categorized.titheTamil}
+          isExpanded={expandedCard === 'titheTamil'}
+          onToggleExpand={() => toggleExpandCard('titheTamil')}
+          editMode={!!editSections.titheTamil}
+          onToggleEdit={() => toggleSection('titheTamil')}
+          isAdding={addingSection === 'titheTamil'}
+          onAddNew={() => handleAddForCategory('titheTamil', 'Tithe - Tamil')}
+          categoryOptions={['Tithe - Tamil']}
+          {...inlineFormProps}
+          {...rowActionProps}
+        />
+        <CategoryListTable
+          title="Contribution"
+          accent="amber"
+          entries={categorized.contribution}
+          towardsColumn
+          isExpanded={expandedCard === 'contribution'}
+          onToggleExpand={() => toggleExpandCard('contribution')}
+          editMode={!!editSections.contribution}
+          onToggleEdit={() => toggleSection('contribution')}
+          isAdding={addingSection === 'contribution'}
+          onAddNew={() => handleAddForCategory('contribution', 'Contribution')}
+          categoryOptions={['Contribution']}
+          {...inlineFormProps}
+          {...rowActionProps}
+        />
+        <CategoryListTable
+          title="Support from ROLCC"
+          accent="teal"
+          entries={categorized.supportFromROLCC}
+          isExpanded={expandedCard === 'supportFromROLCC'}
+          onToggleExpand={() => toggleExpandCard('supportFromROLCC')}
+          editMode={!!editSections.supportFromROLCC}
+          onToggleEdit={() => toggleSection('supportFromROLCC')}
+          isAdding={addingSection === 'supportFromROLCC'}
+          onAddNew={() => handleAddForCategory('supportFromROLCC', 'Support from ROLCC')}
+          categoryOptions={['Support from ROLCC']}
+          {...inlineFormProps}
+          {...rowActionProps}
+        />
+        <CategoryListTable
+          title="Other Income"
+          accent="rose"
+          entries={categorized.otherIncome}
+          towardsColumn
+          isExpanded={expandedCard === 'otherIncome'}
+          onToggleExpand={() => toggleExpandCard('otherIncome')}
+          editMode={!!editSections.otherIncome}
+          onToggleEdit={() => toggleSection('otherIncome')}
+          isAdding={addingSection === 'otherIncome'}
+          onAddNew={() => handleAddForCategory('otherIncome', OTHER_INCOME_CATEGORY_OPTIONS[0])}
+          categoryOptions={OTHER_INCOME_CATEGORY_OPTIONS}
+          {...inlineFormProps}
+          {...rowActionProps}
+        />
+        <CategoryListTable
+          title="RSM"
+          accent="cyan"
+          entries={categorized.rsm}
+          isExpanded={expandedCard === 'rsm'}
+          onToggleExpand={() => toggleExpandCard('rsm')}
+          editMode={!!editSections.rsm}
+          onToggleEdit={() => toggleSection('rsm')}
+          isAdding={addingSection === 'rsm'}
+          onAddNew={() => handleAddForCategory('rsm', RSM_CATEGORY_OPTIONS[0])}
+          categoryOptions={RSM_CATEGORY_OPTIONS}
+          {...inlineFormProps}
+          {...rowActionProps}
+        />
       </div>
     </div>
   )
