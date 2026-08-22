@@ -31,23 +31,26 @@ function sundaysInMonth(monthDate) {
 
 function CellAmountInput({ value, onChange, onCommit, onCancel, saving }) {
   return (
-    <input
-      type="number"
-      min="0"
-      step="any"
-      autoFocus
-      disabled={saving}
-      value={value}
-      placeholder="0"
-      onChange={e => onChange(e.target.value)}
-      onFocus={e => e.target.select()}
-      onKeyDown={e => {
-        if (e.key === 'Enter') { e.preventDefault(); onCommit() }
-        if (e.key === 'Escape') { e.preventDefault(); onCancel() }
-      }}
-      onBlur={() => { if (value !== '' && Number(value) >= 0) onCommit(); else onCancel() }}
-      className="w-20 rounded-lg border border-indigo-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-50"
-    />
+    <div className="relative inline-block w-24">
+      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">₹</span>
+      <input
+        type="number"
+        min="0"
+        step="any"
+        autoFocus
+        disabled={saving}
+        value={value}
+        placeholder="0"
+        onChange={e => onChange(e.target.value)}
+        onFocus={e => e.target.select()}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { e.preventDefault(); onCommit() }
+          if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+        }}
+        onBlur={() => { if (value !== '' && Number(value) >= 0) onCommit(); else onCancel() }}
+        className="w-full rounded-md border border-slate-200 bg-white pl-5 pr-2 py-1.5 text-right text-sm font-medium tabular-nums shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+      />
+    </div>
   )
 }
 

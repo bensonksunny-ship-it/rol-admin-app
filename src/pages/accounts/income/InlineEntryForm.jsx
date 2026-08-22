@@ -51,16 +51,19 @@ export default function InlineEntryForm({ categoryOptions, showTowards, form, on
           </div>
         )}
         <div className="flex flex-col gap-1">
-          <label className={labelClass}>Amount (₹)</label>
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={form.amount}
-            onChange={e => onChange('amount', e.target.value)}
-            placeholder="0"
-            className={fieldClass}
-          />
+          <label className={labelClass}>Amount</label>
+          <div className="relative">
+            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">₹</span>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={form.amount}
+              onChange={e => onChange('amount', e.target.value)}
+              placeholder="0"
+              className={`${fieldClass} w-full pl-6 text-right font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+            />
+          </div>
         </div>
       </div>
 
