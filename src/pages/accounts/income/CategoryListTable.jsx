@@ -1,4 +1,4 @@
-import { Check, Maximize2, Minimize2, Pencil, Plus } from 'lucide-react'
+import { Check, Pencil, Plus } from 'lucide-react'
 import { ACCENT_STYLES, fmtDate, sumAmount, toDate } from './incomeCategorize'
 import InlineEntryForm from './InlineEntryForm'
 import RowActionsMenu from './RowActionsMenu'
@@ -43,7 +43,7 @@ export default function CategoryListTable({
           <p className="text-xs text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
         <p className={`text-sm font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</p>
         <button
           type="button"
@@ -65,14 +65,6 @@ export default function CategoryListTable({
         >
           {editMode ? <Check size={14} /> : <Pencil size={14} />}
         </button>
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
-          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-700 transition-colors"
-        >
-          {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-        </button>
       </div>
     </div>
   )
@@ -80,16 +72,18 @@ export default function CategoryListTable({
   const body = (
     <>
       {isAdding && (
-        <InlineEntryForm
-          categoryOptions={categoryOptions}
-          showTowards={towardsColumn}
-          form={form}
-          onChange={onFormChange}
-          onSave={onSave}
-          onCancel={onCancel}
-          saving={saving}
-          formError={formError}
-        />
+        <div onClick={e => e.stopPropagation()}>
+          <InlineEntryForm
+            categoryOptions={categoryOptions}
+            showTowards={towardsColumn}
+            form={form}
+            onChange={onFormChange}
+            onSave={onSave}
+            onCancel={onCancel}
+            saving={saving}
+            formError={formError}
+          />
+        </div>
       )}
 
       {sorted.length === 0 ? (
@@ -109,7 +103,7 @@ export default function CategoryListTable({
             <tbody className="divide-y divide-slate-100">
               {sorted.map((entry, i) => (
                 editingId === entry.id ? (
-                  <tr key={entry.id}>
+                  <tr key={entry.id} onClick={e => e.stopPropagation()}>
                     <td colSpan={columnCount} className="p-0">
                       <InlineEntryForm
                         categoryOptions={categoryOptions}
@@ -130,7 +124,7 @@ export default function CategoryListTable({
                     {towardsColumn && <td className="px-4 py-2.5 text-slate-600">{entry.towards || '—'}</td>}
                     <td className="px-4 py-2.5 text-right font-medium tabular-nums text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
                     {editMode && (
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                         {deletingId === entry.id ? (
                           <span className="flex items-center justify-end gap-1.5 text-[11px] text-slate-600 whitespace-nowrap">
                             <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
@@ -165,7 +159,10 @@ export default function CategoryListTable({
 
   return (
     <>
-      <div className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm overflow-hidden flex flex-col`}>
+      <div
+        onClick={onToggleExpand}
+        className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col cursor-pointer`}
+      >
         {header}
         {body}
       </div>
