@@ -31,14 +31,14 @@ export default function CategoryListTable({
   const columnCount = 3 + (towardsColumn ? 1 : 0) + (editMode ? 1 : 0)
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-      <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between gap-2">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
           <p className="text-xs text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
         </div>
         <div className="flex items-center gap-2">
-          <p className="text-sm font-bold text-slate-800">₹{total.toLocaleString('en-IN')}</p>
+          <p className="text-sm font-bold tabular-nums text-slate-800">₹{total.toLocaleString('en-IN')}</p>
           <button
             type="button"
             onClick={onAddNew}
@@ -76,21 +76,21 @@ export default function CategoryListTable({
       )}
 
       {sorted.length === 0 ? (
-        !isAdding && <div className="p-4 text-center text-xs text-slate-400">No entries</div>
+        !isAdding && <div className="p-5 text-center text-xs text-slate-400">No entries</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-left text-slate-500 border-b border-slate-100">
-                <th className="px-3 py-2 font-medium">Date</th>
-                <th className="px-3 py-2 font-medium">Name</th>
-                {towardsColumn && <th className="px-3 py-2 font-medium">Towards</th>}
-                <th className="px-3 py-2 font-medium text-right">Amount</th>
-                {editMode && <th className="px-3 py-2"></th>}
+              <tr className="text-left text-slate-500 border-b border-slate-200 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider">
+                <th className="px-4 py-2.5">Date</th>
+                <th className="px-4 py-2.5">Name</th>
+                {towardsColumn && <th className="px-4 py-2.5">Towards</th>}
+                <th className="px-4 py-2.5 text-right">Amount</th>
+                {editMode && <th className="px-4 py-2.5"></th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
-              {sorted.map(entry => (
+            <tbody className="divide-y divide-slate-100">
+              {sorted.map((entry, i) => (
                 editingId === entry.id ? (
                   <tr key={entry.id}>
                     <td colSpan={columnCount} className="p-0">
@@ -107,13 +107,13 @@ export default function CategoryListTable({
                     </td>
                   </tr>
                 ) : (
-                  <tr key={entry.id} className="hover:bg-slate-50 transition">
-                    <td className="px-3 py-2 text-slate-700">{fmtDate(entry.date)}</td>
-                    <td className="px-3 py-2 text-slate-600">{entry.giverName || '—'}</td>
-                    {towardsColumn && <td className="px-3 py-2 text-slate-600">{entry.towards || '—'}</td>}
-                    <td className="px-3 py-2 text-right font-medium text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
+                  <tr key={entry.id} className={`hover:bg-indigo-50/40 transition-colors ${i % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
+                    <td className="px-4 py-2.5 text-slate-700">{fmtDate(entry.date)}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{entry.giverName || '—'}</td>
+                    {towardsColumn && <td className="px-4 py-2.5 text-slate-600">{entry.towards || '—'}</td>}
+                    <td className="px-4 py-2.5 text-right font-medium tabular-nums text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
                     {editMode && (
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-4 py-2.5 text-right">
                         {deletingId === entry.id ? (
                           <span className="flex items-center justify-end gap-1.5 text-[11px] text-slate-600 whitespace-nowrap">
                             <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
@@ -134,9 +134,9 @@ export default function CategoryListTable({
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t border-slate-100 bg-slate-50/40">
-                <td className="px-3 py-2 font-semibold text-slate-600" colSpan={towardsColumn ? 3 : 2}>Total</td>
-                <td className="px-3 py-2 text-right font-bold text-slate-800">₹{total.toLocaleString('en-IN')}</td>
+              <tr className="border-t-2 border-slate-200 bg-slate-50/70">
+                <td className="px-4 py-2.5 font-semibold text-slate-600" colSpan={towardsColumn ? 3 : 2}>Total</td>
+                <td className="px-4 py-2.5 text-right font-bold tabular-nums text-slate-800">₹{total.toLocaleString('en-IN')}</td>
                 {editMode && <td></td>}
               </tr>
             </tfoot>
