@@ -91,9 +91,9 @@ export default function CategoryListTable({
           !isAdding && <div className="p-5 text-center text-xs text-slate-400">No entries</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-xs bg-white">
               <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-200 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider">
+                <tr className="text-left text-slate-500 border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider">
                   <th className="px-4 py-2.5">Date</th>
                   <th className="px-4 py-2.5">Name</th>
                   {towardsColumn && <th className="px-4 py-2.5">Towards</th>}
@@ -101,8 +101,8 @@ export default function CategoryListTable({
                   {editMode && <th className="px-4 py-2.5"></th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {sorted.map((entry, i) => (
+              <tbody className="bg-white divide-y divide-slate-100">
+                {sorted.map((entry) => (
                   editingId === entry.id ? (
                     <tr key={entry.id} onClick={e => e.stopPropagation()}>
                       <td colSpan={columnCount} className="p-0">
@@ -119,7 +119,7 @@ export default function CategoryListTable({
                       </td>
                     </tr>
                   ) : (
-                    <tr key={entry.id} className={`hover:bg-indigo-50/40 transition-colors ${i % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
+                    <tr key={entry.id} className="bg-white hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-2.5 text-slate-700">{fmtDate(entry.date)}</td>
                       <td className="px-4 py-2.5 text-slate-600">{entry.giverName || '—'}</td>
                       {towardsColumn && <td className="px-4 py-2.5 text-slate-600">{entry.towards || '—'}</td>}
