@@ -69,93 +69,104 @@ export default function CategoryListTable({
     </div>
   )
 
-  const body = (
-    <>
-      {isAdding && (
-        <div onClick={e => e.stopPropagation()}>
-          <InlineEntryForm
-            categoryOptions={categoryOptions}
-            showTowards={towardsColumn}
-            form={form}
-            onChange={onFormChange}
-            onSave={onSave}
-            onCancel={onCancel}
-            saving={saving}
-            formError={formError}
-          />
-        </div>
-      )}
+  function renderBody(blankRows = 0) {
+    return (
+      <>
+        {isAdding && (
+          <div onClick={e => e.stopPropagation()}>
+            <InlineEntryForm
+              categoryOptions={categoryOptions}
+              showTowards={towardsColumn}
+              form={form}
+              onChange={onFormChange}
+              onSave={onSave}
+              onCancel={onCancel}
+              saving={saving}
+              formError={formError}
+            />
+          </div>
+        )}
 
-      {sorted.length === 0 ? (
-        !isAdding && <div className="p-5 text-center text-xs text-slate-400">No entries</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-slate-500 border-b border-slate-200 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider">
-                <th className="px-4 py-2.5">Date</th>
-                <th className="px-4 py-2.5">Name</th>
-                {towardsColumn && <th className="px-4 py-2.5">Towards</th>}
-                <th className="px-4 py-2.5 text-right">Amount</th>
-                {editMode && <th className="px-4 py-2.5"></th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {sorted.map((entry, i) => (
-                editingId === entry.id ? (
-                  <tr key={entry.id} onClick={e => e.stopPropagation()}>
-                    <td colSpan={columnCount} className="p-0">
-                      <InlineEntryForm
-                        categoryOptions={categoryOptions}
-                        showTowards={towardsColumn}
-                        form={form}
-                        onChange={onFormChange}
-                        onSave={onSave}
-                        onCancel={onCancel}
-                        saving={saving}
-                        formError={formError}
-                      />
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={entry.id} className={`hover:bg-indigo-50/40 transition-colors ${i % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
-                    <td className="px-4 py-2.5 text-slate-700">{fmtDate(entry.date)}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{entry.giverName || '—'}</td>
-                    {towardsColumn && <td className="px-4 py-2.5 text-slate-600">{entry.towards || '—'}</td>}
-                    <td className="px-4 py-2.5 text-right font-medium tabular-nums text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
-                    {editMode && (
-                      <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
-                        {deletingId === entry.id ? (
-                          <span className="flex items-center justify-end gap-1.5 text-[11px] text-slate-600 whitespace-nowrap">
-                            <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
-                            <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
-                          </span>
-                        ) : (
-                          <RowActionsMenu
-                            isOpen={openMenuId === entry.id}
-                            onToggle={() => setOpenMenuId(openMenuId === entry.id ? null : entry.id)}
-                            onEdit={() => { setOpenMenuId(null); onEdit(entry) }}
-                            onDelete={() => { setOpenMenuId(null); setDeletingId(entry.id) }}
-                          />
-                        )}
+        {sorted.length === 0 ? (
+          !isAdding && <div className="p-5 text-center text-xs text-slate-400">No entries</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-200 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider">
+                  <th className="px-4 py-2.5">Date</th>
+                  <th className="px-4 py-2.5">Name</th>
+                  {towardsColumn && <th className="px-4 py-2.5">Towards</th>}
+                  <th className="px-4 py-2.5 text-right">Amount</th>
+                  {editMode && <th className="px-4 py-2.5"></th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {sorted.map((entry, i) => (
+                  editingId === entry.id ? (
+                    <tr key={entry.id} onClick={e => e.stopPropagation()}>
+                      <td colSpan={columnCount} className="p-0">
+                        <InlineEntryForm
+                          categoryOptions={categoryOptions}
+                          showTowards={towardsColumn}
+                          form={form}
+                          onChange={onFormChange}
+                          onSave={onSave}
+                          onCancel={onCancel}
+                          saving={saving}
+                          formError={formError}
+                        />
                       </td>
-                    )}
+                    </tr>
+                  ) : (
+                    <tr key={entry.id} className={`hover:bg-indigo-50/40 transition-colors ${i % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
+                      <td className="px-4 py-2.5 text-slate-700">{fmtDate(entry.date)}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{entry.giverName || '—'}</td>
+                      {towardsColumn && <td className="px-4 py-2.5 text-slate-600">{entry.towards || '—'}</td>}
+                      <td className="px-4 py-2.5 text-right font-medium tabular-nums text-slate-800">₹{Number(entry.amount).toLocaleString('en-IN')}</td>
+                      {editMode && (
+                        <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
+                          {deletingId === entry.id ? (
+                            <span className="flex items-center justify-end gap-1.5 text-[11px] text-slate-600 whitespace-nowrap">
+                              <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
+                              <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+                            </span>
+                          ) : (
+                            <RowActionsMenu
+                              isOpen={openMenuId === entry.id}
+                              onToggle={() => setOpenMenuId(openMenuId === entry.id ? null : entry.id)}
+                              onEdit={() => { setOpenMenuId(null); onEdit(entry) }}
+                              onDelete={() => { setOpenMenuId(null); setDeletingId(entry.id) }}
+                            />
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  )
+                ))}
+                {Array.from({ length: blankRows }).map((_, i) => (
+                  <tr key={`blank-${i}`}>
+                    <td className="px-4 py-2.5 text-slate-300">&nbsp;</td>
+                    <td className="px-4 py-2.5"></td>
+                    {towardsColumn && <td className="px-4 py-2.5"></td>}
+                    <td className="px-4 py-2.5"></td>
+                    {editMode && <td className="px-4 py-2.5"></td>}
                   </tr>
-                )
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className={`border-t-2 border-slate-200 ${styles.header}`}>
-                <td className="px-4 py-2.5 font-semibold text-slate-600" colSpan={towardsColumn ? 3 : 2}>Total</td>
-                <td className={`px-4 py-2.5 text-right font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</td>
-                {editMode && <td></td>}
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
-    </>
-  )
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className={`border-t-2 border-slate-200 ${styles.header}`}>
+                  <td className="px-4 py-2.5 font-semibold text-slate-600" colSpan={towardsColumn ? 3 : 2}>Total</td>
+                  <td className={`px-4 py-2.5 text-right font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</td>
+                  {editMode && <td></td>}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </>
+    )
+  }
 
   return (
     <>
@@ -164,12 +175,12 @@ export default function CategoryListTable({
         className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col cursor-pointer`}
       >
         {header}
-        {body}
+        {renderBody(0)}
       </div>
 
       {isExpanded && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={onToggleExpand}
         >
           <div
@@ -178,7 +189,7 @@ export default function CategoryListTable({
           >
             {header}
             <div className="overflow-y-auto flex-1">
-              {body}
+              {renderBody(5)}
             </div>
           </div>
         </div>
