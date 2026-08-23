@@ -162,6 +162,8 @@ export default function WorkspaceHeader({ notifications, onNotifAction, onDismis
         <BoardPointsModal
           department={myBoardDepartment}
           userEmail={userProfile?.email}
+          userId={user?.uid || userProfile?.id || ''}
+          displayName={userProfile?.displayName || userProfile?.name || ''}
           onClose={() => setBoardPointsOpen(false)}
         />
       )}

@@ -78,13 +78,16 @@ export default function BoardMeetingWorkspaceWidget() {
         <BoardPointsModal
           // The department this board member represents (per their roster entry,
           // set by whoever added them) — not a guess from this account's own
-          // departments[], which can lag a step behind a freshly assigned role
-          // (see firestore.rules' canAccessDept comment) and would otherwise
-          // submit the point under the wrong department, which Firestore then
-          // correctly rejects since this account doesn't actually have access to
-          // whatever department got guessed.
+          // departments[], which can lag a step behind a freshly assigned role (see
+          // firestore.rules' canAccessDept comment). board_meeting_points' `create`
+          // rule is intentionally open to any signed-in account (not gated on
+          // canAccessDept(department)) precisely because this value doesn't
+          // necessarily match this account's own department access — see the rule's
+          // comment in firestore.rules.
           department={myRosterEntry?.department || userProfile?.departments?.[0] || 'Sec-Core'}
           userEmail={userProfile?.email}
+          userId={myUid}
+          displayName={userProfile?.displayName || userProfile?.name || ''}
           meetingId={pointsMeetingId}
           onClose={() => setPointsMeetingId(null)}
         />

@@ -5068,6 +5068,11 @@ export async function addBoardPoint(data) {
     status: 'pending',
     createdAt: Timestamp.now(),
     createdBy: data.createdBy || 'unknown',
+    // Additive audit fields alongside the existing email-string createdBy —
+    // authenticated uid + display name, so a submission can be traced back to a
+    // specific account even if their email changes later.
+    createdByUid: data.createdByUid || '',
+    authorName: data.authorName || '',
   })
   return ref.id
 }

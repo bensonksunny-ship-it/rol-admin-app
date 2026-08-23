@@ -673,7 +673,35 @@ service cloud.firestore {
       // pattern as sec_core_board_meetings below. A department also keeps managing
       // its own submitted points via the existing per-point-department check.
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core') || canAccessDept(resource.data.department));
-      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core') || canAccessDept(request.resource.data.department));
+      // Submitting a discussion point is a self-service action, open to any signed-in
+      // account — NOT gated on canAccessDept(department). A Director Board roster
+      // member's represented department (set by whoever added them to the roster —
+      // see sec_core/director_board below) doesn't necessarily match their own
+      // account's own department access (e.g. a Worship team member with no
+      // account-level Worship position, representing Worship on the board), so the
+      // previous canAccessDept(request.resource.data.department) check rejected
+      // every such submission with "Missing or insufficient permissions." Submitting
+      // isn't privileged — createdBy records who submitted it, and Sec-Core reviews/
+      // triages every point regardless of department before it's acted on. Editing or
+      // deleting an existing point still goes through the restricted `write` rule above.
+      allow create: if isSignedIn();
+    }
+
+    // Director Board roster — readable by any signed-in user, not just Sec-Core.
+    // BoardMeetingWorkspaceWidget/WorkspaceHeader read this doc for every signed-in
+    // account (not only Sec-Core ones) to work out whether *they* sit on the Director
+    // Board roster and, if so, which department they represent there — same "read
+    // open" philosophy already used for the sibling sec_core_board_meetings and
+    // board_meeting_points collections below, for the same reason (roster/meeting
+    // membership spans many departments, not just Sec-Core). Without this, a
+    // non-Sec-Core roster member's own client can't even read their roster entry,
+    // so the invite banner silently never renders for them. Only Sec-Core edits the
+    // roster itself, so write stays restricted. Must precede the generic
+    // /sec_core/{docId} block below (which stays locked down) since Firestore grants
+    // access to a path if ANY matching rule allows it.
+    match /sec_core/director_board {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
     }
 
     match /sec_core/{docId} {

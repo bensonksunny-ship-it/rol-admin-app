@@ -2330,6 +2330,8 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
         <BoardPointsModal
           department={myRosterEntry?.department || userProfile?.departments?.[0] || 'Sec-Core'}
           userEmail={userProfile?.email}
+          userId={myUid}
+          displayName={userProfile?.displayName || userProfile?.name || ''}
           meetingId={pointsMeetingId}
           onClose={() => setPointsMeetingId(null)}
         />

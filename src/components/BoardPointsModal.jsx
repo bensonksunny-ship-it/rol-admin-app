@@ -25,7 +25,7 @@ function labelDate(iso) {
 // addition to meetingDate, and the submitted-points list only shows this meeting's
 // points instead of the department's whole backlog. Without it, behaves exactly as
 // before (WorkspaceHeader's generic "Director Board" entry point — next Sunday).
-export default function BoardPointsModal({ department, userEmail, meetingId = null, onClose }) {
+export default function BoardPointsModal({ department, userEmail, userId = '', displayName = '', meetingId = null, onClose }) {
   const [points,     setPoints]     = useState([])
   const [loading,    setLoading]    = useState(true)
   const [point,      setPoint]      = useState('')
@@ -70,7 +70,13 @@ export default function BoardPointsModal({ department, userEmail, meetingId = nu
         timeNeeded: timeNeeded.trim(),
         meetingDate: targetSunday,
         meetingId: meetingId || '',
+        // `createdBy` stays an email string — every other write in the app
+        // (DeptExpenseTab, CellDirectorCockpit, DepartmentHub, etc.) uses that same
+        // convention, and other screens display/match on it as such. `createdByUid`/
+        // `authorName` are additive audit fields, not a replacement.
         createdBy: userEmail || 'unknown',
+        createdByUid: userId || '',
+        authorName: displayName || '',
       })
       if (id) {
         setPoints(prev => [...prev, {
@@ -87,7 +93,17 @@ export default function BoardPointsModal({ department, userEmail, meetingId = nu
         setError('Could not save — please try again.')
       }
     } catch (e) {
-      setError('Submission failed: ' + (e?.message || 'Unknown error'))
+      // Firestore's own permission-denied message is a raw SDK string that isn't
+      // useful to a non-technical user — swap in guidance pointing at the actual
+      // cause (their account isn't allowed to submit under this department) instead
+      // of surfacing the SDK's wording verbatim.
+      const isPermissionError = e?.code === 'permission-denied'
+        || /insufficient permissions|permission.denied/i.test(e?.message || '')
+      setError(
+        isPermissionError
+          ? `You don't have permission to submit a point for ${department || 'this department'}. Contact Sec-Core if this seems wrong.`
+          : 'Submission failed: ' + (e?.message || 'Unknown error')
+      )
     } finally {
       setSubmitting(false)
     }
@@ -97,14 +113,28 @@ export default function BoardPointsModal({ department, userEmail, meetingId = nu
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — opaque enough that no page content underneath (workspace
+          greeting, a floating assignment banner, etc.) can visually bleed through.
+          z-[9998]/[9999] below intentionally sit far above every other fixed-position
+          layer in the app (mobile top bar tops out at z-50, the mobile department
+          dock at z-40), so this modal always wins regardless of where it's opened
+          from. */}
       <div
-        className="fixed inset-0 bg-black/55 z-[9998]"
+        className="fixed inset-0 bg-black/70 z-[9998]"
         onClick={onClose}
       />
 
-      {/* Centered modal */}
-      <div className="fixed inset-0 flex items-center justify-center p-4 z-[9999]">
+      {/* Centered modal — the outer wrapper reserves the safe-area inset (notch/
+          Dynamic Island) as extra top/bottom padding, not just a flat p-4, so a
+          tall card (many submitted points + the add-point form) centered against
+          the full viewport can never grow up into it. */}
+      <div
+        className="fixed inset-0 flex items-center justify-center px-4 z-[9999]"
+        style={{
+          paddingTop: 'max(1rem, env(safe-area-inset-top))',
+          paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+        }}
+      >
         <div
           className="animate-folder-zoom-in max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
           style={{ maxHeight: '85vh' }}
