@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { CheckCircle2, Music2, PenSquare, X, Search, Send } from 'lucide-react'
@@ -11,6 +11,7 @@ import {
   setWorshipScheduleByDate,
 } from '../../services/firestore'
 import { hasFullWorshipAccess, hasWorshipRoleAccess, isWorshipLeader } from '../../utils/worshipAccess'
+import useClickOutside from '../../hooks/useClickOutside'
 import UpcomingWorship from '../../pages/worship/UpcomingWorship'
 import SongViewer from '../../pages/worship/SongViewer'
 
@@ -79,6 +80,7 @@ export default function WorshipWorkspaceWidget() {
   // assigned...") + "More" toggle shows until the user explicitly opens it, regardless
   // of whether they're scheduled this Sunday or have a setlist to share.
   const [expanded, setExpanded] = useState(false)
+  const cardRef = useRef(null)
   const [allMembers, setAllMembers] = useState([])
   const [songs, setSongs] = useState([])
   // Every worship_schedule doc — feeds both "am I scheduled this coming Sunday" and
@@ -207,6 +209,19 @@ export default function WorshipWorkspaceWidget() {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [songDirectoryOpen])
+
+  // Collapse the expanded card on an outside click/tap, so it doesn't stay pinned
+  // open in the middle of the dashboard once the user's attention has moved on.
+  // Uses ref-containment (not a full-screen backdrop) since this card sits inline in
+  // the page flow rather than as a modal — a backdrop would dim the rest of the
+  // dashboard, which isn't the intent here. Containment also means every interactive
+  // element inside the card (date pills, Edit Setlist, Distribute Plan, etc.) is
+  // automatically excluded with no need for each one to call e.stopPropagation().
+  // Paused while the Song Directory or Song Viewer overlay is open — those render as
+  // siblings outside cardRef and already own their own dismissal (backdrop/X/Escape),
+  // so without this guard opening either would immediately collapse the card underneath.
+  const collapseCard = useCallback(() => setExpanded(false), [])
+  useClickOutside(cardRef, collapseCard, expanded && !songDirectoryOpen && !viewingSong)
 
   const canSeeWidget = hasAccountWorshipAccess || isScheduledThisSunday || canShareSetlist
   if (!canSeeWidget) return null
@@ -403,7 +418,7 @@ export default function WorshipWorkspaceWidget() {
 
   return (
     <>
-      <div className={`w-full rounded-xl border shadow-sm overflow-hidden sm:max-w-2xl ${
+      <div ref={cardRef} className={`w-full rounded-xl border shadow-sm overflow-hidden sm:max-w-2xl ${
         highlighted ? 'border-violet-300' : 'border-slate-200 bg-white'
       }`}>
         <div

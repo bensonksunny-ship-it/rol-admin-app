@@ -45,6 +45,14 @@ export default function DesktopDepartmentNav() {
   const activeItem = items.find(isActive)
   const activeSubpageKey = searchParams.get('tab')
 
+  // Eden Garden (the founder's '/' workspace view) already renders every department
+  // as its own icon in EdenGardenGrid's body — repeating them as a horizontal tab
+  // strip up here is pure clutter, so suppress this whole bar on that view. The
+  // WorkspaceHeader's bell/messages/board icons live in MyWorkspace.jsx itself, not
+  // here, so there's nothing "essential" left for this component to keep showing.
+  const isEdenGarden = pathname === '/' && isFounder
+  if (isEdenGarden) return null
+
   return (
     <div className="hidden lg:block sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200">
       {/* Row 1 — departments */}

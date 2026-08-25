@@ -10,10 +10,7 @@ import {
   updateFinanceSavings,
   deleteFinanceSavings,
 } from '../../services/firestore'
-
-// Fixed list, not a configurable collection — see the design spec
-// (docs/superpowers/specs/2026-08-23-savings-tab-design.md) for why.
-const SAVINGS_FUNDS = ['Emergency Reserve', 'Building Fund', 'Future Project Savings', 'General Savings']
+import { SAVINGS_FUNDS } from '../../constants/savingsFunds'
 
 const ROW_FIELDS = ['date', 'item', 'reference', 'amount']
 const BLANK_ROW = { date: '', item: '', reference: '', amount: '', type: 'deposit' }

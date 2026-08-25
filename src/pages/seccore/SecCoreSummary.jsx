@@ -5,6 +5,7 @@ import { format, differenceInCalendarDays } from 'date-fns'
 import { Plus, X, MoreVertical, Pencil, Trash2, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search, Monitor, Play, Pause, SkipForward, RotateCcw } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import html2canvas from 'html2canvas'
+import PersonSearchInput from '../../components/PersonSearchInput'
 import {
   getSecCoreDirectorBoard,
   setSecCoreDirectorBoard,
@@ -16,6 +17,7 @@ import {
   subscribeToSundayLeaderPool,
   setSecCoreSundayLeaderPool,
   getUserByName,
+  subscribeUserDirectory,
   createSundayLeaderAssignmentNotification,
   subscribeToBoardPoints,
   updateBoardPoint,
@@ -245,6 +247,111 @@ function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
   )
 }
 
+// Links a Director Board roster member to their actual signed-in account — either
+// by searching the user_directory (readable by any signed-in user, unlike `users`
+// itself which firestore.rules restricts to Founder/self, see getUserByName's
+// comment) or by typing an email directly for the rare case a real account genuinely
+// isn't in the directory yet. Manual entry still resolves a uid against the loaded
+// directory when the typed email happens to match one, so the more durable uid-match
+// is used wherever possible; otherwise the email-only fallback in
+// BoardMeetingWorkspaceWidget's match still works with no uid at all.
+function LinkAccountModal({ member, onSave, onClose }) {
+  const [directory, setDirectory] = useState([])
+  const [searchText, setSearchText] = useState('')
+  const [manualEmail, setManualEmail] = useState(member?.email || '')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    const unsub = subscribeUserDirectory(setDirectory)
+    return unsub
+  }, [])
+
+  const composedName = (u) => `${u.name || u.email || 'Unnamed'} — ${u.email || 'no email'}`
+  const suggestions = directory.map(u => ({ id: u.id, name: composedName(u) }))
+
+  // PersonSearchInput's onChange only ever hands back the picked suggestion's display
+  // string, not its id — composedName is unique per directory entry (each has a
+  // distinct email), so the matching directory entry can be recovered by that string.
+  const picked = directory.find(u => composedName(u) === searchText) || null
+
+  const handleSubmit = async () => {
+    if (saving) return
+    setSaving(true)
+    try {
+      if (picked) {
+        onSave({ userId: picked.id || '', email: picked.email || '' })
+        return
+      }
+      const typed = manualEmail.trim().toLowerCase()
+      if (!typed) { onSave({ userId: '', email: '' }); return }
+      const matched = directory.find(u => (u.email || '').toLowerCase() === typed)
+      onSave({ userId: matched?.id || '', email: matched?.email || typed })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-slate-900">Link Account</h3>
+              <p className="text-xs text-slate-500 mt-0.5">{member?.name}</p>
+            </div>
+            <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition-colors">
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="px-5 py-4 space-y-3">
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Search registered users</label>
+              <PersonSearchInput
+                value={searchText}
+                onChange={setSearchText}
+                people={suggestions}
+                placeholder="Search by name or email"
+              />
+              {picked && (
+                <p className="text-[10px] text-emerald-600 font-medium mt-1.5">✓ Will link to {picked.email || picked.id}</p>
+              )}
+            </div>
+
+            <div className="relative flex items-center gap-2 text-[10px] font-bold text-slate-300 uppercase tracking-widest">
+              <div className="flex-1 h-px bg-slate-100" /> or <div className="flex-1 h-px bg-slate-100" />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Enter email directly</label>
+              <input
+                type="email"
+                value={manualEmail}
+                onChange={e => { setManualEmail(e.target.value); setSearchText('') }}
+                placeholder="name@example.com"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
+          </div>
+
+          <div className="px-5 pb-5">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={handleSubmit}
+              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Linking…' : 'Save Link'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, onScheduleMeeting }) {
   const [members, setMembers]   = useState([])
   const [loading, setLoading]   = useState(true)
@@ -355,21 +462,15 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
 
   const removeMember = (idx) => save(members.filter((_, i) => i !== idx))
 
-  // Force a fresh account lookup regardless of whether userId is already set —
-  // unlike the self-heal effect below (which only ever touches never-attempted
-  // `userId === undefined` entries), this also fixes an entry that resolved to
-  // the WRONG account (e.g. a name collision in user_directory), which nothing
-  // else can catch or correct.
-  const [relinkingIdx, setRelinkingIdx] = useState(null)
-  const relinkMember = async (idx) => {
-    setRelinkingIdx(idx)
-    try {
-      const m = members[idx]
-      const { userId, email } = await resolveAccount(m.name)
-      save(members.map((mm, i) => (i === idx ? { ...mm, userId, email } : mm)))
-    } finally {
-      setRelinkingIdx(null)
-    }
+  // Explicit account-linking UI — unlike the self-heal effect below (which only
+  // ever touches never-attempted `userId === undefined` entries), this lets an
+  // admin search/pick or manually enter the correct account for an entry that
+  // resolved to the wrong one (e.g. a name collision in user_directory) or never
+  // resolved at all, which nothing else can catch or correct.
+  const [linkModalIdx, setLinkModalIdx] = useState(null)
+  const applyAccountLink = (idx, { userId, email }) => {
+    save(members.map((mm, i) => (i === idx ? { ...mm, userId, email } : mm)))
+    setLinkModalIdx(null)
   }
 
   // One-time self-healing backfill: roster entries saved before userId/email
@@ -487,11 +588,10 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
                     </button>
                     <button
                       type="button"
-                      disabled={relinkingIdx === idx}
-                      onClick={() => { setMenuOpen(false); relinkMember(idx) }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                      onClick={() => { setMenuOpen(false); setLinkModalIdx(idx) }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
                     >
-                      <RotateCcw size={13} /> {relinkingIdx === idx ? 'Re-linking…' : 'Re-link account'}
+                      <RotateCcw size={13} /> Link Account…
                     </button>
                     <button
                       type="button"
@@ -655,6 +755,14 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
             </div>
           </div>
         </>
+      )}
+
+      {canEdit && linkModalIdx != null && (
+        <LinkAccountModal
+          member={members[linkModalIdx]}
+          onSave={(patch) => applyAccountLink(linkModalIdx, patch)}
+          onClose={() => setLinkModalIdx(null)}
+        />
       )}
 
     </div>

@@ -61,6 +61,27 @@ export function getDepartmentRole(user, departmentName) {
   return null
 }
 
+// Strict positions-only department-head check — unlike getDepartmentRole above, this
+// never falls back to the legacy top-level user.department/user.role fields. Those
+// legacy fields describe a user's *one* primary department and can go stale (e.g.
+// user.departments[] still lists a department they were reassigned away from, while
+// user.role still says "Director" for whatever department they currently head) — a
+// real hazard for a narrow, cross-department gate like "should this specific user see
+// a D-Light-only notification", as opposed to hasAccess()'s broader legacy-compatible
+// page-access checks where that fallback is intentional. Mirrors the Cell department's
+// existing isCellDirectorInPositions (cellReportPermissions.js), which never had this
+// gap because it only ever reads positions[].
+export function isDepartmentDirectorInPositions(user, departmentName) {
+  const positions = Array.isArray(user?.positions) ? user.positions : []
+  const targetDept = String(departmentName || '').trim().toLowerCase().replace(/-/g, ' ')
+  return positions.some((p) => {
+    if (String(p?.department || '').trim().toLowerCase().replace(/-/g, ' ') !== targetDept) return false
+    if (String(p?.role || '').trim().toUpperCase() === 'DIRECTOR') return true
+    const positionField = p?.position != null ? String(p.position).trim() : ''
+    return !!positionField && basePositionName(positionField).toLowerCase() === 'director'
+  })
+}
+
 export function hasAccess(user, departmentName, requiredRole) {
   if (!user || !departmentName) return false
 

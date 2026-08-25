@@ -132,6 +132,7 @@ import {
   subscribeToRecentSundayAttendanceWeeks,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
+import { SAVINGS_FUNDS } from '../constants/savingsFunds'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { computeWeekComerCandidates } from '../utils/weekComers'
@@ -159,7 +160,6 @@ import ExpensePage from './accounts/ExpensePage'
 import IncomePage from './accounts/IncomePage'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
 import BudgetPage from './accounts/BudgetPage'
-import SavingsPage from './accounts/SavingsPage'
 import UpcomingSunday from './UpcomingSunday'
 import { DirectorBoardPage, SundayLeaderTab, SecCoreAnalyticsHub } from './seccore/SecCoreSummary'
 import SundayPrepTracker from '../components/SundayPrepTracker'
@@ -1712,7 +1712,9 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (slug !== 'accounts' || activeTab !== 'summary') return
     getFinanceSavings().then(rows => {
-      const total = rows.reduce((s, e) => s + (e.type === 'withdrawal' ? -Number(e.amount) || 0 : Number(e.amount) || 0), 0)
+      const total = rows
+        .filter(e => SAVINGS_FUNDS.includes(e.fund))
+        .reduce((s, e) => s + (e.type === 'withdrawal' ? -Number(e.amount) || 0 : Number(e.amount) || 0), 0)
       setAcctSavingsTotal(total)
     }).catch(() => {})
   }, [slug, activeTab])
@@ -2739,8 +2741,11 @@ export default function DepartmentHub() {
                       <>
                         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{monthLabel}</p>
 
-                        {/* Income + Expense + Net row */}
-                        <div className="grid grid-cols-3 gap-3">
+                        {/* Income + Expense + Net + Funds Reserved row. Funds Reserved is always
+                            the all-time running balance across every fund (see SavingsPage) —
+                            not scoped to {monthLabel} the way the other three are — so its
+                            caption says "all-time" instead of an entry count. */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                           <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl border border-emerald-200 shadow-sm px-4 py-3">
                             <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 mb-1">Income</p>
                             <p className="text-xl font-black text-emerald-700">₹{acctSummary.incomeTotal.toLocaleString('en-IN')}</p>
@@ -2756,22 +2761,14 @@ export default function DepartmentHub() {
                             <p className={`text-xl font-black ${net >= 0 ? 'text-indigo-700' : 'text-amber-700'}`}>{net < 0 ? '-' : ''}₹{Math.abs(net).toLocaleString('en-IN')}</p>
                             <p className={`text-[10px] mt-1 ${net >= 0 ? 'text-indigo-400' : 'text-amber-500'}`}>{net >= 0 ? 'Surplus' : 'Deficit'}</p>
                           </div>
-                        </div>
-
-                        {/* Total Savings — always the all-time running balance across every
-                            fund (see SavingsPage), so it's shown separately from the
-                            Income/Expense/Net row above rather than as a 4th month-scoped
-                            card, and labeled accordingly so it isn't read as scoped to
-                            {monthLabel} the way those three are. */}
-                        {acctSavingsTotal != null && (
-                          <div className="bg-gradient-to-br from-violet-50 to-violet-100 rounded-2xl border border-violet-200 shadow-sm px-4 py-3 flex items-center justify-between">
-                            <div>
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-violet-500 mb-1">Total Savings</p>
-                              <p className="text-[10px] text-violet-400">Current balance, all-time</p>
+                          {acctSavingsTotal != null && (
+                            <div className="bg-gradient-to-br from-violet-50 to-violet-100 rounded-2xl border border-violet-200 shadow-sm px-4 py-3">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-violet-500 mb-1">Funds Reserved</p>
+                              <p className="text-xl font-black text-violet-700">₹{acctSavingsTotal.toLocaleString('en-IN')}</p>
+                              <p className="text-[10px] text-violet-400 mt-1">all-time</p>
                             </div>
-                            <p className="text-xl font-black text-violet-700">₹{acctSavingsTotal.toLocaleString('en-IN')}</p>
-                          </div>
-                        )}
+                          )}
+                        </div>
 
                         {/* Weekly entries — only meaningful when viewing the actual current month */}
                         {acctSummary.isCurrentMonth && (
@@ -4107,10 +4104,6 @@ export default function DepartmentHub() {
 
           {activeTab === 'expense' && slug === 'accounts' && (
             <ExpensePage />
-          )}
-
-          {activeTab === 'savings' && slug === 'accounts' && (
-            <SavingsPage />
           )}
 
           {activeTab === 'budget' && slug === 'accounts' && (

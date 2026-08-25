@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import WorkspaceHeader from '../components/workspace/WorkspaceHeader'
 import ToDoListCard from '../components/workspace/ToDoListCard'
 import EdenGardenGrid from '../components/workspace/EdenGardenGrid'
+import FounderInsightsPanel from '../components/workspace/FounderInsightsPanel'
 import WorshipWorkspaceWidget from '../components/workspace/WorshipWorkspaceWidget'
 import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWorkspaceWidget'
 
@@ -65,7 +66,12 @@ export default function MyWorkspace() {
         </div>
       </div>
 
-      {isFounder && <EdenGardenGrid />}
+      {isFounder && (
+        <>
+          <FounderInsightsPanel />
+          <EdenGardenGrid />
+        </>
+      )}
       <ToDoListCard />
       <WorshipWorkspaceWidget />
       <BoardMeetingWorkspaceWidget />

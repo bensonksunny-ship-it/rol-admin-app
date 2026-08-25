@@ -5,7 +5,6 @@ import MainLayout from './components/Layout/MainLayout'
 import ErrorBoundary from './components/ErrorBoundary'
 import Login from './pages/Login'
 import MyWorkspace from './pages/MyWorkspace'
-import Analytics from './pages/Analytics'
 import Departments from './pages/Departments'
 import DepartmentDetail from './pages/DepartmentDetail'
 import Tasks from './pages/Tasks'
@@ -58,7 +57,7 @@ function App() {
               }
             >
               <Route index element={<MyWorkspace />} />
-              <Route path="analytics" element={<Analytics />} />
+              <Route path="analytics" element={<Navigate to="/" replace />} />
               <Route path="departments" element={<Departments />} />
               <Route path="departments/:slug" element={<DepartmentDetail />} />
               <Route path="tasks" element={<Tasks />} />

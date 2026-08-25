@@ -32,6 +32,12 @@ export default function DepartmentDock() {
 
   useEffect(() => { setMenuOpen(false) }, [pathname])
 
+  // Same reasoning as DesktopDepartmentNav: Eden Garden (founder's '/' workspace)
+  // already lists every department as its own icon in EdenGardenGrid's body, so this
+  // floating launcher would just be a redundant second way to reach the same grid.
+  const isEdenGarden = pathname === '/' && isFounder
+  if (isEdenGarden) return null
+
   const tiles = myDepartmentNames(userProfile, isFounder).map((name) => {
     const dept = getDepartmentByName(name)
     return {

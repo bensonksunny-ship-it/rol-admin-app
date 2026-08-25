@@ -7,7 +7,7 @@ import {
   subscribeSundayLeaderAssignmentNotifications,
 } from '../services/firestore'
 import { formatDisplayDate } from '../utils/date'
-import { getDepartmentRole } from '../utils/access'
+import { isDepartmentDirectorInPositions } from '../utils/access'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 
 // Shared by the bell's "tap to act" navigation and by "+ Add to To-Do" (which stamps
@@ -101,7 +101,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   // a visitor is a D-Light Director decision (mirrors the Cell "Add to a cell group"
   // scoping) — a Coordinator/Leader in D-Light shouldn't have this in their feed.
   useEffect(() => {
-    const canSeeDLight = isFounder || getDepartmentRole(userProfile, 'D Light') === 'DIRECTOR'
+    const canSeeDLight = isFounder || isDepartmentDirectorInPositions(userProfile, 'D Light')
     if (!canSeeDLight) return
     return subscribeCellVisitorProposals((proposals) => {
       setVisitorProposalNotifications(proposals.map((p) => ({
@@ -124,7 +124,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   // recommendation D-Light sends back is a departmental position, so only the D-Light
   // Director fields it, same reasoning as the visitor-proposal scoping above.
   useEffect(() => {
-    const canSeeDLight = isFounder || getDepartmentRole(userProfile, 'D Light') === 'DIRECTOR'
+    const canSeeDLight = isFounder || isDepartmentDirectorInPositions(userProfile, 'D Light')
     if (!canSeeDLight) return
     return subscribeCellDlightConsultTasks((consults) => {
       setDlightConsultNotifications(consults.map((t) => ({
@@ -215,11 +215,41 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     return subscribeNotificationTodoAdditionIds(uid, setAddedToTodoIds)
   }, [uid])
 
+  // Final safety net, independent of which effect/subscription produced the item —
+  // re-derives "should THIS signed-in user actually see this" from their live
+  // userProfile/uid right before render, rather than trusting that whichever effect
+  // above populated the array gated it correctly. This is what actually catches a
+  // stale/incorrect item (e.g. a subscription left running past a role change, or a
+  // future notification type added without its own gate) instead of only preventing
+  // the initial subscribe — belt-and-suspenders on top of the per-effect canSeeX gates.
+  const canSeeNotification = (n) => {
+    if (isFounder) return true
+    switch (n.type) {
+      case 'pcs_fill': {
+        const cellId = userProfile?.cellGroupId || userProfile?.cellId
+        return !!cellId && (n.cellId ? n.cellId === cellId : true)
+      }
+      case 'visitor_proposal':
+      case 'dlight_consult':
+        return isDepartmentDirectorInPositions(userProfile, 'D Light')
+      case 'consult_response':
+        return isCellDirectorInPositions(userProfile)
+      case 'sunday_leader_assignment':
+        return !!uid && n.personId === uid
+      default:
+        // Unrecognized type: fail closed rather than showing something no known rule
+        // has vouched for.
+        return false
+    }
+  }
+
   const notifications = useMemo(
     () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
       .filter((n) => !dismissedIds.has(n.id) && !optimisticHiddenIds.has(n.id))
+      .filter(canSeeNotification)
       .map((n) => ({ ...n, addedToTodo: addedToTodoIds.has(n.id) })),
-    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds, userProfile, isFounder, uid]
   )
 
   const handleNotifAction = (n) => {

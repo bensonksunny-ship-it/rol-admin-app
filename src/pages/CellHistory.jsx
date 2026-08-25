@@ -562,23 +562,36 @@ export default function CellHistory({ embedded = false }) {
     const totalAttendanceSum = sorted.reduce((s, r) => s + (Number(r.totalAttendance) || 0), 0)
     const avgAttendance = totalAttendanceSum / totalReports
 
-    const byCell = new Map()
-    sorted.forEach((r) => {
-      const key = r.cellId || r.cellName
-      if (!key) return
-      if (!byCell.has(key)) byCell.set(key, { name: r.cellName || '—', sum: 0, count: 0 })
-      const entry = byCell.get(key)
-      entry.sum += Number(r.totalAttendance) || 0
-      entry.count += 1
-    })
+    // "Top Performing Cell" only makes sense when comparing across multiple
+    // cells (director view) — a leader's history only ever contains their own
+    // cell's reports, so that stat would trivially name their own cell every
+    // time. Leaders instead get their single best-attended week.
     let topCell = null
-    byCell.forEach((c) => {
-      const avg = c.sum / c.count
-      if (!topCell || avg > topCell.avg) topCell = { name: c.name, avg }
+    if (isDirector) {
+      const byCell = new Map()
+      sorted.forEach((r) => {
+        const key = r.cellId || r.cellName
+        if (!key) return
+        if (!byCell.has(key)) byCell.set(key, { name: r.cellName || '—', sum: 0, count: 0 })
+        const entry = byCell.get(key)
+        entry.sum += Number(r.totalAttendance) || 0
+        entry.count += 1
+      })
+      byCell.forEach((c) => {
+        const avg = c.sum / c.count
+        if (!topCell || avg > topCell.avg) topCell = { name: c.name, avg }
+      })
+    }
+
+    let topWeek = null
+    weekGroups.forEach((g) => {
+      if (!topWeek || g.totalAttendance > topWeek.totalAttendance) {
+        topWeek = { label: g.label, totalAttendance: g.totalAttendance }
+      }
     })
 
-    return { totalReports, avgAttendance, topCell }
-  }, [sorted])
+    return { totalReports, avgAttendance, topCell, topWeek }
+  }, [sorted, isDirector, weekGroups])
 
   const toggleExpand = useCallback((id) => {
     setExpandedId((prev) => (prev === id ? null : id))
@@ -621,13 +634,23 @@ export default function CellHistory({ embedded = false }) {
         sub="per cell meeting"
         accent={STAT_ACCENTS.indigo}
       />
-      <StatCard
-        icon="🏆"
-        label="Top Performing Cell"
-        value={stats.topCell?.name || '—'}
-        sub={stats.topCell ? `${stats.topCell.avg.toFixed(1)} avg attendance` : ''}
-        accent={STAT_ACCENTS.emerald}
-      />
+      {isDirector ? (
+        <StatCard
+          icon="🏆"
+          label="Top Performing Cell"
+          value={stats.topCell?.name || '—'}
+          sub={stats.topCell ? `${stats.topCell.avg.toFixed(1)} avg attendance` : ''}
+          accent={STAT_ACCENTS.emerald}
+        />
+      ) : (
+        <StatCard
+          icon="🏆"
+          label="Best Week"
+          value={stats.topWeek?.label || '—'}
+          sub={stats.topWeek ? `${stats.topWeek.totalAttendance} attended` : ''}
+          accent={STAT_ACCENTS.emerald}
+        />
+      )}
       <StatCard
         icon="📋"
         label="Reports Submitted"

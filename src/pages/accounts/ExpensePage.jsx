@@ -15,8 +15,11 @@ import {
   updateFinanceExpenseSheet,
   deleteFinanceExpense,
   getExpenseDepartments,
+  listenFinanceSavings,
 } from '../../services/firestore'
+import { SAVINGS_FUNDS } from '../../constants/savingsFunds'
 import WeeklyEntryPage from './WeeklyEntryPage'
+import SavingsPage from './SavingsPage'
 
 const ROW_FIELDS = ['date', 'item', 'billNo', 'amount']
 const BLANK_ROW = { date: '', item: '', billNo: '', amount: '' }
@@ -100,6 +103,17 @@ export default function ExpensePage({ controlledMonth } = {}) {
       if (extra.length) setDeptOptions([...EXPENSE_CATEGORIES, ...extra])
     }).catch(() => {})
   }, [])
+
+  // Savings is NOT a finance_expense department — it reads the same finance_savings
+  // fund data as the Savings tab (single source of truth for that money) so this
+  // tab can show it as a "Fund Reserved" figure without creating a second,
+  // disconnected place to record savings entries.
+  const [savingsEntries, setSavingsEntries] = useState([])
+  useEffect(() => {
+    if (!canAccess) return
+    const unsub = listenFinanceSavings(setSavingsEntries, () => {})
+    return () => { if (unsub) unsub() }
+  }, [canAccess])
 
   const unsubRef = useRef(null)
   const sheetUnsubRef = useRef(null)
@@ -240,6 +254,18 @@ export default function ExpensePage({ controlledMonth } = {}) {
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
   const grandTotal = combinedEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+
+  // This month's net contribution to the 3 real savings funds — read straight
+  // from finance_savings (the same data the embedded Savings tile below edits),
+  // just for the collapsed tile's teaser figure.
+  const fundReserved = savingsEntries
+    .filter(e => {
+      if (!SAVINGS_FUNDS.includes(e.fund)) return false
+      const d = e.date instanceof Date ? e.date : new Date(e.date)
+      return d.getFullYear() === activeMonth.getFullYear() && d.getMonth() === activeMonth.getMonth()
+    })
+    .reduce((s, e) => s + (e.type === 'withdrawal' ? -Number(e.amount) || 0 : Number(e.amount) || 0), 0)
+
   const deptStats = deptOptions.map(dept => {
     const rows = combinedEntries.filter(e => normalizeDepartmentName(e.department || e.category) === dept)
     return {
@@ -663,6 +689,7 @@ export default function ExpensePage({ controlledMonth } = {}) {
           <p className="text-lg font-bold text-slate-900 mt-1">₹{grandTotal.toLocaleString('en-IN')}</p>
           <p className="text-[11px] text-slate-400 mt-0.5">{combinedEntries.length} {combinedEntries.length === 1 ? 'entry' : 'entries'}</p>
         </button>
+
         {deptStats.map(({ dept, total, count, rows }) => {
           const isExpanded = expandedDepts.includes(dept)
           const { newRows, savingRows, rowsError, hideBlankRows, undoStack, editRows } = getDeptState(dept)
@@ -1025,6 +1052,43 @@ export default function ExpensePage({ controlledMonth } = {}) {
           </div>
           )
         })}
+
+        {/* Savings — the only place this money is entered now that there's no
+            separate Savings tab. Expanding the tile renders the real fund editor
+            (SavingsPage) inline: same 3 funds, same add/edit/delete rows, same
+            all-time running balance. Labeled "Funds Reserved" (matching the
+            Accounts Hub summary card) since it's being set aside, not spent, and
+            never folds into Total Expense. Rendered last so it appears at the
+            end of the department grid. */}
+        {(() => {
+          const isExpanded = expandedDepts.includes('__savings__')
+          return (
+            <div
+              ref={isExpanded ? expandedCardRef : null}
+              className={`rounded-2xl border overflow-hidden transition-colors ${
+                isExpanded
+                  ? 'border-indigo-400 ring-1 ring-indigo-300 col-span-2 sm:col-span-3 lg:col-span-4'
+                  : 'border-indigo-200 bg-indigo-50/40'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => toggleExpand('__savings__')}
+                className={`w-full text-left p-3.5 transition-colors ${isExpanded ? 'bg-indigo-50' : 'hover:bg-indigo-50'}`}
+              >
+                <p className="text-xs font-semibold text-indigo-600 truncate">Funds Reserved</p>
+                <p className="text-lg font-bold text-indigo-900 mt-1">₹{fundReserved.toLocaleString('en-IN')}</p>
+                <p className="text-[11px] text-indigo-400 mt-0.5">This month</p>
+              </button>
+
+              {isExpanded && (
+                <div className="border-t border-indigo-100 bg-white p-3.5">
+                  <SavingsPage />
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Total Expense summary — reflects whichever department is selected via the grid above */}
