@@ -131,13 +131,13 @@ export default function BoardPointsModal({ department, userEmail, userId = '', d
       <div
         className="fixed inset-0 flex items-center justify-center px-4 z-[9999]"
         style={{
-          paddingTop: 'max(1rem, env(safe-area-inset-top))',
-          paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+          paddingTop: 'max(1.5rem, env(safe-area-inset-top))',
+          paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))',
         }}
       >
         <div
           className="animate-folder-zoom-in max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-          style={{ maxHeight: '85vh' }}
+          style={{ maxHeight: '80vh' }}
           onClick={e => e.stopPropagation()}
         >
 

@@ -355,6 +355,23 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
 
   const removeMember = (idx) => save(members.filter((_, i) => i !== idx))
 
+  // Force a fresh account lookup regardless of whether userId is already set —
+  // unlike the self-heal effect below (which only ever touches never-attempted
+  // `userId === undefined` entries), this also fixes an entry that resolved to
+  // the WRONG account (e.g. a name collision in user_directory), which nothing
+  // else can catch or correct.
+  const [relinkingIdx, setRelinkingIdx] = useState(null)
+  const relinkMember = async (idx) => {
+    setRelinkingIdx(idx)
+    try {
+      const m = members[idx]
+      const { userId, email } = await resolveAccount(m.name)
+      save(members.map((mm, i) => (i === idx ? { ...mm, userId, email } : mm)))
+    } finally {
+      setRelinkingIdx(null)
+    }
+  }
+
   // One-time self-healing backfill: roster entries saved before userId/email
   // tracking existed only carry personId+name. Resolving those here (canEdit-gated,
   // only once per entry — `userId === undefined` is "never attempted", not "no
@@ -426,6 +443,14 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
               </span>
             )}
           </div>
+          {/* Linked-account status — the workspace banner only matches on this
+              userId/email, not on name, so a missing or wrong link here is exactly
+              why someone on this list wouldn't see their Board Meeting invite. */}
+          {canEdit && (
+            m.userId
+              ? <p className="text-[10px] text-slate-400 mt-1 truncate">Linked: {m.email || '—'}</p>
+              : <p className="text-[10px] font-semibold text-amber-600 mt-1">⚠ Account not linked</p>
+          )}
         </div>
 
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -459,6 +484,14 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
                       className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
                     >
                       <Pencil size={13} /> Edit
+                    </button>
+                    <button
+                      type="button"
+                      disabled={relinkingIdx === idx}
+                      onClick={() => { setMenuOpen(false); relinkMember(idx) }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                    >
+                      <RotateCcw size={13} /> {relinkingIdx === idx ? 'Re-linking…' : 'Re-link account'}
                     </button>
                     <button
                       type="button"
