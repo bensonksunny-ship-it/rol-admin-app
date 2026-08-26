@@ -1,9 +1,15 @@
-import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Settings, Sparkles } from 'lucide-react'
+import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Settings, Sparkles, GraduationCap } from 'lucide-react'
 
 /**
  * Canonical list of church departments (exact names as provided).
  * slug: URL segment for /department/:slug
- * customPage: use existing dedicated page instead of generic hub (worship)
+ * customPage: use existing dedicated page instead of generic hub (worship, rff)
+ *
+ * RFF is intentionally NOT visible to regular staff: dock/nav visibility for
+ * anyone who isn't Founder is derived entirely from that user's own
+ * positions[] (see myDepartmentNames/hasAccess in utils/access.js), so simply
+ * being present in this list does not surface it in anyone's nav unless they
+ * hold an RFF position. The Founder sees every entry here unconditionally.
  */
 export const DEPARTMENT_LIST = [
   { name: 'Worship', slug: 'worship', customPage: 'worship' },
@@ -24,6 +30,7 @@ export const DEPARTMENT_LIST = [
   { name: 'SP Office', slug: 'sp-office', customPage: null },
   { name: 'Sec-Core', slug: 'sec-core', customPage: null },
   { name: 'Administration', slug: 'administration', customPage: null },
+  { name: 'RFF', slug: 'rff', customPage: 'rff' },
 ]
 
 /** Display name for a department (a few stored names get a friendlier label). */
@@ -50,6 +57,7 @@ export function getDepartmentPath(departmentName) {
   const d = getDepartmentByName(departmentName)
   if (!d) return `/departments`
   if (d.customPage === 'worship') return '/department/worship'
+  if (d.customPage === 'rff') return '/rff'
   return `/department/${d.slug}`
 }
 
@@ -67,5 +75,6 @@ export function getDepartmentIcon(departmentName) {
   if (n === 'accounts') return Wallet
   if (n === 'building care') return Building2
   if (n === 'administration') return Settings
+  if (n === 'rff') return GraduationCap
   return Sparkles
 }

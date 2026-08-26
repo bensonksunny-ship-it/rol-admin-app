@@ -34,7 +34,13 @@ import { formatDisplayDate, formatTime12h, addMinutesToTime, formatCountdown } f
 import { DEPARTMENT_LIST } from '../../constants/departments'
 import BoardPointsModal from '../../components/BoardPointsModal'
 
-const DEPT_NAMES = DEPARTMENT_LIST.map(d => d.name)
+// RFF is deliberately kept off the church-wide department roster (see
+// docs/superpowers/specs/2026-08-26-rff-department-design.md) — Sec-Core
+// board agenda points and attendance are visible to board members generally,
+// a broader audience than Founder + the RFF manager, so RFF is excluded here
+// even though it's a real DEPARTMENT_LIST entry.
+const BOARD_DEPARTMENTS = DEPARTMENT_LIST.filter(d => d.slug !== 'rff')
+const DEPT_NAMES = BOARD_DEPARTMENTS.map(d => d.name)
 
 function dur(from, to) {
   if (!from) return null
@@ -1737,7 +1743,7 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
   // Sec-Core runs the meeting rather than submitting a point to its own agenda, so
   // it doesn't get a row here.
   const deptRows = useMemo(() => {
-    return DEPARTMENT_LIST.filter(dept => dept.name !== 'Sec-Core').map(dept => {
+    return BOARD_DEPARTMENTS.filter(dept => dept.name !== 'Sec-Core').map(dept => {
       const deptPoints = datePoints
         .filter(p => p.department === dept.name)
         .sort((a, b) => {

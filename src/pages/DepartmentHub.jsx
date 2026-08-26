@@ -1842,6 +1842,7 @@ export default function DepartmentHub() {
   }
 
   if (department.customPage === 'worship') return <Navigate to="/department/worship" replace />
+  if (department.customPage === 'rff') return <Navigate to="/rff" replace />
 
   // SAFETY RULE: block manual URL access to other departments
   // Exception: Accounts entry users (Weekly Expense Manager / Weekly Entry role) must pass through

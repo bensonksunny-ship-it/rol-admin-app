@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { ClipboardList, Home, Menu, Moon, Sun, UserCog, Users } from 'lucide-react'
+import { ClipboardList, Folder, Home, Menu, Moon, Sun, UserCog, Users } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import RailTooltip from '../RailTooltip'
 import ProfileDrawer from '../ProfileDrawer'
@@ -15,16 +15,88 @@ function getInitials(profile) {
   return name.slice(0, 2).toUpperCase()
 }
 
+// ── Worklist Sheet rail icon (desktop only) — hovering reveals a flyout with two
+// options (Worklist Sheet, File Inventory) instead of two separate top-level icons
+// (this replaces what used to be a standalone File Manager icon right after it).
+// Driven by React state rather than a pure CSS `group-hover` toggle so a brief gap
+// in hover coverage (the small margin between the icon and the panel, or between
+// the two menu rows) can be bridged with a short close delay instead of the menu
+// vanishing mid-move — see closeSoon below. Hover has no touchscreen equivalent, so
+// MobileDrawer intentionally keeps its own two separate tap targets instead of
+// reusing this.
+//
+// Defined at module scope (not inside Sidebar's body, unlike its sibling
+// MobileHeader/MobileDrawer/IconRail) because it owns real interactive state
+// (`open`) — an inline function component would get a fresh identity, and so get
+// unmounted/remounted with state reset, on every Sidebar re-render (e.g. whenever
+// the live notifications prop updates), which would snap it shut mid-hover.
+function WorklistFlyout({ pathname, navLinkActive, navLinkInactive }) {
+  const [open, setOpen] = useState(false)
+  const closeTimer = useRef(null)
+
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current) }, [])
+
+  const openNow = () => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
+    setOpen(true)
+  }
+  const closeSoon = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 200)
+  }
+
+  const itemActive = pathname === '/worklist' || pathname === '/files'
+  const optionLinkClass = ({ isActive }) =>
+    `flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+      isActive
+        ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300'
+        : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+    }`
+
+  return (
+    <div className="relative flex-shrink-0" onMouseEnter={openNow} onMouseLeave={closeSoon}>
+      <div
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label="Worklist Sheet & File Inventory"
+        className={`relative w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
+          itemActive ? navLinkActive : navLinkInactive
+        }`}
+      >
+        <ClipboardList size={20} strokeWidth={1.75} />
+      </div>
+
+      {/* Always mounted (not display:none) so opacity/scale can actually transition
+          instead of snapping in/out; pointer-events toggled alongside so the closed
+          panel never intercepts hover/clicks meant for the page behind it. */}
+      <div
+        className={`absolute left-full top-0 ml-2 flex flex-col gap-0.5 bg-white dark:bg-slate-900 shadow-xl rounded-lg p-2 border border-slate-200 dark:border-slate-700 z-50 min-w-[170px] origin-left transition-all duration-150 ${
+          open ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 -translate-x-1 pointer-events-none'
+        }`}
+      >
+        <NavLink to="/worklist" onClick={() => setOpen(false)} className={optionLinkClass}>
+          <ClipboardList size={16} strokeWidth={1.75} />
+          Worklist Sheet
+        </NavLink>
+        <NavLink to="/files" onClick={() => setOpen(false)} className={optionLinkClass}>
+          <Folder size={16} strokeWidth={1.75} />
+          File Inventory
+        </NavLink>
+      </div>
+    </div>
+  )
+}
+
 // Sidebar is just two small chrome pieces — MobileHeader (a slim top bar: hamburger +
 // logo on the left, opening a narrow mobile drawer; the bell/messages/board icons now
 // live here too — see below) and IconRail (desktop's icon strip: profile, My Workspace,
 // theme, sign out). Department/report navigation lives entirely in the global floating
 // dock (DepartmentDock, rendered from MainLayout) and My Workspace itself — neither
 // surface here duplicates that as a per-role nav-item list. The exceptions are User
-// Management (`/admin/users`), People Directory (`/people`), and Worklist Sheet
-// (`/worklist`): all three are Founder-only, have no department tile of their own, and
-// aren't linked from anywhere else, so both rails render them — gated on `isFounder` —
-// right after My Workspace. The mobile drawer is otherwise a slim w-16 icon-only rail
+// Management (`/admin/users`), People Directory (`/people`), Worklist Sheet
+// (`/worklist`), and File Manager (`/files`): all four are Founder-only, have no
+// department tile of their own, and aren't linked from anywhere else, so both rails
+// render them — gated on `isFounder` — right after My Workspace. The mobile drawer is
+// otherwise a slim w-16 icon-only rail
 // carrying the same account-level actions as IconRail (profile, home, theme, sign out)
 // — no text labels, no full-width nav-list panel.
 //
@@ -259,6 +331,20 @@ export default function Sidebar({ notifications, onNotifAction, onDismissNotific
             </NavLink>
           )}
 
+          {isFounder && (
+            <NavLink
+              to="/files"
+              title="File Manager"
+              aria-label="File Manager"
+              onClick={() => setDrawerOpen(false)}
+              className={({ isActive }) =>
+                `${mobileRailBtnClass} w-12 h-12 ${isActive ? navLinkActive : navLinkInactive}`
+              }
+            >
+              <Folder size={22} strokeWidth={1.75} />
+            </NavLink>
+          )}
+
           <div className="flex-1" />
 
           <button
@@ -346,19 +432,7 @@ export default function Sidebar({ notifications, onNotifAction, onDismissNotific
       )}
 
       {isFounder && (
-        <RailTooltip label="Worklist Sheet">
-          <NavLink
-            to="/worklist"
-            aria-label="Worklist Sheet"
-            className={({ isActive }) =>
-              `relative w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
-                isActive ? navLinkActive : navLinkInactive
-              }`
-            }
-          >
-            <ClipboardList size={20} strokeWidth={1.75} />
-          </NavLink>
-        </RailTooltip>
+        <WorklistFlyout pathname={pathname} navLinkActive={navLinkActive} navLinkInactive={navLinkInactive} />
       )}
 
       <div className="flex-1" />

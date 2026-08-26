@@ -1067,7 +1067,7 @@ export default function ExpensePage({ controlledMonth } = {}) {
               ref={isExpanded ? expandedCardRef : null}
               className={`rounded-2xl border overflow-hidden transition-colors ${
                 isExpanded
-                  ? 'border-indigo-400 ring-1 ring-indigo-300 col-span-2 sm:col-span-3 lg:col-span-4'
+                  ? 'border-indigo-400 ring-1 ring-indigo-300 col-span-2 sm:col-span-3 lg:col-span-2'
                   : 'border-indigo-200 bg-indigo-50/40'
               }`}
             >
@@ -1082,8 +1082,8 @@ export default function ExpensePage({ controlledMonth } = {}) {
               </button>
 
               {isExpanded && (
-                <div className="border-t border-indigo-100 bg-white p-3.5">
-                  <SavingsPage />
+                <div className="border-t border-indigo-100 bg-white">
+                  <SavingsPage activeMonth={activeMonth} />
                 </div>
               )}
             </div>

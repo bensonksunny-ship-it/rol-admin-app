@@ -31,6 +31,9 @@ import DLightMembers from './pages/DLightMembers'
 import PeopleDirectory from './pages/PeopleDirectory'
 import WorklistSheet from './pages/WorklistSheet'
 import BoardPresentView from './pages/BoardPresentView'
+import RFFHub from './pages/rff/RFFHub'
+import RFFProgramPage from './pages/rff/RFFProgramPage'
+import FileManager from './pages/FileManager'
 import OfflineBanner from './components/OfflineBanner'
 
 function App() {
@@ -68,6 +71,9 @@ function App() {
               <Route path="admin/users" element={<AdminUserManagement />} />
               <Route path="people" element={<PeopleDirectory />} />
               <Route path="worklist" element={<WorklistSheet />} />
+              <Route path="rff" element={<RFFHub />} />
+              <Route path="rff/:programId" element={<RFFProgramPage />} />
+              <Route path="files" element={<FileManager />} />
               <Route path="cell/users" element={<CellUserManagement />} />
               <Route path="department/worship" element={<DepartmentWorship />} />
               <Route path="department/worship/applications" element={<WorshipApplicationsPage />} />

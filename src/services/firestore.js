@@ -6210,3 +6210,178 @@ export async function resetWorklistSheetRows(sheetId) {
     updatedAt: serverTimestamp(),
   })
 }
+
+// ── RFF (school program) ────────────────────────────────────────────────────
+// Two collections, deliberately not shared with any other department's data —
+// see docs/superpowers/specs/2026-08-26-rff-department-design.md. Kept
+// self-contained so a future standalone RFF app can be connected to this data
+// without untangling it from the rest of the church's records.
+
+const RFF_PROGRAMS_COLLECTION = 'rff_programs'
+const RFF_STUDENTS_COLLECTION = 'rff_students'
+
+export async function getRFFPrograms() {
+  if (!db) return []
+  const snap = await getDocs(query(collection(db, RFF_PROGRAMS_COLLECTION), orderBy('name')))
+  return snap.docs.map((d) => ({ id: d.id, name: String(d.data().name || '') }))
+}
+
+export async function createRFFProgram(name) {
+  if (!db || !name) return null
+  const ref = await addDoc(collection(db, RFF_PROGRAMS_COLLECTION), {
+    name: String(name).trim(),
+    createdAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function updateRFFProgram(id, name) {
+  if (!db || !id) return
+  await updateDoc(doc(db, RFF_PROGRAMS_COLLECTION, id), { name: String(name || '').trim() })
+}
+
+export async function deleteRFFProgram(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, RFF_PROGRAMS_COLLECTION, id))
+}
+
+export function listenRFFStudents(callback, onError) {
+  const q = query(collection(db, RFF_STUDENTS_COLLECTION), orderBy('name'))
+  return onSnapshot(
+    q,
+    snap => callback(snap.docs.map(d => ({
+      id: d.id,
+      ...d.data(),
+      admissionDate: toDate(d.data().admissionDate),
+      feePaidDate: toDate(d.data().feePaidDate),
+    }))),
+    onError,
+  )
+}
+
+export async function createRFFStudent(data) {
+  const ref = await addDoc(collection(db, RFF_STUDENTS_COLLECTION), {
+    name: data.name || '',
+    programId: data.programId || '',
+    ageOrClass: data.ageOrClass || '',
+    guardianName: data.guardianName || '',
+    guardianPhone: data.guardianPhone || '',
+    admissionDate: data.admissionDate ? Timestamp.fromDate(new Date(data.admissionDate)) : null,
+    feeAmount: Number(data.feeAmount) || 0,
+    feePaid: !!data.feePaid,
+    feePaidDate: data.feePaid && data.feePaidDate ? Timestamp.fromDate(new Date(data.feePaidDate)) : null,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function updateRFFStudent(id, data) {
+  await updateDoc(doc(db, RFF_STUDENTS_COLLECTION, id), {
+    name: data.name || '',
+    programId: data.programId || '',
+    ageOrClass: data.ageOrClass || '',
+    guardianName: data.guardianName || '',
+    guardianPhone: data.guardianPhone || '',
+    admissionDate: data.admissionDate ? Timestamp.fromDate(new Date(data.admissionDate)) : null,
+    feeAmount: Number(data.feeAmount) || 0,
+    feePaid: !!data.feePaid,
+    feePaidDate: data.feePaid && data.feePaidDate ? Timestamp.fromDate(new Date(data.feePaidDate)) : null,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function deleteRFFStudent(id) {
+  await deleteDoc(doc(db, RFF_STUDENTS_COLLECTION, id))
+}
+
+// ── Founder File Manager (office file registry) ─────────────────────────────
+// Digitized version of the church office's physical project-file tracking log:
+// each doc is one file record (SL No / name / status / closing date) with an
+// append-only activity ledger that prints as the file's cover sheet. See
+// docs/superpowers/specs/2026-08-26-file-manager-design.md.
+const PROJECT_FILES = 'project_files'
+
+// `onChange` is guaranteed to fire at least once — with `[]` if Firestore isn't
+// configured or the listener errors (e.g. a permission-denied because the
+// project_files rules block hasn't been deployed yet) — so a caller's `loading`
+// flag can never hang forever waiting on a callback that never comes. The error
+// itself is still surfaced via console.error and the optional `onError`, rather
+// than swallowed, so a rules gap like that is visible instead of just "stuck".
+export function subscribeProjectFiles(onChange, onError) {
+  if (!db) { onChange([]); return () => {} }
+  const q = query(collection(db, PROJECT_FILES), orderBy('createdAt', 'desc'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  }, (err) => {
+    console.error('subscribeProjectFiles failed:', err)
+    onChange([])
+    onError?.(err)
+  })
+}
+
+export async function createProjectFile(data, createdBy) {
+  const ref = await addDoc(collection(db, PROJECT_FILES), {
+    slNo: data.slNo || '',
+    fileName: data.fileName || '',
+    remarks: data.remarks || 'Active',
+    closingDate: data.closingDate || null,
+    activities: [],
+    createdAt: serverTimestamp(),
+    createdBy: createdBy || null,
+    updatedAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function updateProjectFile(id, data) {
+  await updateDoc(doc(db, PROJECT_FILES, id), {
+    slNo: data.slNo || '',
+    fileName: data.fileName || '',
+    remarks: data.remarks || 'Active',
+    closingDate: data.closingDate || null,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+// Whole-array read-modify-write, same reasoning as replaceWorklistRow above —
+// Firestore's dotted-path update can't append into an array field safely, so
+// callers pass the doc's current `activities` array (already in hand from the
+// live subscription) and this writes it back with the new entry appended.
+export async function addProjectFileActivity(id, activities, entry) {
+  await updateDoc(doc(db, PROJECT_FILES, id), {
+    activities: [...(activities || []), entry],
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function deleteProjectFile(id) {
+  await deleteDoc(doc(db, PROJECT_FILES, id))
+}
+
+// Bulk-create from an imported Excel sheet (digitizing the office's existing
+// paper/spreadsheet ledger) — same sequential add-with-per-row-error-count
+// pattern as bulkAddDlightMembers, so one bad row doesn't abort the rest.
+export async function bulkCreateProjectFiles(rows, createdBy) {
+  if (!db || !rows?.length) return { imported: 0, failed: 0 }
+  let imported = 0
+  let failed = 0
+  for (const row of rows) {
+    try {
+      await addDoc(collection(db, PROJECT_FILES), {
+        slNo: String(row.slNo || '').trim(),
+        fileName: String(row.fileName || '').trim(),
+        remarks: row.remarks || 'Active',
+        closingDate: row.closingDate || null,
+        activities: [],
+        createdAt: serverTimestamp(),
+        createdBy: createdBy || null,
+        updatedAt: serverTimestamp(),
+      })
+      imported++
+    } catch {
+      failed++
+    }
+  }
+  return { imported, failed }
+}

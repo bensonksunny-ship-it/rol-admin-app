@@ -13,6 +13,14 @@ const TILE_COLORS = [
   'bg-cyan-700',
 ]
 
+// RFF is deliberately excluded from the church-wide department roster (see
+// docs/superpowers/specs/2026-08-26-rff-department-design.md) — it must not
+// appear here even though it's a real DEPARTMENT_LIST entry, since this page
+// otherwise lists every department unconditionally (unlike the regular
+// dock/nav, which only shows departments a user personally has a position
+// in).
+const PASTOR_HUB_DEPARTMENTS = DEPARTMENT_LIST.filter((d) => d.slug !== 'rff')
+
 export default function SeniorPastorHub() {
   const { userProfile, hasPermission, isFounder } = useAuth()
   const [entriesByDept, setEntriesByDept] = useState({})
@@ -34,7 +42,7 @@ export default function SeniorPastorHub() {
         const rem = {}
 
         const results = await Promise.allSettled(
-          DEPARTMENT_LIST.map(async (d) => {
+          PASTOR_HUB_DEPARTMENTS.map(async (d) => {
             const [list, remark] = await Promise.all([
               getDepartmentEntries(d.name, { limit: 1 }).catch(() => []),
               getPastorRemarks(d.name).catch(() => null),
@@ -110,7 +118,7 @@ export default function SeniorPastorHub() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {DEPARTMENT_LIST.map((d, idx) => {
+        {PASTOR_HUB_DEPARTMENTS.map((d, idx) => {
           const color = TILE_COLORS[idx % TILE_COLORS.length]
           return (
             <Link

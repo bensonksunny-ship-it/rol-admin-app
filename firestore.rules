@@ -755,6 +755,27 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
     }
 
+    // RFF (school program) — deliberately gated the same way any other
+    // department-scoped collection is. RFF is intentionally absent from the
+    // app's regular department roster (see
+    // docs/superpowers/specs/2026-08-26-rff-department-design.md), so this
+    // rule is what actually keeps its data private at the database level —
+    // canAccessDept('RFF') is only true for the Founder (isFullAccess()) or a
+    // user holding an explicit RFF position.
+    match /rff_programs/{docId} {
+      allow read, write: if isSignedIn() && canAccessDept('RFF');
+    }
+    match /rff_students/{docId} {
+      allow read, write: if isSignedIn() && canAccessDept('RFF');
+    }
+
+    // Founder File Manager (office file registry) — see
+    // docs/superpowers/specs/2026-08-26-file-manager-design.md. Founder-only,
+    // same tier as worklist_sheets.
+    match /project_files/{docId} {
+      allow read, write: if isFullAccess();
+    }
+
     // Collection-group query support: allows collectionGroup(db, 'members') used by
     // getAllCellGroupMembers(), which every "search the People's Directory" picker
     // depends on via getMergedPeopleDirectory().

@@ -37,7 +37,12 @@ export default function AddDepartmentsPage() {
     ...departments.map(d => d.name.toLowerCase()),
   ]
 
+  // RFF is deliberately kept off the church-wide department roster (see
+  // docs/superpowers/specs/2026-08-26-rff-department-design.md) — excluded
+  // here too since this page is reachable by Accounts staff generally, not
+  // just Founder.
   const departmentSuggestions = DEPARTMENT_LIST
+    .filter(d => d.slug !== 'rff')
     .map(d => displayDeptName(d.name))
     .filter(name => !existingNamesLower.includes(name.toLowerCase()))
     .map(name => ({ id: name, name }))
