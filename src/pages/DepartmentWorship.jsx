@@ -1,4 +1,5 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2 } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
@@ -139,6 +140,249 @@ function roleDisplayLabel(role) {
   const abbr = ROLE_LABEL_ABBR[category] || category
   if (index === 1) return LEGACY_DASH_ONE_CATEGORIES.has(category) ? `${abbr}-1` : abbr
   return `${abbr}-${index}`
+}
+
+// Assign tab colour system — every role category folds into one of three broad
+// families, each with its own hue so the roster scans at a glance:
+//   Vocals → indigo/violet · Band / Instruments → emerald/teal · Technical → amber
+const ROLE_GROUP_THEMES = {
+  vocals: {
+    label: 'Vocals',
+    pill: 'bg-indigo-100 text-indigo-700 ring-1 ring-inset ring-indigo-200',
+    avatar: 'bg-indigo-500',
+    cardEdge: 'border-l-indigo-400',
+  },
+  band: {
+    label: 'Band',
+    pill: 'bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-200',
+    avatar: 'bg-emerald-500',
+    cardEdge: 'border-l-emerald-400',
+  },
+  technical: {
+    label: 'Technical',
+    pill: 'bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200',
+    avatar: 'bg-amber-500',
+    cardEdge: 'border-l-amber-400',
+  },
+}
+
+const ROLE_CATEGORY_GROUP = {
+  'Lead Vocal': 'vocals',
+  'Parts': 'vocals',
+  'Choir member': 'vocals',
+  'Keyboard': 'band',
+  'Lead Guitar': 'band',
+  'Bass Guitar': 'band',
+  'Acoustic guitar': 'band',
+  'Drums': 'band',
+  'Sound Engineer': 'technical',
+}
+
+function roleGroupTheme(role) {
+  const { category } = parseRoleKey(role)
+  return ROLE_GROUP_THEMES[ROLE_CATEGORY_GROUP[category] || 'band']
+}
+
+// Two-letter initials for the assigned-member avatar circle (first + last name,
+// or the first two letters when there's only one word).
+function initialsOf(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+// Coloured pill for a role label — replaces the plain black role text in the
+// Assign tab so each family is instantly recognisable by hue.
+function RolePill({ role }) {
+  const theme = roleGroupTheme(role)
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${theme.pill}`}>
+      {roleDisplayLabel(role)}
+    </span>
+  )
+}
+
+// Round initials chip, tinted to whatever colour the caller passes (role family
+// hue in the roster, a neutral slate elsewhere).
+function MemberAvatar({ name, className = '', tint = 'bg-slate-400' }) {
+  return (
+    <span className={`inline-flex items-center justify-center rounded-full font-bold text-white shrink-0 ${tint} ${className}`}>
+      {initialsOf(name)}
+    </span>
+  )
+}
+
+// Assigned member display: initials avatar (tinted to the role's family) + bold
+// name + a green "Assigned" status chip.
+function AssignedMember({ name, role }) {
+  const theme = roleGroupTheme(role)
+  return (
+    <span className="inline-flex items-center gap-2 flex-wrap">
+      <MemberAvatar name={name} tint={theme.avatar} className="w-7 h-7 text-[10px]" />
+      <span className="font-bold text-slate-800 text-sm">{name}</span>
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Assigned
+      </span>
+    </span>
+  )
+}
+
+// Coral-tinted badge for an empty slot so missing positions pop out instantly.
+function UnassignedBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200">
+      <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Not assigned
+    </span>
+  )
+}
+
+// Secondary line under a member's name in the picker — their director title or
+// first couple of preferred positions.
+function memberDetailLine(m) {
+  if (m.isWorshipDirector) return 'Worship Director'
+  const pos = (m.positions || []).filter(Boolean)
+  return pos.length ? pos.slice(0, 3).join(' · ') : ''
+}
+
+// Rich replacement for the native <select> on the Assign tab. The trigger and the
+// options both carry avatars, names and a secondary detail line; the panel is
+// portalled to <body> with fixed positioning so the card's overflow-x-auto can't
+// clip it. Empty state gets a dashed coral treatment so unfilled slots read as
+// deliberately open, not broken.
+function MemberPicker({ value, members, onChange, role }) {
+  const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState(null)
+  const btnRef = useRef(null)
+  const panelRef = useRef(null)
+  const theme = roleGroupTheme(role)
+  const selected = members.find((m) => m.id === value)
+
+  useEffect(() => {
+    if (!open) return
+
+    const place = () => {
+      const r = btnRef.current?.getBoundingClientRect()
+      if (r) setCoords({ left: r.left, top: r.bottom + 6, width: r.width })
+    }
+    place()
+
+    // Page scroll shifts the anchor button, so the fixed panel has to be
+    // re-anchored — NOT closed. Scrolling inside the panel's own options list
+    // must be ignored entirely (its onScroll/onWheel also stopPropagation, this
+    // is the belt-and-braces guard for the capture-phase listener).
+    const onScroll = (e) => {
+      if (panelRef.current && panelRef.current.contains(e.target)) return
+      place()
+    }
+    // Click-outside: only dismiss when the pointer target is outside BOTH the
+    // panel and the trigger button (the button toggles itself on click).
+    const onPointerDown = (e) => {
+      if (panelRef.current?.contains(e.target)) return
+      if (btnRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', place)
+    window.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onPointerDown, true)
+    document.addEventListener('touchstart', onPointerDown, true)
+    return () => {
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', place)
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onPointerDown, true)
+      document.removeEventListener('touchstart', onPointerDown, true)
+    }
+  }, [open])
+
+  const pick = (m) => {
+    onChange(m?.id || '', m?.name || '')
+    setOpen(false)
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-left transition-colors ${
+          selected
+            ? 'border border-slate-300 bg-white hover:border-indigo-400'
+            : 'border border-dashed border-rose-300 bg-rose-50/60 hover:bg-rose-50'
+        }`}
+      >
+        {selected ? (
+          <>
+            <MemberAvatar name={selected.name} tint={theme.avatar} className="w-7 h-7 text-[10px]" />
+            <span className="flex-1 min-w-0 truncate font-semibold text-slate-800">{selected.name}</span>
+          </>
+        ) : (
+          <>
+            <span className="inline-flex w-7 h-7 items-center justify-center rounded-full border border-dashed border-rose-300 text-rose-400 shrink-0 text-xs">—</span>
+            <span className="flex-1 font-semibold text-rose-500">Not assigned</span>
+          </>
+        )}
+        <ChevronDown size={15} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''} ${selected ? 'text-slate-400' : 'text-rose-400'}`} />
+      </button>
+
+      {open && coords && createPortal(
+          <div
+            ref={panelRef}
+            role="listbox"
+            className="fixed z-[61] max-h-80 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
+            style={{ left: coords.left, top: coords.top, width: Math.max(coords.width, 250) }}
+            onWheel={(e) => e.stopPropagation()}
+            onScroll={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => pick(null)}
+              className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-left transition-colors hover:bg-rose-50 ${!value ? 'bg-rose-50 ring-1 ring-inset ring-rose-200' : ''}`}
+            >
+              <span className="inline-flex w-8 h-8 items-center justify-center rounded-full border border-dashed border-rose-300 text-rose-400 shrink-0">—</span>
+              <span className="flex-1 font-semibold text-rose-500">Not assigned</span>
+              {!value && <CheckCircle2 size={15} className="shrink-0 text-rose-400" />}
+            </button>
+
+            {members.map((m) => {
+              const detail = memberDetailLine(m)
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => pick(m)}
+                  className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-left transition-colors hover:bg-indigo-50 ${value === m.id ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-200' : ''}`}
+                >
+                  <MemberAvatar name={m.name} tint={theme.avatar} className="w-8 h-8 text-[11px]" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-semibold text-slate-800 truncate">{m.name}</span>
+                    {detail && <span className="block text-xs text-slate-500 truncate">{detail}</span>}
+                  </span>
+                  {m.isWorshipDirector && (
+                    <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 shrink-0">
+                      Director
+                    </span>
+                  )}
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 ring-1 ring-inset ring-emerald-200 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Active
+                  </span>
+                  {value === m.id && <CheckCircle2 size={15} className="shrink-0 text-indigo-500" />}
+                </button>
+              )
+            })}
+
+            {members.length === 0 && (
+              <p className="px-3 py-3 text-xs text-slate-400">No eligible members for this role.</p>
+            )}
+          </div>,
+        document.body
+      )}
+    </>
+  )
 }
 
 // Cumulative per-member song/role history across every published Sunday setlist.
@@ -364,11 +608,12 @@ function RoleAssignCard({
   const songKey = getLocalField(role, 'key')
   const linkedSong = songId ? songs.find((s) => s.id === songId) : null
   const hasSong = !!(songName || linkedSong)
+  const theme = roleGroupTheme(role)
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div className={`rounded-xl border border-slate-200 border-l-4 ${theme.cardEdge} bg-white p-3 shadow-sm`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-slate-800">{roleDisplayLabel(role)}</span>
+        <RolePill role={role} />
         {isEditing && isLastRow && (
           <div className="flex items-center gap-2">
             <button
@@ -394,10 +639,10 @@ function RoleAssignCard({
 
       {!isEditing ? (
         <>
-          {/* Read-only summary — plain text, no form controls. */}
-          <p className={`mt-2 text-sm ${memberId ? 'font-semibold text-slate-800' : 'italic text-slate-400 font-normal'}`}>
-            {memberId ? memberName : '— Not assigned'}
-          </p>
+          {/* Read-only summary — avatar + status badges, no form controls. */}
+          <div className="mt-2">
+            {memberId ? <AssignedMember name={memberName} role={role} /> : <UnassignedBadge />}
+          </div>
           {isLeadVocal && hasSong && (
             <p className="mt-1 text-xs font-medium text-indigo-700">
               {songName || linkedSong?.title}
@@ -407,20 +652,14 @@ function RoleAssignCard({
         </>
       ) : (
         <>
-          <select
-            value={memberId}
-            onChange={(e) => {
-              const val = e.target.value
-              const member = activeMembers.find((m) => m.id === val)
-              updateLocal(role, { memberId: val || '', memberName: member?.name || '' })
-            }}
-            className="mt-2 w-full px-2.5 py-2 text-sm rounded-lg border border-slate-300 bg-white"
-          >
-            <option value="">— Not assigned</option>
-            {eligible.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </select>
+          <div className="mt-2">
+            <MemberPicker
+              role={role}
+              value={memberId}
+              members={eligible}
+              onChange={(id, name) => updateLocal(role, { memberId: id, memberName: name })}
+            />
+          </div>
 
           {/* Song field only appears once someone's actually assigned — an empty
               role has nothing to attach a song to yet. */}
@@ -2280,21 +2519,25 @@ export default function DepartmentWorship() {
             <motion.div
               key="assign-form"
               layoutId="assign-card"
-              className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto"
+              className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto xl:-mx-12 2xl:-mx-20"
               exit={{ opacity: 0, scale: 0.96, y: -8 }}
               transition={{ type: 'spring', stiffness: 320, damping: 30 }}
             >
-              <div className="px-5 py-4 border-b border-slate-200 space-y-3">
-                <h2 className="font-semibold text-slate-800">Assign worship team</h2>
+              {/* Branded top accent — the three role-family hues in one bar. */}
+              <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-emerald-500 to-amber-500" />
+              <div className="px-5 py-4 border-b border-slate-200 space-y-3 bg-gradient-to-r from-indigo-50 via-white to-amber-50">
+                <h2 className="flex items-center gap-2 font-semibold text-slate-800">
+                  <Mic2 size={16} className="text-indigo-500" /> Assign worship team
+                </h2>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-slate-500 font-medium">Coming Sundays:</span>
+                    <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Coming Sundays</span>
                     {upcomingSundays(5).map((d) => (
                       <button
                         key={d}
                         type="button"
                         onClick={() => setSelectedDate(d)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${selectedDate === d ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-600 border-slate-300 hover:border-amber-400 hover:text-amber-700'}`}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${selectedDate === d ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-600 border-slate-300 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50'}`}
                       >
                         {format(new Date(d), 'd MMM')}
                       </button>
@@ -2379,20 +2622,20 @@ export default function DepartmentWorship() {
                   ))}
                 </div>
 
-                <table key={selectedDate} className="hidden md:table w-full">
-                  <thead className="bg-slate-50">
+                <table key={selectedDate} className="hidden md:table w-full md:min-w-[900px]">
+                  <thead className="bg-gradient-to-r from-slate-100 to-slate-50">
                     <tr>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[180px]">Role</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600 w-[260px]">Assigned to</th>
-                      <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Song Name</th>
+                      <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[200px]">Role</th>
+                      <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[340px]">Assigned to</th>
+                      <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Song Name</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {assignRows.map(({ category, count, role, isLeadVocal, isLastRow }) => (
-                      <tr key={role} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-2 font-medium text-slate-800 text-sm align-top">
-                          <div className="flex flex-col gap-1">
-                            <span>{roleDisplayLabel(role)}</span>
+                      <tr key={role} className="transition-colors hover:bg-purple-50/50">
+                        <td className={`px-5 py-5 text-sm align-top border-l-4 ${roleGroupTheme(role).cardEdge}`}>
+                          <div className="flex flex-col gap-1 items-start">
+                            <RolePill role={role} />
                             {isEditing && isLastRow && (
                               <div className="flex items-center gap-2">
                                 <button
@@ -2419,18 +2662,16 @@ export default function DepartmentWorship() {
                         {!isEditing ? (
                           <>
                             {/* Read-only summary — plain text labels, no form controls. */}
-                            <td className="px-3 py-2 align-top">
+                            <td className="px-5 py-5 align-top">
                               {(() => {
                                 const memberId = getLocalField(role, 'memberId')
                                 const memberName = getLocalField(role, 'memberName')
-                                return (
-                                  <span className={`text-sm ${memberId ? 'font-semibold text-slate-800' : 'italic text-slate-400 font-normal'}`}>
-                                    {memberId ? memberName : '— Not assigned'}
-                                  </span>
-                                )
+                                return memberId
+                                  ? <AssignedMember name={memberName} role={role} />
+                                  : <UnassignedBadge />
                               })()}
                             </td>
-                            <td className="px-3 py-2 align-top">
+                            <td className="px-5 py-5 align-top">
                               {isLeadVocal && (() => {
                                 const songName = getLocalField(role, 'songName')
                                 const songId = getLocalField(role, 'songId')
@@ -2450,29 +2691,23 @@ export default function DepartmentWorship() {
                           </>
                         ) : (
                           <>
-                        <td className="px-3 py-2">
-                          <select
-                            value={getLocalField(role, 'memberId')}
-                            onChange={(e) => {
-                              const val = e.target.value
-                              const member = activeMembers.find((m) => m.id === val)
-                              updateLocal(role, { memberId: val || '', memberName: member?.name || '' })
-                            }}
-                            className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
-                          >
-                            <option value="">— Not assigned</option>
-                            {(() => {
-                              const posKey = positionKeyForRole(role)
-                              const eligible = posKey
-                                ? activeMembers.filter((m) => m.positions?.includes(posKey))
-                                : activeMembers
-                              return eligible.map((m) => (
-                                <option key={m.id} value={m.id}>{m.name}</option>
-                              ))
-                            })()}
-                          </select>
+                        <td className="px-5 py-5 align-top">
+                          {(() => {
+                            const posKey = positionKeyForRole(role)
+                            const eligible = posKey
+                              ? activeMembers.filter((m) => m.positions?.includes(posKey))
+                              : activeMembers
+                            return (
+                              <MemberPicker
+                                role={role}
+                                value={getLocalField(role, 'memberId')}
+                                members={eligible}
+                                onChange={(id, name) => updateLocal(role, { memberId: id, memberName: name })}
+                              />
+                            )
+                          })()}
                         </td>
-                        <td className="px-3 py-2">
+                        <td className="px-5 py-5 align-top">
                           {isLeadVocal && (() => {
                             const songName = getLocalField(role, 'songName')
                             const songId = getLocalField(role, 'songId')
