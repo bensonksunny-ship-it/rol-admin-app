@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useState, useMemo } from 'react'
+import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2 } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
@@ -245,144 +245,12 @@ function memberDetailLine(m) {
   return pos.length ? pos.slice(0, 3).join(' · ') : ''
 }
 
-// Rich replacement for the native <select> on the Assign tab. The trigger and the
-// options both carry avatars, names and a secondary detail line; the panel is
-// portalled to <body> with fixed positioning so the card's overflow-x-auto can't
-// clip it. Empty state gets a dashed coral treatment so unfilled slots read as
-// deliberately open, not broken.
-function MemberPicker({ value, members, onChange, role }) {
-  const [open, setOpen] = useState(false)
-  const [coords, setCoords] = useState(null)
-  const btnRef = useRef(null)
-  const panelRef = useRef(null)
-  const theme = roleGroupTheme(role)
-  const selected = members.find((m) => m.id === value)
-
-  useEffect(() => {
-    if (!open) return
-
-    const place = () => {
-      const r = btnRef.current?.getBoundingClientRect()
-      if (r) setCoords({ left: r.left, top: r.bottom + 6, width: r.width })
-    }
-    place()
-
-    // Page scroll shifts the anchor button, so the fixed panel has to be
-    // re-anchored — NOT closed. Scrolling inside the panel's own options list
-    // must be ignored entirely (its onScroll/onWheel also stopPropagation, this
-    // is the belt-and-braces guard for the capture-phase listener).
-    const onScroll = (e) => {
-      if (panelRef.current && panelRef.current.contains(e.target)) return
-      place()
-    }
-    // Click-outside: only dismiss when the pointer target is outside BOTH the
-    // panel and the trigger button (the button toggles itself on click).
-    const onPointerDown = (e) => {
-      if (panelRef.current?.contains(e.target)) return
-      if (btnRef.current?.contains(e.target)) return
-      setOpen(false)
-    }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-
-    window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', place)
-    window.addEventListener('keydown', onKey)
-    document.addEventListener('mousedown', onPointerDown, true)
-    document.addEventListener('touchstart', onPointerDown, true)
-    return () => {
-      window.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', place)
-      window.removeEventListener('keydown', onKey)
-      document.removeEventListener('mousedown', onPointerDown, true)
-      document.removeEventListener('touchstart', onPointerDown, true)
-    }
-  }, [open])
-
-  const pick = (m) => {
-    onChange(m?.id || '', m?.name || '')
-    setOpen(false)
-  }
-
-  return (
-    <>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-left transition-colors ${
-          selected
-            ? 'border border-slate-300 bg-white hover:border-indigo-400'
-            : 'border border-dashed border-rose-300 bg-rose-50/60 hover:bg-rose-50'
-        }`}
-      >
-        {selected ? (
-          <>
-            <MemberAvatar name={selected.name} tint={theme.avatar} className="w-7 h-7 text-[10px]" />
-            <span className="flex-1 min-w-0 truncate font-semibold text-slate-800">{selected.name}</span>
-          </>
-        ) : (
-          <>
-            <span className="inline-flex w-7 h-7 items-center justify-center rounded-full border border-dashed border-rose-300 text-rose-400 shrink-0 text-xs">—</span>
-            <span className="flex-1 font-semibold text-rose-500">Not assigned</span>
-          </>
-        )}
-        <ChevronDown size={15} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''} ${selected ? 'text-slate-400' : 'text-rose-400'}`} />
-      </button>
-
-      {open && coords && createPortal(
-          <div
-            ref={panelRef}
-            role="listbox"
-            className="fixed z-[61] max-h-80 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
-            style={{ left: coords.left, top: coords.top, width: Math.max(coords.width, 250) }}
-            onWheel={(e) => e.stopPropagation()}
-            onScroll={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => pick(null)}
-              className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-left transition-colors hover:bg-rose-50 ${!value ? 'bg-rose-50 ring-1 ring-inset ring-rose-200' : ''}`}
-            >
-              <span className="inline-flex w-8 h-8 items-center justify-center rounded-full border border-dashed border-rose-300 text-rose-400 shrink-0">—</span>
-              <span className="flex-1 font-semibold text-rose-500">Not assigned</span>
-              {!value && <CheckCircle2 size={15} className="shrink-0 text-rose-400" />}
-            </button>
-
-            {members.map((m) => {
-              const detail = memberDetailLine(m)
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => pick(m)}
-                  className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-left transition-colors hover:bg-indigo-50 ${value === m.id ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-200' : ''}`}
-                >
-                  <MemberAvatar name={m.name} tint={theme.avatar} className="w-8 h-8 text-[11px]" />
-                  <span className="flex-1 min-w-0">
-                    <span className="block font-semibold text-slate-800 truncate">{m.name}</span>
-                    {detail && <span className="block text-xs text-slate-500 truncate">{detail}</span>}
-                  </span>
-                  {m.isWorshipDirector && (
-                    <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 shrink-0">
-                      Director
-                    </span>
-                  )}
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 ring-1 ring-inset ring-emerald-200 shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Active
-                  </span>
-                  {value === m.id && <CheckCircle2 size={15} className="shrink-0 text-indigo-500" />}
-                </button>
-              )
-            })}
-
-            {members.length === 0 && (
-              <p className="px-3 py-3 text-xs text-slate-400">No eligible members for this role.</p>
-            )}
-          </div>,
-        document.body
-      )}
-    </>
-  )
+// Director badge passed into the now-shared <MemberPicker> (src/components).
+// The detail line is `memberDetailLine`; the avatar hue is `roleGroupTheme(role).avatar`.
+function worshipPickerBadges(m) {
+  return m.isWorshipDirector
+    ? [{ label: 'Director', className: 'bg-amber-100 text-amber-700 ring-amber-200' }]
+    : []
 }
 
 // Cumulative per-member song/role history across every published Sunday setlist.
@@ -654,7 +522,9 @@ function RoleAssignCard({
         <>
           <div className="mt-2">
             <MemberPicker
-              role={role}
+              tint={roleGroupTheme(role).avatar}
+              getDetail={memberDetailLine}
+              getBadges={worshipPickerBadges}
               value={memberId}
               members={eligible}
               onChange={(id, name) => updateLocal(role, { memberId: id, memberName: name })}
@@ -2699,7 +2569,9 @@ export default function DepartmentWorship() {
                               : activeMembers
                             return (
                               <MemberPicker
-                                role={role}
+                                tint={roleGroupTheme(role).avatar}
+                                getDetail={memberDetailLine}
+                                getBadges={worshipPickerBadges}
                                 value={getLocalField(role, 'memberId')}
                                 members={eligible}
                                 onChange={(id, name) => updateLocal(role, { memberId: id, memberName: name })}

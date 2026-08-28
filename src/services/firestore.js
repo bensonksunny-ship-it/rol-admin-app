@@ -1100,6 +1100,40 @@ export async function setWorshipScheduleByDate(department, date, assignments, up
   return ref.id
 }
 
+// ── Media schedule ───────────────────────────────────────────────────────────
+// Per-Sunday crew assignments for the Media department's Assign tab — same shape
+// and Sunday-only date convention as worship_schedule above. One doc per service
+// date: { department: 'Media', date, assignments: [{ role, memberId, memberName,
+// nature, techSpec }], updatedBy, updatedAt }.
+export async function getMediaScheduleByDate(date) {
+  if (!db) return { date, assignments: [] }
+  const q = query(collection(db, 'media_schedule'), where('department', '==', 'Media'))
+  const snap = await getDocs(q)
+  const d = snap.docs.find((doc) => doc.data().date === date)
+  return d ? { id: d.id, ...d.data() } : { date, assignments: [] }
+}
+
+export async function setMediaScheduleByDate(date, assignments, updatedBy) {
+  if (!db) return null
+  const normalizedDate = normalizeToSunday(date)
+  const q = query(collection(db, 'media_schedule'), where('department', '==', 'Media'))
+  const snap = await getDocs(q)
+  const existing = snap.docs.find((doc) => doc.data().date === normalizedDate)
+  const payload = stripUndefinedDeep({
+    department: 'Media',
+    date: normalizedDate,
+    assignments: Array.isArray(assignments) ? assignments : [],
+    updatedBy: updatedBy || '',
+    updatedAt: Timestamp.now(),
+  })
+  if (existing) {
+    await updateDoc(doc(db, 'media_schedule', existing.id), payload)
+    return existing.id
+  }
+  const ref = await addDoc(collection(db, 'media_schedule'), payload)
+  return ref.id
+}
+
 // Worship Ministry applications — a review queue, not a direct write into the
 // People's Directory/PCS. The Worship Director hands the device to the applicant to
 // fill out; submissions land here for the Director to read afterward and manually

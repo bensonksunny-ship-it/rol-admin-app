@@ -67,6 +67,8 @@ import {
   deleteDlightSubDepartment,
   getDepartmentAssignments,
   setDepartmentAssignments,
+  getMediaScheduleByDate,
+  setMediaScheduleByDate,
   getDepartmentSubDepartments,
   addDepartmentSubDepartment,
   updateDepartmentSubDepartment,
@@ -151,6 +153,7 @@ import { defaultCellTab, visibleCellTabs } from '../utils/cellTabVisibility'
 import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import PersonSearchInput from '../components/PersonSearchInput'
+import MemberPicker from '../components/MemberPicker'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
 import DeptExpenseTab from '../components/DeptExpenseTab'
@@ -290,6 +293,41 @@ const RK_CLASS_GROUPS = [
   { key: 'river-kids-2',  label: 'River Kids-2'  },
 ]
 const rkClassGroupLabel = (key) => RK_CLASS_GROUPS.find(g => g.key === key)?.label || key
+
+// Media Assign tab — the fixed crew slots for a Sunday service. `nature` /
+// `techSpec` placeholders are examples only; both fields are free text.
+const MEDIA_ASSIGN_ROLES = [
+  { role: 'Video Director',       naturePlaceholder: 'Live Mix & Switching',        techSpecPlaceholder: 'ATEM Mini / vMix' },
+  { role: 'Camera 1',             naturePlaceholder: 'Wide & Stage Shots',          techSpecPlaceholder: 'Camera A – 85mm Prime' },
+  { role: 'Camera 2',             naturePlaceholder: 'Close-ups & Congregation',    techSpecPlaceholder: 'Camera B – 24-70mm' },
+  { role: 'Lower Thirds / Slides', naturePlaceholder: 'Lyrics & Announcement Cue',  techSpecPlaceholder: 'ProPresenter Main Output' },
+  { role: 'Stream Operator',      naturePlaceholder: 'Stream Health & Chat',        techSpecPlaceholder: 'OBS Stream Key 1' },
+  { role: 'Lighting Tech',        naturePlaceholder: 'Stage & Ambient Lighting',    techSpecPlaceholder: 'Lighting Console' },
+]
+
+// Next `count` Sundays as yyyy-MM-dd (today included if it's Sunday) — the
+// "Coming Sundays" chip row on the Media Assign tab.
+function mediaUpcomingSundays(count = 5) {
+  const out = []
+  const today = new Date()
+  const first = new Date(today)
+  first.setDate(today.getDate() + (today.getDay() === 0 ? 0 : 7 - today.getDay()))
+  for (let i = 0; i < count; i++) {
+    const d = new Date(first)
+    d.setDate(first.getDate() + i * 7)
+    out.push(format(d, 'yyyy-MM-dd'))
+  }
+  return out
+}
+
+// Snap any yyyy-MM-dd forward to its nearest Sunday (noon-anchored so a TZ shift
+// can't move the weekday) — matches the service-date convention used elsewhere.
+function mediaSnapToSunday(dateStr) {
+  const d = new Date(String(dateStr).slice(0, 10) + 'T12:00:00')
+  if (isNaN(d.getTime())) return dateStr
+  d.setDate(d.getDate() + ((7 - d.getDay()) % 7))
+  return format(d, 'yyyy-MM-dd')
+}
 
 // PCS main view — search + filter chips. Chips are grouped ('cell' | 'status' | 'year')
 // so selecting multiple within a group is OR'd (any match) while different groups are
@@ -857,8 +895,20 @@ export default function DepartmentHub() {
   const [loadingDelightAssignments, setLoadingDelightAssignments] = useState(false)
   const [savingDelightAssignments, setSavingDelightAssignments] = useState(false)
   const [delightAssignmentsBefore, setDelightAssignmentsBefore] = useState(null)
-  const [mediaAssignments, setMediaAssignments] = useState({})
-  const [savingMediaAssign, setSavingMediaAssign] = useState(false)
+  // Media – Assign tab (per-Sunday crew, media_schedule collection)
+  const [mediaAssignDate, setMediaAssignDate] = useState(() => {
+    const today = new Date(); const day = today.getDay()
+    const next = new Date(today); next.setDate(today.getDate() + (day === 0 ? 0 : 7 - day))
+    return format(next, 'yyyy-MM-dd')
+  })
+  const [mediaAssignRows, setMediaAssignRows] = useState(
+    MEDIA_ASSIGN_ROLES.map((r) => ({ role: r.role, memberId: '', memberName: '', nature: '', techSpec: '' }))
+  )
+  const [loadingMediaSchedule, setLoadingMediaSchedule] = useState(false)
+  const [mediaAssignEditing, setMediaAssignEditing] = useState(false)
+  const [mediaAssignSaving, setMediaAssignSaving] = useState(false)
+  const [mediaAssignStamp, setMediaAssignStamp] = useState(null)
+  const [mediaStampOpen, setMediaStampOpen] = useState(false)
   const [mediaSundayDate, setMediaSundayDate] = useState(() => {
     const today = new Date(); const day = today.getDay()
     const next = new Date(today); next.setDate(today.getDate() + (day === 0 ? 0 : 7 - day))
@@ -1123,8 +1173,7 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (!department || slug === 'cell' || slug === 'd-light') return
     const wantsSubOrTeam = activeTab === 'team' || activeTab === 'subDepartment' ||
-      ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment')) ||
-      (slug === 'media' && activeTab === 'summary')
+      ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment'))
     if (!wantsSubOrTeam) return
     setSubDeptLoading(true)
     getDepartmentSubDepartments(department.name)
@@ -1602,12 +1651,36 @@ export default function DepartmentHub() {
       .finally(() => setTeamVisitorsLoading(false))
   }, [slug, activeTab, opsSubTab])
 
+  // Media – Assign tab: load the per-Sunday crew schedule.
   useEffect(() => {
-    if (slug !== 'media' || activeTab !== 'summary') return
-    getDepartmentAssignments('media').then((doc) => {
-      if (doc?.assignments && typeof doc.assignments === 'object') setMediaAssignments(doc.assignments)
-    }).catch(() => {})
-  }, [slug, activeTab])
+    if (slug !== 'media' || activeTab !== 'assign') return
+    setLoadingMediaSchedule(true)
+    getMediaScheduleByDate(mediaAssignDate)
+      .then((doc) => {
+        const saved = Array.isArray(doc?.assignments) ? doc.assignments : []
+        const byRole = Object.fromEntries(saved.map((a) => [a.role, a]))
+        const rows = MEDIA_ASSIGN_ROLES.map((r) => {
+          const a = byRole[r.role] || {}
+          return {
+            role: r.role,
+            memberId: a.memberId || '',
+            memberName: a.memberName || '',
+            nature: a.nature || '',
+            techSpec: a.techSpec || '',
+          }
+        })
+        setMediaAssignRows(rows)
+        setMediaAssignStamp(rows.some((x) => x.memberId) ? { date: doc?.date || mediaAssignDate, rows } : null)
+        setMediaStampOpen(false)
+        setMediaAssignEditing(false)
+      })
+      .catch((err) => {
+        console.error('Failed to load media schedule', err)
+        setMediaAssignRows(MEDIA_ASSIGN_ROLES.map((r) => ({ role: r.role, memberId: '', memberName: '', nature: '', techSpec: '' })))
+        setMediaAssignStamp(null)
+      })
+      .finally(() => setLoadingMediaSchedule(false))
+  }, [slug, activeTab, mediaAssignDate])
 
   useEffect(() => {
     if (slug !== 'media' || activeTab !== 'summary') return
@@ -2054,20 +2127,35 @@ export default function DepartmentHub() {
   const pending = tasks.filter((t) => t.status !== 'Completed')
   const completed = tasks.filter((t) => t.status === 'Completed')
 
-  async function saveMediaAssign() {
-    setSavingMediaAssign(true)
+  async function saveMediaAssignPlan() {
+    setMediaAssignSaving(true)
     try {
-      await setDepartmentAssignments('media', {
-        department: 'Media',
-        assignments: mediaAssignments,
-        updatedAt: new Date(),
-        updatedBy: userProfile?.email || userProfile?.displayName || 'unknown',
-      })
+      const assignments = mediaAssignRows
+        .filter((r) => r.memberId || r.nature.trim() || r.techSpec.trim())
+        .map((r) => ({
+          role: r.role,
+          memberId: r.memberId || '',
+          memberName: r.memberName || '',
+          nature: r.nature.trim(),
+          techSpec: r.techSpec.trim(),
+        }))
+      await setMediaScheduleByDate(
+        mediaAssignDate,
+        assignments,
+        userProfile?.email || userProfile?.displayName || 'unknown',
+      )
+      setMediaAssignStamp(
+        mediaAssignRows.some((x) => x.memberId)
+          ? { date: mediaSnapToSunday(mediaAssignDate), rows: mediaAssignRows.map((r) => ({ ...r })) }
+          : null
+      )
+      setMediaStampOpen(false)
+      setMediaAssignEditing(false)
     } catch (e) {
       console.error(e)
       alert('Failed to save assignments.')
     } finally {
-      setSavingMediaAssign(false)
+      setMediaAssignSaving(false)
     }
   }
 
@@ -2558,58 +2646,6 @@ export default function DepartmentHub() {
                 <SundayPrepTracker />
               ) : slug === 'media' ? (
                 <>
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-                    <div>
-                      <h2 className="font-semibold text-slate-800">Media Team Assignment</h2>
-                      <p className="text-xs text-slate-500 mt-0.5">Assign team members to each sub-department role</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={saveMediaAssign}
-                      disabled={savingMediaAssign}
-                      className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 shadow-sm"
-                    >
-                      {savingMediaAssign ? 'Saving...' : 'Save'}
-                    </button>
-                  </div>
-                  {subDeptLoading ? (
-                    <div className="p-5 text-center text-slate-500 text-sm">Loading...</div>
-                  ) : subDepartments.length === 0 ? (
-                    <div className="p-5 text-center text-slate-500 text-sm">
-                      No sub-departments yet. Add them on the <button type="button" onClick={() => { setActiveTab('team'); setSearchParams({ tab: 'team' }, { replace: true }) }} className="text-indigo-600 hover:underline">The Team page</button>.
-                    </div>
-                  ) : (
-                    <table className="w-full">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide w-1/2">Role (Sub Department)</th>
-                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Assigned Member</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {subDepartments.map((sd) => (
-                          <tr key={sd.id} className="hover:bg-slate-50/50">
-                            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{sd.name}</td>
-                            <td className="px-3 py-2">
-                              <select
-                                value={mediaAssignments[sd.name] || ''}
-                                onChange={(e) => setMediaAssignments((prev) => ({ ...prev, [sd.name]: e.target.value }))}
-                                className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white"
-                              >
-                                <option value="">— Not assigned</option>
-                                {team.filter((m) => !m.isFormer && m.status !== 'former').map((m) => (
-                                  <option key={m.id} value={m.id}>{m.name}</option>
-                                ))}
-                              </select>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-
                 {/* ── Sunday Program ── */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-4">
                   <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
@@ -4656,6 +4692,233 @@ export default function DepartmentHub() {
               <p className="text-xs text-slate-500">Assignments are saved to Firestore.</p>
             </div>
           )}
+
+          {slug === 'media' && activeTab === 'assign' && (() => {
+            const activeMembers = team.filter((m) => !m.isFormer && m.status !== 'former')
+            const memberDetail = (m) => (Array.isArray(m.subDepartments) && m.subDepartments.length ? m.subDepartments.join(' · ') : (m.role || ''))
+            const setRow = (role, patch) =>
+              setMediaAssignRows((prev) => prev.map((r) => (r.role === role ? { ...r, ...patch } : r)))
+            const roleMeta = (role) => MEDIA_ASSIGN_ROLES.find((r) => r.role === role) || {}
+            const showStamp = mediaAssignStamp && !mediaAssignEditing
+            let stampDate = mediaAssignStamp?.date
+            try { stampDate = format(new Date(mediaAssignStamp.date), 'EEE d MMM yyyy') } catch { /* keep raw */ }
+
+            return (
+              <div className="space-y-4">
+                {showStamp ? (
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="text-emerald-500 text-lg leading-none">✓</span>
+                        <span className="font-semibold text-slate-800 text-sm">Media</span>
+                        <span className="text-slate-300 text-sm">|</span>
+                        <span className="text-slate-700 text-sm truncate">{stampDate}</span>
+                        <span className="hidden sm:inline text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5">Saved</span>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        {canEdit && (
+                          <button type="button" onClick={() => setMediaAssignEditing(true)} className="text-xs text-slate-400 hover:text-indigo-600 underline">
+                            Edit plan
+                          </button>
+                        )}
+                        <button type="button" onClick={() => setMediaStampOpen((v) => !v)} className="text-slate-400 hover:text-slate-700">
+                          <svg width="14" height="14" viewBox="0 0 12 12" fill="none" className={`transition-transform ${mediaStampOpen ? 'rotate-180' : ''}`}>
+                            <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    {mediaStampOpen && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {mediaAssignRows.filter((r) => r.memberId).length === 0 ? (
+                          <p className="text-sm text-slate-400 italic">No crew assigned for this date.</p>
+                        ) : (
+                          mediaAssignRows.filter((r) => r.memberId).map((r) => (
+                            <div key={r.role} className="flex items-center gap-2 text-sm">
+                              <span className="text-slate-400 text-xs w-36 flex-shrink-0 truncate">{r.role}</span>
+                              <span className="font-medium text-slate-800 truncate">{r.memberName}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+                    <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-emerald-500 to-amber-500" />
+                    <div className="px-5 py-4 border-b border-slate-200 space-y-3 bg-gradient-to-r from-indigo-50 via-white to-amber-50">
+                      <h2 className="font-semibold text-slate-800">Assign media crew</h2>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Coming Sundays</span>
+                          {mediaUpcomingSundays(5).map((d) => (
+                            <button
+                              key={d}
+                              type="button"
+                              onClick={() => setMediaAssignDate(d)}
+                              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${mediaAssignDate === d ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-600 border-slate-300 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50'}`}
+                            >
+                              {format(new Date(d), 'd MMM')}
+                            </button>
+                          ))}
+                          <input
+                            type="date"
+                            value={mediaAssignDate}
+                            onChange={(e) => { if (e.target.value) setMediaAssignDate(mediaSnapToSunday(e.target.value)) }}
+                            className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
+                            title="Pick a custom Sunday date"
+                          />
+                        </div>
+                        {canEdit && (mediaAssignEditing ? (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              disabled={mediaAssignSaving}
+                              onClick={() => {
+                                setMediaAssignRows(
+                                  mediaAssignStamp?.rows
+                                    ? mediaAssignStamp.rows.map((r) => ({ ...r }))
+                                    : MEDIA_ASSIGN_ROLES.map((r) => ({ role: r.role, memberId: '', memberName: '', nature: '', techSpec: '' }))
+                                )
+                                setMediaAssignEditing(false)
+                              }}
+                              className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={mediaAssignSaving}
+                              onClick={saveMediaAssignPlan}
+                              className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 shadow-sm"
+                            >
+                              {mediaAssignSaving ? 'Saving…' : 'Save plan'}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setMediaAssignEditing(true)}
+                            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition-colors"
+                          >
+                            Edit Plan
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {loadingMediaSchedule ? (
+                      <div className="p-5 text-center text-slate-500">Loading…</div>
+                    ) : activeMembers.length === 0 ? (
+                      <div className="p-5 text-center text-slate-500">Add team members on the The Team page first.</div>
+                    ) : (
+                      <>
+                        {/* Mobile: one card per role */}
+                        <div className="md:hidden grid grid-cols-1 gap-3 p-4">
+                          {mediaAssignRows.map((r) => {
+                            const meta = roleMeta(r.role)
+                            return (
+                              <div key={r.role} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm space-y-2">
+                                <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">{r.role}</span>
+                                {mediaAssignEditing ? (
+                                  <MemberPicker
+                                    tint="bg-indigo-500"
+                                    getDetail={memberDetail}
+                                    value={r.memberId}
+                                    members={activeMembers}
+                                    onChange={(id, name) => setRow(r.role, { memberId: id, memberName: name })}
+                                  />
+                                ) : (
+                                  <p className="text-sm">{r.memberId ? <span className="font-semibold text-slate-800">{r.memberName}</span> : <span className="text-rose-500 font-medium">Not assigned</span>}</p>
+                                )}
+                                <input
+                                  type="text"
+                                  value={r.nature}
+                                  readOnly={!mediaAssignEditing}
+                                  onChange={(e) => setRow(r.role, { nature: e.target.value })}
+                                  placeholder={meta.naturePlaceholder}
+                                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500"
+                                />
+                                <input
+                                  type="text"
+                                  value={r.techSpec}
+                                  readOnly={!mediaAssignEditing}
+                                  onChange={(e) => setRow(r.role, { techSpec: e.target.value })}
+                                  placeholder={meta.techSpecPlaceholder}
+                                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500"
+                                />
+                              </div>
+                            )
+                          })}
+                        </div>
+
+                        {/* Desktop: table */}
+                        <table className="hidden md:table w-full md:min-w-[880px]">
+                          <thead className="bg-gradient-to-r from-slate-100 to-slate-50">
+                            <tr>
+                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[180px]">Role / Slot</th>
+                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[320px]">Assigned To</th>
+                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Nature / Description</th>
+                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Tech Spec / Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {mediaAssignRows.map((r) => {
+                              const meta = roleMeta(r.role)
+                              return (
+                                <tr key={r.role} className="hover:bg-indigo-50/40">
+                                  <td className="px-5 py-4 align-top">
+                                    <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">{r.role}</span>
+                                  </td>
+                                  <td className="px-5 py-4 align-top">
+                                    {mediaAssignEditing ? (
+                                      <MemberPicker
+                                        tint="bg-indigo-500"
+                                        getDetail={memberDetail}
+                                        value={r.memberId}
+                                        members={activeMembers}
+                                        onChange={(id, name) => setRow(r.role, { memberId: id, memberName: name })}
+                                      />
+                                    ) : r.memberId ? (
+                                      <span className="font-semibold text-slate-800 text-sm">{r.memberName}</span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Not assigned
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-5 py-4 align-top">
+                                    <input
+                                      type="text"
+                                      value={r.nature}
+                                      readOnly={!mediaAssignEditing}
+                                      onChange={(e) => setRow(r.role, { nature: e.target.value })}
+                                      placeholder={meta.naturePlaceholder}
+                                      className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500 read-only:border-transparent"
+                                    />
+                                  </td>
+                                  <td className="px-5 py-4 align-top">
+                                    <input
+                                      type="text"
+                                      value={r.techSpec}
+                                      readOnly={!mediaAssignEditing}
+                                      onChange={(e) => setRow(r.role, { techSpec: e.target.value })}
+                                      placeholder={meta.techSpecPlaceholder}
+                                      className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500 read-only:border-transparent"
+                                    />
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {usesGenericSubDepartmentCollection(slug) && slug !== 'media' && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

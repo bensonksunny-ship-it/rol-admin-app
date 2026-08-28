@@ -594,6 +594,13 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    // Media department's per-Sunday crew assignments (Assign tab). Department-
+    // scoped, unlike worship_schedule above — this replaces the department-scoped
+    // department_assignments/media doc.
+    match /media_schedule/{docId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Media'));
+    }
+
     // Auto-created/updated by saveAssignPlan (DepartmentWorship.jsx) right after the
     // schedule write, and by the Practice & Rehearsals tab — without this rule the
     // collection has no explicit match, so Firestore denies by default and every
