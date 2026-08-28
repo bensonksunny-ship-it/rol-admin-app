@@ -8,8 +8,6 @@ import { getDepartmentPath } from '../../constants/departments'
 import { formatDMY } from '../../utils/date'
 import { getDepartmentRole } from '../../utils/access'
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
-
 // Resolves where clicking a task should land. Tasks added via a notification's "+ Add
 // to To-Do" already carry the exact URL (t.deepLink — see useActionNotifications).
 // Tasks created directly elsewhere (e.g. CellDirectorCockpit's "Consult D Light
@@ -47,12 +45,10 @@ function myDepartmentNames(userProfile) {
   return [...new Set([...fromPositions, ...fromDepartments, ...fromPrimary])]
 }
 
-// The moment a task's 30-day retention clock starts counting down from — whichever
-// action last touched it, falling back to when it was created for still-pending items.
-function taskAnchorTime(t) {
-  const anchor = t.completedAt || t.turnedDownAt || t.createdAt
-  const d = anchor instanceof Date ? anchor : anchor ? new Date(anchor) : null
-  return d && !isNaN(d.getTime()) ? d.getTime() : Date.now()
+// Newest-wins tiebreak when collapsing duplicate active tasks into one row.
+function createdMs(t) {
+  const d = t.createdAt instanceof Date ? t.createdAt : t.createdAt ? new Date(t.createdAt) : null
+  return d && !isNaN(d.getTime()) ? d.getTime() : 0
 }
 
 // Groups a task into "the same pending action" as any other task sharing this key.
@@ -91,8 +87,8 @@ function escalationBadge(count) {
 // same `tasks` collection via a real-time onSnapshot subscription — spans every
 // department a task can be created from (Sec-Core referrals, Caring PCS referrals,
 // Cell consult requests, etc.), so this one list is the app's single global To-Do List.
-// Completed/Turned Down items stay visible (greyed out) for 30 days instead of vanishing
-// the instant they're actioned — see taskAnchorTime above.
+// A task drops off this list the instant it's completed or turned down (the task
+// doc keeps its status for the admin Tasks page / reporting).
 export default function ToDoListCard() {
   const { userProfile, isFounder, user } = useAuth()
   const navigate = useNavigate()
@@ -100,6 +96,10 @@ export default function ToDoListCard() {
   const [loading, setLoading] = useState(true)
   const [completingIds, setCompletingIds] = useState(() => new Set())
   const [turningDownIds, setTurningDownIds] = useState(() => new Set())
+  // Removed-on-tap: the instant ✓/✕ is pressed we drop the row(s) locally so the
+  // line vanishes without waiting for the status write to round-trip. Rolled back
+  // if the write fails.
+  const [hiddenIds, setHiddenIds] = useState(() => new Set())
 
   // Cell assignment (inline "Assign to [recommended cell]" / "Assign to Other…" on
   // consult_response To-Dos) — same underlying write CellDirectorCockpit's Unassigned
@@ -159,79 +159,64 @@ export default function ToDoListCard() {
     [tasks, myUid, isFounder, userProfile]
   )
 
-  // Every task within its 30-day retention window, regardless of status — this is the
-  // full list rendered in the drawer. Active items surface first (soonest deadline
-  // first); resolved items (Completed/Turned Down) sink below them, most recent first.
+  // Only active items are ever shown — a line disappears from this list the moment
+  // it's completed or turned down. Soonest deadline first.
   const myTasks = useMemo(() => {
-    const cutoff = Date.now() - THIRTY_DAYS_MS
-    const relevant = ['Pending', 'In Progress', 'Completed', 'Turned Down']
     return scopedTasks
-      .filter((t) => relevant.includes(t.status) && taskAnchorTime(t) >= cutoff)
-      .sort((a, b) => {
-        const aActive = a.status === 'Pending' || a.status === 'In Progress'
-        const bActive = b.status === 'Pending' || b.status === 'In Progress'
-        if (aActive !== bActive) return aActive ? -1 : 1
-        if (aActive) return (a.deadline && b.deadline) ? new Date(a.deadline) - new Date(b.deadline) : 0
-        return taskAnchorTime(b) - taskAnchorTime(a)
-      })
+      .filter((t) => t.status === 'Pending' || t.status === 'In Progress')
+      .sort((a, b) => (a.deadline && b.deadline) ? new Date(a.deadline) - new Date(b.deadline) : 0)
   }, [scopedTasks])
 
   // Collapses myTasks down to one row per taskDedupeKey — "each pending action appears
-  // only once in the list". When a key has 2+ still-active (Pending/In Progress)
-  // duplicates, the most recently triggered one is kept as the visible row (freshest
-  // title/notes/deadline) and the rest are folded into it via mergedTaskIds, so
-  // completing/turning-down the row resolves every duplicate at once instead of leaving
-  // a hidden one Pending. occurrenceCount drives the "2nd Reminder"/"Urgent" badge.
-  // Resolved (Completed/Turned Down) items never merge with each other — each keeps its
-  // own row in the 30-day history — only active duplicates collapse.
+  // only once in the list". When a key has 2+ duplicates, the most recently created
+  // one is kept as the visible row (freshest title/notes/deadline) and the rest are
+  // folded into it via mergedTaskIds, so completing/turning-down the row resolves
+  // every duplicate at once. occurrenceCount drives the "2nd Reminder"/"Urgent" badge.
+  // `hiddenIds` drops rows that were just actioned before the write round-trips.
   const displayTasks = useMemo(() => {
     const groups = new Map()
     const order = []
     myTasks.forEach((t) => {
+      if (hiddenIds.has(t.id)) return
       const key = taskDedupeKey(t)
-      const isActive = t.status === 'Pending' || t.status === 'In Progress'
-      const groupKey = key && isActive ? key : `__solo:${t.id}`
+      const groupKey = key || `__solo:${t.id}`
       if (!groups.has(groupKey)) { groups.set(groupKey, []); order.push(groupKey) }
       groups.get(groupKey).push(t)
     })
     return order.map((groupKey) => {
       const items = groups.get(groupKey)
       if (items.length === 1) return items[0]
-      const representative = items.reduce((latest, cur) => (taskAnchorTime(cur) > taskAnchorTime(latest) ? cur : latest))
+      const representative = items.reduce((latest, cur) => (createdMs(cur) > createdMs(latest) ? cur : latest))
       return {
         ...representative,
         mergedTaskIds: items.map((i) => i.id),
         occurrenceCount: items.length,
       }
     })
-  }, [myTasks])
+  }, [myTasks, hiddenIds])
 
-  const activeTasks = useMemo(
-    () => displayTasks.filter((t) => t.status === 'Pending' || t.status === 'In Progress'),
-    [displayTasks]
-  )
-  const completedCount = useMemo(() => displayTasks.filter((t) => t.status === 'Completed').length, [displayTasks])
-  const turnedDownCount = useMemo(() => displayTasks.filter((t) => t.status === 'Turned Down').length, [displayTasks])
+  // Every remaining task is active; alias kept to minimise churn below.
+  const activeTasks = displayTasks
 
-  const completeTask = async (t) => {
-    if (completingIds.has(t.id)) return
-    setCompletingIds((prev) => new Set(prev).add(t.id))
+  // Shared path for ✓ Complete and ✕ Turn Down: hide the row(s) immediately, run
+  // the status write(s), roll the hide back with a toast if the write fails.
+  const resolveTask = async (t, actionFn, pendingSet, setPendingSet) => {
+    if (pendingSet.has(t.id)) return
+    const ids = t.mergedTaskIds || [t.id]
+    setPendingSet((prev) => new Set(prev).add(t.id))
+    setHiddenIds((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); return next })
     try {
-      await Promise.all((t.mergedTaskIds || [t.id]).map((id) => markTaskCompleted(id)))
+      await Promise.all(ids.map((id) => actionFn(id)))
+    } catch {
+      setHiddenIds((prev) => { const next = new Set(prev); ids.forEach((id) => next.delete(id)); return next })
+      showToast('Could not update the task. Please try again.', 'error')
     } finally {
-      setCompletingIds((prev) => { const next = new Set(prev); next.delete(t.id); return next })
+      setPendingSet((prev) => { const next = new Set(prev); next.delete(t.id); return next })
     }
   }
 
-  const turnDownTask = async (t) => {
-    if (turningDownIds.has(t.id)) return
-    setTurningDownIds((prev) => new Set(prev).add(t.id))
-    try {
-      await Promise.all((t.mergedTaskIds || [t.id]).map((id) => markTaskTurnedDown(id)))
-    } finally {
-      setTurningDownIds((prev) => { const next = new Set(prev); next.delete(t.id); return next })
-    }
-  }
+  const completeTask = (t) => resolveTask(t, markTaskCompleted, completingIds, setCompletingIds)
+  const turnDownTask = (t) => resolveTask(t, markTaskTurnedDown, turningDownIds, setTurningDownIds)
 
   // Assigns the recommended/chosen person to a cell, completes this To-Do (and every
   // duplicate merged into it), and closes out the original D-Light consult task(s) (if
@@ -340,17 +325,6 @@ export default function ToDoListCard() {
                   </button>
                 </div>
 
-                {/* Action counter summary — last 30 days */}
-                {(completedCount > 0 || turnedDownCount > 0) && (
-                  <div className="flex items-center gap-2 mt-3">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                      <Check size={11} strokeWidth={3} /> {completedCount} Completed
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                      <XCircle size={11} strokeWidth={2.5} /> {turnedDownCount} Turned Down
-                    </span>
-                  </div>
-                )}
               </div>
 
               <div className="flex-1 overflow-y-auto overscroll-contain">
@@ -362,7 +336,6 @@ export default function ToDoListCard() {
                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
                     <AnimatePresence initial={false}>
                       {displayTasks.map((t) => {
-                        const isResolved = t.status === 'Completed' || t.status === 'Turned Down'
                         const badge = escalationBadge(t.occurrenceCount)
                         return (
                         <motion.div
@@ -371,7 +344,7 @@ export default function ToDoListCard() {
                           initial={{ opacity: 0, y: 8 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
-                          className={`group w-full px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${isResolved ? 'grayscale opacity-60' : ''} ${
+                          className={`group w-full px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
                             badge ? (t.occurrenceCount >= 3
                               ? 'border-l-4 border-red-500 bg-red-50/50 dark:bg-red-500/10'
                               : 'border-l-4 border-amber-400 bg-amber-50/50 dark:bg-amber-500/10')
@@ -394,9 +367,7 @@ export default function ToDoListCard() {
                               className="flex-1 min-w-0 flex items-center gap-3 text-left min-h-[44px]"
                             >
                               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                                t.status === 'Completed' ? 'bg-emerald-500'
-                                  : t.status === 'Turned Down' ? 'bg-slate-400'
-                                  : t.status === 'In Progress' ? 'bg-[#6357c9]' : 'bg-amber-400'
+                                t.status === 'In Progress' ? 'bg-[#6357c9]' : 'bg-amber-400'
                               }`} />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{t.taskTitle || t.task || 'Untitled'}</p>
@@ -421,48 +392,44 @@ export default function ToDoListCard() {
                                 </div>
                               </div>
                               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                                t.status === 'Completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                  : t.status === 'Turned Down' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-                                  : t.status === 'In Progress' ? 'bg-[#efecfb] dark:bg-[#6357c9]/15 text-[#6357c9] dark:text-[#a599e8]' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                t.status === 'In Progress'
+                                  ? 'bg-[#efecfb] dark:bg-[#6357c9]/15 text-[#6357c9] dark:text-[#a599e8]'
+                                  : 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'
                               }`}>{t.status}</span>
                             </button>
 
-                            {/* Right-side actions — only for still-active items; a
-                                resolved item just shows its status badge above. These
-                                buttons are siblings of the title button, not nested
-                                inside it, so a click here never bubbles into its
+                            {/* Right-side actions. Siblings of the title button, not
+                                nested inside it, so a click here never bubbles into its
                                 onClick anyway — stopPropagation is just defense in
                                 depth against that ever changing. */}
-                            {!isResolved && (
-                              <div className="flex items-center gap-1 flex-shrink-0">
-                                <motion.button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); completeTask(t) }}
-                                  disabled={completingIds.has(t.id) || turningDownIds.has(t.id)}
-                                  aria-label="Task Completed"
-                                  title="Task Completed"
-                                  whileTap={{ scale: 0.85 }}
-                                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-300 dark:text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 active:scale-90 transition-all disabled:opacity-50"
-                                >
-                                  <Check size={16} strokeWidth={2.5} />
-                                </motion.button>
-                                <motion.button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); turnDownTask(t) }}
-                                  disabled={completingIds.has(t.id) || turningDownIds.has(t.id)}
-                                  aria-label="Turn Down"
-                                  title="Turn Down"
-                                  whileTap={{ scale: 0.85 }}
-                                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-300 dark:text-slate-600 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 active:scale-90 transition-all disabled:opacity-50"
-                                >
-                                  <XCircle size={16} strokeWidth={2} />
-                                </motion.button>
-                              </div>
-                            )}
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <motion.button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); completeTask(t) }}
+                                disabled={completingIds.has(t.id) || turningDownIds.has(t.id)}
+                                aria-label="Task Completed"
+                                title="Task Completed"
+                                whileTap={{ scale: 0.85 }}
+                                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-300 dark:text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 active:scale-90 transition-all disabled:opacity-50"
+                              >
+                                <Check size={16} strokeWidth={2.5} />
+                              </motion.button>
+                              <motion.button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); turnDownTask(t) }}
+                                disabled={completingIds.has(t.id) || turningDownIds.has(t.id)}
+                                aria-label="Turn Down"
+                                title="Turn Down"
+                                whileTap={{ scale: 0.85 }}
+                                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-300 dark:text-slate-600 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 active:scale-90 transition-all disabled:opacity-50"
+                              >
+                                <XCircle size={16} strokeWidth={2} />
+                              </motion.button>
+                            </div>
                           </div>
 
                           {/* Cell assignment — quick-assign to D-Light's recommended cell, or pick another */}
-                          {!isResolved && t.cellAssignRecommendation && (
+                          {t.cellAssignRecommendation && (
                             <div className="flex items-center flex-wrap gap-1.5 mt-2 pl-11">
                               {t.recommendedCellId && (
                                 <button
