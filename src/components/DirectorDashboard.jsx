@@ -110,6 +110,45 @@ export function AlertPanelCellReports({ missingCount, onOpenDetails }) {
   )
 }
 
+// Row status for the current-week report table — one place for the 5-way branch,
+// shared by the desktop table cell and the mobile card.
+function cellReportStatusBadge(row, isDismissed) {
+  if (row.submitted)      return { label: 'Submitted',     cls: 'text-emerald-700 bg-emerald-50 border-emerald-100', dot: 'bg-emerald-500' }
+  if (isDismissed)        return { label: 'Dismissed',     cls: 'text-amber-700 bg-amber-50 border-amber-100',       dot: 'bg-amber-400' }
+  if (row.isDue)          return { label: 'Due',           cls: 'text-red-600 bg-red-50 border-red-100',             dot: 'bg-red-500' }
+  if (row.isMeetingToday) return { label: 'Meeting Today', cls: 'text-blue-700 bg-blue-50 border-blue-100',          dot: 'bg-blue-500' }
+  return { label: 'Upcoming', cls: 'text-slate-500 bg-slate-50 border-slate-100', dot: 'bg-slate-300' }
+}
+
+function StatusPill({ row, isDismissed }) {
+  const s = cellReportStatusBadge(row, isDismissed)
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold border px-2.5 py-1 rounded-full whitespace-nowrap ${s.cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full inline-block ${s.dot}`} /> {s.label}
+    </span>
+  )
+}
+
+// "d MMM" (e.g. 26 Aug) — mobile cards only, to keep the due date on one line.
+function compactDate(iso) {
+  return iso ? format(parseISO(iso), 'd MMM') : '—'
+}
+
+// The "• Week of …" list shared by the desktop 10-week dropdown and the mobile
+// card's inline expansion.
+function MissingWeeksList({ weeks }) {
+  return (
+    <ul className="divide-y divide-slate-50">
+      {weeks.map((w) => (
+        <li key={w.weekStart} className="px-3 py-2 text-xs text-slate-600 flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+          Week of {format(parseISO(w.weekStart), 'd MMM yyyy')}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function MissingCellReportsTable({ rows, loading, remindLeader, remindingIds = new Set(), remindedIds = new Set(), dismissedIds = new Set(), onDismiss, onUndismiss }) {
   const submitted = rows.filter((r) => r.submitted).length
   const missing   = rows.filter((r) => r.isDue && !dismissedIds.has(r.cellId)).length
@@ -145,7 +184,8 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, reminding
       ) : rows.length === 0 ? (
         <div className="px-5 py-6 text-sm text-slate-400 text-center">No cell groups in scope.</div>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        <div className="hidden md:block overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-left">
@@ -165,27 +205,7 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, reminding
                     <td className="px-4 py-3 text-slate-600">{row.leaderName || '—'}</td>
                     <td className="px-4 py-3 text-slate-500 tabular-nums">{row.expectedDate}</td>
                     <td className="px-4 py-3">
-                      {row.submitted ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" /> Submitted
-                        </span>
-                      ) : isDismissed ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" /> Dismissed
-                        </span>
-                      ) : row.isDue ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" /> Due
-                        </span>
-                      ) : row.isMeetingToday ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" /> Meeting Today
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300 inline-block" /> Upcoming
-                        </span>
-                      )}
+                      <StatusPill row={row} isDismissed={isDismissed} />
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2 justify-end">
@@ -229,6 +249,60 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, reminding
             </tbody>
           </table>
         </div>
+
+        <div className="md:hidden divide-y divide-slate-100">
+          {rows.map((row) => {
+            const isDismissed = row.isDue && dismissedIds.has(row.cellId)
+            return (
+              <div key={row.cellId} className="px-5 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-semibold text-slate-800 text-sm">{row.cellName}</p>
+                  <StatusPill row={row} isDismissed={isDismissed} />
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {row.leaderName || '—'} &middot; Due {compactDate(row.expectedDate)}
+                </p>
+                {(row.isDue || isDismissed) && (
+                  <div className="flex gap-2 mt-3">
+                    {row.isDue && !isDismissed && (
+                      <>
+                        {remindedIds.has(row.cellId) ? (
+                          <span className="text-xs px-2.5 py-1 rounded-lg text-emerald-600 font-semibold">✓ Reminded</span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={remindingIds.has(row.cellId)}
+                            onClick={() => remindLeader(row)}
+                            className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors font-medium disabled:opacity-50"
+                          >
+                            {remindingIds.has(row.cellId) ? 'Sending…' : 'Remind'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onDismiss?.(row.cellId)}
+                          className="text-xs px-2.5 py-1 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 transition-colors font-medium"
+                        >
+                          Dismiss
+                        </button>
+                      </>
+                    )}
+                    {isDismissed && (
+                      <button
+                        type="button"
+                        onClick={() => onUndismiss?.(row.cellId)}
+                        className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 transition-colors font-medium"
+                      >
+                        Undo
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        </>
       )}
     </div>
   )
@@ -268,7 +342,8 @@ export function TenWeekComplianceTable({ rows, loading }) {
       ) : rows.length === 0 ? (
         <div className="px-5 py-6 text-sm text-slate-400 text-center">No cell groups in scope.</div>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        <div className="hidden md:block overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-left">
@@ -305,14 +380,9 @@ export function TenWeekComplianceTable({ rows, loading }) {
                             <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
                               Missing weeks for {row.cellName}
                             </p>
-                            <ul className="max-h-56 overflow-y-auto divide-y divide-slate-50">
-                              {missingWeeks.map((w) => (
-                                <li key={w.weekStart} className="px-3 py-2 text-xs text-slate-600 flex items-center gap-2">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
-                                  Week of {format(parseISO(w.weekStart), 'd MMM yyyy')}
-                                </li>
-                              ))}
-                            </ul>
+                            <div className="max-h-56 overflow-y-auto">
+                              <MissingWeeksList weeks={missingWeeks} />
+                            </div>
                           </div>
                         </>
                       )}
@@ -323,6 +393,35 @@ export function TenWeekComplianceTable({ rows, loading }) {
             </tbody>
           </table>
         </div>
+
+        <div className="md:hidden divide-y divide-slate-100">
+          {rows.map((row) => {
+            const isOpen = openCellId === row.cellId
+            const missingWeeks = row.weeks.filter((w) => !w.submitted)
+            return (
+              <div key={row.cellId} className="px-5 py-4">
+                <p className="font-semibold text-slate-800 text-sm">{row.cellName}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{row.leaderName || '—'}</p>
+                <button
+                  type="button"
+                  onClick={() => setOpenCellId(isOpen ? null : row.cellId)}
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border mt-2 transition-colors ${tenWeekBadgeStyle(row.missingCount)} ${
+                    missingWeeks.length > 0 ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-current inline-block opacity-70" />
+                  {tenWeekBadgeLabel(row.missingCount)}
+                </button>
+                {isOpen && missingWeeks.length > 0 && (
+                  <div className="mt-2 rounded-xl border border-slate-200 overflow-hidden">
+                    <MissingWeeksList weeks={missingWeeks} />
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        </>
       )}
     </div>
   )
