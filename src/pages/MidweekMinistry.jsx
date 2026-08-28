@@ -187,6 +187,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
   // Session state
   const [segmentOrder, setSegmentOrder]       = useState(DEFAULT_SEGMENTS)
   const [segmentDurations, setSegmentDurations] = useState({})
+  const [programStartTime, setProgramStartTime] = useState('19:00')
   const [segmentIdx, setSegmentIdx]           = useState(-1)
   const [presentIds, setPresentIds]           = useState(new Set())
 
@@ -288,6 +289,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
     getMidweekSettings(selectedCellId).then((s) => {
       if (s?.segmentOrder?.length) setSegmentOrder(s.segmentOrder)
       else setSegmentOrder(DEFAULT_SEGMENTS)
+      setProgramStartTime(s?.programStartTime || '19:00')
       if (s?.segmentDetails?.length) {
         const map = {}
         s.segmentDetails.forEach((d) => { if (d.name) map[d.name] = Number(d.durationMinutes) || null })
@@ -544,6 +546,22 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
     await saveMidweekPrayerPoints(selectedCellId, today, updated, userProfile?.name || 'unknown')
   }, [selectedCellId, today, prayerPoints, userProfile])
 
+  // Confirm-sheet rows: duration pill + cumulative clock range from the cell's
+  // configured program start time (Prep tab), e.g. "20 min • 7:00 PM – 7:20 PM".
+  const confirmItems = useMemo(() => {
+    const durs = segmentOrder.map((name) => segmentDurations[name] || 0)
+    return segmentOrder.map((name, i) => {
+      const dur = durs[i]
+      if (!dur) return { name, detail: null }
+      if (!programStartTime) return { name, detail: `${dur} min` }
+      const offset = durs.slice(0, i).reduce((a, b) => a + b, 0)
+      return {
+        name,
+        detail: `${dur} min • ${toAmPm(programStartTime, offset)} – ${toAmPm(programStartTime, offset + dur)}`,
+      }
+    })
+  }, [segmentOrder, segmentDurations, programStartTime])
+
   return (
     <div className="space-y-6 pb-24">
 
@@ -579,7 +597,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       {showConfirmSheet && (
         <ProgramConfirmSheet
           title="Today's Cell Program"
-          items={segmentOrder.map(s => ({ name: s, detail: segmentDurations[s] ? `${segmentDurations[s]} min` : null }))}
+          items={confirmItems}
           onConfirm={() => { setShowConfirmSheet(false); startFirstSegment() }}
           onEdit={() => { setShowConfirmSheet(false); onSwitchToPrep?.() }}
         />
