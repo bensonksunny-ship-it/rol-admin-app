@@ -501,6 +501,8 @@ export default function DepartmentHub() {
     }).finally(() => setDetailMemberLoading(false))
   }, [])
   const [teamMemberLinking, setTeamMemberLinking] = useState(null)
+  // Media team table: which row's three-dots Actions menu is open (m.id), or null.
+  const [teamActionMenuId, setTeamActionMenuId] = useState(null)
   const [cellMemberLinkedVisitor, setCellMemberLinkedVisitor] = useState(null)
   const [cellMemberLinkedVisitorForm, setCellMemberLinkedVisitorForm] = useState({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
   const [cellGroupModalOpen, setCellGroupModalOpen] = useState(false)
@@ -7558,48 +7560,92 @@ export default function DepartmentHub() {
                           )}
                           <td className="px-4 py-2 text-slate-600 capitalize">{m.status || 'active'}</td>
                           <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
-                          {canEdit && (
-                            <td className="px-4 py-2 text-sm space-x-2 whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingMember(m)
-                                  const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
-                                    ? m.subDepartments
-                                    : (m.subDepartment ? [m.subDepartment] : [])
-                                  setMemberForm({
-                                    name: m.name || '',
-                                    role: m.role || '',
-                                    subDepartment: m.subDepartment || '',
-                                    subDepartments: subDepts,
-                                    phone: m.phone || '',
-                                    status: m.status || 'active',
-                                    memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
-                                    isFormer: !!m.isFormer,
-                                    notes: m.notes || '',
-                                    visitorId: m.visitorId || '',
-                                    source: m.source || '',
-                                    childId: m.childId || '',
-                                  })
-                                }}
-                                className="text-blue-600 hover:underline"
-                              >Edit</button>
-                              <button
-                                type="button"
-                                onClick={() => setTeamMemberLinking(m)}
-                                className="text-indigo-600 hover:underline"
-                              >{m.visitorId ? 'Relink' : 'Link'}</button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!window.confirm('Remove this member from team?')) return
-                                  await deleteDepartmentTeamMember(m.id)
-                                  setTeam((prev) => prev.filter((x) => x.id !== m.id))
-                                }}
-                                className="text-red-600 hover:underline"
-                              >Delete</button>
-                            </td>
-                          )}
+                          {canEdit && (() => {
+                            const openEdit = () => {
+                              setEditingMember(m)
+                              const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
+                                ? m.subDepartments
+                                : (m.subDepartment ? [m.subDepartment] : [])
+                              setMemberForm({
+                                name: m.name || '',
+                                role: m.role || '',
+                                subDepartment: m.subDepartment || '',
+                                subDepartments: subDepts,
+                                phone: m.phone || '',
+                                status: m.status || 'active',
+                                memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
+                                isFormer: !!m.isFormer,
+                                notes: m.notes || '',
+                                visitorId: m.visitorId || '',
+                                source: m.source || '',
+                                childId: m.childId || '',
+                              })
+                            }
+                            const removeMember = async () => {
+                              if (!window.confirm('Remove this member from team?')) return
+                              await deleteDepartmentTeamMember(m.id)
+                              setTeam((prev) => prev.filter((x) => x.id !== m.id))
+                            }
+                            if (slug === 'media') {
+                              const menuOpen = teamActionMenuId === m.id
+                              return (
+                                <td className="px-4 py-2 text-sm whitespace-nowrap">
+                                  <div className="relative inline-block text-left">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setTeamActionMenuId(menuOpen ? null : m.id) }}
+                                      className="w-7 h-7 inline-flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                                      title="More options"
+                                    >
+                                      <svg width="14" height="14" viewBox="0 0 4 16" fill="currentColor">
+                                        <circle cx="2" cy="2" r="1.5" /><circle cx="2" cy="8" r="1.5" /><circle cx="2" cy="14" r="1.5" />
+                                      </svg>
+                                    </button>
+                                    {menuOpen && (
+                                      <>
+                                        <div className="fixed inset-0 z-10" onClick={() => setTeamActionMenuId(null)} />
+                                        <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[160px]">
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); setTeamActionMenuId(null); openEdit() }}
+                                            className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 font-medium flex items-center gap-2"
+                                          >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                            Edit
+                                          </button>
+                                          {isFounder && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); setTeamActionMenuId(null); setTeamMemberLinking(m) }}
+                                              className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 font-medium flex items-center gap-2"
+                                            >
+                                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+                                              {m.visitorId ? 'Relink' : 'Link'}
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); setTeamActionMenuId(null); removeMember() }}
+                                            className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium flex items-center gap-2"
+                                          >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
+                                            Delete
+                                          </button>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              )
+                            }
+                            return (
+                              <td className="px-4 py-2 text-sm space-x-2 whitespace-nowrap">
+                                <button type="button" onClick={openEdit} className="text-blue-600 hover:underline">Edit</button>
+                                <button type="button" onClick={() => setTeamMemberLinking(m)} className="text-indigo-600 hover:underline">{m.visitorId ? 'Relink' : 'Link'}</button>
+                                <button type="button" onClick={removeMember} className="text-red-600 hover:underline">Delete</button>
+                              </td>
+                            )
+                          })()}
                         </tr>
                       )})}
                     </tbody>
