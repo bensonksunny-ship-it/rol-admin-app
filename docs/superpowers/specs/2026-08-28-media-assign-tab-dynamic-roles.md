@@ -29,7 +29,7 @@ Nature / Description and Tech Spec / Notes.
 |---|---|
 | Row → saved-entry binding | By sub-department **doc id** (`subDeptId`), rename-safe |
 | Empty state for Nature / Tech Spec | Generic placeholder only — no per-role example text |
-| Migration of old fixed roles | None. `media_schedule` has no production data yet; drop `MEDIA_ASSIGN_ROLES` cleanly, no back-compat mapping from the 6 old role names |
+| Migration of old fixed roles | Drop `MEDIA_ASSIGN_ROLES` cleanly. The load matcher falls back to matching a saved entry's `role` name against the sub-department name when there is no `subDeptId` (cheap safety net for any pre-existing doc), but nothing is migrated |
 | Live-sync mechanism | Re-fetch the sub-department list on Assign-tab entry (no realtime subscription — matches the rest of the app) |
 
 ## Design

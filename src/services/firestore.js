@@ -1103,8 +1103,10 @@ export async function setWorshipScheduleByDate(department, date, assignments, up
 // ── Media schedule ───────────────────────────────────────────────────────────
 // Per-Sunday crew assignments for the Media department's Assign tab — same shape
 // and Sunday-only date convention as worship_schedule above. One doc per service
-// date: { department: 'Media', date, assignments: [{ role, memberId, memberName,
-// nature, techSpec }], updatedBy, updatedAt }.
+// date: { department: 'Media', date, assignments: [{ subDeptId, role, memberId,
+// memberName, nature, techSpec }], updatedBy, updatedAt }. Rows are generated
+// from the department's Sub-Departments; `subDeptId` is the stable key and
+// `role` is the sub-department name snapshotted at save time.
 export async function getMediaScheduleByDate(date) {
   if (!db) return { date, assignments: [] }
   const q = query(collection(db, 'media_schedule'), where('department', '==', 'Media'))

@@ -294,16 +294,9 @@ const RK_CLASS_GROUPS = [
 ]
 const rkClassGroupLabel = (key) => RK_CLASS_GROUPS.find(g => g.key === key)?.label || key
 
-// Media Assign tab — the fixed crew slots for a Sunday service. `nature` /
-// `techSpec` placeholders are examples only; both fields are free text.
-const MEDIA_ASSIGN_ROLES = [
-  { role: 'Video Director',       naturePlaceholder: 'Live Mix & Switching',        techSpecPlaceholder: 'ATEM Mini / vMix' },
-  { role: 'Camera 1',             naturePlaceholder: 'Wide & Stage Shots',          techSpecPlaceholder: 'Camera A – 85mm Prime' },
-  { role: 'Camera 2',             naturePlaceholder: 'Close-ups & Congregation',    techSpecPlaceholder: 'Camera B – 24-70mm' },
-  { role: 'Lower Thirds / Slides', naturePlaceholder: 'Lyrics & Announcement Cue',  techSpecPlaceholder: 'ProPresenter Main Output' },
-  { role: 'Stream Operator',      naturePlaceholder: 'Stream Health & Chat',        techSpecPlaceholder: 'OBS Stream Key 1' },
-  { role: 'Lighting Tech',        naturePlaceholder: 'Stage & Ambient Lighting',    techSpecPlaceholder: 'Lighting Console' },
-]
+// Media Assign tab — the Role / Slot rows are generated from the department's
+// configured Sub-Departments (managed on "The Team" page). Nature / Description
+// and Tech Spec / Notes start empty on each row; both fields are free text.
 
 // Next `count` Sundays as yyyy-MM-dd (today included if it's Sunday) — the
 // "Coming Sundays" chip row on the Media Assign tab.
@@ -903,9 +896,7 @@ export default function DepartmentHub() {
     const next = new Date(today); next.setDate(today.getDate() + (day === 0 ? 0 : 7 - day))
     return format(next, 'yyyy-MM-dd')
   })
-  const [mediaAssignRows, setMediaAssignRows] = useState(
-    MEDIA_ASSIGN_ROLES.map((r) => ({ role: r.role, memberId: '', memberName: '', nature: '', techSpec: '' }))
-  )
+  const [mediaAssignRows, setMediaAssignRows] = useState([])
   const [loadingMediaSchedule, setLoadingMediaSchedule] = useState(false)
   const [mediaAssignEditing, setMediaAssignEditing] = useState(false)
   const [mediaAssignSaving, setMediaAssignSaving] = useState(false)
@@ -1175,6 +1166,7 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (!department || slug === 'cell' || slug === 'd-light') return
     const wantsSubOrTeam = activeTab === 'team' || activeTab === 'subDepartment' ||
+      (slug === 'media' && activeTab === 'assign') ||
       ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment'))
     if (!wantsSubOrTeam) return
     setSubDeptLoading(true)
@@ -1660,11 +1652,16 @@ export default function DepartmentHub() {
     getMediaScheduleByDate(mediaAssignDate)
       .then((doc) => {
         const saved = Array.isArray(doc?.assignments) ? doc.assignments : []
-        const byRole = Object.fromEntries(saved.map((a) => [a.role, a]))
-        const rows = MEDIA_ASSIGN_ROLES.map((r) => {
-          const a = byRole[r.role] || {}
+        const byKey = {}
+        saved.forEach((a) => {
+          if (a.subDeptId) byKey['id:' + a.subDeptId] = a
+          if (a.role) byKey['role:' + a.role] = a
+        })
+        const rows = subDepartments.map((sd) => {
+          const a = byKey['id:' + sd.id] || byKey['role:' + sd.name] || {}
           return {
-            role: r.role,
+            subDeptId: sd.id,
+            role: sd.name,
             memberId: a.memberId || '',
             memberName: a.memberName || '',
             nature: a.nature || '',
@@ -1678,11 +1675,11 @@ export default function DepartmentHub() {
       })
       .catch((err) => {
         console.error('Failed to load media schedule', err)
-        setMediaAssignRows(MEDIA_ASSIGN_ROLES.map((r) => ({ role: r.role, memberId: '', memberName: '', nature: '', techSpec: '' })))
+        setMediaAssignRows(subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, memberId: '', memberName: '', nature: '', techSpec: '' })))
         setMediaAssignStamp(null)
       })
       .finally(() => setLoadingMediaSchedule(false))
-  }, [slug, activeTab, mediaAssignDate])
+  }, [slug, activeTab, mediaAssignDate, subDepartments])
 
   useEffect(() => {
     if (slug !== 'media' || activeTab !== 'summary') return
@@ -2135,6 +2132,7 @@ export default function DepartmentHub() {
       const assignments = mediaAssignRows
         .filter((r) => r.memberId || r.nature.trim() || r.techSpec.trim())
         .map((r) => ({
+          subDeptId: r.subDeptId || '',
           role: r.role,
           memberId: r.memberId || '',
           memberName: r.memberName || '',
@@ -4698,9 +4696,8 @@ export default function DepartmentHub() {
           {slug === 'media' && activeTab === 'assign' && (() => {
             const activeMembers = team.filter((m) => !m.isFormer && m.status !== 'former')
             const memberDetail = (m) => (Array.isArray(m.subDepartments) && m.subDepartments.length ? m.subDepartments.join(' · ') : (m.role || ''))
-            const setRow = (role, patch) =>
-              setMediaAssignRows((prev) => prev.map((r) => (r.role === role ? { ...r, ...patch } : r)))
-            const roleMeta = (role) => MEDIA_ASSIGN_ROLES.find((r) => r.role === role) || {}
+            const setRow = (subDeptId, patch) =>
+              setMediaAssignRows((prev) => prev.map((r) => (r.subDeptId === subDeptId ? { ...r, ...patch } : r)))
             const showStamp = mediaAssignStamp && !mediaAssignEditing
             let stampDate = mediaAssignStamp?.date
             try { stampDate = format(new Date(mediaAssignStamp.date), 'EEE d MMM yyyy') } catch { /* keep raw */ }
@@ -4736,7 +4733,7 @@ export default function DepartmentHub() {
                           <p className="text-sm text-slate-400 italic">No crew assigned for this date.</p>
                         ) : (
                           mediaAssignRows.filter((r) => r.memberId).map((r) => (
-                            <div key={r.role} className="flex items-center gap-2 text-sm">
+                            <div key={r.subDeptId || r.role} className="flex items-center gap-2 text-sm">
                               <span className="text-slate-400 text-xs w-36 flex-shrink-0 truncate">{r.role}</span>
                               <span className="font-medium text-slate-800 truncate">{r.memberName}</span>
                             </div>
@@ -4780,7 +4777,7 @@ export default function DepartmentHub() {
                                 setMediaAssignRows(
                                   mediaAssignStamp?.rows
                                     ? mediaAssignStamp.rows.map((r) => ({ ...r }))
-                                    : MEDIA_ASSIGN_ROLES.map((r) => ({ role: r.role, memberId: '', memberName: '', nature: '', techSpec: '' }))
+                                    : subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, memberId: '', memberName: '', nature: '', techSpec: '' }))
                                 )
                                 setMediaAssignEditing(false)
                               }}
@@ -4809,18 +4806,18 @@ export default function DepartmentHub() {
                       </div>
                     </div>
 
-                    {loadingMediaSchedule ? (
+                    {loadingMediaSchedule || subDeptLoading ? (
                       <div className="p-5 text-center text-slate-500">Loading…</div>
                     ) : activeMembers.length === 0 ? (
                       <div className="p-5 text-center text-slate-500">Add team members on the The Team page first.</div>
+                    ) : subDepartments.length === 0 ? (
+                      <div className="p-5 text-center text-slate-500">No sub-departments yet — add them on The Team page.</div>
                     ) : (
                       <>
                         {/* Mobile: one card per role */}
                         <div className="md:hidden grid grid-cols-1 gap-3 p-4">
-                          {mediaAssignRows.map((r) => {
-                            const meta = roleMeta(r.role)
-                            return (
-                              <div key={r.role} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm space-y-2">
+                          {mediaAssignRows.map((r) => (
+                              <div key={r.subDeptId} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm space-y-2">
                                 <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">{r.role}</span>
                                 {mediaAssignEditing ? (
                                   <MemberPicker
@@ -4828,7 +4825,7 @@ export default function DepartmentHub() {
                                     getDetail={memberDetail}
                                     value={r.memberId}
                                     members={activeMembers}
-                                    onChange={(id, name) => setRow(r.role, { memberId: id, memberName: name })}
+                                    onChange={(id, name) => setRow(r.subDeptId, { memberId: id, memberName: name })}
                                   />
                                 ) : (
                                   <p className="text-sm">{r.memberId ? <span className="font-semibold text-slate-800">{r.memberName}</span> : <span className="text-rose-500 font-medium">Not assigned</span>}</p>
@@ -4837,21 +4834,20 @@ export default function DepartmentHub() {
                                   type="text"
                                   value={r.nature}
                                   readOnly={!mediaAssignEditing}
-                                  onChange={(e) => setRow(r.role, { nature: e.target.value })}
-                                  placeholder={meta.naturePlaceholder}
+                                  onChange={(e) => setRow(r.subDeptId, { nature: e.target.value })}
+                                  placeholder="Add description"
                                   className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500"
                                 />
                                 <input
                                   type="text"
                                   value={r.techSpec}
                                   readOnly={!mediaAssignEditing}
-                                  onChange={(e) => setRow(r.role, { techSpec: e.target.value })}
-                                  placeholder={meta.techSpecPlaceholder}
+                                  onChange={(e) => setRow(r.subDeptId, { techSpec: e.target.value })}
+                                  placeholder="Add tech spec / notes"
                                   className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500"
                                 />
                               </div>
-                            )
-                          })}
+                          ))}
                         </div>
 
                         {/* Desktop: table */}
@@ -4865,10 +4861,8 @@ export default function DepartmentHub() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200">
-                            {mediaAssignRows.map((r) => {
-                              const meta = roleMeta(r.role)
-                              return (
-                                <tr key={r.role} className="hover:bg-indigo-50/40">
+                            {mediaAssignRows.map((r) => (
+                                <tr key={r.subDeptId} className="hover:bg-indigo-50/40">
                                   <td className="px-5 py-4 align-top">
                                     <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">{r.role}</span>
                                   </td>
@@ -4879,7 +4873,7 @@ export default function DepartmentHub() {
                                         getDetail={memberDetail}
                                         value={r.memberId}
                                         members={activeMembers}
-                                        onChange={(id, name) => setRow(r.role, { memberId: id, memberName: name })}
+                                        onChange={(id, name) => setRow(r.subDeptId, { memberId: id, memberName: name })}
                                       />
                                     ) : r.memberId ? (
                                       <span className="font-semibold text-slate-800 text-sm">{r.memberName}</span>
@@ -4894,8 +4888,8 @@ export default function DepartmentHub() {
                                       type="text"
                                       value={r.nature}
                                       readOnly={!mediaAssignEditing}
-                                      onChange={(e) => setRow(r.role, { nature: e.target.value })}
-                                      placeholder={meta.naturePlaceholder}
+                                      onChange={(e) => setRow(r.subDeptId, { nature: e.target.value })}
+                                      placeholder="Add description"
                                       className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500 read-only:border-transparent"
                                     />
                                   </td>
@@ -4904,14 +4898,13 @@ export default function DepartmentHub() {
                                       type="text"
                                       value={r.techSpec}
                                       readOnly={!mediaAssignEditing}
-                                      onChange={(e) => setRow(r.role, { techSpec: e.target.value })}
-                                      placeholder={meta.techSpecPlaceholder}
+                                      onChange={(e) => setRow(r.subDeptId, { techSpec: e.target.value })}
+                                      placeholder="Add tech spec / notes"
                                       className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500 read-only:border-transparent"
                                     />
                                   </td>
                                 </tr>
-                              )
-                            })}
+                            ))}
                           </tbody>
                         </table>
                       </>
