@@ -33,6 +33,8 @@ import {
 } from '../services/firestore'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { calcTenureLabel, memberCategoryLabel } from '../utils/cellMemberCategory'
+import MemberFormFields from '../components/cell/MemberFormFields'
+import { EMPTY_MEMBER_FORM, memberToForm, calcAttendanceDuration } from '../utils/cellMemberForm'
 import { ROLES } from '../constants/roles'
 import { useViewAs } from '../context/ViewAsContext'
 import { format } from 'date-fns'
@@ -1780,28 +1782,6 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
 
 // ─── Tab 3: My Fellowship ─────────────────────────────────────────────────────
 
-const EMPTY_MEMBER_FORM = {
-  name: '', visitorId: '', phone: '', email: '', locality: '', address: '',
-  birthday: '', anniversary: '', since: '', occupation: '', role: '', notes: '',
-}
-
-// Calculate how long someone has been attending (from "since" date to today)
-function calcAttendanceDuration(sinceDate) {
-  if (!sinceDate) return null
-  const since = new Date(sinceDate)
-  const now   = new Date()
-  if (isNaN(since.getTime()) || since > now) return null
-  let years  = now.getFullYear() - since.getFullYear()
-  let months = now.getMonth()   - since.getMonth()
-  if (months < 0) { years--; months += 12 }
-  const days = Math.floor((now - since) / 86400000)
-  if (years > 0 && months > 0) return `${years} yr${years > 1 ? 's' : ''} ${months} mo`
-  if (years > 0)  return `${years} year${years > 1 ? 's' : ''}`
-  if (months > 0) return `${months} month${months > 1 ? 's' : ''}`
-  if (days >= 7)  return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? 's' : ''}`
-  return 'Less than a week'
-}
-
 function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, onAutoFillInviteConsumed }) {
   const [allCellGroups, setAllCellGroups]   = useState([])
   const [selectedCellId, setSelectedCellId] = useState(null)
@@ -2039,19 +2019,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
 
   const startEdit = (member) => {
     setEditId(member.id)
-    setEditForm({
-      name:        member.name        || '',
-      phone:       member.phone       || '',
-      email:       member.email       || '',
-      locality:    member.locality    || '',
-      address:     member.address     || '',
-      birthday:    member.birthday    || '',
-      anniversary: member.anniversary || '',
-      since:       member.since       || '',
-      occupation:  member.occupation  || '',
-      role:        member.role        || '',
-      notes:       member.notes       || '',
-    })
+    setEditForm(memberToForm(member))
   }
 
   const handleSaveEdit = async () => {
@@ -2973,77 +2941,6 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-// ─── Member Form Fields ───────────────────────────────────────────────────────
-
-function MemberFormFields({ form, onChange }) {
-  const set     = (key) => (e) => onChange((f) => ({ ...f, [key]: e.target.value }))
-  const duration = calcAttendanceDuration(form.since)
-
-  return (
-    <div className="space-y-3">
-      {/* Section: Identity */}
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Personal Details</p>
-
-      <input type="text" value={form.name} onChange={set('name')} placeholder="Full name *" required
-        className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-
-      <div className="grid grid-cols-2 gap-2.5">
-        <input type="tel" value={form.phone} onChange={set('phone')} placeholder="Phone number"
-          className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-        <input type="email" value={form.email} onChange={set('email')} placeholder="Email (optional)"
-          className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-      </div>
-
-      <input type="text" value={form.locality} onChange={set('locality')} placeholder="Locality / Area"
-        className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-
-      <textarea value={form.address} onChange={set('address')} placeholder="Full address (optional)" rows={2}
-        className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-
-      <input type="text" value={form.occupation} onChange={set('occupation')} placeholder="Occupation (optional)"
-        className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-
-      {/* Section: Dates */}
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider pt-1">Important Dates</p>
-
-      <div className="grid grid-cols-2 gap-2.5">
-        <div>
-          <label className="text-xs text-slate-500 font-semibold mb-1 block">🎂 Birthday</label>
-          <input type="date" value={form.birthday} onChange={set('birthday')}
-            className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-        </div>
-        <div>
-          <label className="text-xs text-slate-500 font-semibold mb-1 block">💍 Anniversary</label>
-          <input type="date" value={form.anniversary} onChange={set('anniversary')}
-            className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-        </div>
-      </div>
-
-      <div>
-        <label className="text-xs text-slate-500 font-semibold mb-1 block">⏳ Member Since (first attended)</label>
-        <input type="date" value={form.since} onChange={set('since')}
-          className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-        {duration && (
-          <p className="text-xs text-emerald-600 font-semibold mt-1.5 px-1">
-            ✓ Attending for {duration}
-          </p>
-        )}
-      </div>
-
-      {/* Section: Cell Role */}
-      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider pt-1">Cell Involvement</p>
-
-      <input type="text" value={form.role} onChange={set('role')}
-        placeholder="Role in cell (e.g. Host, Worship Lead, Regular Member…)"
-        className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-
-      <textarea value={form.notes} onChange={set('notes')}
-        placeholder="Shepherd notes (prayer needs, follow-up, concerns…)" rows={3}
-        className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300" />
     </div>
   )
 }
