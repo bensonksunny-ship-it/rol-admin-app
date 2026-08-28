@@ -52,7 +52,7 @@ export function myDepartmentNames(userProfile, isFounder) {
 function getTabLabel(tab) {
   switch (tab) {
     case 'summary':           return 'Hub'
-    case 'team':              return 'Team'
+    case 'team':              return 'The Team'
     case 'planning':          return 'Planning'
     case 'financial':         return 'Budget'
     case 'cellGroups':        return 'Cell Groups'
@@ -158,6 +158,12 @@ const DEFAULT_OPS_CHILDREN = [
 ]
 
 export function getOperationsChildren(slug) {
+  // Media manages Team + Sub-Departments exclusively from its top-level "The Team"
+  // tab (see 2026-08-28-media-the-team-tab-design.md), so Operations is left with
+  // just Planning.
+  if (slug === 'media') {
+    return DEFAULT_OPS_CHILDREN.filter((c) => c.key === 'planning')
+  }
   if (slug === 'd-light') {
     return DEFAULT_OPS_CHILDREN.map((c) => (c.key === 'subDepartment' ? { ...c, label: 'Sub Dept' } : c))
   }

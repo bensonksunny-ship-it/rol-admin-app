@@ -880,6 +880,8 @@ export default function DepartmentHub() {
   const [subDeptForm, setSubDeptForm] = useState({ name: '', servingArea: '' })
   const [editingSubDept, setEditingSubDept] = useState(null)
   const [genericSubDeptModalOpen, setGenericSubDeptModalOpen] = useState(false)
+  // Media's "The Team" tab hosts sub-department management inline (collapsible).
+  const [mediaSubDeptPanelOpen, setMediaSubDeptPanelOpen] = useState(true)
   const [dlightTeamSubOpts, setDlightTeamSubOpts] = useState([])
   const [rkChildren, setRkChildren] = useState([])
   const [rkLoading, setRkLoading] = useState(false)
@@ -995,8 +997,10 @@ export default function DepartmentHub() {
   const opsSubFromUrl = searchParams.get('opsSub')
   useEffect(() => {
     if (activeTab !== 'operations') return
-    setOpsSubTab(opsSubFromUrl || 'team')
-  }, [activeTab, opsSubFromUrl])
+    // Media's Operations tab only has Planning (Team + Sub-Departments moved to
+    // the top-level "The Team" tab), so 'team' is never a valid fallback there.
+    setOpsSubTab(opsSubFromUrl || (slug === 'media' ? 'planning' : 'team'))
+  }, [activeTab, opsSubFromUrl, slug])
 
   // Same idea, for Finance's Expense/Budget/Payout Request children (moved out of
   // Operations into their own tab) — driven by ?financeSub= instead.
@@ -1129,6 +1133,16 @@ export default function DepartmentHub() {
       })
       .finally(() => setSubDeptLoading(false))
   }, [department, slug, activeTab, opsSubTab])
+
+  // Media "The Team" tab: expand the inline Sub-Departments panel when there are
+  // none to set up, collapse it once some exist. Runs once per load (keyed on the
+  // loading edge) so it never fights the user's manual toggle.
+  useEffect(() => {
+    if (slug === 'media' && !subDeptLoading) {
+      setMediaSubDeptPanelOpen(subDepartments.length === 0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, subDeptLoading])
 
   useEffect(() => {
     const wantsDlightTeam = slug === 'd-light' && (
@@ -2542,7 +2556,7 @@ export default function DepartmentHub() {
                     <div className="p-5 text-center text-slate-500 text-sm">Loading...</div>
                   ) : subDepartments.length === 0 ? (
                     <div className="p-5 text-center text-slate-500 text-sm">
-                      No sub-departments yet. Add them in <button type="button" onClick={() => { setActiveTab('operations'); setOpsSubTab('subDepartment'); setSearchParams({ tab: 'operations' }, { replace: true }) }} className="text-indigo-600 hover:underline">Operations → Sub Department</button>.
+                      No sub-departments yet. Add them on the <button type="button" onClick={() => { setActiveTab('team'); setSearchParams({ tab: 'team' }, { replace: true }) }} className="text-indigo-600 hover:underline">The Team page</button>.
                     </div>
                   ) : (
                     <table className="w-full">
@@ -4622,7 +4636,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {usesGenericSubDepartmentCollection(slug) && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
+          {usesGenericSubDepartmentCollection(slug) && slug !== 'media' && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-200 flex justify-end items-center">
                 {canEdit && (
@@ -6979,10 +6993,10 @@ export default function DepartmentHub() {
             )
           })()}
 
-          {(activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team')) && (
+          {(activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team' && slug !== 'media')) && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-6">
               <div className="flex items-center justify-between gap-3">
-              <h2 className="font-semibold text-slate-800">Team</h2>
+              <h2 className="font-semibold text-slate-800">{slug === 'media' ? 'The Team' : 'Team'}</h2>
                 {canEdit && (
                   <button
                     type="button"
@@ -7006,6 +7020,93 @@ export default function DepartmentHub() {
                   </button>
                 )}
               </div>
+
+              {/* ── Sub-Departments (Media only) — managed exclusively here ── */}
+              {slug === 'media' && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => setMediaSubDeptPanelOpen((o) => !o)}
+                      className="flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-slate-900"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-slate-400 transition-transform ${mediaSubDeptPanelOpen ? 'rotate-180' : ''}`}>
+                        <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      Sub-Departments
+                      <span className="text-xs font-medium text-slate-400">({subDepartments.length})</span>
+                    </button>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingSubDept(null)
+                          setSubDeptForm({ name: '', servingArea: '' })
+                          setGenericSubDeptModalOpen(true)
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
+                      >
+                        + Add Sub-Department
+                      </button>
+                    )}
+                  </div>
+                  {mediaSubDeptPanelOpen && (
+                    <div className="border-t border-slate-200 bg-white">
+                      {subDeptLoading ? (
+                        <div className="px-4 py-4 text-center text-sm text-slate-500">Loading…</div>
+                      ) : subDepartments.length === 0 ? (
+                        <div className="px-4 py-5 text-center text-sm text-slate-500">
+                          No sub-departments yet. Add one to organize your team.
+                        </div>
+                      ) : (
+                        <ul className="divide-y divide-slate-100">
+                          {subDepartments.map((row) => (
+                            <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                              <span className="text-sm font-medium text-slate-800">
+                                {row.name || '—'}
+                                {row.servingArea && <span className="ml-1.5 text-xs font-normal text-slate-400">· {row.servingArea}</span>}
+                              </span>
+                              {canEdit && (
+                                <span className="space-x-2 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingSubDept(row)
+                                      setSubDeptForm({ name: row.name || '', servingArea: row.servingArea || '' })
+                                      setGenericSubDeptModalOpen(true)
+                                    }}
+                                    className="text-blue-600 hover:underline text-sm"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!window.confirm('Delete this sub department?')) return
+                                      try {
+                                        await deleteDepartmentSubDepartment(row.id)
+                                        setSubDepartments((prev) => prev.filter((x) => x.id !== row.id))
+                                      } catch (err) {
+                                        console.error(err)
+                                        alert('Failed to delete')
+                                      }
+                                    }}
+                                    className="text-red-600 hover:underline text-sm"
+                                  >
+                                    Delete
+                                  </button>
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {subDeptError && <p className="px-4 py-2 text-sm text-red-600">{subDeptError}</p>}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {loadingTeam ? (
                 <div className="py-4 text-sm text-slate-500">Loading team...</div>
               ) : team.length === 0 ? (
@@ -7135,6 +7236,9 @@ export default function DepartmentHub() {
                       <tr>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium w-10">SL</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Name</th>
+                        {slug === 'media' && (
+                          <th className="text-left px-4 py-2 text-slate-600 font-medium">Sub-Department</th>
+                        )}
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Status</th>
                         <th className="text-left px-4 py-2 text-slate-600 font-medium">Member since</th>
                         {canEdit && (
@@ -7160,6 +7264,9 @@ export default function DepartmentHub() {
                               }
                             </div>
                           </td>
+                          {slug === 'media' && (
+                            <td className="px-4 py-2 text-slate-600">{formatTeamSubDepartmentCell(m)}</td>
+                          )}
                           <td className="px-4 py-2 text-slate-600 capitalize">{m.status || 'active'}</td>
                           <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
                           {canEdit && (
@@ -7354,14 +7461,18 @@ export default function DepartmentHub() {
                       )}
                     </div>
 
-                    {/* Sub Department (D-Light only) */}
-                    {slug === 'd-light' && (
+                    {/* Sub Department (D-Light + Media) */}
+                    {(slug === 'd-light' || slug === 'media') && (
                       <div>
                         <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                           Sub Department
                         </label>
                         {subDeptOptionList.length === 0 ? (
-                          <p className="text-xs text-slate-400 italic">No sub-departments yet — add them in Sub Dept tab.</p>
+                          <p className="text-xs text-slate-400 italic">
+                            {slug === 'media'
+                              ? 'No sub-departments yet — add them in the Sub-Departments panel above.'
+                              : 'No sub-departments yet — add them in Sub Dept tab.'}
+                          </p>
                         ) : (
                           <div className="flex flex-wrap gap-2">
                             {subDeptOptionList.map((sd) => {
