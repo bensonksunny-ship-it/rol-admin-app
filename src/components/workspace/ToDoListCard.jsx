@@ -257,8 +257,8 @@ export default function ToDoListCard() {
       )}
 
       {/* Collapsed state: floating capsule badge — takes only as much space as its own
-          pixels, never a fixed card footprint. Badge count is active (actionable) tasks
-          only — resolved items retained for their 30-day window don't inflate it. */}
+          pixels, never a fixed card footprint. Badge count is the open task count;
+          a task drops off the instant it's completed or turned down. */}
       <button
         type="button"
         onClick={() => setIsOpen(true)}
