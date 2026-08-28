@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
+import MemberAttendanceSheet from '../components/cell/MemberAttendanceSheet'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check } from 'lucide-react'
+import { Check, Pencil } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { format } from 'date-fns'
 import { useViewAs } from '../context/ViewAsContext'
 import {
   getCellGroups,
   getCellGroupMembers,
+  updateCellGroupMember,
   getActiveBackToBibleForDate,
   getMidweekPrayerPoints,
   saveMidweekPrayerPoints,
@@ -190,6 +192,13 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
   const [programStartTime, setProgramStartTime] = useState('19:00')
   const [segmentIdx, setSegmentIdx]           = useState(-1)
   const [presentIds, setPresentIds]           = useState(new Set())
+  // Per-member attendance detail for this session, keyed by member id:
+  // { status: 'present'|'absent'|'excused', reason, note }. presentIds stays the
+  // count source of truth; this just enriches it. Persisted on the session doc.
+  const [attendanceDetails, setAttendanceDetails] = useState({})
+  const [sheetMemberId, setSheetMemberId] = useState(null)
+  const [savingProfileId, setSavingProfileId] = useState(null)
+  const [memberToast, setMemberToast] = useState(null)
 
   // Timing tracking
   const segmentStartTime  = useRef(null)
@@ -234,6 +243,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         const saved = JSON.parse(localStorage.getItem(key) || 'null')
         if (saved) {
           if (saved.presentIds)              setPresentIds(new Set(saved.presentIds))
+          if (saved.attendanceDetails)       setAttendanceDetails(saved.attendanceDetails)
           if (saved.visitors)                setVisitors(saved.visitors)
           if (saved.visitorInput !== undefined) setVisitorInput(saved.visitorInput)
           if (saved.childrenAttending)       setChildrenAttending(saved.childrenAttending)
@@ -245,13 +255,14 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
     try {
       localStorage.setItem(key, JSON.stringify({
         presentIds: [...presentIds],
+        attendanceDetails,
         visitors,
         visitorInput,
         childrenAttending,
         askedParentIds: [...askedParentIds],
       }))
     } catch {}
-  }, [selectedCellId, today, presentIds, visitors, visitorInput, childrenAttending, askedParentIds])
+  }, [selectedCellId, today, presentIds, attendanceDetails, visitors, visitorInput, childrenAttending, askedParentIds])
 
   // River Kids registry — loaded once; used to spot parents among cell members via
   // name matching (fatherName/motherName are free-text, no ID linkage exists).
@@ -342,6 +353,12 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       if (wasPresent) next.delete(id)
       else next.add(id)
 
+      // Keep the per-member detail's status in step with the quick toggle.
+      setAttendanceDetails((d) => ({
+        ...d,
+        [id]: { reason: '', note: '', ...(d[id] || {}), status: wasPresent ? 'absent' : 'present' },
+      }))
+
       // Only prompt on the transition to present, and only once per parent per
       // session — repeatedly toggling the same member shouldn't re-show the popover.
       if (!wasPresent && !askedParentIds.has(id)) {
@@ -398,6 +415,44 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
   }, [activeMembers])
 
   const clearAllMembers = useCallback(() => setPresentIds(new Set()), [])
+
+  const showMemberToast = useCallback((msg, type = 'success') => {
+    setMemberToast({ msg, type })
+    setTimeout(() => setMemberToast(null), 3000)
+  }, [])
+
+  // Save one member's attendance status from the per-member sheet. 'present'
+  // adds to presentIds; 'absent'/'excused' removes and keeps the reason/note.
+  const saveMemberAttendance = useCallback((id, status, reason, note) => {
+    setPresentIds((prev) => {
+      const next = new Set(prev)
+      if (status === 'present') next.add(id)
+      else next.delete(id)
+      return next
+    })
+    setAttendanceDetails((d) => ({
+      ...d,
+      [id]: { status, reason: status === 'present' ? '' : (reason || ''), note: note || '' },
+    }))
+    setSheetMemberId(null)
+  }, [])
+
+  // Save profile edits from the per-member sheet straight to cell_members, then
+  // refresh the local roster so the change is reflected everywhere.
+  const saveMemberProfile = useCallback(async (id, formData) => {
+    if (!selectedCellId) return
+    setSavingProfileId(id)
+    try {
+      await updateCellGroupMember(selectedCellId, id, formData)
+      const fresh = await getCellGroupMembers(selectedCellId)
+      setMembers(fresh)
+      showMemberToast('Member updated.')
+    } catch {
+      showMemberToast('Failed to save profile.', 'error')
+    } finally {
+      setSavingProfileId(null)
+    }
+  }, [selectedCellId, showMemberToast])
 
   // Segment state machine
   const isEnded    = segmentIdx >= segmentOrder.length
@@ -492,6 +547,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       saveMidweekSessionSummary(selectedCellId, today, {
         segmentTimings: timingsToSave,
         presentIds: Array.from(ids),
+        attendanceDetails,
         updatedBy,
       }).catch((err) => {
         console.error('Failed to save session summary:', err)
@@ -504,7 +560,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
           setSaveError('Attendance could not be saved to reports. Ask your Cell Director to update your profile with the correct Cell ID.')
         })
     }
-  }, [pendingTimings, selectedCellId, today, presentIds, userProfile, segmentOrder.length, cellGroups, members, visitors, childrenAttending])
+  }, [pendingTimings, selectedCellId, today, presentIds, attendanceDetails, userProfile, segmentOrder.length, cellGroups, members, visitors, childrenAttending])
 
   // Master button appearance
   let masterBg, masterText, masterIcon, masterLabel, masterSub
@@ -709,7 +765,9 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
                   key={member.id}
                   member={member}
                   present={presentIds.has(member.id)}
+                  detail={attendanceDetails[member.id]}
                   onToggle={togglePresent}
+                  onOpenSheet={setSheetMemberId}
                 />
               ))}
             </div>
@@ -844,6 +902,33 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
           />
         )}
       </AnimatePresence>
+
+      {/* ── Per-member attendance + profile sheet ── */}
+      <AnimatePresence>
+        {sheetMemberId && (() => {
+          const m = activeMembers.find((x) => x.id === sheetMemberId)
+          if (!m) return null
+          return (
+            <MemberAttendanceSheet
+              member={m}
+              detail={attendanceDetails[sheetMemberId]}
+              present={presentIds.has(sheetMemberId)}
+              savingProfile={savingProfileId === sheetMemberId}
+              onSaveAttendance={(status, reason, note) => saveMemberAttendance(sheetMemberId, status, reason, note)}
+              onSaveProfile={(formData) => saveMemberProfile(sheetMemberId, formData)}
+              onClose={() => setSheetMemberId(null)}
+            />
+          )
+        })()}
+      </AnimatePresence>
+
+      {memberToast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[70] px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
+          memberToast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
+        }`}>
+          {memberToast.msg}
+        </div>
+      )}
     </div>
   )
 }
@@ -1152,28 +1237,55 @@ function ChildAttendancePrompt({ prompt, onToggle, onConfirm, onSkip }) {
 
 // ─── Member Bubble ────────────────────────────────────────────────────────────
 
-function MemberBubble({ member, present, onToggle }) {
+function MemberBubble({ member, present, detail, onToggle, onOpenSheet }) {
   const initials = getInitials(member.name)
+  const detailLabel =
+    detail?.status === 'excused' ? 'Excused'
+      : detail?.status === 'absent' && detail.reason ? `Absent — ${detail.reason}`
+      : null
 
   return (
-    <motion.button
-      type="button"
-      onClick={() => onToggle(member.id)}
-      whileTap={{ scale: 0.97 }}
-      className={`w-full min-h-[52px] flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-colors ${
-        present
-          ? 'bg-emerald-600 text-white shadow-sm'
-          : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
-      }`}
-    >
-      <span className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-        present ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
-      }`}>
-        {initials}
-      </span>
-      <span className="flex-1 text-left leading-tight truncate">{member.name}</span>
-      {present && <Check size={18} strokeWidth={3} className="flex-shrink-0" />}
-    </motion.button>
+    <div className="relative">
+      <motion.button
+        type="button"
+        onClick={() => onToggle(member.id)}
+        whileTap={{ scale: 0.97 }}
+        className={`w-full min-h-[52px] flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-colors ${
+          onOpenSheet ? 'pr-11' : ''
+        } ${
+          present
+            ? 'bg-emerald-600 text-white shadow-sm'
+            : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+        }`}
+      >
+        <span className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+          present ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
+        }`}>
+          {initials}
+        </span>
+        <span className="flex-1 min-w-0 text-left leading-tight">
+          <span className="block truncate">{member.name}</span>
+          {detailLabel && (
+            <span className={`block truncate text-[11px] font-medium ${present ? 'text-white/80' : 'text-slate-400'}`}>
+              {detailLabel}
+            </span>
+          )}
+        </span>
+        {present && !onOpenSheet && <Check size={18} strokeWidth={3} className="flex-shrink-0" />}
+      </motion.button>
+      {onOpenSheet && (
+        <button
+          type="button"
+          onClick={() => onOpenSheet(member.id)}
+          aria-label={`Open ${member.name} details`}
+          className={`absolute top-1/2 right-1 -translate-y-1/2 min-h-[40px] min-w-[36px] flex items-center justify-center rounded-lg transition-colors ${
+            present ? 'text-white/70 hover:text-white hover:bg-white/15' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/70'
+          }`}
+        >
+          <Pencil size={14} strokeWidth={2} />
+        </button>
+      )}
+    </div>
   )
 }
 

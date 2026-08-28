@@ -4413,7 +4413,7 @@ export async function saveMidweekShepherdNotes(cellId, dateStr, notes, updatedBy
 /**
  * Save the full session summary (segment timings + attendee IDs) when meeting ends.
  */
-export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTimings, presentIds, updatedBy }) {
+export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTimings, presentIds, attendanceDetails, updatedBy }) {
   if (!db || !cellId || !dateStr) return
   const d = String(dateStr).slice(0, 10)
   const id = `${cellId}_${d}`
@@ -4422,6 +4422,7 @@ export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTiming
     date: d,
     segmentTimings: Array.isArray(segmentTimings) ? segmentTimings : [],
     presentIds: Array.isArray(presentIds) ? presentIds : [],
+    attendanceDetails: attendanceDetails && typeof attendanceDetails === 'object' ? attendanceDetails : {},
     updatedBy: updatedBy || 'unknown',
     updatedAt: Timestamp.now(),
   }, { merge: true })
