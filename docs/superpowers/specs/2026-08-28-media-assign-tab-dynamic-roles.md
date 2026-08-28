@@ -7,6 +7,12 @@ section of `2026-08-28-media-assign-tab-design.md`. Everything else in that spec
 (date-scoping, the stamp, the `media_schedule` collection, the shared
 `<MemberPicker>`, removal of the old Hub panel) still stands.
 
+**Amendment (2026-08-28, after implementation):** the **Nature / Description**
+and **Tech Spec / Notes** columns were dropped at the user's request. The Assign
+table is now just **Role / Slot** + **Assigned To**. `media_schedule` entries are
+`{ subDeptId, role, memberId, memberName }`; the save drop-rule is `r.memberId`
+only. References to `nature` / `techSpec` below are historical.
+
 ## Problem
 
 The Assign tab's `ROLE / SLOT` column is driven by a hardcoded

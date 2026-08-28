@@ -1664,8 +1664,6 @@ export default function DepartmentHub() {
             role: sd.name,
             memberId: a.memberId || '',
             memberName: a.memberName || '',
-            nature: a.nature || '',
-            techSpec: a.techSpec || '',
           }
         })
         setMediaAssignRows(rows)
@@ -1675,7 +1673,7 @@ export default function DepartmentHub() {
       })
       .catch((err) => {
         console.error('Failed to load media schedule', err)
-        setMediaAssignRows(subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, memberId: '', memberName: '', nature: '', techSpec: '' })))
+        setMediaAssignRows(subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, memberId: '', memberName: '' })))
         setMediaAssignStamp(null)
       })
       .finally(() => setLoadingMediaSchedule(false))
@@ -2130,14 +2128,12 @@ export default function DepartmentHub() {
     setMediaAssignSaving(true)
     try {
       const assignments = mediaAssignRows
-        .filter((r) => r.memberId || r.nature.trim() || r.techSpec.trim())
+        .filter((r) => r.memberId)
         .map((r) => ({
           subDeptId: r.subDeptId || '',
           role: r.role,
           memberId: r.memberId || '',
           memberName: r.memberName || '',
-          nature: r.nature.trim(),
-          techSpec: r.techSpec.trim(),
         }))
       await setMediaScheduleByDate(
         mediaAssignDate,
@@ -4779,7 +4775,7 @@ export default function DepartmentHub() {
                                 setMediaAssignRows(
                                   mediaAssignStamp?.rows
                                     ? mediaAssignStamp.rows.map((r) => ({ ...r }))
-                                    : subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, memberId: '', memberName: '', nature: '', techSpec: '' }))
+                                    : subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, memberId: '', memberName: '' }))
                                 )
                                 setMediaAssignEditing(false)
                               }}
@@ -4833,34 +4829,16 @@ export default function DepartmentHub() {
                                 ) : (
                                   <p className="text-sm">{r.memberId ? <span className="font-semibold text-slate-800">{r.memberName}</span> : <span className="text-rose-500 font-medium">Not assigned</span>}</p>
                                 )}
-                                <input
-                                  type="text"
-                                  value={r.nature}
-                                  readOnly={!mediaAssignEditing}
-                                  onChange={(e) => setRow(r.subDeptId, { nature: e.target.value })}
-                                  placeholder="Add description"
-                                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500"
-                                />
-                                <input
-                                  type="text"
-                                  value={r.techSpec}
-                                  readOnly={!mediaAssignEditing}
-                                  onChange={(e) => setRow(r.subDeptId, { techSpec: e.target.value })}
-                                  placeholder="Add tech spec / notes"
-                                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500"
-                                />
                               </div>
                           ))}
                         </div>
 
                         {/* Desktop: table */}
-                        <table className="hidden md:table w-full md:min-w-[880px]">
+                        <table className="hidden md:table w-full">
                           <thead className="bg-gradient-to-r from-slate-100 to-slate-50">
                             <tr>
-                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[180px]">Role / Slot</th>
-                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[320px]">Assigned To</th>
-                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Nature / Description</th>
-                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Tech Spec / Notes</th>
+                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[240px]">Role / Slot</th>
+                              <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Assigned To</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200">
@@ -4886,26 +4864,6 @@ export default function DepartmentHub() {
                                         <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Not assigned
                                       </span>
                                     )}
-                                  </td>
-                                  <td className="px-5 py-4 align-top">
-                                    <input
-                                      type="text"
-                                      value={r.nature}
-                                      readOnly={!mediaAssignEditing}
-                                      onChange={(e) => setRow(r.subDeptId, { nature: e.target.value })}
-                                      placeholder="Add description"
-                                      className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500 read-only:border-transparent"
-                                    />
-                                  </td>
-                                  <td className="px-5 py-4 align-top">
-                                    <input
-                                      type="text"
-                                      value={r.techSpec}
-                                      readOnly={!mediaAssignEditing}
-                                      onChange={(e) => setRow(r.subDeptId, { techSpec: e.target.value })}
-                                      placeholder="Add tech spec / notes"
-                                      className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white read-only:bg-slate-50 read-only:text-slate-500 read-only:border-transparent"
-                                    />
                                   </td>
                                 </tr>
                             ))}
