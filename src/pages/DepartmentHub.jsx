@@ -69,6 +69,7 @@ import {
   setDepartmentAssignments,
   getMediaScheduleByDate,
   setMediaScheduleByDate,
+  getMediaSchedules,
   getDepartmentSubDepartments,
   addDepartmentSubDepartment,
   updateDepartmentSubDepartment,
@@ -154,6 +155,7 @@ import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
 import PersonSearchInput from '../components/PersonSearchInput'
 import MemberPicker from '../components/MemberPicker'
+import MediaHub from '../components/MediaHub'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
 import DeptExpenseTab from '../components/DeptExpenseTab'
@@ -902,6 +904,9 @@ export default function DepartmentHub() {
   const [mediaAssignSaving, setMediaAssignSaving] = useState(false)
   const [mediaAssignStamp, setMediaAssignStamp] = useState(null)
   const [mediaStampOpen, setMediaStampOpen] = useState(false)
+  // Media – Hub insights
+  const [mediaSchedules, setMediaSchedules] = useState([])
+  const [mediaExpenseEntries, setMediaExpenseEntries] = useState([])
   const [mediaSundayDate, setMediaSundayDate] = useState(() => {
     const today = new Date(); const day = today.getDay()
     const next = new Date(today); next.setDate(today.getDate() + (day === 0 ? 0 : 7 - day))
@@ -1168,7 +1173,7 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (!department || slug === 'cell' || slug === 'd-light') return
     const wantsSubOrTeam = activeTab === 'team' || activeTab === 'subDepartment' ||
-      (slug === 'media' && activeTab === 'assign') ||
+      (slug === 'media' && (activeTab === 'assign' || activeTab === 'summary')) ||
       ((slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && (opsSubTab === 'team' || opsSubTab === 'subDepartment'))
     if (!wantsSubOrTeam) return
     setSubDeptLoading(true)
@@ -1660,6 +1665,14 @@ export default function DepartmentHub() {
       .finally(() => setTeamVisitorsLoading(false))
   }, [slug, activeTab, opsSubTab])
 
+  // Media – Hub: all crew schedules, for the coverage / serving-load insights.
+  useEffect(() => {
+    if (slug !== 'media' || activeTab !== 'summary') return
+    getMediaSchedules()
+      .then(setMediaSchedules)
+      .catch((err) => { console.error('Failed to load media schedules for the Hub', err); setMediaSchedules([]) })
+  }, [slug, activeTab])
+
   // Media – Assign tab: load the per-Sunday crew schedule.
   useEffect(() => {
     if (slug !== 'media' || activeTab !== 'assign') return
@@ -1876,8 +1889,10 @@ export default function DepartmentHub() {
     const now = new Date()
     const y = now.getFullYear()
     const m = now.getMonth()
+    const isMedia = department.name === 'Media'
     const unsub = subscribeFinanceExpenseByDept(department.name, (entries) => {
-      const total = (entries || [])
+      const list = entries || []
+      const total = list
         .filter((e) => {
           const d = e.date instanceof Date ? e.date : e.date?.toDate?.()
           return d && d.getFullYear() === y && d.getMonth() === m
@@ -1885,6 +1900,7 @@ export default function DepartmentHub() {
         .reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
       setMonthlyExpenseTotal(total)
       setLoadingMonthlyExpense(false)
+      if (isMedia) setMediaExpenseEntries(list)
     })
     return unsub
   }, [department?.name])
@@ -2657,6 +2673,15 @@ export default function DepartmentHub() {
                 <SundayPrepTracker />
               ) : slug === 'media' ? (
                 <>
+                <MediaHub
+                  team={team}
+                  tasks={tasks}
+                  subDepartments={subDepartments}
+                  schedules={mediaSchedules}
+                  expenseEntries={mediaExpenseEntries}
+                  onGoToAssign={() => { setActiveTab('assign'); setSearchParams({ tab: 'assign' }, { replace: true }) }}
+                />
+
                 {/* ── Sunday Program ── */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-4">
                   <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">

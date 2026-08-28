@@ -1115,6 +1115,18 @@ export async function getMediaScheduleByDate(date) {
   return d ? { id: d.id, ...d.data() } : { date, assignments: [] }
 }
 
+// Every Media crew schedule, oldest date first — feeds the Media Hub's coverage
+// and serving-load insights.
+export async function getMediaSchedules() {
+  if (!db) return []
+  const q = query(collection(db, 'media_schedule'), where('department', '==', 'Media'))
+  const snap = await getDocs(q)
+  return snap.docs
+    .map((d) => ({ id: d.id, date: d.data().date || '', assignments: Array.isArray(d.data().assignments) ? d.data().assignments : [] }))
+    .filter((s) => s.date)
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
 export async function setMediaScheduleByDate(date, assignments, updatedBy) {
   if (!db) return null
   const normalizedDate = normalizeToSunday(date)
