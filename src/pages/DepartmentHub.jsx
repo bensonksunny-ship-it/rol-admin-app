@@ -4696,6 +4696,8 @@ export default function DepartmentHub() {
           {slug === 'media' && activeTab === 'assign' && (() => {
             const activeMembers = team.filter((m) => !m.isFormer && m.status !== 'former')
             const memberDetail = (m) => (Array.isArray(m.subDepartments) && m.subDepartments.length ? m.subDepartments.join(' · ') : (m.role || ''))
+            const memberSubDepts = (m) => (Array.isArray(m.subDepartments) ? m.subDepartments : (m.subDepartment ? [m.subDepartment] : []))
+            const eligibleFor = (roleName) => activeMembers.filter((m) => memberSubDepts(m).includes(roleName))
             const setRow = (subDeptId, patch) =>
               setMediaAssignRows((prev) => prev.map((r) => (r.subDeptId === subDeptId ? { ...r, ...patch } : r)))
             const showStamp = mediaAssignStamp && !mediaAssignEditing
@@ -4824,7 +4826,8 @@ export default function DepartmentHub() {
                                     tint="bg-indigo-500"
                                     getDetail={memberDetail}
                                     value={r.memberId}
-                                    members={activeMembers}
+                                    members={eligibleFor(r.role)}
+                                    allMembers={activeMembers}
                                     onChange={(id, name) => setRow(r.subDeptId, { memberId: id, memberName: name })}
                                   />
                                 ) : (
@@ -4872,7 +4875,8 @@ export default function DepartmentHub() {
                                         tint="bg-indigo-500"
                                         getDetail={memberDetail}
                                         value={r.memberId}
-                                        members={activeMembers}
+                                        members={eligibleFor(r.role)}
+                                        allMembers={activeMembers}
                                         onChange={(id, name) => setRow(r.subDeptId, { memberId: id, memberName: name })}
                                       />
                                     ) : r.memberId ? (

@@ -527,6 +527,7 @@ function RoleAssignCard({
               getBadges={worshipPickerBadges}
               value={memberId}
               members={eligible}
+              allMembers={activeMembers}
               onChange={(id, name) => updateLocal(role, { memberId: id, memberName: name })}
             />
           </div>
@@ -2574,6 +2575,7 @@ export default function DepartmentWorship() {
                                 getBadges={worshipPickerBadges}
                                 value={getLocalField(role, 'memberId')}
                                 members={eligible}
+                                allMembers={activeMembers}
                                 onChange={(id, name) => updateLocal(role, { memberId: id, memberName: name })}
                               />
                             )

@@ -30,9 +30,18 @@ function Avatar({ name, tint, className }) {
  * Worship-specific bits (role-family hue, "Worship Director" detail line, the
  * Director badge) are now props: `tint`, `getDetail`, `getBadges`.
  *
+ * `members` is the role-scoped candidate list (only volunteers tagged for this
+ * slot). Pass `allMembers` too and the panel gets a "+ Show all department
+ * members" toggle for the odd case where someone not pre-assigned to the role
+ * needs to cover it. If the current selection isn't in `members` the panel opens
+ * showing the full list so the assigned name still resolves.
+ *
  * @param {string} value - selected member id
- * @param {Array<{id, name}>} members - candidates
+ * @param {Array<{id, name}>} members - role-scoped candidates
  * @param {(id: string, name: string) => void} onChange
+ * @param {Array<{id, name}>} [allMembers] - full fallback list for the "show all" toggle
+ * @param {string} [showAllLabel]
+ * @param {string} [showScopedLabel]
  * @param {string} [tint] - avatar background utility class
  * @param {(m) => string} [getDetail] - secondary line under the name
  * @param {(m) => Array<{label, className}>} [getBadges] - pills after the name
@@ -42,16 +51,28 @@ export default function MemberPicker({
   value,
   members,
   onChange,
+  allMembers,
+  showAllLabel = '+ Show all department members',
+  showScopedLabel = 'Show only members assigned to this role',
   tint = 'bg-slate-400',
   getDetail = () => '',
   getBadges = () => [],
   emptyLabel = 'Not assigned',
 }) {
   const [open, setOpen] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const [coords, setCoords] = useState(null)
   const btnRef = useRef(null)
   const panelRef = useRef(null)
-  const selected = members.find((m) => m.id === value)
+
+  const fullList = Array.isArray(allMembers) && allMembers.length ? allMembers : members
+  const hasFallback = Array.isArray(allMembers) && allMembers.length > members.length
+  // The assigned person might not be tagged for this role — resolve the trigger
+  // label against the full list, and force the panel to the full list so the
+  // selected row is visible and can be changed.
+  const selected = fullList.find((m) => m.id === value)
+  const selectedOutOfScope = !!value && !members.some((m) => m.id === value) && fullList.some((m) => m.id === value)
+  const list = showAll || selectedOutOfScope ? fullList : members
 
   useEffect(() => {
     if (!open) return
@@ -73,8 +94,9 @@ export default function MemberPicker({
       if (panelRef.current?.contains(e.target)) return
       if (btnRef.current?.contains(e.target)) return
       setOpen(false)
+      setShowAll(false)
     }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') { setOpen(false); setShowAll(false) } }
 
     window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', place)
@@ -93,6 +115,7 @@ export default function MemberPicker({
   const pick = (m) => {
     onChange(m?.id || '', m?.name || '')
     setOpen(false)
+    setShowAll(false)
   }
 
   return (
@@ -100,7 +123,7 @@ export default function MemberPicker({
       <button
         ref={btnRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => { if (open) setShowAll(false); setOpen((v) => !v) }}
         className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-left transition-colors ${
           selected
             ? 'border border-slate-300 bg-white hover:border-indigo-400'
@@ -140,7 +163,7 @@ export default function MemberPicker({
               {!value && <CheckCircle2 size={15} className="shrink-0 text-rose-400" />}
             </button>
 
-            {members.map((m) => {
+            {list.map((m) => {
               const detail = getDetail(m)
               return (
                 <button
@@ -170,8 +193,20 @@ export default function MemberPicker({
               )
             })}
 
-            {members.length === 0 && (
-              <p className="px-3 py-3 text-xs text-slate-400">No eligible members.</p>
+            {list.length === 0 && (
+              <p className="px-3 py-3 text-xs text-slate-400">
+                {hasFallback ? 'No members are assigned to this role yet.' : 'No eligible members.'}
+              </p>
+            )}
+
+            {hasFallback && !selectedOutOfScope && (
+              <button
+                type="button"
+                onClick={() => setShowAll((v) => !v)}
+                className="mt-1 w-full rounded-lg border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-indigo-600 hover:bg-indigo-50"
+              >
+                {showAll ? showScopedLabel : showAllLabel}
+              </button>
             )}
           </div>,
         document.body
