@@ -232,6 +232,16 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
+    // Name-only index of active River Kids children (doc id == department_children
+    // doc id). Any signed-in user may read it so the team-member picker in every
+    // department can offer children by name; the full child record (DOB, parents)
+    // stays gated by the department_children rule above. Only River Kids writers
+    // maintain it.
+    match /river_kids_lookup/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('River Kids'));
+    }
+
     match /department_events/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));

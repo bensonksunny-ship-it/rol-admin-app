@@ -617,6 +617,8 @@ export async function getDepartmentTeamMembers(department) {
       notes: data.notes || '',
       isFormer: data.isFormer ?? false,
       visitorId: data.visitorId || '',
+      source: data.source || '',
+      childId: data.childId || '',
       createdAt: toDate(data.createdAt),
     }
   })
@@ -646,6 +648,8 @@ export function subscribeDepartmentTeamMembers(department, onChange) {
         notes: data.notes || '',
         isFormer: data.isFormer ?? false,
         visitorId: data.visitorId || '',
+        source: data.source || '',
+        childId: data.childId || '',
         createdAt: toDate(data.createdAt),
       }
     })
@@ -668,6 +672,13 @@ export async function addDepartmentTeamMember(department, data, addedBy) {
     memberSince: data.memberSince ? String(data.memberSince).slice(0, 10) : new Date().toISOString().slice(0, 10),
     notes: data.notes != null ? String(data.notes) : '',
     isFormer: data.isFormer ?? false,
+    // Link references — previously dropped on add, so a member picked from the
+    // directory search saved unlinked and showed the "Unlinked" badge until an
+    // edit + re-save. `source: 'river_kids'` + `childId` identify a River Kids
+    // child (who has no adult visitor record, so `visitorId` stays empty).
+    visitorId: data.visitorId || '',
+    source: data.source || '',
+    childId: data.childId || '',
     addedBy: addedBy || 'unknown',
     createdAt: Timestamp.now(),
   })
@@ -690,6 +701,8 @@ export async function updateDepartmentTeamMember(id, data) {
     notes: data.notes != null ? String(data.notes) : undefined,
     isFormer: data.isFormer !== undefined ? !!data.isFormer : undefined,
     visitorId: data.visitorId !== undefined ? String(data.visitorId) : undefined,
+    source: data.source !== undefined ? String(data.source) : undefined,
+    childId: data.childId !== undefined ? String(data.childId) : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, 'department_team_members', id), clean)
@@ -778,9 +791,10 @@ export async function getDepartmentChildren(department) {
 
 export async function addDepartmentChild(department, childData, addedBy) {
   if (!db || !department || !String(childData?.name || '').trim()) return null
+  const name = String(childData.name).trim()
   const ref = await addDoc(collection(db, DEPARTMENT_CHILDREN_COLLECTION), {
     department,
-    name: String(childData.name).trim(),
+    name,
     dob: childData.dob || '',
     fatherName: (childData.fatherName || '').trim(),
     motherName: (childData.motherName || '').trim(),
@@ -792,10 +806,13 @@ export async function addDepartmentChild(department, childData, addedBy) {
     addedBy: addedBy || 'unknown',
     createdAt: Timestamp.now(),
   })
+  if (department === 'River Kids') {
+    setDoc(doc(db, RIVER_KIDS_LOOKUP_COLLECTION, ref.id), { name }).catch(() => {})
+  }
   return ref.id
 }
 
-export async function updateDepartmentChild(id, data) {
+export async function updateDepartmentChild(id, data, department) {
   if (!db || !id) return
   const payload = {}
   if (data.name !== undefined) payload.name = String(data.name || '').trim()
@@ -808,11 +825,62 @@ export async function updateDepartmentChild(id, data) {
   if (data.joinedDate !== undefined) payload.joinedDate = data.joinedDate || ''
   if (data.joinedVia !== undefined) payload.joinedVia = data.joinedVia || ''
   if (Object.keys(payload).length) await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), payload)
+  // Keep the name-only river_kids_lookup index (used by cross-department team-member
+  // search) in step. Only the caller that knows this is a River Kids child passes
+  // `department`; others leave the lookup untouched.
+  if (department === 'River Kids') {
+    if (payload.active === false) {
+      deleteDoc(doc(db, RIVER_KIDS_LOOKUP_COLLECTION, id)).catch(() => {})
+    } else if (payload.name !== undefined || payload.active === true) {
+      const lookup = {}
+      if (payload.name !== undefined) lookup.name = payload.name
+      setDoc(doc(db, RIVER_KIDS_LOOKUP_COLLECTION, id), lookup, { merge: true }).catch(() => {})
+    }
+  }
 }
 
 export async function deleteDepartmentChild(id) {
   if (!db || !id) return
   await updateDoc(doc(db, DEPARTMENT_CHILDREN_COLLECTION, id), { active: false })
+  deleteDoc(doc(db, RIVER_KIDS_LOOKUP_COLLECTION, id)).catch(() => {})
+}
+
+// ── River Kids lookup ─────────────────────────────────────────────────────────
+// Name-only index of active River Kids children, readable by any signed-in user
+// so the team-member picker in every department can offer children by name
+// without exposing the full department_children record (DOB, parent names).
+// Doc id === the department_children doc id. A doc exists iff the child is active.
+// Mirrors the pcs_lookup pattern above.
+const RIVER_KIDS_LOOKUP_COLLECTION = 'river_kids_lookup'
+
+export async function getRiverKidsLookup() {
+  if (!db) return []
+  const snap = await getDocs(collection(db, RIVER_KIDS_LOOKUP_COLLECTION))
+  return snap.docs.map((d) => ({ id: d.id, name: d.data().name || '' }))
+}
+
+// Bulk-sync active River Kids children into river_kids_lookup (run by a River Kids
+// director on the register/attendance tab load). Backfills legacy rosters.
+export async function syncAllRiverKidsToLookup(children) {
+  if (!db || !Array.isArray(children)) return
+  const existing = await getDocs(collection(db, RIVER_KIDS_LOOKUP_COLLECTION))
+  const existingById = new Map(existing.docs.map((d) => [d.id, d.data().name || '']))
+  const activeIds = new Set()
+  const batch = writeBatch(db)
+  let dirty = false
+  children.forEach((c) => {
+    if (c.active === false) return
+    activeIds.add(c.id)
+    const name = String(c.name || '').trim()
+    if (existingById.get(c.id) !== name) {
+      batch.set(doc(db, RIVER_KIDS_LOOKUP_COLLECTION, c.id), { name })
+      dirty = true
+    }
+  })
+  existing.docs.forEach((d) => {
+    if (!activeIds.has(d.id)) { batch.delete(d.ref); dirty = true }
+  })
+  if (dirty) await batch.commit()
 }
 
 // Daily attendance: present[classGroup][childId] = true/false — nested by class/

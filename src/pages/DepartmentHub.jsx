@@ -75,6 +75,8 @@ import {
   addDepartmentChild,
   updateDepartmentChild,
   deleteDepartmentChild,
+  getRiverKidsLookup,
+  syncAllRiverKidsToLookup,
   getDepartmentChildAttendance,
   setDepartmentChildAttendance,
   subscribeSundayReportRiverKids,
@@ -384,6 +386,9 @@ export default function DepartmentHub() {
     memberSince: new Date().toISOString().slice(0, 10),
     isFormer: false,
     notes: '',
+    visitorId: '',
+    source: '',
+    childId: '',
   })
   const [budgetItems, setBudgetItems] = useState([])
   const [loadingBudget, setLoadingBudget] = useState(false)
@@ -1208,6 +1213,11 @@ export default function DepartmentHub() {
       .then(([children, att, fromPeople, fromLookup, fromVisitors]) => {
         const active = children.filter((c) => c.active !== false)
         setRkChildren(active)
+        // Keep the cross-department name-only search index in step with the roster.
+        if (department.name === 'River Kids') {
+          syncAllRiverKidsToLookup(children).catch((err) =>
+            console.error('Failed to sync river_kids_lookup', err))
+        }
         setRkAttendanceByGroup(typeof att.present === 'object' && att.present ? { ...att.present } : {})
         // Build parent name suggestions: people directory + pcs_lookup + names already saved in kids
         const seen = new Set()
@@ -1560,8 +1570,14 @@ export default function DepartmentHub() {
     const isTeamSection = activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team')
     if (!isTeamSection) return
     setTeamVisitorsLoading(true)
-    getMergedPeopleDirectory()
-      .then(({ people }) => {
+    Promise.all([
+      getMergedPeopleDirectory(),
+      // River Kids children (name-only lookup, readable by any signed-in user).
+      // A child recruited as a helper is selectable alongside adult records but
+      // carries source:'river_kids' + childId instead of a visitorId.
+      getRiverKidsLookup().catch(() => []),
+    ])
+      .then(([{ people }, riverKids]) => {
         const seen = new Set()
         const options = []
         for (const p of people || []) {
@@ -1570,6 +1586,11 @@ export default function DepartmentHub() {
           if (!name || !id || seen.has(id)) continue
           seen.add(id)
           options.push({ id, name, phone: p.phone || '' })
+        }
+        for (const c of riverKids || []) {
+          const name = String(c.name || '').trim()
+          if (!name || !c.id) continue
+          options.push({ id: 'rk-' + c.id, childId: c.id, name, phone: '', source: 'river_kids' })
         }
         options.sort((a, b) => a.name.localeCompare(b.name))
         setTeamVisitors(options)
@@ -7012,6 +7033,9 @@ export default function DepartmentHub() {
                         memberSince: new Date().toISOString().slice(0, 10),
                         isFormer: false,
                         notes: '',
+                        visitorId: '',
+                        source: '',
+                        childId: '',
                       })
                     }}
                     className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
@@ -7150,6 +7174,7 @@ export default function DepartmentHub() {
                                     phone: m.phone || '', status: m.status || 'active',
                                     memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
                                     isFormer: !!m.isFormer, notes: m.notes || '',
+                                    visitorId: m.visitorId || '', source: m.source || '', childId: m.childId || '',
                                   })
                                 }}
                                 className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 active:bg-indigo-100"
@@ -7207,6 +7232,7 @@ export default function DepartmentHub() {
                                       phone: m.phone || '', status: m.status || 'active',
                                       memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
                                       isFormer: !!m.isFormer, notes: m.notes || '',
+                                      visitorId: m.visitorId || '', source: m.source || '', childId: m.childId || '',
                                     })
                                   }}
                                   className="ml-auto text-[9px] font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
@@ -7258,7 +7284,7 @@ export default function DepartmentHub() {
                           <td className="px-4 py-2">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-slate-800">{m.name}</span>
-                              {m.visitorId
+                              {(m.visitorId || m.childId)
                                 ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
                                 : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
                               }
@@ -7288,6 +7314,9 @@ export default function DepartmentHub() {
                                     memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
                                     isFormer: !!m.isFormer,
                                     notes: m.notes || '',
+                                    visitorId: m.visitorId || '',
+                                    source: m.source || '',
+                                    childId: m.childId || '',
                                   })
                                 }}
                                 className="text-blue-600 hover:underline"
@@ -7320,8 +7349,8 @@ export default function DepartmentHub() {
                 <form
                   onSubmit={async (e) => {
                     e.preventDefault()
-                    if (!editingMember && !memberForm.visitorId) {
-                      setTeamError('You must select a person from the People\'s Directory. New people can only be added by the D Light Director via Visitor Entry.')
+                    if (!editingMember && !memberForm.visitorId && !memberForm.childId) {
+                      setTeamError('You must select a person from the People\'s Directory or River Kids. New people can only be added by the D Light Director via Visitor Entry.')
                       return
                     }
                     try {
@@ -7355,6 +7384,8 @@ export default function DepartmentHub() {
                         isFormer: false,
                         notes: '',
                         visitorId: '',
+                        source: '',
+                        childId: '',
                       })
                     } catch (err) {
                       console.error(err)
@@ -7402,7 +7433,7 @@ export default function DepartmentHub() {
                           <span className="flex-1 text-sm font-semibold text-emerald-900">{memberForm.name}</span>
                           <button
                             type="button"
-                            onClick={() => { setMemberForm((f) => ({ ...f, name: '', visitorId: '' })); setTeamMemberSearch('') }}
+                            onClick={() => { setMemberForm((f) => ({ ...f, name: '', visitorId: '', source: '', childId: '' })); setTeamMemberSearch('') }}
                             className="w-7 h-7 rounded-full bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 flex items-center justify-center text-base leading-none transition-colors shadow-sm"
                           >×</button>
                         </div>
@@ -7434,12 +7465,21 @@ export default function DepartmentHub() {
                                     <p className="text-sm text-slate-500 font-medium">Not in People&apos;s Directory</p>
                                     <p className="text-xs text-slate-400 mt-0.5">New people can only be added via D Light Visitor Entry</p>
                                   </div>
-                                ) : matches.map((v) => (
+                                ) : matches.map((v) => {
+                                  const isChild = v.source === 'river_kids'
+                                  return (
                                   <button
                                     key={v.id}
                                     type="button"
                                     onMouseDown={() => {
-                                      setMemberForm((f) => ({ ...f, name: v.name, visitorId: v.id, phone: f.phone || v.phone || '' }))
+                                      setMemberForm((f) => ({
+                                        ...f,
+                                        name: v.name,
+                                        visitorId: isChild ? '' : v.id,
+                                        childId: isChild ? v.childId : '',
+                                        source: isChild ? 'river_kids' : '',
+                                        phone: f.phone || v.phone || '',
+                                      }))
                                       setTeamMemberSearch('')
                                       setTeamMemberSearchOpen(false)
                                     }}
@@ -7449,11 +7489,17 @@ export default function DepartmentHub() {
                                       {v.name.charAt(0).toUpperCase()}
                                     </span>
                                     <div className="min-w-0">
-                                      <p className="text-sm font-semibold text-slate-800 truncate">{v.name}</p>
+                                      <p className="text-sm font-semibold text-slate-800 truncate">
+                                        {v.name}
+                                        {isChild && (
+                                          <span className="ml-1.5 align-middle text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">River Kids</span>
+                                        )}
+                                      </p>
                                       {v.phone && <p className="text-xs text-slate-400 truncate">{v.phone}</p>}
                                     </div>
                                   </button>
-                                ))}
+                                  )
+                                })}
                               </div>
                             )
                           })()}
@@ -7563,7 +7609,7 @@ export default function DepartmentHub() {
                       {editingMember && (
                         <button
                           type="button"
-                          onClick={() => { setEditingMember(null); setTeamMemberSearch(''); setMemberForm({ name: '', role: '', subDepartment: '', subDepartments: [], phone: '', status: 'active', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, notes: '', visitorId: '' }) }}
+                          onClick={() => { setEditingMember(null); setTeamMemberSearch(''); setMemberForm({ name: '', role: '', subDepartment: '', subDepartments: [], phone: '', status: 'active', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, notes: '', visitorId: '', source: '', childId: '' }) }}
                           className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
                         >
                           Cancel
@@ -7907,7 +7953,7 @@ export default function DepartmentHub() {
                             classGroups: rkEditChild.classGroups || [],
                             joinedDate: rkEditChild.joinedDate || '',
                             joinedVia: rkEditChild.joinedVia || '',
-                          })
+                          }, department.name)
                           const list = await getDepartmentChildren(department.name)
                           setRkChildren(list.filter((c) => c.active !== false))
                           setRkEditChild(null)
