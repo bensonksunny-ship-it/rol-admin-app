@@ -216,12 +216,13 @@ service cloud.firestore {
     }
 
     match /department_children/{docId} {
-      // Sunday Ministry additionally reads River Kids' children for the Sunday School
-      // attendee search in Live Control (Non Cell / Others linking, River Kids registry).
-      // Cell additionally reads River Kids' children for the cell-report "Kids Present"
-      // picker, which name-matches a child's fatherName/motherName against the active
-      // cell's member roster (department_children has no parentId/cellGroupId field).
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) || (resource.data.department == 'River Kids' && (canAccessDept('Sunday Ministry') || canAccessDept('Cell') || hasAnyCellPosition())));
+      // River Kids' children are readable by any signed-in user: Sunday Ministry
+      // (Sunday School attendee search in Live Control), Cell (cell-report "Kids
+      // Present" picker, name-matched to parents), and every department's team
+      // picker ("recruit a River Kids kid onto the crew") all need them, and the
+      // records carry no data more sensitive than a name + DOB + parent names for
+      // a church-member's child. Non-River-Kids children stay department-scoped.
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) || resource.data.department == 'River Kids');
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
@@ -233,10 +234,9 @@ service cloud.firestore {
     }
 
     // Name-only index of active River Kids children (doc id == department_children
-    // doc id). Any signed-in user may read it so the team-member picker in every
-    // department can offer children by name; the full child record (DOB, parents)
-    // stays gated by the department_children rule above. Only River Kids writers
-    // maintain it.
+    // doc id) — a lighter read for the team-member picker than pulling every full
+    // child record. Only River Kids writers maintain it (see syncAllRiverKidsToLookup
+    // + the register tab's "Sync search index" button).
     match /river_kids_lookup/{docId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('River Kids'));

@@ -942,6 +942,8 @@ export default function DepartmentHub() {
   const [rkSavingEdit, setRkSavingEdit] = useState(false)
   const [rkExpandedChildIds, setRkExpandedChildIds] = useState(() => new Set())
   const [rkActionsMenuId, setRkActionsMenuId] = useState(null)
+  const [rkSyncing, setRkSyncing] = useState(false)
+  const [rkSyncMsg, setRkSyncMsg] = useState('')
   // Full people + D-Light visitor records (name -> join date), kept separately from rkAllUsers
   // (which only has {id, name}) so a parent's church-join date can be looked up by name.
   const [rkJoinDateSources, setRkJoinDateSources] = useState([])
@@ -7903,11 +7905,38 @@ export default function DepartmentHub() {
           {slug === 'river-kids' && activeTab === 'register' && department && (
             <div className="space-y-4">
               {/* Header */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between">
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between gap-3">
                 <div>
                   <p className="font-bold text-slate-800">Kids Register</p>
                   <p className="text-xs text-slate-400">{rkChildren.length} kid{rkChildren.length !== 1 ? 's' : ''} registered</p>
                 </div>
+                {canEdit && (
+                  <div className="flex flex-col items-end gap-1">
+                    <button
+                      type="button"
+                      disabled={rkSyncing}
+                      onClick={async () => {
+                        setRkSyncing(true)
+                        setRkSyncMsg('')
+                        try {
+                          const all = await getDepartmentChildren('River Kids')
+                          await syncAllRiverKidsToLookup(all)
+                          setRkSyncMsg(`Search index synced (${all.filter((c) => c.active !== false).length} active kids).`)
+                        } catch (err) {
+                          console.error('Manual river_kids_lookup sync failed', err)
+                          setRkSyncMsg('Sync failed — see console.')
+                        } finally {
+                          setRkSyncing(false)
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 disabled:opacity-60 transition-colors"
+                      title="Rebuild the name-only index other departments' team search reads from"
+                    >
+                      {rkSyncing ? 'Syncing…' : 'Sync search index'}
+                    </button>
+                    {rkSyncMsg && <span className="text-[11px] text-slate-400">{rkSyncMsg}</span>}
+                  </div>
+                )}
               </div>
 
               {/* Add kid form */}
