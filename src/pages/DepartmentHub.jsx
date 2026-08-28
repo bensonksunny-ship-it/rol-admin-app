@@ -1615,12 +1615,21 @@ export default function DepartmentHub() {
     setTeamVisitorsLoading(true)
     Promise.all([
       getMergedPeopleDirectory(),
-      // River Kids children (name-only lookup, readable by any signed-in user).
-      // A child recruited as a helper is selectable alongside adult records but
-      // carries source:'river_kids' + childId instead of a visitorId.
-      getRiverKidsLookup().catch(() => []),
+      // River Kids children, so a child from the registry can be recruited onto
+      // any department's team (selectable alongside adult records but carrying
+      // source:'river_kids' + childId instead of a visitorId). Two sources, in
+      // preference order:
+      //   1. river_kids_lookup — a name-only index any signed-in user may read.
+      //   2. department_children directly — works for Founder / River Kids /
+      //      Sunday Ministry / Cell roles even if the lookup index is empty
+      //      (e.g. never backfilled), so the feature isn't dead until someone
+      //      opens the River Kids register tab.
+      // A loud catch on each: a permission-denied here silently emptied the
+      // picker before.
+      getRiverKidsLookup().catch((e) => { console.error('river_kids_lookup read failed', e); return [] }),
+      getDepartmentChildren('River Kids').catch((e) => { console.warn('department_children (River Kids) read not permitted for this user; relying on river_kids_lookup', e?.code || e); return [] }),
     ])
-      .then(([{ people }, riverKids]) => {
+      .then(([{ people }, rkLookup, rkChildren]) => {
         const seen = new Set()
         const options = []
         for (const p of people || []) {
@@ -1630,11 +1639,15 @@ export default function DepartmentHub() {
           seen.add(id)
           options.push({ id, name, phone: p.phone || '' })
         }
-        for (const c of riverKids || []) {
-          const name = String(c.name || '').trim()
-          if (!name || !c.id) continue
-          options.push({ id: 'rk-' + c.id, childId: c.id, name, phone: '', source: 'river_kids' })
+        const rkSeen = new Set()
+        const addChild = (childId, name) => {
+          const n = String(name || '').trim()
+          if (!childId || !n || rkSeen.has(childId)) return
+          rkSeen.add(childId)
+          options.push({ id: 'rk-' + childId, childId, name: n, phone: '', source: 'river_kids' })
         }
+        for (const c of rkLookup || []) addChild(c.id, c.name)
+        for (const c of rkChildren || []) { if (c.active !== false) addChild(c.id, c.name) }
         options.sort((a, b) => a.name.localeCompare(b.name))
         setTeamVisitors(options)
       })
