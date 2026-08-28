@@ -7504,10 +7504,10 @@ export default function DepartmentHub() {
                           <td className="px-4 py-2">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-slate-800">{m.name}</span>
-                              {(m.visitorId || m.childId)
+                              {isFounder && ((m.visitorId || m.childId)
                                 ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
                                 : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
-                              }
+                              )}
                             </div>
                           </td>
                           {slug === 'media' && (
