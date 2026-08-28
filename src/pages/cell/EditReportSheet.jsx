@@ -102,16 +102,20 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
     [segmentTimings]
   )
 
-  // Each segment's clock-time range, derived from Start Time + the running total of
-  // every prior segment's duration — read-only, always in sync with the segment list.
+  // Each segment's clock-time window, derived from Start Time + the running total of
+  // every prior segment's duration. The segment start is always derived (read-only);
+  // the end is surfaced as an editable input that back-computes duration. Each entry
+  // is { startHHMM, endHHMM, startLabel } or null when there's no Start Time to anchor to.
   const segmentRanges = useMemo(() => {
     if (!startTime) return segmentTimings.map(() => null)
     let cursor = startTime
     return segmentTimings.map((seg) => {
-      const segStart = cursor
-      const segEnd = addMinutesToTime(cursor, Number(seg.durationMinutes) || 0)
-      cursor = segEnd
-      return segEnd ? `${formatTime12h(segStart)} – ${formatTime12h(segEnd)}` : null
+      const startHHMM = cursor
+      const endHHMM = addMinutesToTime(cursor, Number(seg.durationMinutes) || 0)
+      cursor = endHHMM
+      return endHHMM
+        ? { startHHMM, endHHMM, startLabel: formatTime12h(startHHMM) }
+        : null
     })
   }, [startTime, segmentTimings])
 
@@ -139,6 +143,15 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
         i === index ? { ...s, [field]: field === 'durationMinutes' ? Number(value) || 0 : value } : s
       )
     )
+  }
+
+  // Editing a segment's end time sets its duration from (end − its derived start).
+  // Later segments keep their own durations, so they slide — same as editing a
+  // duration directly. Negative deltas clamp to 0; no cross-midnight handling.
+  function handleSegmentEndChange(index, endHHMM) {
+    const range = segmentRanges[index]
+    if (!range || !endHHMM) return
+    updateSegment(index, 'durationMinutes', Math.max(0, minutesBetween(range.startHHMM, endHHMM)))
   }
 
   function removeSegment(index) {
@@ -283,6 +296,7 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
                   totalMinutes={totalDurationMinutes}
                   onAdd={addSegment}
                   onUpdate={updateSegment}
+                  onSegmentEndChange={handleSegmentEndChange}
                   onRemove={removeSegment}
                 />
               )}
@@ -401,7 +415,7 @@ function AttendanceTab({ attendees, allMembers, onAdd, onRemove }) {
   )
 }
 
-function TimingTab({ startTime, onStartTimeChange, segments, segmentRanges, totalMinutes, onAdd, onUpdate, onRemove }) {
+function TimingTab({ startTime, onStartTimeChange, segments, segmentRanges, totalMinutes, onAdd, onUpdate, onSegmentEndChange, onRemove }) {
   return (
     <div className="space-y-3">
       <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">🕐 Start Time</p>
@@ -441,7 +455,19 @@ function TimingTab({ startTime, onStartTimeChange, segments, segmentRanges, tota
             </button>
           </div>
           {segmentRanges?.[i] && (
-            <p className="text-xs text-indigo-500 font-medium pl-1">{segmentRanges[i]}</p>
+            <div className="flex items-center gap-2 pl-1 text-xs text-slate-500">
+              <span>starts <span className="font-medium text-indigo-500">{segmentRanges[i].startLabel}</span></span>
+              <span className="text-slate-300">·</span>
+              <label className="flex items-center gap-1">
+                ends
+                <input
+                  type="time"
+                  value={segmentRanges[i].endHHMM}
+                  onChange={(e) => onSegmentEndChange(i, e.target.value)}
+                  className="border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </label>
+            </div>
           )}
         </div>
       ))}
@@ -509,4 +535,13 @@ function formatDuration(minutes) {
   const h = Math.floor(m / 60)
   const rem = m % 60
   return rem ? `${h}h ${rem}m` : `${h}h`
+}
+
+// Signed minute delta between two "HH:MM" strings (b − a). Negative when b is
+// earlier than a; callers clamp. No cross-midnight handling by design.
+function minutesBetween(aHHMM, bHHMM) {
+  const [ah, am] = String(aHHMM).split(':').map(Number)
+  const [bh, bm] = String(bHHMM).split(':').map(Number)
+  if ([ah, am, bh, bm].some((n) => Number.isNaN(n))) return 0
+  return (bh * 60 + bm) - (ah * 60 + am)
 }
