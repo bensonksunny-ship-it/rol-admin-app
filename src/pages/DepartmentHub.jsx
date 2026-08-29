@@ -467,14 +467,21 @@ export default function DepartmentHub() {
   const [detailMemberMinistries, setDetailMemberMinistries] = useState([])
   const [detailMemberCellAttendance, setDetailMemberCellAttendance] = useState([])
   const [detailMemberSundayAttendance, setDetailMemberSundayAttendance] = useState([])
+  // Context the modal was opened in (e.g. { mediaTeam: true }) + the Media crew
+  // schedules loaded for the "recent assignments" summary.
+  const [detailMemberContext, setDetailMemberContext] = useState({})
+  const [detailMemberMediaAssignments, setDetailMemberMediaAssignments] = useState([])
+  const [detailStatusSaving, setDetailStatusSaving] = useState(false)
 
-  const openMemberDetail = useCallback((m, cellId) => {
+  const openMemberDetail = useCallback((m, cellId, context = {}) => {
     setDetailMember(m)
     setDetailMemberProfile(null)
     setDetailMemberVisitor(null)
     setDetailMemberMinistries([])
     setDetailMemberCellAttendance([])
     setDetailMemberSundayAttendance([])
+    setDetailMemberContext(context || {})
+    setDetailMemberMediaAssignments([])
     setDetailMemberLoading(true)
     const nameLower = String(m.name || '').trim().toLowerCase()
     Promise.all([
@@ -482,7 +489,8 @@ export default function DepartmentHub() {
       m.visitorId ? getDelightVisitorById(m.visitorId).catch(() => null) : Promise.resolve(null),
       cellId ? getRecentCellReportsForHeatmap(cellId, 5).catch(() => []) : Promise.resolve([]),
       cellId ? getRecentSundayAttendanceNamesByCell(cellId, 5).catch(() => []) : Promise.resolve([]),
-    ]).then(([ctx, visitor, cellReports, sundayWeeks]) => {
+      context?.mediaTeam ? getMediaSchedules().catch(() => []) : Promise.resolve([]),
+    ]).then(([ctx, visitor, cellReports, sundayWeeks, mediaSch]) => {
       setDetailMemberProfile(ctx?.profile || null)
       setDetailMemberVisitor(visitor)
       const deptTeams = ctx?.deptTeams || []
@@ -493,6 +501,7 @@ export default function DepartmentHub() {
       ])
       setDetailMemberCellAttendance(cellReports.map((r) => ({ date: r.reportDate, present: r.attendeeNames.has(nameLower) })))
       setDetailMemberSundayAttendance(sundayWeeks)
+      setDetailMemberMediaAssignments(mediaSch)
     }).finally(() => setDetailMemberLoading(false))
   }, [])
   const [teamMemberLinking, setTeamMemberLinking] = useState(null)
@@ -7516,7 +7525,7 @@ export default function DepartmentHub() {
                 </>
               ) : (
                 <>
-                <div className="overflow-x-auto">
+                <div className={`overflow-x-auto ${slug === 'media' ? 'rounded-xl border border-slate-200' : ''}`}>
                   <table className="min-w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
@@ -7538,12 +7547,27 @@ export default function DepartmentHub() {
                           ? differenceInDays(new Date(), new Date(m.memberSince))
                           : null
                         const positionsText = m.role || ''
+                        const memberSubDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
+                          ? m.subDepartments
+                          : (m.subDepartment ? [m.subDepartment] : [])
                         return (
-                        <tr key={m.id} className="hover:bg-slate-50">
+                        <tr
+                          key={m.id}
+                          className={slug === 'media' ? 'transition-colors cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50'}
+                          onClick={slug === 'media' ? () => openMemberDetail(m, null, { mediaTeam: true }) : undefined}
+                        >
                           <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
                           <td className="px-4 py-2">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-slate-800">{m.name}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {slug === 'media' && (
+                                <span className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                  {(m.name || '?').charAt(0).toUpperCase()}
+                                </span>
+                              )}
+                              <span className="text-slate-800 font-medium">{m.name}</span>
+                              {m.childId && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">River Kids</span>
+                              )}
                               {isFounder && ((m.visitorId || m.childId)
                                 ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
                                 : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
@@ -7551,7 +7575,15 @@ export default function DepartmentHub() {
                             </div>
                           </td>
                           {slug === 'media' && (
-                            <td className="px-4 py-2 text-slate-600">{formatTeamSubDepartmentCell(m)}</td>
+                            <td className="px-4 py-2">
+                              <div className="flex flex-wrap gap-1">
+                                {memberSubDepts.length === 0 ? (
+                                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-400">Unassigned</span>
+                                ) : memberSubDepts.map((sd) => (
+                                  <span key={sd} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">{sd}</span>
+                                ))}
+                              </div>
+                            </td>
                           )}
                           <td className="px-4 py-2 text-slate-600 capitalize">{m.status || 'active'}</td>
                           <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
@@ -7584,7 +7616,7 @@ export default function DepartmentHub() {
                             if (slug === 'media') {
                               const menuOpen = teamActionMenuId === m.id
                               return (
-                                <td className="px-4 py-2 text-sm whitespace-nowrap">
+                                <td className="px-4 py-2 text-sm whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                   <div className="relative inline-block text-left">
                                     <button
                                       type="button"
@@ -10053,9 +10085,30 @@ export default function DepartmentHub() {
                 className="bg-white dark:bg-slate-900 w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-xl max-h-[85vh] overflow-y-auto"
               >
                 <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-5 py-4 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-bold text-slate-900 dark:text-slate-100 truncate">{detailMember.name || '—'}</p>
-                    {detailMemberVisitor?.phone && <p className="text-xs text-slate-500 mt-0.5">{detailMemberVisitor.phone}</p>}
+                  <div className="flex items-start gap-3 min-w-0">
+                    <span className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                      {(detailMember.name || '?').charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-bold text-slate-900 dark:text-slate-100 truncate">{detailMember.name || '—'}</p>
+                        {detailMember.childId
+                          ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">River Kids</span>
+                          : (detailMember.visitorId
+                            ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
+                            : null)}
+                      </div>
+                      {(() => {
+                        const phone = detailMemberVisitor?.phone || detailMember.phone
+                        const email = detailMemberProfile?.email || detailMemberVisitor?.email
+                        return (
+                          <>
+                            {phone && <p className="text-xs text-slate-500 mt-0.5">{phone}</p>}
+                            {email && <p className="text-xs text-slate-400 mt-0.5 truncate">{email}</p>}
+                          </>
+                        )
+                      })()}
+                    </div>
                   </div>
                   <button type="button" onClick={() => setDetailMember(null)} className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -10066,9 +10119,99 @@ export default function DepartmentHub() {
                     <p className="text-sm text-slate-500 text-center py-6">Loading…</p>
                   ) : (
                     <>
-                      {!detailMember.visitorId && (
+                      {!detailMember.visitorId && !detailMember.childId && (
                         <p className="text-xs text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">Not linked to a directory profile — limited details available.</p>
                       )}
+
+                      {detailMemberContext?.mediaTeam && (() => {
+                        const subDepts = Array.isArray(detailMember.subDepartments) && detailMember.subDepartments.length
+                          ? detailMember.subDepartments
+                          : (detailMember.subDepartment ? [detailMember.subDepartment] : [])
+                        const isActive = (detailMember.status || 'active') === 'active'
+                        // Last 8 services, this member's assignments tallied by role.
+                        const recent = [...detailMemberMediaAssignments]
+                          .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+                          .slice(0, 8)
+                        const roleTally = {}
+                        const servedDates = []
+                        for (const s of recent) {
+                          const mine = (s.assignments || []).filter((a) => a.memberId === detailMember.id || (a.memberName && a.memberName === detailMember.name))
+                          if (mine.length) servedDates.push(s.date)
+                          for (const a of mine) roleTally[a.role || '—'] = (roleTally[a.role || '—'] || 0) + 1
+                        }
+                        const roleRows = Object.entries(roleTally).sort((a, b) => b[1] - a[1])
+                        return (
+                          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                            <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                              <div className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0" />
+                              <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Media Team</p>
+                            </div>
+                            <div className="px-3 py-3 space-y-3">
+                              <div>
+                                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">Serving areas</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {subDepts.length === 0
+                                    ? <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-400">None assigned</span>
+                                    : subDepts.map((sd) => (
+                                      <span key={sd} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">{sd}</span>
+                                    ))}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">On the team since</p>
+                                  <p className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">{detailMember.memberSince ? formatDMY(detailMember.memberSince) : '—'}</p>
+                                </div>
+                                {canEdit && (
+                                  <button
+                                    type="button"
+                                    disabled={detailStatusSaving}
+                                    onClick={async () => {
+                                      const next = isActive ? 'inactive' : 'active'
+                                      setDetailStatusSaving(true)
+                                      try {
+                                        await updateDepartmentTeamMember(detailMember.id, { status: next })
+                                        setTeam((prev) => prev.map((x) => (x.id === detailMember.id ? { ...x, status: next } : x)))
+                                        setDetailMember((d) => ({ ...d, status: next }))
+                                      } catch (err) {
+                                        console.error('Failed to update member status', err)
+                                        alert('Could not update status.')
+                                      } finally {
+                                        setDetailStatusSaving(false)
+                                      }
+                                    }}
+                                    className={`flex items-center gap-2 text-[11px] font-semibold ${detailStatusSaving ? 'opacity-50' : ''}`}
+                                  >
+                                    <span className={`w-9 h-5 rounded-full transition-colors flex-shrink-0 ${isActive ? 'bg-emerald-400' : 'bg-slate-300'}`}>
+                                      <span className="block w-4 h-4 bg-white rounded-full shadow mt-0.5 transition-transform" style={{ transform: isActive ? 'translateX(18px)' : 'translateX(2px)' }} />
+                                    </span>
+                                    <span className={isActive ? 'text-emerald-600' : 'text-slate-400'}>{isActive ? 'Active' : 'Inactive'}</span>
+                                  </button>
+                                )}
+                              </div>
+
+                              <div>
+                                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">Recent crew assignments</p>
+                                {roleRows.length === 0 ? (
+                                  <p className="text-[11px] text-slate-400">Not rostered in the last 8 services.</p>
+                                ) : (
+                                  <>
+                                    <div className="flex flex-wrap gap-1">
+                                      {roleRows.map(([role, n]) => (
+                                        <span key={role} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{role} · {n}×</span>
+                                      ))}
+                                    </div>
+                                    {servedDates.length > 0 && (
+                                      <p className="text-[10px] text-slate-400 mt-1">Last: {servedDates.slice(0, 3).map((d) => formatDMY(d)).join(', ')}</p>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })()}
 
                       {detailMemberVisitor?.attendedDate && (
                         <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg px-3 py-2.5 flex items-center justify-between">
@@ -10172,7 +10315,7 @@ export default function DepartmentHub() {
                         </div>
                       )}
 
-                      {!detailMemberVisitor && detailMemberMinistries.length === 0 && detailMemberCellAttendance.length === 0 && detailMemberSundayAttendance.length === 0 && (
+                      {!detailMemberContext?.mediaTeam && !detailMemberVisitor && detailMemberMinistries.length === 0 && detailMemberCellAttendance.length === 0 && detailMemberSundayAttendance.length === 0 && (
                         <p className="text-sm text-slate-400 text-center py-6">No additional details on file.</p>
                       )}
                     </>
