@@ -3,7 +3,7 @@ import {
   Palette, UserCircle, Database, Sun, Tv, ListMusic, FolderTree, UserCheck,
   Music, Music2, Archive, History, PenSquare, LineChart, UserPlus, ClipboardList,
   CheckSquare, HeartHandshake, PartyPopper, CalendarClock, Sparkles,
-  CreditCard, Banknote, Building2, Landmark,
+  CreditCard, Banknote, Building2, Landmark, Calculator,
 } from 'lucide-react'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { DEPARTMENT_LIST } from '../constants/departments'
@@ -79,6 +79,7 @@ function getTabLabel(tab) {
     case 'entry':             return 'Entry'
     case 'income':            return 'Income'
     case 'expense':           return 'Expense'
+    case 'tally':             return 'Tally'
     case 'insights':          return 'Insights'
     case 'visitorEntry':      return 'Visitors'
     case 'register':          return 'Kids Register'
@@ -126,6 +127,7 @@ function getTabIcon(tab) {
     case 'entry':              return PenSquare
     case 'income':             return Banknote
     case 'expense':            return CreditCard
+    case 'tally':              return Calculator
     case 'insights':           return LineChart
     case 'visitorEntry':       return UserPlus
     case 'register':           return ClipboardList

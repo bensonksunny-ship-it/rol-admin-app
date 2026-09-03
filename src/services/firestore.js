@@ -1289,7 +1289,10 @@ export async function getSundayPlansForYear(year) {
 export async function getFinanceIncome(filters = {}) {
   let q = collection(db, 'finance_income')
   const constraints = []
-  if (filters.month != null && filters.year != null) {
+  if (filters.startDate && filters.endDate) {
+    constraints.push(where('date', '>=', Timestamp.fromDate(filters.startDate)))
+    constraints.push(where('date', '<=', Timestamp.fromDate(filters.endDate)))
+  } else if (filters.month != null && filters.year != null) {
     const y = filters.year
     const m = filters.month
     const start = new Date(y, m, 1)
@@ -1378,6 +1381,32 @@ export async function getFinanceExpense(filters = {}) {
     const data = d.data()
     return { id: d.id, ...data, date: toDate(data.date) }
   })
+}
+
+// Finance Tally — optional per-month opening-balance anchors. The Tally page normally
+// carries the balance forward automatically (all income minus all non-pending expense
+// before the month); a doc here overrides the opening balance for its month AND becomes
+// the baseline every later month carries forward from. Doc id is the month key "yyyy-MM".
+export async function getFinanceTallyAnchors() {
+  const snap = await getDocs(collection(db, 'finance_tally'))
+  return snap.docs.map((d) => ({ monthKey: d.id, ...d.data() }))
+}
+
+export async function setFinanceTallyAnchor(monthKey, { openingBalance, note, updatedBy } = {}) {
+  await setDoc(
+    doc(db, 'finance_tally', monthKey),
+    {
+      openingBalance: Number(openingBalance) || 0,
+      note: note || '',
+      updatedBy: updatedBy || '',
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true }
+  )
+}
+
+export async function deleteFinanceTallyAnchor(monthKey) {
+  await deleteDoc(doc(db, 'finance_tally', monthKey))
 }
 
 // ── Advance Payout Requests ───────────────────────────────────────────────────

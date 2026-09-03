@@ -165,6 +165,7 @@ import { getOperationsChildren } from '../utils/departmentSubpages'
 import SecCoreFinance from './seccore/SecCoreFinance'
 import ExpensePage from './accounts/ExpensePage'
 import IncomePage from './accounts/IncomePage'
+import TallyPage from './accounts/TallyPage'
 import AddDepartmentsPage from './accounts/AddDepartmentsPage'
 import BudgetPage from './accounts/BudgetPage'
 import UpcomingSunday from './UpcomingSunday'
@@ -1095,7 +1096,7 @@ export default function DepartmentHub() {
   // stays put when you come back via the department nav bar.
   useEffect(() => {
     if (slug !== 'accounts') return
-    if (activeTab !== 'income' && activeTab !== 'expense') return
+    if (activeTab !== 'income' && activeTab !== 'expense' && activeTab !== 'tally') return
     if (accountsMonthParam) return
     let remembered = null
     try { remembered = sessionStorage.getItem('accountsMonth') } catch { /* ignore */ }
@@ -4252,6 +4253,10 @@ export default function DepartmentHub() {
 
           {activeTab === 'expense' && slug === 'accounts' && (
             <ExpensePage controlledMonth={accountsMonth} onMonthChange={setAccountsMonth} />
+          )}
+
+          {activeTab === 'tally' && slug === 'accounts' && (
+            <TallyPage controlledMonth={accountsMonth} onMonthChange={setAccountsMonth} />
           )}
 
           {activeTab === 'budget' && slug === 'accounts' && (
