@@ -1,4 +1,4 @@
-# File Manager — Auto-Print Face Sheet on New File — Design
+# File Manager — File Detail View + Auto-Print Face Sheet — Design
 
 ## Context
 
@@ -7,42 +7,57 @@ registry with a printable cover/face sheet — see
 `docs/superpowers/specs/2026-08-26-file-manager-design.md`. The existing pieces:
 
 - `src/pages/FileManager.jsx` — the registry table, search/filter, New Entry,
-  Excel import, row-click → face sheet overlay.
+  Excel import, row-click → face sheet overlay, `⋮` row menu (Edit / Delete).
 - `src/components/CreateFileModal.jsx` — the New Entry / Edit form.
 - `src/components/ProjectFileTemplate.jsx` — the A4 face sheet overlay: blue
   header banner, ROLCC + red SL No block, split two-column activity ledger,
   blue footer bar, and a **Download as PDF** button (jsPDF `doc.html()`).
+- `src/components/RowActionsMenu.jsx` — the shared `⋮` menu component used across
+  the Accounts ledger pages and here.
 
-This spec covers the remaining gap: **when a new file is created, the Founder
-needs to immediately print its face sheet** to place inside the physical file.
-Currently, saving a new entry just closes the modal.
+This spec covers two related changes:
+
+1. **New file → immediate face sheet + auto-print.** When a new project file is
+   created, its face sheet opens and the browser print dialog fires
+   automatically, so the Founder just picks a printer and prints the sheet to
+   place inside the physical file.
+2. **Row click now opens a file detail view** (days-since-started, status
+   controls, activity summary) instead of jumping straight to the face sheet.
+   The face sheet becomes an explicit action in the `⋮` row menu (and a button
+   inside the detail view) — this is the reprint path for older files whose
+   physical face sheet is lost or torn.
 
 ## Goals
 
 1. Creating a new project file auto-opens its face sheet and auto-triggers the
-   browser print dialog, so the Founder only picks a printer and prints.
+   browser print dialog.
 2. The face sheet gains an explicit **Print Face Page** button (native print),
    alongside the existing Download PDF button.
-3. Older files whose physical face sheet is lost or torn can be reprinted — this
-   is already served by the existing row-click → face sheet overlay; no new
-   affordance needed.
-4. The header banner colour changes to `#2b5b84` (per the office's current
-   letterhead), replacing `#1E4E8C`.
+3. Clicking a registry row opens a **File Detail** modal showing:
+   - file name, SL No, remarks pill, closing date;
+   - **days since started** (and the start date);
+   - a **status control** to mark the file Active / Project Completed / Project
+     Withheld / Archived;
+   - a short activity summary (count + latest activity);
+   - a **Face Sheet** button that opens `ProjectFileTemplate`.
+4. The `⋮` row menu gains a **Face Sheet** item (above Edit / Delete) that opens
+   `ProjectFileTemplate` directly.
+5. The header banner colour changes to `#2b5b84`, replacing `#1E4E8C`.
 
 ## Non-goals
 
-- No changes to the activity ledger, the Add Activity flow, the Download-as-PDF
-  path, the Excel import, or `firestore.rules`.
-- No changes to the row-click behaviour or the `⋮` row-actions menu.
-- No new "print" column, bulk print, or print-history tracking.
+- No changes to the activity ledger rendering, the Add Activity flow, the
+  Download-as-PDF path, the Excel import, or `firestore.rules`.
+- No new "print history" tracking, bulk print, or print column.
+- No changes to `CreateFileModal` (status is still editable there too).
 
 ## Design
 
 ### 1. `src/components/ProjectFileTemplate.jsx`
 
-**Colour.** Change the `HEADER_BLUE` constant from `#1E4E8C` to `#2b5b84`. It is
-used for the header banner background and the footer accent bar. The SL-No red
-(`SL_RED = '#E53E3E'`) is unchanged.
+**Colour.** Change the `HEADER_BLUE` constant from `#1E4E8C` to `#2b5b84`
+(header banner background + footer accent bar). `SL_RED = '#E53E3E'` is
+unchanged.
 
 **Print target id.** The A4 sheet `<div ref={pageRef} …>` also gets
 `id="face-sheet-print"` so the global print stylesheet can isolate it.
@@ -57,12 +72,11 @@ existing Download-as-PDF button:
 </button>
 ```
 
-`window.print()` is synchronous and blocks script execution until the dialog is
-dismissed — acceptable here because it is explicitly user-triggered. This is a
-real browser print dialog, not a JS `alert`/`confirm`, so it does not wedge the
-app.
+`window.print()` is synchronous and blocks script until the dialog is dismissed
+— acceptable because it is explicitly user-triggered. It is a real browser print
+dialog, not a JS `alert`/`confirm`, so it does not wedge the app.
 
-**Auto-print on creation.** A new prop `autoPrint` (boolean, default `false`).
+**Auto-print on creation.** A new prop `autoPrint` (boolean, default `false`):
 
 ```jsx
 const autoPrintedRef = useRef(false)
@@ -74,11 +88,10 @@ useEffect(() => {
 }, [autoPrint])
 ```
 
-- The `autoPrintedRef` guard ensures the dialog fires **exactly once** per mount,
-  even though the component re-renders when an activity is added or the live
+- The `autoPrintedRef` guard fires the dialog **exactly once** per mount, even
+  though the component re-renders when an activity is added or the live
   subscription pushes an update.
-- The ~200ms timeout lets the A4 layout and web fonts settle before the print
-  snapshot is taken.
+- The ~200ms timeout lets the A4 layout and web fonts settle first.
 
 ### 2. `src/index.css`
 
@@ -109,17 +122,95 @@ print CSS anywhere in the app):
   standard technique to print one on-screen element and drop the app chrome and
   the dark overlay backdrop.
 - `print-color-adjust: exact` forces the blue banner, blue footer bar, ledger
-  grid, and red SL-No text to render — browsers otherwise strip backgrounds and
-  lighten colours when printing.
+  grid, and red SL-No text to render.
 - `@page { size: A4; margin: 0 }` — the sheet already carries its own internal
-  padding, so the page margin is zeroed to avoid a double margin.
+  padding.
 
-### 3. `src/pages/FileManager.jsx`
+### 3. `src/components/RowActionsMenu.jsx` (shared component — backward-compatible)
 
-**New state:** `const [autoPrintId, setAutoPrintId] = useState(null)`.
+Add one optional prop, `extraItems` (default `[]`), an array of
+`{ label, icon, onClick, tone }` (`tone` ∈ `'default' | 'danger'`, default
+`'default'`). When present, these render as buttons **above** Edit, each closing
+the menu then calling `onClick`. Existing consumers pass nothing and are
+unaffected.
 
-**`handleSaveFile`** — the create branch captures the returned doc id and opens
-the sheet in auto-print mode; the edit branch is unchanged:
+File Manager passes:
+
+```jsx
+extraItems={[{ label: 'Face Sheet', icon: '🖨', onClick: () => openFaceSheet(f) }]}
+```
+
+### 4. `src/components/ProjectFileDetail.jsx` — new component
+
+A portal modal (same pattern as `CreateFileModal.jsx`), opened by a row click.
+Props: `file`, `onClose`, `onOpenFaceSheet`.
+
+**Layout**
+
+- Header: `file.fileName` (title), `SL No: {slNo}` (mono), remarks pill (reuses
+  `REMARKS_STYLES` — lift the map to a shared spot or duplicate the small
+  object; duplication is fine, it is 4 lines).
+- **Started / days open row:**
+  - Start date = `file.createdAt?.toDate?.()` if present, else parsed from the
+    `slNo` prefix (`ddMMyyyy`, the office's own numbering) if that yields a valid
+    date, else `null`.
+  - Show `"Started 06 Mar 2026 · 181 days open"`. If the file has a
+    `closingDate`, show `"Open 06 Mar 2026 → 04 Sep 2026 · 182 days"` instead
+    (days between start and closing). If no start date is derivable, show
+    `"Start date unknown"`.
+  - Day count helper: `Math.max(0, Math.round((end - start) / 86400000))`.
+- **Status control:** a segmented control of the four `REMARKS_OPTIONS`
+  (`Active`, `Project Completed`, `Project Withheld`, `Archived`). Clicking a
+  segment writes immediately via `setProjectFileRemarks` (below). The live
+  subscription re-renders the row and this modal. On failure, an inline error is
+  shown (no silent `catch {}`).
+  - When the new status is `Project Completed` **and** `closingDate` is empty,
+    the same write also sets `closingDate` to today. Changing away from
+    `Project Completed` does **not** clear it (the Founder can still edit it via
+    Edit).
+- **Activity summary:** `"{n} activities · last: {activity text} ({date})"`, or
+  `"No activities logged yet"`.
+- Footer: **🖨 Face Sheet** button → `onOpenFaceSheet(file)` (closes this modal,
+  opens `ProjectFileTemplate`), and a **Close** button.
+
+### 5. `src/services/firestore.js`
+
+New function:
+
+```js
+export async function setProjectFileRemarks(id, remarks, extra = {}) {
+  await updateDoc(doc(db, PROJECT_FILES, id), {
+    remarks,
+    ...extra,               // e.g. { closingDate: '2026-09-04' }
+    updatedAt: serverTimestamp(),
+  })
+}
+```
+
+Partial update — unlike `updateProjectFile`, it does not rewrite `slNo` /
+`fileName` / `closingDate` unless told to.
+
+### 6. `src/pages/FileManager.jsx`
+
+**State:**
+
+```jsx
+const [detailFileId, setDetailFileId] = useState(null)   // File Detail modal
+const [faceSheetFileId, setFaceSheetFileId] = useState(null) // face sheet overlay
+const [autoPrintId, setAutoPrintId] = useState(null)     // auto-fire print once
+```
+
+`selectedFileId` is renamed to `detailFileId` (row click → detail, not face
+sheet). The derived `selectedFile` becomes `detailFile` / `faceSheetFile`
+lookups against `files`.
+
+**Row click:** `onClick={() => setDetailFileId(f.id)}`.
+
+**`⋮` menu:** `extraItems` opens the face sheet:
+`() => setFaceSheetFileId(f.id)`.
+
+**`handleSaveFile`** — create branch opens the face sheet in auto-print mode;
+edit branch unchanged:
 
 ```jsx
 async function handleSaveFile(form) {
@@ -127,49 +218,54 @@ async function handleSaveFile(form) {
     await updateProjectFile(form.id, form)
   } else {
     const newId = await createProjectFile(form, user?.uid || null)
-    setSelectedFileId(newId)
+    setFaceSheetFileId(newId)
     setAutoPrintId(newId)
   }
   setFileModal(null)
 }
 ```
 
-`createProjectFile` already returns `ref.id`. Firestore's local
-latency-compensation puts the new document into the live `files` array
-synchronously after the `await`, so the derived `selectedFile` resolves without
-any optimistic local copy. If it is momentarily absent, the overlay simply
-appears a beat later once the snapshot lands.
+`createProjectFile` returns `ref.id`. Firestore latency-compensation puts the
+new doc into the live `files` array right after the `await`; if it is
+momentarily absent the overlay just appears a beat later.
 
-**Render** — pass the flag and clear it on close:
+**Render:**
 
 ```jsx
-{selectedFile && (
+{detailFile && (
+  <ProjectFileDetail
+    file={detailFile}
+    onClose={() => setDetailFileId(null)}
+    onOpenFaceSheet={(f) => { setDetailFileId(null); setFaceSheetFileId(f.id) }}
+  />
+)}
+{faceSheetFile && (
   <ProjectFileTemplate
-    file={selectedFile}
-    autoPrint={autoPrintId === selectedFile.id}
-    onClose={() => { setSelectedFileId(null); setAutoPrintId(null) }}
+    file={faceSheetFile}
+    autoPrint={autoPrintId === faceSheetFile.id}
+    onClose={() => { setFaceSheetFileId(null); setAutoPrintId(null) }}
   />
 )}
 ```
 
-`setAutoPrintId(null)` is also called wherever `setSelectedFileId(null)` already
-runs (e.g. the delete handler), so the flag never lingers.
-
-## Reprint path for older files
-
-Unchanged and already working: clicking any row in the registry table opens the
-same `ProjectFileTemplate` overlay with **Print Face Page** and **Download as
-PDF**. That is the documented way to regenerate a lost or damaged physical face
-sheet.
+`setAutoPrintId(null)` also runs anywhere the face sheet id is cleared, and in
+`handleDelete` alongside the existing `setSelectedFileId(null)` cleanup.
 
 ## Manual verification
 
-1. Create a new entry ("ROL's School Of Music V2"). The face sheet opens and the
-   browser print dialog appears automatically; the banner is `#2b5b84`, the SL
-   No is red, the ledger grid prints with borders.
-2. Cancel the print dialog — the face sheet stays open, no error, no repeat
-   dialog.
-3. Add an activity from within the sheet — no second print dialog fires.
-4. Close and click an existing row — the sheet opens **without** auto-printing;
-   the Print Face Page button works on demand.
-5. Download as PDF still produces the same A4 PDF as before.
+1. Create a new entry ("ROL's School Of Music V2"). The **face sheet** opens and
+   the print dialog fires automatically; banner is `#2b5b84`, SL No red, ledger
+   grid prints with borders.
+2. Cancel the print dialog — face sheet stays open, no repeat dialog. Add an
+   activity — no second dialog.
+3. Close everything. Click an existing row → **File Detail** opens (not the face
+   sheet). It shows start date + days open, status segments, activity summary.
+4. In File Detail, click **Project Completed** → row pill updates live, closing
+   date fills to today (was empty). Click **Active** again → status reverts,
+   closing date stays.
+5. In File Detail, click **🖨 Face Sheet** → detail closes, face sheet opens
+   **without** auto-printing; Print Face Page button works on demand.
+6. `⋮` menu → **Face Sheet** opens the same overlay directly.
+7. Download as PDF still produces the same A4 PDF.
+8. Open an Accounts ledger page (e.g. ExpensePage) — its `⋮` menu still shows
+   only Edit / Delete (no regression from the `extraItems` prop).
