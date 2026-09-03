@@ -43,6 +43,8 @@ This spec covers two related changes:
 4. The `⋮` row menu gains a **Face Sheet** item (above Edit / Delete) that opens
    `ProjectFileTemplate` directly.
 5. The header banner colour changes to `#2b5b84`, replacing `#1E4E8C`.
+6. The New Entry form auto-fills the SL number in the office's format
+   `D + MM + YYYY + NNN` (see §7), pre-filled but still editable.
 
 ## Non-goals
 
@@ -251,6 +253,41 @@ momentarily absent the overlay just appears a beat later.
 `setAutoPrintId(null)` also runs anywhere the face sheet id is cleared, and in
 `handleDelete` alongside the existing `setSelectedFileId(null)` cleanup.
 
+### 7. `src/pages/FileManager.jsx` — SL number generation
+
+The existing `nextSlNo(files)` helper is replaced. New format, matching the
+office's paper ledger:
+
+```
+<D><MM><YYYY><NNN>
+```
+
+- `D` — day of month, **no leading zero** (`1`–`31`).
+- `MM` — month, zero-padded (`01`–`12`).
+- `YYYY` — 4-digit year.
+- `NNN` — the office's **lifetime running file number**, zero-padded to 3
+  digits: `String(files.length + 1).padStart(3, '0')`.
+
+Example: the 138th file ever, created 6 Mar 2026 → `6` + `03` + `2026` + `138`
+= `6032026138`. The 9th file on 15 Mar 2026 → `1503202609`.
+
+```js
+function nextSlNo(files) {
+  const datePart = format(new Date(), 'dMMyyyy')     // date-fns: `d` = un-padded day
+  const running = String(files.length + 1).padStart(3, '0')
+  return `${datePart}${running}`
+}
+```
+
+`openCreate()` already seeds the form with `slNo: nextSlNo(files)`, and
+`CreateFileModal`'s SL No input stays editable — so the Founder can still
+override it (e.g. after an Excel import where the running count is not yet
+migrated). No change to `CreateFileModal.jsx`.
+
+Note: `files.length` counts every registry row including Excel-imported ones, so
+once the paper ledger is fully imported the running number lines up. Until then
+the Founder edits the field as needed — hence it stays editable.
+
 ## Manual verification
 
 1. Create a new entry ("ROL's School Of Music V2"). The **face sheet** opens and
@@ -269,3 +306,5 @@ momentarily absent the overlay just appears a beat later.
 7. Download as PDF still produces the same A4 PDF.
 8. Open an Accounts ledger page (e.g. ExpensePage) — its `⋮` menu still shows
    only Edit / Delete (no regression from the `extraItems` prop).
+9. Click New Entry — the SL No field is pre-filled like `6032026NNN` (today's
+   un-padded day, month, year, 3-digit running number) and can be typed over.
