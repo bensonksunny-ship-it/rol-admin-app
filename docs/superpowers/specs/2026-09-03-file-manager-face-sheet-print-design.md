@@ -153,9 +153,11 @@ Props: `file`, `onClose`, `onOpenFaceSheet`.
   `REMARKS_STYLES` — lift the map to a shared spot or duplicate the small
   object; duplication is fine, it is 4 lines).
 - **Started / days open row:**
-  - Start date = `file.createdAt?.toDate?.()` if present, else parsed from the
-    `slNo` prefix (`ddMMyyyy`, the office's own numbering) if that yields a valid
-    date, else `null`.
+  - Start date = parsed from the SL number, which **is** the file's start date
+    (`<D|DD><MM><YYYY><running no.>` — `6032026138` and `06032026138` both mean
+    6 Mar 2026). Try a 2-digit day then a 1-digit day, validating month 1–12 /
+    day 1–31. `file.createdAt?.toDate?.()` is only a fallback when the SL number
+    doesn't parse as a date; `null` if neither works.
   - Show `"Started 06 Mar 2026 · 181 days open"`. If the file has a
     `closingDate`, show `"Open 06 Mar 2026 → 04 Sep 2026 · 182 days"` instead
     (days between start and closing). If no start date is derivable, show

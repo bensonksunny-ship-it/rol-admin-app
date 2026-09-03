@@ -16,15 +16,12 @@ function formatDisplayDate(d) {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-// Best-effort start date: the Firestore createdAt timestamp, or — for
-// Excel-imported legacy files that have no createdAt — the date encoded in the
-// SL number prefix (DMMYYYY or DDMMYYYY, the office's own numbering).
+// The SL number IS the file's start date: <D|DD><MM><YYYY><running no.> — e.g.
+// 6032026138 / 06032026138 both mean 6 March 2026. That's the office's own
+// numbering and the authoritative "file started" date, so it comes first;
+// the Firestore createdAt timestamp is only a fallback when the SL number
+// can't be parsed as a date.
 function deriveStartDate(file) {
-  const ts = file.createdAt
-  if (ts && typeof ts.toDate === 'function') {
-    const d = ts.toDate()
-    if (!Number.isNaN(d.getTime())) return d
-  }
   const slNo = String(file.slNo || '')
   for (const re of [/^(\d{2})(\d{2})(\d{4})/, /^(\d)(\d{2})(\d{4})/]) {
     const m = slNo.match(re)
@@ -32,6 +29,11 @@ function deriveStartDate(file) {
     const day = Number(m[1]); const month = Number(m[2]); const year = Number(m[3])
     if (month < 1 || month > 12 || day < 1 || day > 31) continue
     const d = new Date(year, month - 1, day)
+    if (!Number.isNaN(d.getTime())) return d
+  }
+  const ts = file.createdAt
+  if (ts && typeof ts.toDate === 'function') {
+    const d = ts.toDate()
     if (!Number.isNaN(d.getTime())) return d
   }
   return null
