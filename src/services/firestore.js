@@ -6465,6 +6465,17 @@ export async function updateProjectFile(id, data) {
 // Firestore's dotted-path update can't append into an array field safely, so
 // callers pass the doc's current `activities` array (already in hand from the
 // live subscription) and this writes it back with the new entry appended.
+// Targeted status change from the File Detail view — a partial update, so it
+// never rewrites slNo / fileName. `extra` lets the caller also set closingDate
+// (e.g. auto-fill "today" when a file is marked Project Completed).
+export async function setProjectFileRemarks(id, remarks, extra = {}) {
+  await updateDoc(doc(db, PROJECT_FILES, id), {
+    remarks,
+    ...extra,
+    updatedAt: serverTimestamp(),
+  })
+}
+
 export async function addProjectFileActivity(id, activities, entry) {
   await updateDoc(doc(db, PROJECT_FILES, id), {
     activities: [...(activities || []), entry],

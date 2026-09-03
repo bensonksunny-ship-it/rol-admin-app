@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import RowActionsMenu from '../components/RowActionsMenu'
 import CreateFileModal from '../components/CreateFileModal'
 import ProjectFileTemplate from '../components/ProjectFileTemplate'
+import ProjectFileDetail from '../components/ProjectFileDetail'
 import { subscribeProjectFiles, createProjectFile, updateProjectFile, deleteProjectFile, bulkCreateProjectFiles } from '../services/firestore'
 
 // Founder-only office file registry — replaces the church office's physical
@@ -26,13 +27,14 @@ function formatDisplayDate(iso) {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-// SL No defaults to DDMMYYYY + a per-day sequence, matching the office's paper
-// numbering (e.g. "06032026138" = 6 Mar 2026, 138th file logged that day) —
+// SL No format: <D><MM><YYYY><NNN> — un-padded day, 2-digit month, 4-digit year,
+// then the office's lifetime running file number zero-padded to 3 digits
+// (e.g. "6032026138" = the 138th file, created 6 Mar 2026). Pre-filled but the
 // Founder can still overwrite it before saving.
 function nextSlNo(files) {
-  const prefix = format(new Date(), 'ddMMyyyy')
-  const todaysCount = files.filter((f) => (f.slNo || '').startsWith(prefix)).length
-  return `${prefix}${todaysCount + 1}`
+  const datePart = format(new Date(), 'dMMyyyy')
+  const running = String(files.length + 1).padStart(3, '0')
+  return `${datePart}${running}`
 }
 
 // Maps the office's existing Excel ledger headers onto our field names — same
@@ -80,7 +82,9 @@ export default function FileManager() {
   const [search, setSearch] = useState('')
   const [remarksFilter, setRemarksFilter] = useState('all')
   const [fileModal, setFileModal] = useState(null) // null closed, {...} without id = create, with id = edit
-  const [selectedFileId, setSelectedFileId] = useState(null)
+  const [detailFileId, setDetailFileId] = useState(null)       // File Detail modal
+  const [faceSheetFileId, setFaceSheetFileId] = useState(null) // face sheet overlay
+  const [autoPrintId, setAutoPrintId] = useState(null)         // fire print dialog once, on creation
   const [deletingId, setDeletingId] = useState(null)
   const [openActionMenu, setOpenActionMenu] = useState(null)
   const [pageError, setPageError] = useState('')
@@ -106,12 +110,16 @@ export default function FileManager() {
     return unsub
   }, [isFounder])
 
-  // Derived (not synced via effect) so the open detail sheet always reflects the
-  // live subscription — e.g. an activity just added from within it — with no
-  // separate copy of the record to keep in sync.
-  const selectedFile = useMemo(
-    () => files.find((f) => f.id === selectedFileId) || null,
-    [files, selectedFileId]
+  // Derived (not synced via effect) so the open sheets always reflect the live
+  // subscription — e.g. an activity or status just changed from within them —
+  // with no separate copy of the record to keep in sync.
+  const detailFile = useMemo(
+    () => files.find((f) => f.id === detailFileId) || null,
+    [files, detailFileId]
+  )
+  const faceSheetFile = useMemo(
+    () => files.find((f) => f.id === faceSheetFileId) || null,
+    [files, faceSheetFileId]
   )
 
   const visibleFiles = useMemo(() => {
@@ -135,7 +143,9 @@ export default function FileManager() {
     if (form.id) {
       await updateProjectFile(form.id, form)
     } else {
-      await createProjectFile(form, user?.uid || null)
+      const newId = await createProjectFile(form, user?.uid || null)
+      setFaceSheetFileId(newId)
+      setAutoPrintId(newId)
     }
     setFileModal(null)
   }
@@ -144,7 +154,8 @@ export default function FileManager() {
     try {
       await deleteProjectFile(id)
       setDeletingId(null)
-      if (selectedFileId === id) setSelectedFileId(null)
+      if (detailFileId === id) setDetailFileId(null)
+      if (faceSheetFileId === id) { setFaceSheetFileId(null); setAutoPrintId(null) }
     } catch {
       setPageError('Failed to delete file. Please try again.')
     }
@@ -335,7 +346,7 @@ export default function FileManager() {
                 {visibleFiles.map((f, idx) => (
                   <tr
                     key={f.id}
-                    onClick={() => setSelectedFileId(f.id)}
+                    onClick={() => setDetailFileId(f.id)}
                     className={`border-b border-slate-100 cursor-pointer hover:bg-indigo-50/40 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/70' : 'bg-white'}`}
                   >
                     <td className="px-3 py-2.5 text-slate-500">{idx + 1}</td>
@@ -359,6 +370,7 @@ export default function FileManager() {
                           openKey={openActionMenu}
                           onOpen={setOpenActionMenu}
                           onClose={() => setOpenActionMenu(null)}
+                          extraItems={[{ label: 'Face Sheet', icon: '🖨', onClick: () => setFaceSheetFileId(f.id) }]}
                           onEdit={() => openEdit(f)}
                           onDelete={() => setDeletingId(f.id)}
                         />
@@ -380,10 +392,19 @@ export default function FileManager() {
         />
       )}
 
-      {selectedFile && (
+      {detailFile && (
+        <ProjectFileDetail
+          file={detailFile}
+          onClose={() => setDetailFileId(null)}
+          onOpenFaceSheet={(f) => { setDetailFileId(null); setFaceSheetFileId(f.id) }}
+        />
+      )}
+
+      {faceSheetFile && (
         <ProjectFileTemplate
-          file={selectedFile}
-          onClose={() => setSelectedFileId(null)}
+          file={faceSheetFile}
+          autoPrint={autoPrintId === faceSheetFile.id}
+          onClose={() => { setFaceSheetFileId(null); setAutoPrintId(null) }}
         />
       )}
     </div>

@@ -570,3 +570,24 @@ body {
 .dark thead > tr.bg-slate-50 {
   background-color: rgba(15, 23, 42, 0.60) !important;
 }
+
+/* ─── Print: File Manager face sheet ──────────────────────────────────────────
+   The face sheet (ProjectFileTemplate) renders as a fixed overlay inside the
+   app. On print we hide everything else and lift just the A4 sheet to the page
+   origin, forcing its blue banner / red SL-No / ledger grid to actually ink. */
+@media print {
+  body * { visibility: hidden; }
+  #face-sheet-print, #face-sheet-print * { visibility: visible; }
+  #face-sheet-print {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    width: 210mm;
+    box-shadow: none;
+  }
+  #face-sheet-print * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  @page { size: A4; margin: 0; }
+}

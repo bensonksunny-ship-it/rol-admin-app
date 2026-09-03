@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom'
 // SavingsPage, …). Only one instance is ever "open" at a time (tracked by menuKey
 // against the page-level openKey).
 const ACTION_MENU_WIDTH = 140
-const ACTION_MENU_HEIGHT = 92 // approx height of the two-item menu, used to flip it upward near the viewport bottom
+const ACTION_MENU_ITEM_HEIGHT = 46 // approx height of one menu item, used to flip the menu upward near the viewport bottom
 
 // Renders its dropdown into document.body via a portal, positioned with `fixed`
 // coordinates computed from the trigger button — this is what actually fixes
@@ -23,21 +23,25 @@ const ACTION_MENU_HEIGHT = 92 // approx height of the two-item menu, used to fli
 // into document.body, not inside the card's DOM subtree) and the card collapses
 // before the click can take effect. See ExpensePage.jsx's own click-outside
 // handler for a working example.
-export default function RowActionsMenu({ menuKey, openKey, onOpen, onClose, onEdit, onDelete }) {
+// `extraItems` (optional): [{ label, icon, onClick, tone }] rendered above
+// Edit / Delete. `tone` is 'default' (indigo) or 'danger' (rose). Existing
+// consumers pass nothing and are unaffected.
+export default function RowActionsMenu({ menuKey, openKey, onOpen, onClose, onEdit, onDelete, extraItems = [] }) {
   const isOpen = openKey === menuKey
   const buttonRef = useRef(null)
   const menuRef = useRef(null)
   const [coords, setCoords] = useState(null)
+  const menuHeight = ACTION_MENU_ITEM_HEIGHT * (2 + extraItems.length)
 
   useEffect(() => {
     if (!isOpen || !buttonRef.current) return
     const rect = buttonRef.current.getBoundingClientRect()
-    const openUpward = rect.bottom + ACTION_MENU_HEIGHT > window.innerHeight
+    const openUpward = rect.bottom + menuHeight > window.innerHeight
     setCoords({
-      top: openUpward ? rect.top - ACTION_MENU_HEIGHT - 4 : rect.bottom + 4,
+      top: openUpward ? rect.top - menuHeight - 4 : rect.bottom + 4,
       left: Math.max(8, Math.min(rect.right - ACTION_MENU_WIDTH, window.innerWidth - ACTION_MENU_WIDTH - 8)),
     })
-  }, [isOpen])
+  }, [isOpen, menuHeight])
 
   useEffect(() => {
     if (!isOpen) return
@@ -75,6 +79,20 @@ export default function RowActionsMenu({ menuKey, openKey, onOpen, onClose, onEd
           style={{ position: 'fixed', top: coords.top, left: coords.left, width: ACTION_MENU_WIDTH }}
           className="z-[999] bg-white rounded-lg border border-slate-100 shadow-xl py-1"
         >
+          {extraItems.map((item, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => { onClose(); item.onClick(); }}
+              className={`w-full flex items-center gap-2 text-left py-2.5 px-4 text-sm font-medium transition-colors ${
+                item.tone === 'danger'
+                  ? 'text-rose-600 hover:bg-rose-50'
+                  : 'text-indigo-600 hover:bg-indigo-50'
+              }`}
+            >
+              {item.icon && <span className="text-base">{item.icon}</span>} {item.label}
+            </button>
+          ))}
           <button
             type="button"
             onClick={() => { onClose(); onEdit(); }}

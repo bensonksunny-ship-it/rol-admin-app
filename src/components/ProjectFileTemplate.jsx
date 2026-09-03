@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { addProjectFileActivity } from '../services/firestore'
 
-const HEADER_BLUE = '#1E4E8C'
+const HEADER_BLUE = '#2b5b84'
 const SL_RED = '#E53E3E'
 const LEDGER_ROWS_PER_COLUMN = 16
 
@@ -42,9 +42,10 @@ function LedgerTable({ rows, startNo, rowCount }) {
   )
 }
 
-/** Printable office file cover sheet — viewable on screen and downloadable as PDF. */
-export default function ProjectFileTemplate({ file, onClose }) {
+/** Printable office file cover sheet — viewable on screen, printable, and downloadable as PDF. */
+export default function ProjectFileTemplate({ file, onClose, autoPrint = false }) {
   const pageRef = useRef(null)
+  const autoPrintedRef = useRef(false)
   const [downloading, setDownloading] = useState(false)
   const [addingActivity, setAddingActivity] = useState(false)
   const [activityText, setActivityText] = useState('')
@@ -56,6 +57,17 @@ export default function ProjectFileTemplate({ file, onClose }) {
   const rowsPerColumn = Math.max(LEDGER_ROWS_PER_COLUMN, Math.ceil(activities.length / 2))
   const left = activities.slice(0, rowsPerColumn)
   const right = activities.slice(rowsPerColumn, rowsPerColumn * 2)
+
+  // Auto-fire the print dialog once when opened straight after file creation.
+  // The ref guard keeps it from re-firing on later re-renders (adding an
+  // activity, live-subscription pushes); the short delay lets the A4 sheet and
+  // web fonts lay out before the browser snapshots the page.
+  useEffect(() => {
+    if (!autoPrint || autoPrintedRef.current) return
+    autoPrintedRef.current = true
+    const t = setTimeout(() => window.print(), 200)
+    return () => clearTimeout(t)
+  }, [autoPrint])
 
   async function handleAddActivity(e) {
     e.preventDefault()
@@ -122,6 +134,13 @@ export default function ProjectFileTemplate({ file, onClose }) {
           </button>
           <button
             type="button"
+            onClick={() => window.print()}
+            className="px-4 py-2 rounded-xl bg-white/95 text-slate-700 text-sm font-semibold hover:bg-white transition-colors shadow-sm"
+          >
+            🖨 Print Face Page
+          </button>
+          <button
+            type="button"
             disabled={downloading}
             onClick={handleDownloadPdf}
             className="px-4 py-2 rounded-xl text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-colors shadow-sm"
@@ -167,6 +186,7 @@ export default function ProjectFileTemplate({ file, onClose }) {
       {/* A4-styled printable sheet */}
       <div
         ref={pageRef}
+        id="face-sheet-print"
         className="mx-auto bg-white shadow-2xl overflow-hidden flex flex-col"
         style={{ width: '210mm', minHeight: '297mm', fontFamily: 'system-ui, -apple-system, sans-serif' }}
       >
