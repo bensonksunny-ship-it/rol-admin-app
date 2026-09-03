@@ -215,10 +215,16 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
           )}
 
           {/* Program timeline */}
-          {hasTimings && (
+          {hasTimings && (() => {
+            const timings = row.programTimings
+            const totalSpan = timings.length > 1
+              ? formatDuration(timings[0].startTime, timings[timings.length - 1].startTime)
+              : null
+            return (
             <div>
-              <p style={{ fontSize: '7pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '2mm' }}>
-                Program Timeline
+              <p style={{ fontSize: '7pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '2mm', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Program Timeline</span>
+                {totalSpan && <span style={{ color: '#64748b' }}>Total {totalSpan}</span>}
               </p>
               <div style={{ border: '0.3mm solid #e2e8f0', borderRadius: '2.5mm', overflow: 'hidden' }}>
                 {row.programTimings.map((t, i) => {
@@ -241,6 +247,22 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
                     >
                       <span style={{ width: '1.5mm', height: '1.5mm', borderRadius: '50%', background: col.dot, flexShrink: 0 }} />
                       <span style={{ fontSize: '8.5pt', fontWeight: 700, color: '#334155', flex: 1 }}>{t.programName}</span>
+                      <span
+                        style={{
+                          fontSize: '7pt',
+                          fontWeight: 700,
+                          color: col.text,
+                          background: col.bg,
+                          padding: '0.5mm 2mm',
+                          borderRadius: '10mm',
+                          whiteSpace: 'nowrap',
+                          minWidth: '9mm',
+                          textAlign: 'center',
+                        }}
+                        title="Time on this program"
+                      >
+                        {duration || '—'}
+                      </span>
                       {t.plannedTime && (
                         <span style={{ fontSize: '7.5pt', color: '#6366f1', fontWeight: 600, tabularNums: true }}>
                           {t.plannedTime}
@@ -262,26 +284,13 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
                           {deltaLabel}
                         </span>
                       )}
-                      {duration && !deltaLabel && (
-                        <span
-                          style={{
-                            fontSize: '7pt',
-                            fontWeight: 700,
-                            color: col.text,
-                            background: col.bg,
-                            padding: '0.5mm 2mm',
-                            borderRadius: '10mm',
-                          }}
-                        >
-                          {duration}
-                        </span>
-                      )}
                     </div>
                   )
                 })}
               </div>
             </div>
-          )}
+            )
+          })()}
 
           {/* Footer */}
           <p style={{ fontSize: '7pt', color: '#cbd5e1', marginTop: '5mm', textAlign: 'center' }}>
