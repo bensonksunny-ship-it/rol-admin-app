@@ -644,6 +644,7 @@ export default function SundayReportsHistory() {
   const [cellGroups, setCellGroups] = useState([])
   const [loading, setLoading]       = useState(true)
   const [expandedDate, setExpanded] = useState(null)
+  const [expandedCell, setExpandedCell] = useState(null)
   const [deletingDate, setDeleting] = useState(null)
   const [showImport, setShowImport] = useState(false)
   const [printRow, setPrintRow] = useState(null)
@@ -723,7 +724,7 @@ export default function SundayReportsHistory() {
                   <button
                     key={row.date}
                     type="button"
-                    onClick={() => setExpanded(isSelected ? null : row.date)}
+                    onClick={() => { setExpanded(isSelected ? null : row.date); setExpandedCell(null) }}
                     className={`rounded-xl border text-center py-2 px-0.5 transition-all active:scale-95 ${
                       isSelected
                         ? 'border-indigo-500 bg-indigo-50 shadow-sm'
@@ -794,21 +795,63 @@ export default function SundayReportsHistory() {
                       ))}
                     </div>
 
-                    {/* Cell attendance */}
+                    {/* Cell attendance — tap a cell to reveal member names */}
                     {cellCols.length > 0 && (
                       <div className="space-y-1">
-                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Cell Groups</p>
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+                          Cell Groups <span className="normal-case font-normal text-slate-300">· tap to see names</span>
+                        </p>
                         <div className="grid grid-cols-2 gap-1">
                           {cellCols.map((c) => {
-                            const count = (sca[c.id] || []).length
+                            const names = (sca[c.id] || []).filter(Boolean)
+                            const count = names.length
+                            const isOpen = expandedCell === c.id
                             return (
-                              <div key={c.id} className="flex items-center justify-between px-2 py-1 rounded-md bg-indigo-50/60">
-                                <span className="text-xs text-slate-600 truncate mr-1">{c.name}</span>
+                              <button
+                                key={c.id}
+                                type="button"
+                                disabled={count === 0}
+                                onClick={() => setExpandedCell(isOpen ? null : c.id)}
+                                className={`flex items-center justify-between px-2 py-1 rounded-md text-left transition ${
+                                  isOpen ? 'bg-indigo-100 ring-1 ring-indigo-300' : 'bg-indigo-50/60'
+                                } ${count === 0 ? 'opacity-50 cursor-default' : 'hover:bg-indigo-100 active:scale-95'}`}
+                              >
+                                <span className="text-xs text-slate-600 truncate mr-1 flex items-center gap-1 min-w-0">
+                                  {count > 0 && (
+                                    <svg
+                                      width="7" height="7" viewBox="0 0 10 10" fill="currentColor"
+                                      className={`flex-shrink-0 text-indigo-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                                    >
+                                      <path d="M3 1l4 4-4 4z" />
+                                    </svg>
+                                  )}
+                                  <span className="truncate">{c.name}</span>
+                                </span>
                                 <span className="text-xs font-semibold text-indigo-700 tabular-nums flex-shrink-0">{count || 0}</span>
-                              </div>
+                              </button>
                             )
                           })}
                         </div>
+                        {expandedCell && (() => {
+                          const c = cellCols.find((x) => x.id === expandedCell)
+                          const names = (sca[expandedCell] || []).filter(Boolean)
+                          if (!c || names.length === 0) return null
+                          return (
+                            <div className="mt-1 rounded-md border border-indigo-100 bg-white px-2.5 py-2">
+                              <p className="text-[11px] font-semibold text-indigo-700 mb-1.5">{c.name} · {names.length}</p>
+                              <ul className="flex flex-wrap gap-1">
+                                {names.map((n, i) => (
+                                  <li
+                                    key={i}
+                                    className="inline-flex items-center border border-slate-200 bg-slate-50 text-[11px] text-slate-600 px-2 py-0.5 rounded-full"
+                                  >
+                                    {n}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )
+                        })()}
                       </div>
                     )}
 
