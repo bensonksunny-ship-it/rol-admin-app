@@ -83,21 +83,31 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
     if (!pageRef.current) return
     setDownloading(true)
     try {
-      const { jsPDF } = await import('jspdf')
-      const doc = new jsPDF('p', 'mm', 'a4')
-      await new Promise((resolve) => {
-        doc.html(pageRef.current, {
-          callback: (d) => {
-            d.save(`sunday-report-${row.date}.pdf`)
-            resolve()
-          },
-          x: 0,
-          y: 0,
-          width: 210,
-          windowWidth: 794,
-          autoPaging: false,
-        })
+      const [{ jsPDF }, html2canvasMod] = await Promise.all([
+        import('jspdf'),
+        import('html2canvas'),
+      ])
+      const html2canvas = html2canvasMod.default || html2canvasMod
+      // Rasterise the page exactly as the browser renders it, then drop that single
+      // image onto one A4 page. jsPDF's own .html() text engine was clipping letter
+      // edges and mis-aligning the flex rows; a snapshot sidesteps both.
+      const canvas = await html2canvas(pageRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
       })
+      const doc = new jsPDF('p', 'mm', 'a4')
+      const PAGE_W = 210
+      const PAGE_H = 297
+      let w = PAGE_W
+      let h = (canvas.height / canvas.width) * PAGE_W
+      if (h > PAGE_H) {
+        // Tall report — scale to fit a single page, centred horizontally.
+        h = PAGE_H
+        w = (canvas.width / canvas.height) * PAGE_H
+      }
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', (PAGE_W - w) / 2, 0, w, h)
+      doc.save(`sunday-report-${row.date}.pdf`)
     } catch (e) {
       console.error(e)
       alert('Failed to generate PDF.')
@@ -126,11 +136,18 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
         </button>
       </div>
 
-      {/* A4 page — fixed to 297mm so jsPDF never creates a second page */}
+      {/* A4 page — grows with content; the PDF step scales it to fit one A4 sheet */}
       <div
         ref={pageRef}
-        className="mx-auto bg-white shadow-2xl overflow-hidden"
-        style={{ width: '210mm', height: '297mm', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#334155' }}
+        className="mx-auto flex-shrink-0"
+        style={{
+          width: '210mm',
+          minHeight: '297mm',
+          background: '#ffffff',
+          boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          color: '#334155',
+        }}
       >
         {/* Header — accent rule, no fill */}
         <div style={{ padding: '9mm 14mm 4mm', borderBottom: '0.8mm solid #4338ca' }}>
