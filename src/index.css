@@ -573,17 +573,33 @@ body {
 
 /* ─── Print: File Manager face sheet ──────────────────────────────────────────
    The face sheet (ProjectFileTemplate) renders as a fixed overlay inside the
-   app. On print we hide everything else and lift just the A4 sheet to the page
-   origin, forcing its blue banner / red SL-No / ledger grid to actually ink. */
+   app, on top of the (tall, multi-page) File Manager table. On print we:
+   - collapse #root to zero height so the app content behind it produces no
+     pages (the sheet survives this because it's position: fixed, which is not
+     clipped by an ancestor's overflow);
+   - pin just the A4 sheet to the page origin at its natural height (min-height
+     is dropped so it never spills past one page);
+   - force colour so the blue banner / red SL-No / ledger grid actually ink. */
 @media print {
-  body * { visibility: hidden; }
-  #face-sheet-print, #face-sheet-print * { visibility: visible; }
+  html, body { background: #fff !important; }
+  #root { height: 0 !important; overflow: hidden !important; }
+
+  body * { visibility: hidden !important; }
+  #face-sheet-print, #face-sheet-print * { visibility: visible !important; }
+
   #face-sheet-print {
-    position: absolute;
-    inset: 0;
-    margin: 0;
-    width: 210mm;
-    box-shadow: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: auto !important;
+    bottom: auto !important;
+    margin: 0 !important;
+    width: 210mm !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: 297mm !important;
+    overflow: hidden !important;
+    box-shadow: none !important;
   }
   #face-sheet-print * {
     -webkit-print-color-adjust: exact;
