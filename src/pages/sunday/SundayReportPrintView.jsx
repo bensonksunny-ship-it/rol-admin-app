@@ -31,14 +31,33 @@ function formatDuration(isoA, isoB) {
   } catch { return null }
 }
 
+// Accent-only palette — border / text / dot, never a fill. Keeps the printed
+// page colourful without laying down ink-heavy background blocks.
 const STAT_COLORS = [
-  { bg: '#eef2ff', border: '#c7d2fe', text: '#4338ca', dot: '#6366f1' },
-  { bg: '#ecfdf5', border: '#a7f3d0', text: '#047857', dot: '#10b981' },
-  { bg: '#fffbeb', border: '#fde68a', text: '#b45309', dot: '#f59e0b' },
-  { bg: '#fdf2f8', border: '#fbcfe8', text: '#be185d', dot: '#ec4899' },
-  { bg: '#f0f9ff', border: '#bae6fd', text: '#0369a1', dot: '#0ea5e9' },
-  { bg: '#faf5ff', border: '#e9d5ff', text: '#7e22ce', dot: '#a855f7' },
+  { border: '#c7d2fe', text: '#4338ca', dot: '#6366f1' },
+  { border: '#a7f3d0', text: '#047857', dot: '#10b981' },
+  { border: '#fde68a', text: '#b45309', dot: '#f59e0b' },
+  { border: '#fbcfe8', text: '#be185d', dot: '#ec4899' },
+  { border: '#bae6fd', text: '#0369a1', dot: '#0ea5e9' },
+  { border: '#e9d5ff', text: '#7e22ce', dot: '#a855f7' },
 ]
+
+// Shared section heading — a colour tick + muted label, no background.
+function SectionLabel({ children, accent = '#6366f1', right = null }) {
+  return (
+    <p style={{
+      fontSize: '7pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase',
+      color: '#94a3b8', marginBottom: '1.8mm',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: '1.5mm' }}>
+        <span style={{ width: '1.5mm', height: '1.5mm', borderRadius: '0.4mm', background: accent, display: 'inline-block' }} />
+        {children}
+      </span>
+      {right}
+    </p>
+  )
+}
 
 /** A4-styled, printable Sunday report — viewable on screen and downloadable as PDF. */
 export default function SundayReportPrintView({ row, cellCols, onClose }) {
@@ -111,59 +130,50 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
       <div
         ref={pageRef}
         className="mx-auto bg-white shadow-2xl overflow-hidden"
-        style={{ width: '210mm', height: '297mm', fontFamily: 'system-ui, -apple-system, sans-serif' }}
+        style={{ width: '210mm', height: '297mm', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#334155' }}
       >
-        {/* Header */}
-        <div
-          style={{
-            background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)',
-            padding: '7mm 14mm 5mm',
-            color: 'white',
-          }}
-        >
-          <p style={{ fontSize: '8pt', letterSpacing: '0.15em', opacity: 0.85, textTransform: 'uppercase', margin: 0 }}>
+        {/* Header — accent rule, no fill */}
+        <div style={{ padding: '9mm 14mm 4mm', borderBottom: '0.8mm solid #4338ca' }}>
+          <p style={{ fontSize: '8pt', letterSpacing: '0.15em', color: '#6366f1', textTransform: 'uppercase', margin: 0, fontWeight: 700 }}>
             River Of Life Church
           </p>
-          <h1 style={{ fontSize: '17pt', fontWeight: 800, margin: '1.5mm 0 0' }}>Sunday Service Report</h1>
-          <p style={{ fontSize: '11pt', fontWeight: 600, margin: '1.5mm 0 0', opacity: 0.95 }}>
+          <h1 style={{ fontSize: '18pt', fontWeight: 800, margin: '1.5mm 0 0', color: '#1e293b' }}>Sunday Service Report</h1>
+          <p style={{ fontSize: '11pt', fontWeight: 600, margin: '1mm 0 0', color: '#64748b' }}>
             {formatDisplayDate(row.date)}
           </p>
         </div>
 
-        <div style={{ padding: '6mm 14mm 6mm' }}>
-          {/* Hero total */}
+        <div style={{ padding: '5mm 14mm' }}>
+          {/* Hero total — bordered, colour on text only */}
           <div
             style={{
-              background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+              border: '0.5mm solid #10b981',
               borderRadius: '3mm',
-              padding: '4mm 7mm',
-              color: 'white',
+              padding: '3mm 6mm',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              marginBottom: '5mm',
+              marginBottom: '4mm',
             }}
           >
             <div>
-              <p style={{ fontSize: '7.5pt', letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.85, margin: 0 }}>
+              <p style={{ fontSize: '7.5pt', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', margin: 0, fontWeight: 700 }}>
                 Total Attendance
               </p>
-              <p style={{ fontSize: '22pt', fontWeight: 800, margin: '1mm 0 0', lineHeight: 1 }}>
+              <p style={{ fontSize: '23pt', fontWeight: 800, margin: '0.5mm 0 0', lineHeight: 1, color: '#059669' }}>
                 {row.totalAttendance || 0}
               </p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: '7.5pt', opacity: 0.85, margin: 0 }}>Adults</p>
-              <p style={{ fontSize: '13pt', fontWeight: 700, margin: '0.5mm 0 0' }}>{row.totalAdults || 0}</p>
+              <p style={{ fontSize: '7.5pt', color: '#94a3b8', margin: 0, fontWeight: 600 }}>Adults</p>
+              <p style={{ fontSize: '13pt', fontWeight: 700, margin: '0.5mm 0 0', color: '#334155' }}>{row.totalAdults || 0}</p>
             </div>
           </div>
 
           {/* Cell groups */}
           {cellStats.length > 0 && (
-            <div style={{ marginBottom: '5mm' }}>
-              <p style={{ fontSize: '7pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '2mm' }}>
-                Cell Groups
-              </p>
+            <div style={{ marginBottom: '3.5mm' }}>
+              <SectionLabel accent="#6366f1">Cell Groups</SectionLabel>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '2mm' }}>
                 {cellStats.map((c, i) => {
                   const col = STAT_COLORS[i % STAT_COLORS.length]
@@ -171,10 +181,9 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
                     <div
                       key={c.name}
                       style={{
-                        background: col.bg,
                         border: `0.3mm solid ${col.border}`,
                         borderRadius: '2.5mm',
-                        padding: '2.5mm',
+                        padding: '2mm',
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '1.5mm', marginBottom: '0.5mm' }}>
@@ -191,25 +200,28 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
 
           {/* Other categories */}
           {otherStats.length > 0 && (
-            <div style={{ marginBottom: '5mm' }}>
-              <p style={{ fontSize: '7pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '2mm' }}>
-                Other Attendance
-              </p>
+            <div style={{ marginBottom: '3.5mm' }}>
+              <SectionLabel accent="#0ea5e9">Other Attendance</SectionLabel>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '2mm' }}>
-                {otherStats.map((s) => (
-                  <div
-                    key={s.label}
-                    style={{
-                      background: '#f8fafc',
-                      border: '0.3mm solid #e2e8f0',
-                      borderRadius: '2.5mm',
-                      padding: '2.5mm',
-                    }}
-                  >
-                    <p style={{ fontSize: '7.5pt', fontWeight: 700, color: '#334155', margin: '0 0 0.5mm' }}>{s.label}</p>
-                    <p style={{ fontSize: '13pt', fontWeight: 800, color: '#475569', margin: 0 }}>{s.value}</p>
-                  </div>
-                ))}
+                {otherStats.map((s, i) => {
+                  const col = STAT_COLORS[i % STAT_COLORS.length]
+                  return (
+                    <div
+                      key={s.label}
+                      style={{
+                        border: `0.3mm solid ${col.border}`,
+                        borderRadius: '2.5mm',
+                        padding: '2mm',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1.5mm', marginBottom: '0.5mm' }}>
+                        <span style={{ width: '1.5mm', height: '1.5mm', borderRadius: '50%', background: col.dot, display: 'inline-block', flexShrink: 0 }} />
+                        <span style={{ fontSize: '7.5pt', fontWeight: 700, color: '#334155', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{s.label}</span>
+                      </div>
+                      <p style={{ fontSize: '13pt', fontWeight: 800, color: col.text, margin: 0 }}>{s.value}</p>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -221,79 +233,80 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
               ? formatDuration(timings[0].startTime, timings[timings.length - 1].startTime)
               : null
             return (
-            <div>
-              <p style={{ fontSize: '7pt', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '2mm', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Program Timeline</span>
-                {totalSpan && <span style={{ color: '#64748b' }}>Total {totalSpan}</span>}
-              </p>
-              <div style={{ border: '0.3mm solid #e2e8f0', borderRadius: '2.5mm', overflow: 'hidden' }}>
-                {row.programTimings.map((t, i) => {
-                  const duration = formatDuration(t.startTime, row.programTimings[i + 1]?.startTime)
-                  const col = STAT_COLORS[i % STAT_COLORS.length]
-                  const delta = plannedDeltaMinutes(t.plannedTime, formatTimeHHMM(t.startTime))
-                  const deltaLabel = delta === null ? null : delta === 0 ? 'On time' : delta > 0 ? `+${delta}m` : `${-delta}m early`
-                  const deltaColor = delta === null ? null : delta === 0 ? '#059669' : delta > 0 ? '#dc2626' : '#0284c7'
-                  const deltaBg   = delta === null ? null : delta === 0 ? '#ecfdf5' : delta > 0 ? '#fef2f2' : '#f0f9ff'
-                  return (
-                    <div
-                      key={i}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '3mm',
-                        padding: '2mm 3.5mm',
-                        borderTop: i > 0 ? '0.2mm solid #f1f5f9' : 'none',
-                      }}
-                    >
-                      <span style={{ width: '1.5mm', height: '1.5mm', borderRadius: '50%', background: col.dot, flexShrink: 0 }} />
-                      <span style={{ fontSize: '8.5pt', fontWeight: 700, color: '#334155', flex: 1 }}>{t.programName}</span>
-                      <span
+              <div>
+                <SectionLabel
+                  accent="#f59e0b"
+                  right={totalSpan ? <span style={{ color: '#64748b' }}>Total {totalSpan}</span> : null}
+                >
+                  Program Timeline
+                </SectionLabel>
+                <div style={{ border: '0.3mm solid #e2e8f0', borderRadius: '2.5mm', overflow: 'hidden' }}>
+                  {row.programTimings.map((t, i) => {
+                    const duration = formatDuration(t.startTime, row.programTimings[i + 1]?.startTime)
+                    const col = STAT_COLORS[i % STAT_COLORS.length]
+                    const delta = plannedDeltaMinutes(t.plannedTime, formatTimeHHMM(t.startTime))
+                    const deltaLabel = delta === null ? null : delta === 0 ? 'On time' : delta > 0 ? `+${delta}m` : `${-delta}m early`
+                    const deltaColor = delta === null ? null : delta === 0 ? '#059669' : delta > 0 ? '#dc2626' : '#0284c7'
+                    return (
+                      <div
+                        key={i}
                         style={{
-                          fontSize: '7pt',
-                          fontWeight: 700,
-                          color: col.text,
-                          background: col.bg,
-                          padding: '0.5mm 2mm',
-                          borderRadius: '10mm',
-                          whiteSpace: 'nowrap',
-                          minWidth: '9mm',
-                          textAlign: 'center',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3mm',
+                          padding: '1.7mm 3.5mm',
+                          borderTop: i > 0 ? '0.2mm solid #f1f5f9' : 'none',
                         }}
-                        title="Time on this program"
                       >
-                        {duration || '—'}
-                      </span>
-                      {t.plannedTime && (
-                        <span style={{ fontSize: '7.5pt', color: '#6366f1', fontWeight: 600, tabularNums: true }}>
-                          {t.plannedTime}
-                        </span>
-                      )}
-                      <span style={{ fontSize: '8pt', color: '#64748b', fontWeight: 600 }}>{formatTime(t.startTime)}</span>
-                      {deltaLabel && (
+                        <span style={{ width: '1.5mm', height: '1.5mm', borderRadius: '50%', background: col.dot, flexShrink: 0 }} />
+                        <span style={{ fontSize: '8.5pt', fontWeight: 700, color: '#334155', flex: 1 }}>{t.programName}</span>
                         <span
                           style={{
                             fontSize: '7pt',
                             fontWeight: 700,
-                            color: deltaColor,
-                            background: deltaBg,
-                            padding: '0.5mm 2mm',
+                            color: col.text,
+                            border: `0.3mm solid ${col.border}`,
+                            padding: '0.4mm 2mm',
                             borderRadius: '10mm',
                             whiteSpace: 'nowrap',
+                            minWidth: '9mm',
+                            textAlign: 'center',
                           }}
+                          title="Time on this program"
                         >
-                          {deltaLabel}
+                          {duration || '—'}
                         </span>
-                      )}
-                    </div>
-                  )
-                })}
+                        {t.plannedTime && (
+                          <span style={{ fontSize: '7.5pt', color: '#6366f1', fontWeight: 600, tabularNums: true }}>
+                            {t.plannedTime}
+                          </span>
+                        )}
+                        <span style={{ fontSize: '8pt', color: '#64748b', fontWeight: 600 }}>{formatTime(t.startTime)}</span>
+                        {deltaLabel && (
+                          <span
+                            style={{
+                              fontSize: '7pt',
+                              fontWeight: 700,
+                              color: deltaColor,
+                              border: `0.3mm solid ${deltaColor}`,
+                              padding: '0.4mm 2mm',
+                              borderRadius: '10mm',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {deltaLabel}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
             )
           })()}
 
           {/* Footer */}
-          <p style={{ fontSize: '7pt', color: '#cbd5e1', marginTop: '5mm', textAlign: 'center' }}>
+          <p style={{ fontSize: '7pt', color: '#cbd5e1', marginTop: '4mm', textAlign: 'center' }}>
             Generated from the ROL Admin App · {format(new Date(), 'dd MMM yyyy, h:mm a')}
           </p>
         </div>
