@@ -141,7 +141,7 @@ import { SAVINGS_FUNDS } from '../constants/savingsFunds'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { computeWeekComerCandidates } from '../utils/weekComers'
-import { differenceInDays, differenceInYears, differenceInMonths, format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
+import { differenceInDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
 import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
@@ -1073,6 +1073,37 @@ export default function DepartmentHub() {
     if (activeTab !== 'finance') return
     setFinanceSubTab(financeSubFromUrl || 'expense')
   }, [activeTab, financeSubFromUrl])
+
+  // Accounts' Income and Expense tabs share one active month via a `?month=YYYY-MM`
+  // query param so switching tabs (or reloading, or opening a shared link) keeps the
+  // same month on both. The `entry/*` route has its own separate picker on EntryPage.
+  const accountsMonthParam = searchParams.get('month')
+  const accountsMonth = useMemo(() => {
+    const m = /^(\d{4})-(\d{2})$/.exec(accountsMonthParam || '')
+    if (m) return startOfMonth(new Date(Number(m[1]), Number(m[2]) - 1, 1))
+    return startOfMonth(new Date())
+  }, [accountsMonthParam])
+  const setAccountsMonth = useCallback((date) => {
+    const value = format(date, 'yyyy-MM')
+    const next = new URLSearchParams(searchParams)
+    next.set('month', value)
+    setSearchParams(next, { replace: true })
+    try { sessionStorage.setItem('accountsMonth', value) } catch { /* private mode */ }
+  }, [searchParams, setSearchParams])
+  // A nav <Link> into the Income/Expense tab (built by getDepartmentSubpages) carries
+  // only `?tab=`, dropping `month`. Restore it from the last-picked value so the month
+  // stays put when you come back via the department nav bar.
+  useEffect(() => {
+    if (slug !== 'accounts') return
+    if (activeTab !== 'income' && activeTab !== 'expense') return
+    if (accountsMonthParam) return
+    let remembered = null
+    try { remembered = sessionStorage.getItem('accountsMonth') } catch { /* ignore */ }
+    if (!remembered || !/^\d{4}-\d{2}$/.test(remembered)) return
+    const next = new URLSearchParams(searchParams)
+    next.set('month', remembered)
+    setSearchParams(next, { replace: true })
+  }, [slug, activeTab, accountsMonthParam, searchParams, setSearchParams])
 
   function formatDuration(firstSundayStr) {
     if (!firstSundayStr) return '—'
@@ -4216,11 +4247,11 @@ export default function DepartmentHub() {
           )}
 
           {activeTab === 'income' && slug === 'accounts' && (
-            <IncomePage />
+            <IncomePage controlledMonth={accountsMonth} onMonthChange={setAccountsMonth} />
           )}
 
           {activeTab === 'expense' && slug === 'accounts' && (
-            <ExpensePage />
+            <ExpensePage controlledMonth={accountsMonth} onMonthChange={setAccountsMonth} />
           )}
 
           {activeTab === 'budget' && slug === 'accounts' && (

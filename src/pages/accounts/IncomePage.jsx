@@ -23,7 +23,7 @@ const EMPTY_FORM = {
   towards: '',
 }
 
-export default function IncomePage({ controlledMonth } = {}) {
+export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   const { userProfile, hasPermission, isFounder } = useAuth()
   const [internalMonth, setInternalMonth] = useState(startOfMonth(new Date()))
   const activeMonth = controlledMonth || internalMonth
@@ -100,8 +100,14 @@ export default function IncomePage({ controlledMonth } = {}) {
     setExpandedCard(prev => (prev === key ? null : key))
   }
 
-  function prevMonth() { setInternalMonth(m => subMonths(m, 1)) }
-  function nextMonth() { setInternalMonth(m => addMonths(m, 1)) }
+  function prevMonth() {
+    if (onMonthChange) onMonthChange(subMonths(activeMonth, 1))
+    else setInternalMonth(m => subMonths(m, 1))
+  }
+  function nextMonth() {
+    if (onMonthChange) onMonthChange(addMonths(activeMonth, 1))
+    else setInternalMonth(m => addMonths(m, 1))
+  }
 
   function validate() {
     if (!form.date) return 'Date is required.'
@@ -191,8 +197,10 @@ export default function IncomePage({ controlledMonth } = {}) {
   return (
     <div className="max-w-[250mm] mx-auto space-y-5 pb-12">
 
-      {/* Month picker — hidden when month is controlled by parent */}
-      {!controlledMonth && (
+      {/* Month picker — hidden when a parent owns the picker (controlledMonth with no
+          onMonthChange, e.g. EntryPage); shown when the parent syncs month via onMonthChange
+          (DepartmentHub's accounts tabs) so this page's own picker drives the shared param. */}
+      {(!controlledMonth || onMonthChange) && (
         <div className="flex items-center justify-center gap-4 py-2">
           <button
             type="button"

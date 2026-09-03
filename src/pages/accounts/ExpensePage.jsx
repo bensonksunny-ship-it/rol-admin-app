@@ -65,7 +65,7 @@ const DEFAULT_DEPT_STATE = {
   editRows: [],
 }
 
-export default function ExpensePage({ controlledMonth } = {}) {
+export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   const { userProfile, hasPermission, isFounder } = useAuth()
   const [internalMonth, setInternalMonth] = useState(startOfMonth(new Date()))
   const activeMonth = controlledMonth || internalMonth
@@ -276,8 +276,16 @@ export default function ExpensePage({ controlledMonth } = {}) {
     }
   })
 
-  function prevMonth() { setInternalMonth(m => subMonths(m, 1)); setFilterDept('all') }
-  function nextMonth() { setInternalMonth(m => addMonths(m, 1)); setFilterDept('all') }
+  function prevMonth() {
+    if (onMonthChange) onMonthChange(subMonths(activeMonth, 1))
+    else setInternalMonth(m => subMonths(m, 1))
+    setFilterDept('all')
+  }
+  function nextMonth() {
+    if (onMonthChange) onMonthChange(addMonths(activeMonth, 1))
+    else setInternalMonth(m => addMonths(m, 1))
+    setFilterDept('all')
+  }
 
   function selectDept(dept) {
     setFilterDept(dept)
@@ -618,8 +626,10 @@ export default function ExpensePage({ controlledMonth } = {}) {
       {viewMode === 'weekly' ? null : (
       <>
 
-      {/* Month picker — hidden when month is controlled by parent */}
-      {!controlledMonth && (
+      {/* Month picker — hidden when a parent owns the picker (controlledMonth with no
+          onMonthChange, e.g. EntryPage); shown when the parent syncs month via onMonthChange
+          (DepartmentHub's accounts tabs) so this page's own picker drives the shared param. */}
+      {(!controlledMonth || onMonthChange) && (
         <div className="flex items-center justify-center gap-4 py-2">
           <button type="button" onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none" aria-label="Previous month">‹</button>
           <span className="text-base font-semibold text-slate-800 w-36 text-center">{format(activeMonth, 'MMMM yyyy')}</span>
