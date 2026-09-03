@@ -914,6 +914,14 @@ function DesignProgramTab({ canEdit, userProfile }) {
   // too so a program's allotted time can be set right where its elements are
   // designed. Live Control presets its countdown/progress target from this same value.
   const [durations, setDurations] = useState({})
+  // Inline rename of a program card. `renameMap` records each rename keyed by the
+  // program's *original* (Firestore) name so save() can patch the matching
+  // SundayProgramDefault.items[] entry — a program renamed here should also change
+  // on the Default Program timeline. Custom programs persist via `customPrograms`.
+  const [renamingProgram, setRenamingProgram] = useState(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [renameMap, setRenameMap] = useState({})
+  const renameCancelledRef = useRef(false)
 
   useEffect(() => {
     setLoading(true)
@@ -974,6 +982,51 @@ function DesignProgramTab({ canEdit, userProfile }) {
     if (expandedProgram === name) setExpandedProgram(null)
   }
 
+  const beginRename = (name) => {
+    renameCancelledRef.current = false
+    setRenamingProgram(name)
+    setRenameDraft(name)
+  }
+
+  const commitRename = () => {
+    const from = renamingProgram
+    const to = renameDraft.trim()
+    setRenamingProgram(null)
+    if (renameCancelledRef.current) { renameCancelledRef.current = false; return }
+    if (!from || !to || to === from) return
+    // Silently ignore a name that already belongs to another program (matches addProgram)
+    if ([...programs, ...customPrograms].some((p) => p !== from && p.toLowerCase() === to.toLowerCase())) return
+
+    const moveKey = (obj) => {
+      if (!(from in obj)) return obj
+      const next = { ...obj }
+      next[to] = next[from]
+      delete next[from]
+      return next
+    }
+
+    if (customPrograms.includes(from)) {
+      setCustomPrograms((prev) => prev.map((p) => (p === from ? to : p)))
+    } else {
+      setPrograms((prev) => prev.map((p) => (p === from ? to : p)))
+    }
+    setDesigns(moveKey)
+    setDurations(moveKey)
+    if (expandedProgram === from) setExpandedProgram(to)
+
+    setRenameMap((prev) => {
+      const orig = Object.keys(prev).find((k) => prev[k] === from)
+      const next = { ...prev }
+      if (orig) {
+        if (orig === to) delete next[orig]
+        else next[orig] = to
+      } else {
+        next[from] = to
+      }
+      return next
+    })
+  }
+
   const addCustomElement = () => {
     const el = newCustomEl.trim()
     if (!el) return
@@ -1009,8 +1062,14 @@ function DesignProgramTab({ canEdit, userProfile }) {
       // Program's timeline) gets appended as a new, unordered item so its duration
       // isn't lost — but only if a real duration was actually set for it.
       const fresh = await getSundayProgramDefault()
-      const existingNames = new Set(fresh.items.map((i) => i.programName))
-      const updatedItems = fresh.items.map((i) =>
+      // Apply grid renames onto the schedule doc, keyed by each item's original
+      // name, before merging durations so a renamed program stays renamed on the
+      // Default Program timeline too.
+      const freshItems = Object.keys(renameMap).length
+        ? fresh.items.map((i) => (renameMap[i.programName] ? { ...i, programName: renameMap[i.programName] } : i))
+        : fresh.items
+      const existingNames = new Set(freshItems.map((i) => i.programName))
+      const updatedItems = freshItems.map((i) =>
         durations[i.programName] !== undefined ? { ...i, duration: durations[i.programName] } : i
       )
       let nextOrder = updatedItems.length
@@ -1020,6 +1079,7 @@ function DesignProgramTab({ canEdit, userProfile }) {
         }
       })
       await setSundayProgramDefault(updatedItems, userProfile?.email || 'unknown', fresh.serviceStartTime, fresh.parallelPrograms)
+      setRenameMap({})
       setSavedOk(true)
       setTimeout(() => setSavedOk(false), 2500)
     } catch (e) {
@@ -1065,17 +1125,32 @@ function DesignProgramTab({ canEdit, userProfile }) {
                 background: `linear-gradient(90deg, ${color.accent}, ${color.accent}99)`,
               }} />
 
-              {/* Remove button — custom programs only */}
-              {isCustom && canEdit && (
-                <button
-                  type="button"
-                  onClick={() => removeCustomProgram(name)}
-                  title="Remove"
-                  className="absolute top-3 right-2 z-10 w-5 h-5 rounded-full flex items-center justify-center text-sm transition-all hover:scale-110"
-                  style={{ background: '#fee2e2', color: '#ef4444', border: 'none', cursor: 'pointer' }}
-                >
-                  ×
-                </button>
+              {/* Card actions — rename (all), remove (custom only) */}
+              {canEdit && renamingProgram !== name && (
+                <div className="absolute top-2.5 right-2 z-10 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); beginRename(name) }}
+                    title="Rename"
+                    className="w-5 h-5 rounded-full flex items-center justify-center transition-all hover:scale-110"
+                    style={{ background: '#f1f5f9', color: '#64748b', border: 'none', cursor: 'pointer' }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5z"/>
+                    </svg>
+                  </button>
+                  {isCustom && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); removeCustomProgram(name) }}
+                      title="Remove"
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-sm transition-all hover:scale-110"
+                      style={{ background: '#fee2e2', color: '#ef4444', border: 'none', cursor: 'pointer' }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Clickable body */}
@@ -1099,14 +1174,37 @@ function DesignProgramTab({ canEdit, userProfile }) {
                   }}>
                     {idx + 1}
                   </span>
-                  <span style={{
-                    fontSize: 12, fontWeight: 700, lineHeight: 1.35,
-                    color: isSelected ? color.accent : '#1e293b',
-                    paddingTop: 4, flex: 1,
-                    paddingRight: isCustom ? 18 : 0,
-                  }}>
-                    {name}
-                  </span>
+                  {renamingProgram === name ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation()
+                        if (e.key === 'Enter') commitRename()
+                        if (e.key === 'Escape') { renameCancelledRef.current = true; setRenameDraft(name); setRenamingProgram(null) }
+                      }}
+                      onBlur={commitRename}
+                      className="flex-1 min-w-0"
+                      style={{
+                        fontSize: 12, fontWeight: 700, lineHeight: 1.35, marginTop: 2,
+                        color: '#1e293b', background: '#fff',
+                        padding: '2px 6px', borderRadius: 6,
+                        border: `1.5px solid ${color.accent}`, outline: 'none',
+                      }}
+                    />
+                  ) : (
+                    <span style={{
+                      fontSize: 12, fontWeight: 700, lineHeight: 1.35,
+                      color: isSelected ? color.accent : '#1e293b',
+                      paddingTop: 4, flex: 1,
+                      paddingRight: canEdit ? (isCustom ? 42 : 24) : 0,
+                    }}>
+                      {name}
+                    </span>
+                  )}
                 </div>
 
                 {/* Element chips */}
