@@ -147,6 +147,9 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
           boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
           fontFamily: 'system-ui, -apple-system, sans-serif',
           color: '#334155',
+          // html2canvas clips glyph tops when the line box is tight — give every
+          // text node vertical headroom by default.
+          lineHeight: 1.45,
         }}
       >
         {/* Header — accent rule, no fill */}
@@ -177,7 +180,7 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
               <p style={{ fontSize: '7.5pt', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', margin: 0, fontWeight: 700 }}>
                 Total Attendance
               </p>
-              <p style={{ fontSize: '23pt', fontWeight: 800, margin: '0.5mm 0 0', lineHeight: 1, color: '#059669' }}>
+              <p style={{ fontSize: '23pt', fontWeight: 800, margin: '0.5mm 0 0', lineHeight: 1.2, color: '#059669' }}>
                 {row.totalAttendance || 0}
               </p>
             </div>
@@ -205,9 +208,9 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '1.5mm', marginBottom: '0.5mm' }}>
                         <span style={{ width: '1.5mm', height: '1.5mm', borderRadius: '50%', background: col.dot, display: 'inline-block', flexShrink: 0 }} />
-                        <span style={{ fontSize: '7.5pt', fontWeight: 700, color: '#334155', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{c.name}</span>
+                        <span style={{ fontSize: '7.5pt', lineHeight: 1.5, fontWeight: 700, color: '#334155', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }}>{c.name}</span>
                       </div>
-                      <p style={{ fontSize: '13pt', fontWeight: 800, color: col.text, margin: 0 }}>{c.count}</p>
+                      <p style={{ fontSize: '13pt', lineHeight: 1.25, fontWeight: 800, color: col.text, margin: 0 }}>{c.count}</p>
                     </div>
                   )
                 })}
@@ -233,9 +236,9 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '1.5mm', marginBottom: '0.5mm' }}>
                         <span style={{ width: '1.5mm', height: '1.5mm', borderRadius: '50%', background: col.dot, display: 'inline-block', flexShrink: 0 }} />
-                        <span style={{ fontSize: '7.5pt', fontWeight: 700, color: '#334155', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{s.label}</span>
+                        <span style={{ fontSize: '7.5pt', lineHeight: 1.5, fontWeight: 700, color: '#334155', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }}>{s.label}</span>
                       </div>
-                      <p style={{ fontSize: '13pt', fontWeight: 800, color: col.text, margin: 0 }}>{s.value}</p>
+                      <p style={{ fontSize: '13pt', lineHeight: 1.25, fontWeight: 800, color: col.text, margin: 0 }}>{s.value}</p>
                     </div>
                   )
                 })}
@@ -294,7 +297,7 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
                           {duration || '—'}
                         </span>
                         {t.plannedTime && (
-                          <span style={{ fontSize: '7.5pt', color: '#6366f1', fontWeight: 600, tabularNums: true }}>
+                          <span style={{ fontSize: '7.5pt', color: '#6366f1', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                             {t.plannedTime}
                           </span>
                         )}
