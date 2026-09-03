@@ -922,6 +922,7 @@ function DesignProgramTab({ canEdit, userProfile }) {
   const [renameDraft, setRenameDraft] = useState('')
   const [renameMap, setRenameMap] = useState({})
   const renameCancelledRef = useRef(false)
+  const expandedRef = useRef(null)
 
   useEffect(() => {
     setLoading(true)
@@ -941,6 +942,14 @@ function DesignProgramTab({ canEdit, userProfile }) {
       .catch(() => setPrograms(DEFAULT_SEED.map((i) => i.programName)))
       .finally(() => setLoading(false))
   }, [])
+
+  // Bring the just-expanded card into view — it can sit anywhere in the grid and
+  // its panel opens below the fold once the grid has more than a couple of rows.
+  useEffect(() => {
+    if (expandedProgram && expandedRef.current) {
+      expandedRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [expandedProgram])
 
   const setProgramDuration = (programName, val) => {
     const mins = Math.max(0, Math.min(300, Number(val) || 0))
@@ -1092,10 +1101,6 @@ function DesignProgramTab({ canEdit, userProfile }) {
   if (loading) return <p className="text-slate-500">Loading…</p>
 
   const allPrograms = [...programs, ...customPrograms]
-  const selectedAssigned = expandedProgram ? (designs[expandedProgram] || []) : []
-  const selectedIdx = expandedProgram ? allPrograms.indexOf(expandedProgram) : 0
-  const selectedIsCustom = expandedProgram ? customPrograms.includes(expandedProgram) : false
-  const selectedColor = selectedIsCustom ? CUSTOM_CARD_COLOR : CARD_COLORS[selectedIdx % CARD_COLORS.length]
 
   return (
     <div className="space-y-3">
@@ -1111,7 +1116,8 @@ function DesignProgramTab({ canEdit, userProfile }) {
           return (
             <div
               key={name}
-              className="relative rounded-2xl overflow-hidden transition-all duration-200"
+              ref={isSelected ? expandedRef : null}
+              className={`relative rounded-2xl overflow-hidden transition-all duration-200 ${isSelected ? 'col-span-2 sm:col-span-3' : ''}`}
               style={{
                 background: '#fff',
                 boxShadow: isSelected
@@ -1283,6 +1289,134 @@ function DesignProgramTab({ canEdit, userProfile }) {
                   </span>
                 </div>
               </div>
+
+              {/* Expanded panel — in place, replaces the old below-the-grid palette */}
+              {isSelected && (
+                <div style={{ borderTop: `1.5px solid ${color.accent}22`, background: color.light }}>
+                  {/* Header strip */}
+                  <div className="flex items-center justify-between gap-2 px-4 py-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span style={{
+                        width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                        background: color.accent, color: '#fff', fontSize: 10, fontWeight: 800,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {idx + 1}
+                      </span>
+                      <span className="text-sm font-bold truncate" style={{ color: color.accent }}>{name}</span>
+                      {assigned.length > 0 && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                          style={{ background: color.accent, color: '#fff' }}>
+                          {assigned.length} element{assigned.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedProgram(null)}
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold transition-all hover:scale-110 flex-shrink-0"
+                      style={{ background: `${color.accent}22`, color: color.accent }}
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <div className="bg-white border-t" style={{ borderColor: `${color.accent}18` }}>
+                    {/* Timing */}
+                    {canEdit && (
+                      <div className="px-4 pt-3 pb-1">
+                        <p className="text-[10px] font-bold uppercase tracking-widest mb-2 text-slate-400">Timing</p>
+                        <div className="flex items-center gap-1.5">
+                          <span style={{ fontSize: 12 }}>⏱</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={300}
+                            value={durations[name] || ''}
+                            onChange={(e) => setProgramDuration(name, e.target.value)}
+                            placeholder="0"
+                            className="text-center"
+                            style={{
+                              width: 52, height: 26, padding: '0 6px', borderRadius: 6,
+                              border: `1.5px solid ${color.accent}`, fontSize: 12, fontWeight: 700,
+                              color: color.accent, background: '#fff', outline: 'none',
+                            }}
+                          />
+                          <span className="text-xs font-semibold text-slate-500">min default</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">Live Control presets its countdown from this.</p>
+                      </div>
+                    )}
+
+                    {/* Elements */}
+                    <div className="px-4 pt-3 pb-4">
+                      <p className="text-[10px] font-bold uppercase tracking-widest mb-2 text-slate-400">Elements</p>
+                      <div className="space-y-4">
+                        {ELEMENT_CATEGORIES.map((cat) => (
+                          <div key={cat.id}>
+                            <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: cat.dotColor }}>
+                              {cat.label}
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {cat.elements.map((el) => {
+                                const isActive = assigned.includes(el)
+                                return (
+                                  <button
+                                    key={el}
+                                    type="button"
+                                    disabled={!canEdit}
+                                    onClick={() => toggleElement(name, el)}
+                                    style={isActive ? {
+                                      background: cat.activeBg,
+                                      color: cat.activeColor,
+                                      borderColor: cat.activeBorder,
+                                    } : undefined}
+                                    className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-all ${
+                                      isActive
+                                        ? 'font-semibold shadow-sm'
+                                        : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default'
+                                    }`}
+                                  >
+                                    {isActive && <span className="mr-1">✓</span>}
+                                    {el}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+
+                        {customElements.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest mb-2 text-slate-400">Custom</p>
+                            <div className="flex flex-wrap gap-2">
+                              {customElements.map((el) => {
+                                const isActive = assigned.includes(el)
+                                return (
+                                  <button
+                                    key={el}
+                                    type="button"
+                                    disabled={!canEdit}
+                                    onClick={() => toggleElement(name, el)}
+                                    className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-all ${
+                                      isActive
+                                        ? 'bg-slate-700 text-white border-slate-700 font-semibold'
+                                        : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default'
+                                    }`}
+                                  >
+                                    {isActive && <span className="mr-1">✓</span>}
+                                    {el}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}
@@ -1350,110 +1484,6 @@ function DesignProgramTab({ canEdit, userProfile }) {
           )
         )}
       </div>
-
-      {/* Element palette — shown below grid when a program is selected */}
-      {expandedProgram && (
-        <div className="bg-white rounded-2xl overflow-hidden shadow-sm" style={{ border: `1.5px solid ${selectedColor.accent}44` }}>
-          {/* Palette header */}
-          <div
-            className="flex items-center justify-between px-4 py-3 border-b"
-            style={{ background: selectedColor.light, borderColor: `${selectedColor.accent}22` }}
-          >
-            <div className="flex items-center gap-2">
-              <span style={{
-                width: 24, height: 24, borderRadius: '50%',
-                background: selectedColor.accent, color: '#fff',
-                fontSize: 10, fontWeight: 800,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                boxShadow: `0 2px 6px ${selectedColor.accent}55`,
-              }}>
-                {allPrograms.indexOf(expandedProgram) + 1}
-              </span>
-              <span className="text-sm font-bold" style={{ color: selectedColor.accent }}>{expandedProgram}</span>
-              {selectedAssigned.length > 0 && (
-                <span
-                  className="text-xs font-bold px-2 py-0.5 rounded-full"
-                  style={{ background: selectedColor.accent, color: '#fff' }}
-                >
-                  {selectedAssigned.length} element{selectedAssigned.length !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setExpandedProgram(null)}
-              className="w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold transition-all hover:scale-110"
-              style={{ background: `${selectedColor.accent}22`, color: selectedColor.accent }}
-            >
-              ×
-            </button>
-          </div>
-
-          {/* Categories */}
-          <div className="px-4 pb-4 pt-3 space-y-4">
-            {ELEMENT_CATEGORIES.map((cat) => (
-              <div key={cat.id}>
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: cat.dotColor }}>
-                  {cat.label}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {cat.elements.map((el) => {
-                    const isActive = selectedAssigned.includes(el)
-                    return (
-                      <button
-                        key={el}
-                        type="button"
-                        disabled={!canEdit}
-                        onClick={() => toggleElement(expandedProgram, el)}
-                        style={isActive ? {
-                          background: cat.activeBg,
-                          color: cat.activeColor,
-                          borderColor: cat.activeBorder,
-                        } : undefined}
-                        className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-all ${
-                          isActive
-                            ? 'font-semibold shadow-sm'
-                            : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default'
-                        }`}
-                      >
-                        {isActive && <span className="mr-1">✓</span>}
-                        {el}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-
-            {customElements.length > 0 && (
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-2 text-slate-400">Custom</p>
-                <div className="flex flex-wrap gap-2">
-                  {customElements.map((el) => {
-                    const isActive = selectedAssigned.includes(el)
-                    return (
-                      <button
-                        key={el}
-                        type="button"
-                        disabled={!canEdit}
-                        onClick={() => toggleElement(expandedProgram, el)}
-                        className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-all ${
-                          isActive
-                            ? 'bg-slate-700 text-white border-slate-700 font-semibold'
-                            : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default'
-                        }`}
-                      >
-                        {isActive && <span className="mr-1">✓</span>}
-                        {el}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Custom element management */}
       {canEdit && (
