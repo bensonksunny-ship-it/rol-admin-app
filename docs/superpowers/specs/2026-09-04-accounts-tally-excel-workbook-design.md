@@ -249,6 +249,20 @@ Pure client-side from data already loaded by `TallyPage`. No Firestore reads, no
 10. Income / Expense cards render collapsed; clicking a header expands it with a chevron
     flip; totals and entry counts show in both states; export still works while collapsed.
 
+## Implementation notes (built 2026-09-04)
+
+- **Fund Reserved row.** A concurrent change added a "Fund Reserved" line to the on-screen
+  Tally strip (net savings-fund movement reduces the balance like an expense). To keep the
+  workbook matching the page, Sheet 1 gets a `Fund Reserved` row (static value, shown only
+  when non-zero) between Total Expense and Current Balance, and
+  `Current Balance = Available − Total Expense − Fund Reserved`. `fundReserved` is passed in
+  `ctx`.
+- **Date timezone.** ExcelJS serialises `Date` against UTC, so an IST local-midnight date
+  lands a day early in the sheet. `selectors.xlDate()` pins every exported date to UTC-noon
+  of its calendar day; all sheet date cells go through it.
+- `styles.js` `drawTable` gained a `total.sum: [key…]` option that auto-writes
+  `SUM(<column data range>)` for the footer.
+
 ## Wiring
 
 None beyond the button. The `tally` tab, its label/icon and the shared `?month=` param
