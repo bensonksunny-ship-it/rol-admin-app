@@ -4,15 +4,25 @@ import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
 import { normalizeDepartmentName } from '../../constants/roles'
+import { SAVINGS_FUNDS } from '../../constants/savingsFunds'
 import {
   getFinanceIncome,
   getFinanceExpense,
+  getFinanceSavings,
   getFinanceTallyAnchors,
   setFinanceTallyAnchor,
-  deleteFinanceTallyAnchor,
 } from '../../services/firestore'
 
 const EPOCH = new Date(2000, 0, 1)
+
+// January 2025 is the first month this app's Accounts area has any data — the one
+// and only month a Previous Balance is ever set by hand (the church's real opening
+// balance at that point). Every later month's Previous Balance is always the prior
+// month's Current Balance, carried forward automatically; there is no separate
+// "Auto" mode to fall into and no per-month manual override to accidentally break
+// the chain with. See firestore.rules — finance_tally writes are locked to this
+// one doc id to match.
+const GENESIS_MONTH_KEY = '2025-01'
 
 // The church's Account Sheet lists spend under these 16 fixed departments, in this
 // order. `match` bridges the app's own longer category names (Cell Ministry, Sunday
@@ -87,6 +97,20 @@ function sumExpense(rows) {
   return rows.filter(e => e.status !== 'pending').reduce((s, e) => s + (Number(e.amount) || 0), 0)
 }
 
+// Net movement into the 3 real savings funds (deposits − withdrawals) — money set
+// aside from operating cash, so it reduces the account balance the same way an
+// expense does. Read from finance_savings, same source as the Expense tab.
+function sumFundReserved(rows) {
+  return rows
+    .filter(e => SAVINGS_FUNDS.includes(e.fund))
+    .reduce((s, e) => s + (e.type === 'withdrawal' ? -(Number(e.amount) || 0) : (Number(e.amount) || 0)), 0)
+}
+
+function inMonth(d, month) {
+  const dt = d instanceof Date ? d : new Date(d)
+  return dt.getFullYear() === month.getFullYear() && dt.getMonth() === month.getMonth()
+}
+
 // Bucket this month's expense entries into the 16 sheet departments + "Other".
 function groupByDepartment(rows) {
   const totals = new Map(DEPT_ROWS.map(r => [r.label, 0]))
@@ -109,6 +133,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
 
   const [incomeEntries, setIncomeEntries] = useState([])
   const [expenseEntries, setExpenseEntries] = useState([])
+  const [fundReserved, setFundReserved] = useState(0)
   const [openingBalance, setOpeningBalance] = useState(0)
   const [anchor, setAnchor] = useState(null) // the finance_tally doc for THIS month, or null
   const [loading, setLoading] = useState(false)
@@ -167,13 +192,16 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
 
       const monthStart = startOfMonth(activeMonth)
 
-      // This month's ledger (drives the tables + totals).
-      const [income, expense] = await Promise.all([
+      // This month's ledger (drives the tables + totals). Savings is optional — the
+      // whole collection, filtered client-side (it has no month index).
+      const [income, expense, allSavings] = await Promise.all([
         getFinanceIncome({ year: activeMonth.getFullYear(), month: activeMonth.getMonth() }),
         getFinanceExpense({ year: activeMonth.getFullYear(), month: activeMonth.getMonth() }),
+        getFinanceSavings().catch(() => []),
       ])
       setIncomeEntries(income)
       setExpenseEntries(expense.filter(e => e.status !== 'pending'))
+      setFundReserved(sumFundReserved(allSavings.filter(e => inMonth(e.date, activeMonth))))
 
       // Previous / opening balance.
       let opening
@@ -188,8 +216,14 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
           getFinanceIncome({ startDate: rangeStart, endDate: priorEnd }),
           getFinanceExpense({ startDate: rangeStart, endDate: priorEnd }),
         ])
+        const priorReserved = sumFundReserved(
+          allSavings.filter(e => {
+            const d = e.date instanceof Date ? e.date : new Date(e.date)
+            return d >= rangeStart && d <= priorEnd
+          })
+        )
         const base = baseAnchor ? Number(baseAnchor.openingBalance) || 0 : 0
-        opening = base + sumIncome(priorIncome) - sumExpense(priorExpense)
+        opening = base + sumIncome(priorIncome) - sumExpense(priorExpense) - priorReserved
       }
 
       setAnchor(thisAnchor)
@@ -199,6 +233,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       setLoadError('Could not load this month’s account sheet.')
       setIncomeEntries([])
       setExpenseEntries([])
+      setFundReserved(0)
       setAnchor(null)
       setOpeningBalance(0)
     } finally {
@@ -209,7 +244,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
   const totalIncome = sumIncome(incomeEntries)
   const totalExpense = sumExpense(expenseEntries)
   const availableBalance = openingBalance + totalIncome
-  const currentBalance = availableBalance - totalExpense
+  const currentBalance = availableBalance - totalExpense - fundReserved
   const isManual = !!anchor
   const { totals: deptTotals, other: deptOther } = groupByDepartment(expenseEntries)
 
@@ -238,20 +273,6 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
     } catch (err) {
       console.error('[Tally] save anchor failed', err)
       setLoadError('Could not save the manual previous balance.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function resetToAuto() {
-    setSaving(true)
-    try {
-      await deleteFinanceTallyAnchor(monthKey)
-      setEditing(false)
-      await load()
-    } catch (err) {
-      console.error('[Tally] delete anchor failed', err)
-      setLoadError('Could not reset to the automatic balance.')
     } finally {
       setSaving(false)
     }
@@ -331,6 +352,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
         incomeEntries,
         expenseEntries,
         openingBalance,
+        fundReserved,
       })
     } catch (err) {
       console.error('[Tally] Excel export failed', err)
@@ -346,9 +368,10 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
 
   const tallyRows = [
     { label: 'Income of the Month', value: totalIncome },
-    { label: 'Previous Balance', value: openingBalance, badge: isManual ? 'Manual' : 'Auto' },
+    { label: 'Previous Balance', value: openingBalance, badge: isManual ? 'Manual' : null },
     { label: 'Available Balance', value: availableBalance, strong: true },
     { label: 'Total Expense', value: totalExpense, negative: true },
+    { label: 'Fund Reserved', value: fundReserved, negative: true },
     { label: 'Current Balance', value: currentBalance, strong: true, signed: true },
   ]
 
@@ -365,16 +388,18 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {/* Overriding the opening balance affects every later month's carry-forward,
-            so only the Founder can touch it — everyone else just sees the resulting
-            figure (with its Manual/Auto badge) in the sheet below. */}
-        {isFounder && (
+        {/* The opening balance is only ever set by hand for GENESIS_MONTH_KEY (the
+            first month this app tracked accounts for) — every later month's Previous
+            Balance is always the prior month's Current Balance, carried forward
+            automatically. So this control only exists on that one month, and only
+            for the Founder. */}
+        {isFounder && monthKey === GENESIS_MONTH_KEY && (
           <button
             type="button"
             onClick={editing ? () => setEditing(false) : startEdit}
             className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
           >
-            {editing ? 'Close' : isManual ? 'Edit previous balance' : 'Set previous balance'}
+            {editing ? 'Close' : isManual ? 'Edit opening balance' : 'Set opening balance'}
           </button>
         )}
         <div className="flex items-center gap-2 ml-auto">
@@ -401,13 +426,13 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{loadError || pdfError || xlsxError}</div>
       )}
 
-      {/* Previous-balance editor — Founder only (see the toggle button above) */}
-      {isFounder && editing && (
+      {/* Opening-balance editor — Founder only, genesis month only (see the toggle button above) */}
+      {isFounder && monthKey === GENESIS_MONTH_KEY && editing && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
           <p className="text-xs text-slate-500">
-            Override the previous (opening) balance for {format(activeMonth, 'MMMM yyyy')}.
-            Later months carry forward from this figure. Leave it unset to roll over
-            automatically from earlier months.
+            The church's opening balance as of {format(activeMonth, 'MMMM yyyy')} — the first
+            month tracked here. Every later month's Previous Balance carries forward from
+            this figure automatically; there's nothing to set on any other month.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-xs font-medium text-slate-600">
@@ -438,11 +463,6 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
             <button type="button" onClick={() => setEditing(false)} disabled={saving} className="text-xs font-medium px-3 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50">
               Cancel
             </button>
-            {isManual && (
-              <button type="button" onClick={resetToAuto} disabled={saving} className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-50 ml-auto">
-                Reset to auto
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -579,7 +599,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
                 {/* KPI strip */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '3mm', marginBottom: '5mm' }}>
                   <StatCard label="Income of the Month" value={inr(totalIncome)} accent="#047857" bg="#ecfdf5" border="#a7f3d0" />
-                  <StatCard label="Previous Balance" value={inr(openingBalance)} accent="#4338ca" bg="#eef2ff" border="#c7d2fe" badge={isManual ? 'Manual' : 'Auto'} />
+                  <StatCard label="Previous Balance" value={inr(openingBalance)} accent="#4338ca" bg="#eef2ff" border="#c7d2fe" badge={isManual ? 'Manual' : null} />
                   <StatCard label="Total Expense" value={inr(totalExpense)} accent="#b91c1c" bg="#fef2f2" border="#fecaca" />
                   <StatCard
                     label="Current Balance"

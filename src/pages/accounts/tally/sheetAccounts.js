@@ -33,14 +33,19 @@ export function buildAccountsSheet(ws, ctx, { incomeSummaryRef, expenseSummaryRe
   const amtCol = 3 // column C
   const AC = (offset) => `${ref(top + 2 + offset, amtCol)}` // C8, C9, …
 
+  const fundReserved = Math.round((Number(ctx.fundReserved) || 0) * 100) / 100
+  const hasFund = fundReserved !== 0
+
   const rows = [
     { label: 'Income of the Month', amount: { formula: incomeSummaryRef } },
     { label: 'Previous Balance', amount: { formula: `$${INPUT_CELL[0]}$${INPUT_CELL.slice(1)}` } },
     { label: 'Available Balance', amount: { formula: `${AC(0)}+${AC(1)}`, kind: 'total' } },
     { label: 'Total Expense', amount: { formula: expenseSummaryRef } },
-    // Current Balance = Available − Total Expense
-    { label: 'Current Balance', amount: { formula: `${AC(2)}-${AC(3)}`, kind: 'total' } },
   ]
+  if (hasFund) rows.push({ label: 'Fund Reserved', amount: fundReserved })
+  // Current Balance = Available − Total Expense [− Fund Reserved]
+  const currentFormula = hasFund ? `${AC(2)}-${AC(3)}-${AC(4)}` : `${AC(2)}-${AC(3)}`
+  rows.push({ label: 'Current Balance', amount: { formula: currentFormula, kind: 'total' } })
 
   const table = drawTable(ws, {
     top,
