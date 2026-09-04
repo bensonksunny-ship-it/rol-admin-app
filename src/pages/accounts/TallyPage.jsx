@@ -429,13 +429,6 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
               </div>
             </div>
 
-            {/* Sign-off */}
-            <div className="flex justify-end pt-8">
-              <div className="text-center min-w-[200px]">
-                <div className="border-t border-slate-400" />
-                <p className="text-xs font-semibold text-slate-800 mt-1.5">Senior Pastor, ROLCC</p>
-              </div>
-            </div>
           </div>
 
           {/* ── Month detail (screen only) ── */}
