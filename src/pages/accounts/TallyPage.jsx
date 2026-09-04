@@ -220,15 +220,22 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       // The PDF always shows the full departmental breakdown, regardless of the
       // on-screen collapsed state.
       const wasDeptOpen = deptOpen
-      if (!wasDeptOpen) {
-        setDeptOpen(true)
-        await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)))
+      if (!wasDeptOpen) setDeptOpen(true)
+      // Pin the sheet to full A4 width for the capture even on a narrow screen where
+      // it renders shrunk (max-w-full), then restore.
+      const el = sheetRef.current
+      const prevWidth = el.style.width
+      const prevMaxWidth = el.style.maxWidth
+      el.style.width = '210mm'
+      el.style.maxWidth = 'none'
+      await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)))
+      let canvas
+      try {
+        canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+      } finally {
+        el.style.width = prevWidth
+        el.style.maxWidth = prevMaxWidth
       }
-      const canvas = await html2canvas(sheetRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-      })
       const doc = new jsPDF('p', 'mm', 'a4')
       const PAGE_W = 210
       const PAGE_H = 297
@@ -346,8 +353,9 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
         <div className="p-10 text-center text-slate-500 text-sm">Loading…</div>
       ) : (
         <>
-          {/* ══ Account Sheet — the export target ══ */}
-          <div ref={sheetRef} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-5">
+          {/* ══ Account Sheet — the export target, A4-width ══ */}
+          <div className="overflow-x-auto">
+          <div ref={sheetRef} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-5 mx-auto w-[210mm] max-w-full">
             <div className="border-b border-slate-100 pb-3">
               <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">River Of Life Community Church</p>
               <h2 className="text-lg font-bold text-slate-900 mt-0.5">Account Sheet</h2>
@@ -429,6 +437,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
               </div>
             </div>
 
+          </div>
           </div>
 
           {/* ── Month detail (screen only) ── */}
