@@ -109,7 +109,14 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
     setLoading(true)
     setLoadError('')
     try {
-      const anchors = await getFinanceTallyAnchors()
+      // Anchors are optional — if the read fails (e.g. rules not yet deployed) fall
+      // back to a pure automatic carry-forward rather than erroring the whole sheet.
+      let anchors = []
+      try {
+        anchors = await getFinanceTallyAnchors()
+      } catch (err) {
+        console.warn('[Tally] anchors unavailable, using auto carry-forward only', err)
+      }
       const sorted = [...anchors].sort((a, b) => a.monthKey.localeCompare(b.monthKey))
       const thisAnchor = sorted.find(a => a.monthKey === monthKey) || null
       // Most recent anchor at or before this month — the carry-forward baseline.
