@@ -253,12 +253,14 @@ Pure client-side from data already loaded by `TallyPage`. No Firestore reads, no
 
 ## Implementation notes (built 2026-09-04)
 
-- **Fund Reserved row.** A concurrent change added a "Fund Reserved" line to the on-screen
-  Tally strip (net savings-fund movement reduces the balance like an expense). To keep the
-  workbook matching the page, Sheet 1 gets a `Fund Reserved` row (static value, shown only
-  when non-zero) between Total Expense and Current Balance, and
-  `Current Balance = Available − Total Expense − Fund Reserved`. `fundReserved` is passed in
-  `ctx`.
+- **Fund Reserved — added then reverted.** A concurrent change briefly added a "Fund
+  Reserved" line to the on-screen Tally strip and made it reduce both the auto
+  carry-forward Previous Balance and Current Balance (net savings-fund movement treated
+  like an expense). This silently changed every month's Previous Balance, which was
+  reported as a bug; per instruction it was fully reverted from both the page and the
+  workbook. `Previous Balance` = prior income − prior expense (+ manual anchor);
+  `Current Balance` = `Available − Total Expense`. The Accounts sheet stays a fixed 5
+  rows; no `fundReserved` field in `ctx`.
 - **Date timezone.** ExcelJS serialises `Date` against UTC, so an IST local-midnight date
   lands a day early in the sheet. `selectors.xlDate()` pins every exported date to UTC-noon
   of its calendar day; all sheet date cells go through it.
