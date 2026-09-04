@@ -23,6 +23,7 @@ reading and get refined from the first real export.
 - Excel export sits **alongside** the existing PDF export — the `⬇ Download PDF` button
   stays.
 - No Ministry vs Administration classification (explicitly dropped).
+- The on-screen Income / Expense master tables become collapsible (see section below).
 
 ## Library
 
@@ -202,6 +203,22 @@ One grid per department bucket from Sheet 3 (same set, same order).
 - No `alert()` anywhere (browser dialogs block the Chrome extension); errors surface via
   the existing `loadError || pdfError` banner — extend it to `|| xlsxError`.
 
+## On-screen: collapsible Income / Expense master tables
+
+The month's Income and Expense line-item tables below the Account Sheet block (screen only,
+outside `sheetRef` — `TallyPage.jsx` ~L419–504) become **collapsible**.
+
+- Each card's coloured header row (`Income` / `Expense`, currently a static `div`) becomes a
+  full-width `<button>` toggling that section.
+- Header keeps the label and the total on the right, and gains a rotating chevron (`▸` /
+  `▾`) plus an entry count, e.g. `Income · 12 entries` … `₹1,23,456`.
+- **Collapsed by default** — the styled Account Sheet is the focus; the raw ledgers are
+  drill-down. State is two `useState` booleans (`incomeOpen`, `expenseOpen`), no
+  persistence.
+- When collapsed, only the header shows; the table (or the empty-state message) is hidden.
+- Purely presentational — no change to data loading, totals, or the Excel/PDF exports
+  (which already read from state, not the DOM).
+
 ## No backend / rules changes
 
 Pure client-side from data already loaded by `TallyPage`. No Firestore reads, no
@@ -229,9 +246,12 @@ Pure client-side from data already loaded by `TallyPage`. No Firestore reads, no
 7. Switch months in the toolbar → export follows the shared `?month=`.
 8. Non-accounts user → still redirected (unchanged).
 9. `npm run build` succeeds; `exceljs` is in a lazy chunk, not the main bundle.
+10. Income / Expense cards render collapsed; clicking a header expands it with a chevron
+    flip; totals and entry counts show in both states; export still works while collapsed.
 
 ## Wiring
 
 None beyond the button. The `tally` tab, its label/icon and the shared `?month=` param
 already exist. Files touched: `package.json` (add `exceljs`), `TallyPage.jsx` (button +
-handler + error string), plus the new `src/pages/accounts/tally/` folder.
+handler + error string + collapsible Income/Expense cards), plus the new
+`src/pages/accounts/tally/` folder.
