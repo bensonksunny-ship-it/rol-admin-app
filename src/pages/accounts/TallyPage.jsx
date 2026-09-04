@@ -222,13 +222,14 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       const doc = new jsPDF('p', 'mm', 'a4')
       const PAGE_W = 210
       const PAGE_H = 297
-      let w = PAGE_W
-      let h = (canvas.height / canvas.width) * PAGE_W
-      if (h > PAGE_H) {
-        h = PAGE_H
-        w = (canvas.width / canvas.height) * PAGE_H
+      const margin = 8
+      let w = PAGE_W - margin * 2
+      let h = (canvas.height / canvas.width) * w
+      if (h > PAGE_H - margin * 2) {
+        h = PAGE_H - margin * 2
+        w = (canvas.width / canvas.height) * h
       }
-      doc.addImage(canvas.toDataURL('image/png'), 'PNG', (PAGE_W - w) / 2, 0, w, h)
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', (PAGE_W - w) / 2, margin, w, h)
       doc.save(`account-sheet-${monthKey}.pdf`)
     } catch (err) {
       console.error('[Tally] PDF export failed', err)
@@ -242,11 +243,13 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
     try { return format(d instanceof Date ? d : new Date(d), 'dd/MM/yyyy') } catch { return '—' }
   }
 
-  // ── Account Sheet inline styles (mm units — rasterises cleanly via html2canvas) ──
-  const cell = { padding: '2mm 3mm', fontSize: '9.5pt' }
-  const labelCell = { ...cell, color: '#475569' }
-  const amountCell = { ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#1e293b' }
-  const strongRow = { fontWeight: 700, background: '#f8fafc' }
+  const tallyRows = [
+    { label: 'Income of the Month', value: totalIncome },
+    { label: 'Previous Balance', value: openingBalance, badge: isManual ? 'Manual' : 'Auto' },
+    { label: 'Available Balance', value: availableBalance, strong: true },
+    { label: 'Total Expense', value: totalExpense, negative: true },
+    { label: 'Current Balance', value: currentBalance, strong: true, signed: true },
+  ]
 
   return (
     <div className="space-y-5 pb-12">
@@ -333,103 +336,82 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       ) : (
         <>
           {/* ══ Account Sheet — the export target ══ */}
-          <div className="overflow-x-auto">
-            <div
-              ref={sheetRef}
-              style={{
-                width: '190mm',
-                margin: '0 auto',
-                background: '#ffffff',
-                border: '0.3mm solid #e2e8f0',
-                borderRadius: '2mm',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                color: '#334155',
-                lineHeight: 1.45,
-              }}
-            >
-              {/* Header */}
-              <div style={{ padding: '7mm 8mm 4mm', borderBottom: '0.7mm solid #4338ca' }}>
-                <p style={{ fontSize: '7.5pt', letterSpacing: '0.15em', color: '#6366f1', textTransform: 'uppercase', margin: 0, fontWeight: 700 }}>
-                  River Of Life Community Church
-                </p>
-                <h1 style={{ fontSize: '15pt', fontWeight: 800, margin: '1.5mm 0 0', color: '#1e293b' }}>Account Sheet</h1>
-                <p style={{ fontSize: '10pt', fontWeight: 600, margin: '0.5mm 0 0', color: '#64748b' }}>
-                  {format(activeMonth, 'MMMM yyyy')}
-                </p>
-              </div>
+          <div ref={sheetRef} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-5">
+            <div className="border-b border-slate-100 pb-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">River Of Life Community Church</p>
+              <h2 className="text-lg font-bold text-slate-900 mt-0.5">Account Sheet</h2>
+              <p className="text-xs font-medium text-slate-500">{format(activeMonth, 'MMMM yyyy')}</p>
+            </div>
 
-              {/* Two panels */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6mm', padding: '6mm 8mm' }}>
-
-                {/* Tally table */}
-                <div style={{ flex: '1 1 78mm', minWidth: '78mm' }}>
-                  <p style={{ fontSize: '8pt', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', margin: '0 0 2mm' }}>Tally</p>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', border: '0.3mm solid #e2e8f0' }}>
-                    <tbody>
-                      <tr style={{ borderBottom: '0.3mm solid #f1f5f9' }}>
-                        <td style={labelCell}>Income of the Month</td>
-                        <td style={amountCell}>{inr(totalIncome)}</td>
-                      </tr>
-                      <tr style={{ borderBottom: '0.3mm solid #f1f5f9' }}>
-                        <td style={labelCell}>
-                          Previous Balance
-                          <span style={{ marginLeft: '2mm', fontSize: '6.5pt', fontWeight: 700, textTransform: 'uppercase', color: isManual ? '#4338ca' : '#94a3b8' }}>
-                            {isManual ? 'Manual' : 'Auto'}
-                          </span>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {/* Tally table */}
+              <div className="rounded-lg border border-slate-200 overflow-hidden self-start">
+                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+                  <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Tally</h3>
+                </div>
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-slate-100">
+                    {tallyRows.map(r => (
+                      <tr key={r.label} className={r.strong ? 'bg-slate-50/70' : ''}>
+                        <td className={`px-4 py-2.5 ${r.strong ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>
+                          {r.label}
+                          {r.badge && (
+                            <span className={`ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${r.badge === 'Manual' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-500'}`}>
+                              {r.badge}
+                            </span>
+                          )}
                         </td>
-                        <td style={amountCell}>{inr(openingBalance)}</td>
+                        <td className={`px-4 py-2.5 text-right tabular-nums ${
+                          r.strong
+                            ? `font-bold ${r.signed ? (r.value >= 0 ? 'text-emerald-700' : 'text-red-600') : 'text-slate-900'}`
+                            : r.negative ? 'text-red-600' : 'text-slate-800'
+                        }`}>
+                          {inr(r.value)}
+                        </td>
                       </tr>
-                      <tr style={{ ...strongRow, borderBottom: '0.3mm solid #e2e8f0' }}>
-                        <td style={labelCell}>Available Balance</td>
-                        <td style={{ ...amountCell, fontWeight: 700 }}>{inr(availableBalance)}</td>
-                      </tr>
-                      <tr style={{ borderBottom: '0.3mm solid #f1f5f9' }}>
-                        <td style={labelCell}>Total Expense</td>
-                        <td style={{ ...amountCell, color: '#b91c1c' }}>{inr(totalExpense)}</td>
-                      </tr>
-                      <tr style={strongRow}>
-                        <td style={{ ...labelCell, fontWeight: 700, color: '#1e293b' }}>Current Balance</td>
-                        <td style={{ ...amountCell, fontWeight: 800, color: currentBalance >= 0 ? '#047857' : '#b91c1c' }}>{inr(currentBalance)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  {isManual && anchor.note && (
-                    <p style={{ fontSize: '7pt', color: '#94a3b8', margin: '1.5mm 0 0', fontStyle: 'italic' }}>“{anchor.note}”</p>
-                  )}
-                </div>
-
-                {/* Departmental expense grid */}
-                <div style={{ flex: '1 1 88mm', minWidth: '88mm' }}>
-                  <p style={{ fontSize: '8pt', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', margin: '0 0 2mm' }}>Departmental Expense</p>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', border: '0.3mm solid #e2e8f0' }}>
-                    <tbody>
-                      {DEPT_ROWS.map((r, i) => (
-                        <tr key={r.label} style={{ borderBottom: '0.3mm solid #f1f5f9', background: i % 2 ? '#ffffff' : '#fcfcfd' }}>
-                          <td style={{ ...labelCell, fontSize: '9pt' }}>{r.label}</td>
-                          <td style={{ ...amountCell, fontSize: '9pt' }}>{inr(deptTotals.get(r.label))}</td>
-                        </tr>
-                      ))}
-                      {deptOther > 0 && (
-                        <tr style={{ borderBottom: '0.3mm solid #f1f5f9' }}>
-                          <td style={{ ...labelCell, fontSize: '9pt', fontStyle: 'italic' }}>Other / Unallocated</td>
-                          <td style={{ ...amountCell, fontSize: '9pt' }}>{inr(deptOther)}</td>
-                        </tr>
-                      )}
-                      <tr style={strongRow}>
-                        <td style={{ ...labelCell, fontWeight: 700, color: '#1e293b' }}>Total</td>
-                        <td style={{ ...amountCell, fontWeight: 800, color: '#b91c1c' }}>{inr(totalExpense)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
+                {isManual && anchor.note && (
+                  <p className="px-4 py-2 text-[11px] text-slate-400 italic border-t border-slate-100">“{anchor.note}”</p>
+                )}
               </div>
 
-              {/* Sign-off */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '2mm 8mm 9mm' }}>
-                <div style={{ textAlign: 'center', minWidth: '60mm' }}>
-                  <div style={{ borderTop: '0.4mm solid #64748b', margin: '10mm 0 1.5mm' }} />
-                  <p style={{ fontSize: '9pt', fontWeight: 700, color: '#1e293b', margin: 0 }}>Senior Pastor, ROLCC</p>
+              {/* Departmental expense table */}
+              <div className="rounded-lg border border-slate-200 overflow-hidden self-start">
+                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Departmental Expense</h3>
                 </div>
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-slate-100">
+                    {DEPT_ROWS.map(r => (
+                      <tr key={r.label}>
+                        <td className="px-4 py-2 text-slate-600">{r.label}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-slate-800">{inr(deptTotals.get(r.label))}</td>
+                      </tr>
+                    ))}
+                    {deptOther > 0 && (
+                      <tr>
+                        <td className="px-4 py-2 text-slate-500 italic">Other / Unallocated</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-slate-800">{inr(deptOther)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-50/70 border-t border-slate-200">
+                      <td className="px-4 py-2.5 font-semibold text-slate-800">Total</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums font-bold text-red-600">{inr(totalExpense)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Sign-off */}
+            <div className="flex justify-end pt-8">
+              <div className="text-center min-w-[200px]">
+                <div className="border-t border-slate-400" />
+                <p className="text-xs font-semibold text-slate-800 mt-1.5">Senior Pastor, ROLCC</p>
               </div>
             </div>
           </div>
