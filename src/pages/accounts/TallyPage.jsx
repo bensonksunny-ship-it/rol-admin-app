@@ -4,11 +4,9 @@ import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
 import { normalizeDepartmentName } from '../../constants/roles'
-import { SAVINGS_FUNDS } from '../../constants/savingsFunds'
 import {
   getFinanceIncome,
   getFinanceExpense,
-  getFinanceSavings,
   getFinanceTallyAnchors,
   setFinanceTallyAnchor,
   deleteFinanceTallyAnchor,
@@ -55,20 +53,6 @@ function sumExpense(rows) {
   return rows.filter(e => e.status !== 'pending').reduce((s, e) => s + (Number(e.amount) || 0), 0)
 }
 
-// Net movement into the 3 real savings funds (deposits − withdrawals) — money set
-// aside from operating cash, so it reduces the account balance the same way an
-// expense does. Read from finance_savings, same source as the Expense tab.
-function sumFundReserved(rows) {
-  return rows
-    .filter(e => SAVINGS_FUNDS.includes(e.fund))
-    .reduce((s, e) => s + (e.type === 'withdrawal' ? -(Number(e.amount) || 0) : (Number(e.amount) || 0)), 0)
-}
-
-function inMonth(d, month) {
-  const dt = d instanceof Date ? d : new Date(d)
-  return dt.getFullYear() === month.getFullYear() && dt.getMonth() === month.getMonth()
-}
-
 // Bucket this month's expense entries into the 16 sheet departments + "Other".
 function groupByDepartment(rows) {
   const totals = new Map(DEPT_ROWS.map(r => [r.label, 0]))
@@ -91,7 +75,6 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
 
   const [incomeEntries, setIncomeEntries] = useState([])
   const [expenseEntries, setExpenseEntries] = useState([])
-  const [fundReserved, setFundReserved] = useState(0)
   const [openingBalance, setOpeningBalance] = useState(0)
   const [anchor, setAnchor] = useState(null) // the finance_tally doc for THIS month, or null
   const [loading, setLoading] = useState(false)
@@ -150,16 +133,13 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
 
       const monthStart = startOfMonth(activeMonth)
 
-      // This month's ledger (drives the tables + totals). Savings is optional — the
-      // whole collection, filtered client-side (it has no month index).
-      const [income, expense, allSavings] = await Promise.all([
+      // This month's ledger (drives the tables + totals).
+      const [income, expense] = await Promise.all([
         getFinanceIncome({ year: activeMonth.getFullYear(), month: activeMonth.getMonth() }),
         getFinanceExpense({ year: activeMonth.getFullYear(), month: activeMonth.getMonth() }),
-        getFinanceSavings().catch(() => []),
       ])
       setIncomeEntries(income)
       setExpenseEntries(expense.filter(e => e.status !== 'pending'))
-      setFundReserved(sumFundReserved(allSavings.filter(e => inMonth(e.date, activeMonth))))
 
       // Previous / opening balance.
       let opening
@@ -174,14 +154,8 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
           getFinanceIncome({ startDate: rangeStart, endDate: priorEnd }),
           getFinanceExpense({ startDate: rangeStart, endDate: priorEnd }),
         ])
-        const priorReserved = sumFundReserved(
-          allSavings.filter(e => {
-            const d = e.date instanceof Date ? e.date : new Date(e.date)
-            return d >= rangeStart && d <= priorEnd
-          })
-        )
         const base = baseAnchor ? Number(baseAnchor.openingBalance) || 0 : 0
-        opening = base + sumIncome(priorIncome) - sumExpense(priorExpense) - priorReserved
+        opening = base + sumIncome(priorIncome) - sumExpense(priorExpense)
       }
 
       setAnchor(thisAnchor)
@@ -191,7 +165,6 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       setLoadError('Could not load this month’s account sheet.')
       setIncomeEntries([])
       setExpenseEntries([])
-      setFundReserved(0)
       setAnchor(null)
       setOpeningBalance(0)
     } finally {
@@ -202,7 +175,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
   const totalIncome = sumIncome(incomeEntries)
   const totalExpense = sumExpense(expenseEntries)
   const availableBalance = openingBalance + totalIncome
-  const currentBalance = availableBalance - totalExpense - fundReserved
+  const currentBalance = availableBalance - totalExpense
   const isManual = !!anchor
   const { totals: deptTotals, other: deptOther } = groupByDepartment(expenseEntries)
 
@@ -274,7 +247,36 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)))
       let canvas
       try {
-        canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+        canvas = await html2canvas(el, {
+          scale: 2,
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          // Tailwind v4 emits colours as oklch(); html2canvas 1.x can't parse that
+          // and throws ("unsupported color function"). Re-inline every colour on the
+          // clone from its already-resolved computed value (browsers serialise those
+          // as rgb()), and drop any gradient/shadow that still carries a modern
+          // colour function — those are purely decorative on this sheet.
+          onclone: (clonedDoc) => {
+            const view = clonedDoc.defaultView || window
+            const MODERN = /\b(oklch|oklab|lab|lch|color)\(/
+            const COLOR_PROPS = [
+              'color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor',
+              'borderBottomColor', 'borderLeftColor', 'outlineColor', 'textDecorationColor', 'fill', 'stroke',
+            ]
+            clonedDoc.querySelectorAll('*').forEach((node) => {
+              const cs = view.getComputedStyle(node)
+              COLOR_PROPS.forEach((prop) => {
+                const val = cs[prop]
+                if (!val) return
+                node.style[prop] = MODERN.test(val)
+                  ? (prop === 'backgroundColor' ? 'transparent' : '#0f172a')
+                  : val
+              })
+              if (MODERN.test(cs.backgroundImage)) node.style.backgroundImage = 'none'
+              if (MODERN.test(cs.boxShadow)) node.style.boxShadow = 'none'
+            })
+          },
+        })
       } finally {
         el.style.width = prevWidth
         el.style.maxWidth = prevMaxWidth
@@ -294,7 +296,8 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       if (!wasDeptOpen) setDeptOpen(false)
     } catch (err) {
       console.error('[Tally] PDF export failed', err)
-      setPdfError('Could not generate the PDF. Try again.')
+      const detail = err?.message ? ` (${String(err.message).slice(0, 140)})` : ''
+      setPdfError(`Could not generate the PDF. Try again.${detail}`)
     } finally {
       setDownloading(false)
     }
@@ -311,7 +314,6 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
         incomeEntries,
         expenseEntries,
         openingBalance,
-        fundReserved,
       })
     } catch (err) {
       console.error('[Tally] Excel export failed', err)
@@ -330,7 +332,6 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
     { label: 'Previous Balance', value: openingBalance, badge: isManual ? 'Manual' : 'Auto' },
     { label: 'Available Balance', value: availableBalance, strong: true },
     { label: 'Total Expense', value: totalExpense, negative: true },
-    { label: 'Fund Reserved', value: fundReserved, negative: true },
     { label: 'Current Balance', value: currentBalance, strong: true, signed: true },
   ]
 
@@ -432,7 +433,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
           <div className="overflow-x-auto">
           <div ref={sheetRef} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-5 mx-auto w-[210mm] max-w-full">
             <div className="border-b border-slate-100 pb-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">River Of Life Community Church</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">River Of Life Christian Church</p>
               <h2 className="text-lg font-bold text-slate-900 mt-0.5">Account Sheet</h2>
               <p className="text-xs font-medium text-slate-500">{format(activeMonth, 'MMMM yyyy')}</p>
             </div>
