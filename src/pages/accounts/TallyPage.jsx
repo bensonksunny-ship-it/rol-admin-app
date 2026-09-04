@@ -86,6 +86,9 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
   const [draftNote, setDraftNote] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // Departmental Expense breakdown — collapsed to just its total until clicked open.
+  const [deptOpen, setDeptOpen] = useState(false)
+
   // PDF export
   const [downloading, setDownloading] = useState(false)
   const [pdfError, setPdfError] = useState('')
@@ -214,6 +217,13 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
         import('html2canvas'),
       ])
       const html2canvas = html2canvasMod.default || html2canvasMod
+      // The PDF always shows the full departmental breakdown, regardless of the
+      // on-screen collapsed state.
+      const wasDeptOpen = deptOpen
+      if (!wasDeptOpen) {
+        setDeptOpen(true)
+        await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)))
+      }
       const canvas = await html2canvas(sheetRef.current, {
         scale: 2,
         backgroundColor: '#ffffff',
@@ -231,6 +241,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       }
       doc.addImage(canvas.toDataURL('image/png'), 'PNG', (PAGE_W - w) / 2, margin, w, h)
       doc.save(`account-sheet-${monthKey}.pdf`)
+      if (!wasDeptOpen) setDeptOpen(false)
     } catch (err) {
       console.error('[Tally] PDF export failed', err)
       setPdfError('Could not generate the PDF. Try again.')
@@ -377,33 +388,44 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
                 )}
               </div>
 
-              {/* Departmental expense table */}
+              {/* Departmental expense table — collapsed to its total until opened */}
               <div className="rounded-lg border border-slate-200 overflow-hidden self-start">
-                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Departmental Expense</h3>
-                </div>
-                <table className="w-full text-sm">
-                  <tbody className="divide-y divide-slate-100">
-                    {DEPT_ROWS.map(r => (
-                      <tr key={r.label}>
-                        <td className="px-4 py-2 text-slate-600">{r.label}</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-slate-800">{inr(deptTotals.get(r.label))}</td>
+                <button
+                  type="button"
+                  onClick={() => setDeptOpen(o => !o)}
+                  aria-expanded={deptOpen}
+                  className="w-full px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 text-left hover:bg-slate-100 transition-colors"
+                >
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                    <span className={`inline-block transition-transform ${deptOpen ? 'rotate-90' : ''}`}>▸</span>
+                    Departmental Expense
+                  </span>
+                  <span className="text-sm font-bold text-red-600 tabular-nums">{inr(totalExpense)}</span>
+                </button>
+                {deptOpen && (
+                  <table className="w-full text-sm">
+                    <tbody className="divide-y divide-slate-100">
+                      {DEPT_ROWS.map(r => (
+                        <tr key={r.label}>
+                          <td className="px-4 py-2 text-slate-600">{r.label}</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-slate-800">{inr(deptTotals.get(r.label))}</td>
+                        </tr>
+                      ))}
+                      {deptOther > 0 && (
+                        <tr>
+                          <td className="px-4 py-2 text-slate-500 italic">Other / Unallocated</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-slate-800">{inr(deptOther)}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-50/70 border-t border-slate-200">
+                        <td className="px-4 py-2.5 font-semibold text-slate-800">Total</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums font-bold text-red-600">{inr(totalExpense)}</td>
                       </tr>
-                    ))}
-                    {deptOther > 0 && (
-                      <tr>
-                        <td className="px-4 py-2 text-slate-500 italic">Other / Unallocated</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-slate-800">{inr(deptOther)}</td>
-                      </tr>
-                    )}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-slate-50/70 border-t border-slate-200">
-                      <td className="px-4 py-2.5 font-semibold text-slate-800">Total</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums font-bold text-red-600">{inr(totalExpense)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+                    </tfoot>
+                  </table>
+                )}
               </div>
             </div>
 
