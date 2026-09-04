@@ -20,6 +20,10 @@ export async function buildAccountSheetWorkbook(ctx) {
   const wb = new ExcelJS.Workbook()
   wb.creator = 'ROL Admin App'
   wb.created = new Date()
+  // ExcelJS never computes formula results, so force every reader (Excel,
+  // LibreOffice, Google Sheets, Numbers) to recalc on open — otherwise the
+  // formula cells show blank / stale until the user edits something.
+  wb.calcProperties.fullCalcOnLoad = true
 
   const deptBuckets = groupExpenseByDepartment(ctx.expenseEntries)
 
