@@ -4,9 +4,11 @@ import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
 import { normalizeDepartmentName } from '../../constants/roles'
+import { SAVINGS_FUNDS } from '../../constants/savingsFunds'
 import {
   getFinanceIncome,
   getFinanceExpense,
+  getFinanceSavings,
   getFinanceTallyAnchors,
   setFinanceTallyAnchor,
   deleteFinanceTallyAnchor,
@@ -53,6 +55,20 @@ function sumExpense(rows) {
   return rows.filter(e => e.status !== 'pending').reduce((s, e) => s + (Number(e.amount) || 0), 0)
 }
 
+// Net movement into the 3 real savings funds (deposits − withdrawals) — money set
+// aside from operating cash, so it reduces the account balance the same way an
+// expense does. Read from finance_savings, same source as the Expense tab.
+function sumFundReserved(rows) {
+  return rows
+    .filter(e => SAVINGS_FUNDS.includes(e.fund))
+    .reduce((s, e) => s + (e.type === 'withdrawal' ? -(Number(e.amount) || 0) : (Number(e.amount) || 0)), 0)
+}
+
+function inMonth(d, month) {
+  const dt = d instanceof Date ? d : new Date(d)
+  return dt.getFullYear() === month.getFullYear() && dt.getMonth() === month.getMonth()
+}
+
 // Bucket this month's expense entries into the 16 sheet departments + "Other".
 function groupByDepartment(rows) {
   const totals = new Map(DEPT_ROWS.map(r => [r.label, 0]))
@@ -75,6 +91,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
 
   const [incomeEntries, setIncomeEntries] = useState([])
   const [expenseEntries, setExpenseEntries] = useState([])
+  const [fundReserved, setFundReserved] = useState(0)
   const [openingBalance, setOpeningBalance] = useState(0)
   const [anchor, setAnchor] = useState(null) // the finance_tally doc for THIS month, or null
   const [loading, setLoading] = useState(false)
@@ -124,13 +141,16 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
 
       const monthStart = startOfMonth(activeMonth)
 
-      // This month's ledger (drives the tables + totals).
-      const [income, expense] = await Promise.all([
+      // This month's ledger (drives the tables + totals). Savings is optional — the
+      // whole collection, filtered client-side (it has no month index).
+      const [income, expense, allSavings] = await Promise.all([
         getFinanceIncome({ year: activeMonth.getFullYear(), month: activeMonth.getMonth() }),
         getFinanceExpense({ year: activeMonth.getFullYear(), month: activeMonth.getMonth() }),
+        getFinanceSavings().catch(() => []),
       ])
       setIncomeEntries(income)
       setExpenseEntries(expense.filter(e => e.status !== 'pending'))
+      setFundReserved(sumFundReserved(allSavings.filter(e => inMonth(e.date, activeMonth))))
 
       // Previous / opening balance.
       let opening
@@ -145,8 +165,14 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
           getFinanceIncome({ startDate: rangeStart, endDate: priorEnd }),
           getFinanceExpense({ startDate: rangeStart, endDate: priorEnd }),
         ])
+        const priorReserved = sumFundReserved(
+          allSavings.filter(e => {
+            const d = e.date instanceof Date ? e.date : new Date(e.date)
+            return d >= rangeStart && d <= priorEnd
+          })
+        )
         const base = baseAnchor ? Number(baseAnchor.openingBalance) || 0 : 0
-        opening = base + sumIncome(priorIncome) - sumExpense(priorExpense)
+        opening = base + sumIncome(priorIncome) - sumExpense(priorExpense) - priorReserved
       }
 
       setAnchor(thisAnchor)
@@ -156,6 +182,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       setLoadError('Could not load this month’s account sheet.')
       setIncomeEntries([])
       setExpenseEntries([])
+      setFundReserved(0)
       setAnchor(null)
       setOpeningBalance(0)
     } finally {
@@ -166,7 +193,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
   const totalIncome = sumIncome(incomeEntries)
   const totalExpense = sumExpense(expenseEntries)
   const availableBalance = openingBalance + totalIncome
-  const currentBalance = availableBalance - totalExpense
+  const currentBalance = availableBalance - totalExpense - fundReserved
   const isManual = !!anchor
   const { totals: deptTotals, other: deptOther } = groupByDepartment(expenseEntries)
 
@@ -273,6 +300,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
     { label: 'Previous Balance', value: openingBalance, badge: isManual ? 'Manual' : 'Auto' },
     { label: 'Available Balance', value: availableBalance, strong: true },
     { label: 'Total Expense', value: totalExpense, negative: true },
+    { label: 'Fund Reserved', value: fundReserved, negative: true },
     { label: 'Current Balance', value: currentBalance, strong: true, signed: true },
   ]
 
