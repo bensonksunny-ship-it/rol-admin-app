@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "date-fns": "^4.1.0",
+    "exceljs": "^4.4.0",
     "firebase": "^12.10.0",
     "firebase-admin": "^13.9.0",
     "framer-motion": "^11.18.2",

@@ -106,9 +106,17 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
   // Departmental Expense breakdown — collapsed to just its total until clicked open.
   const [deptOpen, setDeptOpen] = useState(false)
 
+  // Month-detail ledgers below the sheet — collapsed to their header until opened.
+  const [incomeOpen, setIncomeOpen] = useState(false)
+  const [expenseOpen, setExpenseOpen] = useState(false)
+
   // PDF export
   const [downloading, setDownloading] = useState(false)
   const [pdfError, setPdfError] = useState('')
+
+  // Excel export
+  const [exportingXlsx, setExportingXlsx] = useState(false)
+  const [xlsxError, setXlsxError] = useState('')
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
@@ -117,6 +125,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
     load()
     setEditing(false)
     setPdfError('')
+    setXlsxError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMonth, canAccess])
 
@@ -291,6 +300,27 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
     }
   }
 
+  async function handleDownloadExcel() {
+    setExportingXlsx(true)
+    setXlsxError('')
+    try {
+      const { downloadAccountSheetXlsx } = await import('./tally/index.js')
+      await downloadAccountSheetXlsx({
+        monthLabel: format(activeMonth, 'MMMM yyyy'),
+        monthKey,
+        incomeEntries,
+        expenseEntries,
+        openingBalance,
+        fundReserved,
+      })
+    } catch (err) {
+      console.error('[Tally] Excel export failed', err)
+      setXlsxError('Could not generate the Excel file. Try again.')
+    } finally {
+      setExportingXlsx(false)
+    }
+  }
+
   function fmtDate(d) {
     try { return format(d instanceof Date ? d : new Date(d), 'dd/MM/yyyy') } catch { return '—' }
   }
@@ -324,18 +354,28 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
         >
           {editing ? 'Close' : isManual ? 'Edit previous balance' : 'Set previous balance'}
         </button>
-        <button
-          type="button"
-          onClick={handleDownloadPdf}
-          disabled={downloading || loading}
-          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {downloading ? 'Generating PDF…' : '⬇ Download PDF'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDownloadExcel}
+            disabled={exportingXlsx || loading}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+          >
+            {exportingXlsx ? 'Building Excel…' : '⬇ Download Excel'}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={downloading || loading}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {downloading ? 'Generating PDF…' : '⬇ Download PDF'}
+          </button>
+        </div>
       </div>
 
-      {(loadError || pdfError) && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{loadError || pdfError}</div>
+      {(loadError || pdfError || xlsxError) && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{loadError || pdfError || xlsxError}</div>
       )}
 
       {/* Previous-balance editor */}
@@ -475,13 +515,22 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
           </div>
           </div>
 
-          {/* ── Month detail (screen only) ── */}
+          {/* ── Month detail (screen only) — collapsed to headers until opened ── */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 bg-emerald-50/60 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-emerald-800">Income</h3>
-              <span className="text-sm font-bold text-emerald-700">{inr(totalIncome)}</span>
-            </div>
-            {incomeEntries.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => setIncomeOpen(o => !o)}
+              aria-expanded={incomeOpen}
+              className="w-full px-4 py-3 border-b border-slate-100 bg-emerald-50/60 flex items-center justify-between gap-3 text-left hover:bg-emerald-50 transition-colors"
+            >
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-800">
+                <span className={`inline-block transition-transform ${incomeOpen ? 'rotate-90' : ''}`}>▸</span>
+                Income
+                <span className="text-xs font-medium text-emerald-600/70">· {incomeEntries.length} {incomeEntries.length === 1 ? 'entry' : 'entries'}</span>
+              </span>
+              <span className="text-sm font-bold text-emerald-700 tabular-nums">{inr(totalIncome)}</span>
+            </button>
+            {!incomeOpen ? null : incomeEntries.length === 0 ? (
               <div className="p-6 text-center text-slate-400 text-sm">No income recorded for this month.</div>
             ) : (
               <div className="overflow-x-auto">
@@ -520,11 +569,20 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 bg-red-50/60 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-red-800">Expense</h3>
-              <span className="text-sm font-bold text-red-700">{inr(totalExpense)}</span>
-            </div>
-            {expenseEntries.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => setExpenseOpen(o => !o)}
+              aria-expanded={expenseOpen}
+              className="w-full px-4 py-3 border-b border-slate-100 bg-red-50/60 flex items-center justify-between gap-3 text-left hover:bg-red-50 transition-colors"
+            >
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-red-800">
+                <span className={`inline-block transition-transform ${expenseOpen ? 'rotate-90' : ''}`}>▸</span>
+                Expense
+                <span className="text-xs font-medium text-red-600/70">· {expenseEntries.length} {expenseEntries.length === 1 ? 'entry' : 'entries'}</span>
+              </span>
+              <span className="text-sm font-bold text-red-700 tabular-nums">{inr(totalExpense)}</span>
+            </button>
+            {!expenseOpen ? null : expenseEntries.length === 0 ? (
               <div className="p-6 text-center text-slate-400 text-sm">No expenses recorded for this month.</div>
             ) : (
               <div className="overflow-x-auto">
