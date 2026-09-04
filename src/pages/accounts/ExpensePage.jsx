@@ -5,7 +5,7 @@ import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
 import { EXPENSE_CATEGORIES, normalizeDepartmentName } from '../../constants/roles'
-import { parseFlexibleDate, toDisplayDate, parseFlexibleAmount } from '../../utils/entryTableHelpers'
+import { parseFlexibleDate, toDisplayDate, parseFlexibleAmount, sanitizeAmountString, normalizePastedCell } from '../../utils/entryTableHelpers'
 import RowActionsMenu from '../../components/RowActionsMenu'
 import {
   listenFinanceExpense,
@@ -49,6 +49,57 @@ function isRowBlank(r) {
 function ensureTrailingBlank(rows) {
   const last = rows[rows.length - 1]
   return last && isRowBlank(last) ? rows : [...rows, { ...BLANK_ROW, _key: newRowKey() }]
+}
+
+// Splits one pasted row into its column cells. Excel / Google Sheets copy as
+// tab-separated text and preserve empty cells (Date⇥Item⇥⇥Amount); text pulled
+// from an aligned plain-text table, a PDF, or a chat message instead separates
+// columns with runs of 2+ spaces and drops empty ones. Handle both shapes.
+function splitPastedRow(rowText) {
+  if (rowText.includes('\t')) return rowText.split('\t')
+  if (/\S\s{2,}\S/.test(rowText)) return rowText.trim().split(/\s{2,}/)
+  return [rowText.trim()]
+}
+
+// Maps one pasted row onto the grid's [date, item, billNo, amount] fields.
+//
+// A whole-row paste (started in the Date column) is matched by MEANING, not raw
+// position: real ledger exports routinely carry blank spacer columns between Item
+// and Bill No, an empty Bill No, or trailing empties. So every empty cell is
+// dropped and what remains is read as Date, Item, then — since Amount is always
+// present on an expense row and Bill No is optional — the last value is the
+// Amount and a value sitting before it is the Bill No.
+//
+// A paste started in a single other column keeps its exact left-to-right shape
+// (cols[0]→that field, cols[1]→the next, …). Placeholder cells ("-", "n/a") are
+// already '' via normalizePastedCell; the Amount always has ₹ / commas / spaces
+// stripped. Returns a partial patch — fields it doesn't cover are left untouched.
+function mapPastedRowToFields(rowText, startFieldIdx) {
+  const cells = splitPastedRow(rowText).map(normalizePastedCell)
+  const patch = {}
+  const put = (name, value) => { patch[name] = name === 'amount' ? sanitizeAmountString(value) : value }
+
+  if (startFieldIdx === 0) {
+    const filled = cells.filter(c => c !== '')
+    if (filled[0] != null) put('date', filled[0])
+    if (filled[1] != null) put('item', filled[1])
+    const rest = filled.slice(2) // whatever's left: [], [amount], [billNo, amount], …
+    if (rest.length === 1) {
+      put('amount', rest[0])
+    } else if (rest.length >= 2) {
+      put('billNo', rest[rest.length - 2])
+      put('amount', rest[rest.length - 1])
+    }
+    return patch
+  }
+
+  const fields = ROW_FIELDS.slice(startFieldIdx)
+  cells.forEach((cell, c) => {
+    const name = fields[c]
+    if (!name) return
+    put(name, cell)
+  })
+  return patch
 }
 
 // Per-department in-progress edit state, so multiple department cards can be
@@ -394,8 +445,12 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   }
 
   function handlePasteRow(e, dept, idx, field) {
-    const text = e.clipboardData.getData('text')
-    if (!text.includes('\t') && !text.includes('\n') && !text.includes('\r')) return
+    const text = (e.clipboardData || window.clipboardData)?.getData('text') ?? ''
+    // Multi-row (\n), tab-separated (\t), or a single row whose columns are gapped
+    // by 2+ spaces — all mean "spreadsheet-shaped, parse it into fields". A plain
+    // single value falls through to the browser's normal paste.
+    const isTabular = /[\t\n\r]/.test(text) || /\S\s{2,}\S/.test(text)
+    if (!isTabular) return
     e.preventDefault()
     const pastedRows = text.replace(/\r/g, '').split('\n').filter((line, i, arr) => !(i === arr.length - 1 && line === ''))
     const startFieldIdx = ROW_FIELDS.indexOf(field)
@@ -404,18 +459,12 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
       pastedRows.forEach((rowText, r) => {
         const targetRowIdx = idx + r
         while (next.length <= targetRowIdx) next.push({ ...BLANK_ROW, _key: newRowKey() })
-        const cells = rowText.split('\t')
-        cells.forEach((cellText, c) => {
-          const fieldIdx = startFieldIdx + c
-          if (fieldIdx >= ROW_FIELDS.length) return
-          const fieldName = ROW_FIELDS[fieldIdx]
-          let cellValue = cellText.trim()
-          if (fieldName === 'date') {
-            const parsedDate = parseFlexibleDate(cellValue)
-            if (parsedDate) cellValue = toDisplayDate(parsedDate)
-          }
-          next[targetRowIdx] = { ...next[targetRowIdx], [fieldName]: cellValue }
-        })
+        const patch = mapPastedRowToFields(rowText, startFieldIdx)
+        if ('date' in patch) {
+          const parsedDate = parseFlexibleDate(patch.date)
+          if (parsedDate) patch.date = toDisplayDate(parsedDate)
+        }
+        next[targetRowIdx] = { ...next[targetRowIdx], ...patch }
       })
       return { newRows: ensureTrailingBlank(next), undoStack: [...current.undoStack, current.newRows].slice(-10) }
     })
@@ -595,7 +644,10 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   }
 
   return (
-    <div className="space-y-5 pb-12">
+    // A4-ish sheet width by default; while a department card is expanded the cap is
+    // dropped so its editor table gets the same full-width workspace it had before
+    // the sheet layout. Only one card is ever open at a time (accordion).
+    <div className={`mx-auto space-y-5 pb-12 ${expandedDepts.length ? 'max-w-none' : 'max-w-[250mm]'}`}>
 
       {/* Grid / Weekly view toggle */}
       <div className="flex justify-center">
@@ -717,6 +769,12 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
             const [ry, rm] = parsed.split('-').map(Number)
             return ry !== activeMonth.getFullYear() || (rm - 1) !== activeMonth.getMonth()
           }).length
+          // Running total of not-yet-saved draft rows — updates the moment a paste
+          // populates the Amount cells, so the department's projected spend is
+          // visible before "Save rows" folds it into the card total above.
+          const pendingTotal = newRows
+            .filter(r => !r.savedId)
+            .reduce((s, r) => s + parseFlexibleAmount(r.amount), 0)
           return (
           <div
             key={dept}
@@ -1055,6 +1113,13 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                     >
                       ↺ Undo
                     </button>
+                  )}
+                  {pendingTotal > 0 && (
+                    <span className="ml-auto text-[11px] font-medium text-slate-500 text-right">
+                      <span className="tabular-nums font-semibold text-rose-600">₹{pendingTotal.toLocaleString('en-IN')}</span> unsaved
+                      <span className="mx-1 text-slate-300">·</span>
+                      projected <span className="tabular-nums font-semibold text-slate-700">₹{(total + pendingTotal).toLocaleString('en-IN')}</span>
+                    </span>
                   )}
                 </div>
               </div>

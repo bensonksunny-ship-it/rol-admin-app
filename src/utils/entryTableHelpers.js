@@ -45,3 +45,21 @@ export function parseFlexibleAmount(raw) {
   const n = Number(cleaned)
   return isNaN(n) ? 0 : n
 }
+
+// Same currency/comma stripping as parseFlexibleAmount, but keeps the result as a
+// string so a partly-typed or pasted value still round-trips through a text input.
+// Used when populating the Amount cell from clipboard data — parseFlexibleAmount()
+// still does the final string→number step at save/total time.
+export function sanitizeAmountString(raw) {
+  return String(raw ?? '').replace(/[₹$,]|rs\.?/gi, '').replace(/\s+/g, '').trim()
+}
+
+// Cell contents Excel / handwritten ledgers use to mean "nothing here". Collapsed
+// to '' when pasting so a "-" in the Bill No column lands as an empty field rather
+// than literal text — and, crucially, doesn't consume the slot the Amount belongs in.
+const BLANK_CELL_TOKENS = new Set(['', '-', '--', '–', '—', 'n/a', 'na', 'nil', '.'])
+
+export function normalizePastedCell(raw) {
+  const t = String(raw ?? '').trim()
+  return BLANK_CELL_TOKENS.has(t.toLowerCase()) ? '' : t
+}

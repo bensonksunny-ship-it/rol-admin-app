@@ -171,9 +171,6 @@ import BudgetPage from './accounts/BudgetPage'
 import UpcomingSunday from './UpcomingSunday'
 import { DirectorBoardPage, SundayLeaderTab, SecCoreAnalyticsHub } from './seccore/SecCoreSummary'
 import SundayPrepTracker from '../components/SundayPrepTracker'
-import useAccountsSummaryPeriod from '../hooks/useAccountsSummaryPeriod'
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -401,7 +398,11 @@ export default function DepartmentHub() {
   const [acctSummary, setAcctSummary] = useState(null)
   const [acctSummaryLoading, setAcctSummaryLoading] = useState(false)
   const [acctSavingsTotal, setAcctSavingsTotal] = useState(null)
-  const { selectedYear: acctSummaryYear, selectedMonth: acctSummaryMonth, setSelectedYear: setAcctSummaryYear, setSelectedMonth: setAcctSummaryMonth } = useAccountsSummaryPeriod()
+  // Accounts Summary always reflects the live current month — the year dropdown
+  // and Jan–Dec month bar that used to scope this header have been removed.
+  const acctSummaryNow = new Date()
+  const acctSummaryYear = acctSummaryNow.getFullYear()
+  const acctSummaryMonth = acctSummaryNow.getMonth()
   const [team, setTeam] = useState([])
   const [loadingTeam, setLoadingTeam] = useState(false)
   const [teamError, setTeamError] = useState('')
@@ -2841,47 +2842,11 @@ export default function DepartmentHub() {
                 </>
               ) : slug === 'accounts' ? (
                 <div className="space-y-4">
-                  {(() => {
-                    const nowYear = new Date().getFullYear()
-                    const yearOptions = Array.from({ length: 5 }, (_, i) => nowYear - i)
-                    const monthPills = [{ label: 'All', value: null }, ...MONTH_NAMES.map((label, value) => ({ label, value }))]
-                    return (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-end">
-                          <select
-                            value={acctSummaryYear}
-                            onChange={(e) => setAcctSummaryYear(Number(e.target.value))}
-                            className="text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg px-2 py-1"
-                          >
-                            {yearOptions.map((y) => (
-                              <option key={y} value={y}>{y}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {monthPills.map(({ label, value }) => (
-                            <button
-                              key={label}
-                              type="button"
-                              onClick={() => setAcctSummaryMonth(value)}
-                              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
-                                acctSummaryMonth === value
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })()}
                   {acctSummaryLoading || !acctSummary ? (
                     <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
                   ) : (() => {
                     const now = new Date()
-                    const monthLabel = acctSummaryMonth != null ? format(new Date(acctSummaryYear, acctSummaryMonth, 1), 'MMMM yyyy') : `Jan – Dec ${acctSummaryYear}`
+                    const monthLabel = format(new Date(acctSummaryYear, acctSummaryMonth, 1), 'MMMM yyyy')
                     const wkStart = startOfWeek(now, { weekStartsOn: 1 })
                     const wkEnd = endOfWeek(now, { weekStartsOn: 1 })
                     const weekLabel = `${format(wkStart, 'd MMM')} – ${format(wkEnd, 'd MMM yyyy')}`

@@ -45,10 +45,6 @@ const FOURTH_WEEK_KEY = { key: 'fourthWeekAttendeesNames', title: 'Fourth Week A
 
 const PASTORAL_KEY = { key: 'pastoralAttendees', title: 'Pastoral Attendees' }
 
-/** Fallback shown until a Founder links a real record via "Manage Pastoral Roster" —
- * kept unlinked (no id/source) so it behaves exactly like today until then. */
-const DEFAULT_PASTORAL_ROSTER = [{ name: 'Pastor Benson K Sunny' }]
-
 /** Local-only UX: order for Done → scroll to next attendance section */
 const ATTENDANCE_SECTION_ORDER = ['pastoral', 'cells', 'nonCell', 'others', 'riverKids', 'newComers', 'secondWeekAttendeesNames', 'thirdWeekAttendeesNames', 'fourthWeekAttendeesNames']
 
@@ -1988,8 +1984,8 @@ export default function SundayReport({ embedded = false }) {
 
   // ── Pastoral Roster — global default Pastor/leadership mapping, so "tap to add"
   // pre-links to a real database record instead of an unlinked string (see
-  // firestore.js's settings/pastoral_roster). Falls back to DEFAULT_PASTORAL_ROSTER
-  // (unlinked) until a Founder links it via "Manage Pastoral Roster".
+  // firestore.js's settings/pastoral_roster). Empty until a Founder adds Pastors
+  // via "Manage Pastoral Roster" — otherwise use the member-database search below.
   const [pastoralRosterDoc, setPastoralRosterDoc] = useState({})
   const [pastoralRosterModalOpen, setPastoralRosterModalOpen] = useState(false)
   const [pastoralRosterSaving, setPastoralRosterSaving] = useState(false)
@@ -1999,7 +1995,7 @@ export default function SundayReport({ embedded = false }) {
     return unsub
   }, [])
 
-  const pastoralRosterMembers = pastoralRosterDoc?.members?.length ? pastoralRosterDoc.members : DEFAULT_PASTORAL_ROSTER
+  const pastoralRosterMembers = pastoralRosterDoc?.members?.length ? pastoralRosterDoc.members : []
   const pastoralSuggestionNames = useMemo(
     () => pastoralRosterMembers.map((m) => m.name).filter(Boolean),
     [pastoralRosterMembers]
