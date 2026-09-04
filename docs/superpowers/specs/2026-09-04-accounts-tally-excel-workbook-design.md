@@ -123,9 +123,11 @@ Data via `categorizeEntries(incomeEntries)` from `../income/incomeCategorize`.
 
 - **Top-left — `Income summary`**: rows `English Offering`, `Tamil Offering`,
   `Online Offering`, `Tithe - English`, `Tithe - Tamil`, `Contribution`,
-  `Support from ROLCC`, `Other Income`, then **`Total`**. Each amount is a `SUM()` over
-  that category's detail block on this sheet. `Total` = `SUM()` of the eight category
-  cells. `Total` is the ref Sheet 1 uses.
+  `Support from ROLCC`, `Other Income`, `RSM` (= RSM + RSM Salary + RFF, matching the
+  Income tab's own summary), then **`Total`**. Each amount is a `SUM()` over that
+  category's detail block on this sheet. `Total` = `SUM()` of the nine category cells.
+  `categorizeEntries` puts every entry in exactly one bucket, so `Total` equals the raw
+  month income total on the page. `Total` is the ref Sheet 1 uses.
 - **Bottom-left — `Offering Table`**: columns `Date | English | Tamil | Online | Total`.
   One row per distinct date across the three offering categories (sorted ascending);
   `English`/`Tamil`/`Online` = that date's sum in each category; `Total` = row sum. Footer
