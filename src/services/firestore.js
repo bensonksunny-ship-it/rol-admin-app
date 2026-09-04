@@ -1503,6 +1503,17 @@ export async function deleteFinanceExpense(id) {
   await deleteDoc(doc(db, 'finance_expense', id))
 }
 
+// Bulk-delete several finance_expense docs in one atomic batch — used by the
+// Expense grid's checkbox "Delete Selected" action. Firestore caps a batch at
+// 500 writes; a department card never holds that many rows, so a single batch is
+// enough (chunk here if that ever changes).
+export async function deleteFinanceExpenseMany(ids = []) {
+  if (!db || !ids.length) return
+  const batch = writeBatch(db)
+  ids.forEach((id) => batch.delete(doc(db, 'finance_expense', id)))
+  await batch.commit()
+}
+
 // `sheetYear`/`sheetMonth` are optional and independent of `date` — they record which
 // month sheet an expense was deliberately entered/kept under, which can differ from its
 // transaction date (e.g. a January-dated entry kept under the July sheet on purpose).

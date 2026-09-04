@@ -1,23 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronLeft, X } from 'lucide-react'
-
-// Rotating palette for the grid tiles — subpages aren't separate "apps" with their
-// own brand color, so each tile's color comes from its position rather than a fixed
-// per-subpage mapping. Keeps the grid visually varied like a real iOS folder.
-// Bright, saturated gradients (not muted/pastel) so tiles pop against the
-// glassmorphism sheet background, each paired with a matching-hue drop shadow.
-const TILE_STYLES = [
-  { gradient: 'from-blue-500 to-indigo-600', shadow: 'shadow-indigo-500/30' },
-  { gradient: 'from-emerald-400 to-teal-500', shadow: 'shadow-emerald-500/30' },
-  { gradient: 'from-amber-400 to-orange-500', shadow: 'shadow-amber-500/30' },
-  { gradient: 'from-rose-500 to-pink-600', shadow: 'shadow-rose-500/30' },
-  { gradient: 'from-cyan-400 to-sky-600', shadow: 'shadow-cyan-500/30' },
-  { gradient: 'from-violet-500 to-purple-600', shadow: 'shadow-violet-500/30' },
-  { gradient: 'from-red-500 to-rose-600', shadow: 'shadow-red-500/30' },
-  { gradient: 'from-teal-400 to-emerald-600', shadow: 'shadow-teal-500/30' },
-  { gradient: 'from-orange-400 to-amber-600', shadow: 'shadow-orange-500/30' },
-]
+import { TILE_STYLES } from '../constants/tileStyles'
 
 function TileGrid({ items, onTap }) {
   // Fixed-width tiles in a wrapping flex row (not a CSS grid) so every row — including

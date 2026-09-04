@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
 import { EXPENSE_CATEGORIES, normalizeDepartmentName } from '../../constants/roles'
 import { parseFlexibleDate, toDisplayDate, parseFlexibleAmount, sanitizeAmountString, normalizePastedCell } from '../../utils/entryTableHelpers'
-import RowActionsMenu from '../../components/RowActionsMenu'
+import { Pencil, Trash2 } from 'lucide-react'
 import {
   listenFinanceExpense,
   listenFinanceExpenseBySheet,
@@ -14,6 +14,7 @@ import {
   updateFinanceExpense,
   updateFinanceExpenseSheet,
   deleteFinanceExpense,
+  deleteFinanceExpenseMany,
   getExpenseDepartments,
   listenFinanceSavings,
 } from '../../services/firestore'
@@ -124,8 +125,11 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   const [anchoredEntries, setAnchoredEntries] = useState([])
   const [loading, setLoading] = useState(false)
   const [saveError, setSaveError] = useState('')
-  const [deletingId, setDeletingId] = useState(null)
   const [undoDelete, setUndoDelete] = useState(null)
+  // Checkbox selection + bulk delete for the expanded card's saved rows.
+  const [selectedRowIds, setSelectedRowIds] = useState([])          // Firestore ids ticked in the grid
+  const [bulkDeleteFor, setBulkDeleteFor] = useState(null)          // { dept, entries:[{id,date,item,amount}] } — pending confirm
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   const [saveWarning, setSaveWarning] = useState(null) // { dept, count } — pending "Save rows" click blocked by a date-mismatch confirmation
   const [filterDept, setFilterDept] = useState('all')
   const [loadError, setLoadError] = useState('')
@@ -171,9 +175,16 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   const formRef = useRef(null)
   const expandedCardRef = useRef(null)   // DOM node of whichever department card is currently expanded
   const undoTimerRef = useRef(null)
-  const [openActionMenu, setOpenActionMenu] = useState(null)
 
   useEffect(() => () => { if (undoTimerRef.current) clearTimeout(undoTimerRef.current) }, [])
+
+  // Selection is scoped to whichever card is open — reset it whenever the open
+  // card changes (or all cards collapse) so ticks never carry over unseen.
+  useEffect(() => { setSelectedRowIds([]); setBulkDeleteFor(null) }, [expandedDepts])
+
+  function toggleRowSelected(id) {
+    setSelectedRowIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+  }
 
   function offerUndo(payload) {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
@@ -196,10 +207,10 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   // Collapse the expanded department card when the user clicks anywhere outside it.
   // Clicks on anything inside the card (inputs, buttons, the paste grid, etc.) are
   // inside expandedCardRef's subtree, so contains() lets them through untouched.
-  // The row-actions (⋮) dropdown and the save-warning modal are portaled to
-  // document.body, so they're NOT DOM descendants of the card — both are marked
-  // with data-row-menu-overlay so clicks inside them are also let through instead
-  // of being treated as "outside" and collapsing the card.
+  // The save-warning and bulk-delete modals are portaled to document.body, so
+  // they're NOT DOM descendants of the card — both are marked with
+  // data-row-menu-overlay so clicks inside them are also let through instead of
+  // being treated as "outside" and collapsing the card.
   useEffect(() => {
     if (expandedDepts.length === 0) return
     function handleClickOutside(event) {
@@ -422,26 +433,32 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
     }))
   }
 
-  async function handleDeleteNewRow(dept, idx, savedId) {
-    const row = getDeptState(dept).newRows[idx]
+  // Batch-delete every ticked saved row for a card, in one Firestore commit, then
+  // prune it from every local list it might sit in (live entries, anchored
+  // entries, still-visible ✓ draft rows, in-progress edit rows). No per-row undo —
+  // the confirm modal lists exactly what's going, which is the safety net here.
+  async function handleBulkDelete() {
+    if (!bulkDeleteFor) return
+    const { dept, entries } = bulkDeleteFor
+    const ids = entries.map(e => e.id)
+    setBulkDeleting(true)
     try {
-      await deleteFinanceExpense(savedId)
-      if (row) {
-        offerUndo({
-          department: dept,
-          date: parseFlexibleDate(row.date) || row.date,
-          item: row.item || '',
-          billNo: row.billNo || '',
-          amount: parseFlexibleAmount(row.amount),
-        })
-      }
+      await deleteFinanceExpenseMany(ids)
+      const gone = new Set(ids)
+      setEntries(prev => prev.filter(e => !gone.has(e.id)))
+      setAnchoredEntries(prev => prev.filter(e => !gone.has(e.id)))
+      updateDeptState(dept, (current) => ({
+        newRows: ensureTrailingBlank(current.newRows.filter(r => !(r.savedId && gone.has(r.savedId)))),
+        editRows: current.editRows.filter(r => !gone.has(r.id)),
+      }))
+      setSelectedRowIds(prev => prev.filter(id => !gone.has(id)))
+      setBulkDeleteFor(null)
     } catch {
-      // ignore — worst case the row stays as it was and the user can retry
+      setSaveError('Could not delete the selected entries. Please refresh and try again.')
+      setTimeout(() => setSaveError(''), 5000)
+    } finally {
+      setBulkDeleting(false)
     }
-    setDeletingId(null)
-    updateDeptState(dept, (current) => ({
-      newRows: ensureTrailingBlank(current.newRows.map((r, i) => (i === idx ? { ...BLANK_ROW, _key: newRowKey() } : r))),
-    }))
   }
 
   function handlePasteRow(e, dept, idx, field) {
@@ -613,7 +630,6 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
     const entry = combinedEntries.find(e => e.id === id)
     try {
       await deleteFinanceExpense(id)
-      setDeletingId(null)
       setEntries(prev => prev.filter(e => e.id !== id))
       setAnchoredEntries(prev => prev.filter(e => e.id !== id))
       if (entry) {
@@ -736,6 +752,47 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
         document.body
       )}
 
+      {/* Bulk-delete confirmation — lists every row about to go so a mis-click is obvious */}
+      {bulkDeleteFor && createPortal(
+        <div data-row-menu-overlay="true" className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-3">
+            <p className="text-sm font-semibold text-rose-700">
+              Delete {bulkDeleteFor.entries.length} {bulkDeleteFor.entries.length === 1 ? 'entry' : 'entries'} from {bulkDeleteFor.dept}?
+            </p>
+            <p className="text-xs text-slate-500">This permanently removes them from the accounts. It can’t be undone.</p>
+            <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+              {bulkDeleteFor.entries.map(e => (
+                <div key={e.id} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                  <span className="min-w-0 truncate text-slate-700">
+                    {e.date ? format(e.date, 'dd.MM.yyyy') : '—'} · {e.item || '—'}
+                  </span>
+                  <span className="shrink-0 font-semibold text-rose-600 tabular-nums">₹{Number(e.amount).toLocaleString('en-IN')}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setBulkDeleteFor(null)}
+                disabled={bulkDeleting}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-semibold hover:border-slate-300 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold disabled:opacity-50 transition-colors"
+              >
+                {bulkDeleting ? 'Deleting…' : `Delete ${bulkDeleteFor.entries.length} ${bulkDeleteFor.entries.length === 1 ? 'entry' : 'entries'}`}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* Department grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
         <button
@@ -775,6 +832,39 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
           const pendingTotal = newRows
             .filter(r => !r.savedId)
             .reduce((s, r) => s + parseFlexibleAmount(r.amount), 0)
+
+          // Saved rows in this card a checkbox can tick: the read-only "Entered"
+          // entries plus any locked ✓ draft rows still shown (e.g. rows saved onto
+          // another month's sheet, pinned here in red). Keyed by Firestore id, de-duped.
+          const selectableRows = (() => {
+            const out = []
+            const seen = new Set()
+            const add = (id, date, item, amount) => {
+              if (!id || seen.has(id)) return
+              seen.add(id)
+              out.push({ id, date, item, amount })
+            }
+            rows.forEach(e => {
+              if (editRows.some(er => er.id === e.id)) return
+              add(e.id, e.date instanceof Date ? e.date : new Date(e.date), e.item || '', Number(e.amount) || 0)
+            })
+            visibleNewRows.forEach(r => {
+              if (!r.savedId || r.unlocked) return
+              const p = parseFlexibleDate(r.date)
+              const [ry, rm, rd] = p ? p.split('-').map(Number) : []
+              add(r.savedId, p ? new Date(ry, rm - 1, rd) : null, r.item || '', parseFlexibleAmount(r.amount))
+            })
+            return out
+          })()
+          const selectableIds = selectableRows.map(r => r.id)
+          const selectedHere = selectableRows.filter(r => selectedRowIds.includes(r.id))
+          const allSelected = selectableIds.length > 0 && selectedHere.length === selectableIds.length
+          const someSelected = selectedHere.length > 0 && !allSelected
+          const toggleSelectAll = () => setSelectedRowIds(prev => (
+            allSelected
+              ? prev.filter(id => !selectableIds.includes(id))
+              : [...new Set([...prev, ...selectableIds])]
+          ))
           return (
           <div
             key={dept}
@@ -814,10 +904,40 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                       </p>
                     </div>
                   )}
+                  {selectedHere.length > 0 && (
+                    <div className="flex items-center gap-3 px-3 py-2 bg-rose-50 border-y border-rose-100">
+                      <span className="text-xs font-semibold text-rose-700">{selectedHere.length} selected</span>
+                      <button
+                        type="button"
+                        onClick={() => setBulkDeleteFor({ dept, entries: selectedHere })}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm transition-colors"
+                      >
+                        <Trash2 size={13} /> Delete Selected ({selectedHere.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRowIds(prev => prev.filter(id => !selectableIds.includes(id)))}
+                        className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm border-collapse table-fixed">
                       <thead>
                         <tr className="text-left text-indigo-700 bg-gradient-to-r from-indigo-50 via-violet-50 to-rose-50">
+                          <th className="px-2 py-2 w-9 border-b-2 border-indigo-100 text-center">
+                            <input
+                              type="checkbox"
+                              aria-label="Select all rows"
+                              className="align-middle accent-rose-600 cursor-pointer disabled:cursor-not-allowed"
+                              disabled={selectableIds.length === 0}
+                              checked={allSelected}
+                              ref={el => { if (el) el.indeterminate = someSelected }}
+                              onChange={toggleSelectAll}
+                            />
+                          </th>
                           <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide w-10 border-b-2 border-indigo-100">Sl</th>
                           <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide w-32 border-b-2 border-indigo-100">Date</th>
                           <th className="px-3 py-2 font-semibold text-[11px] uppercase tracking-wide border-b-2 border-indigo-100">Item</th>
@@ -852,6 +972,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                                 ? 'bg-red-50/80 border-2 border-red-400 text-red-900'
                                 : `border-b border-slate-100 ${idx % 2 === 1 ? 'bg-slate-50/70' : 'bg-white'}`}
                             >
+                              <td className="px-2 py-2.5" />
                               <td className="px-3 py-2.5">
                                 <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${editHasError ? 'bg-red-500 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
                                   {editHasError ? '!' : idx + 1}
@@ -920,8 +1041,21 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                           return (
                           <tr
                             key={entry.id}
-                            className={`border-b transition-colors ${isAnchoredElsewhere ? 'bg-red-50/60 border-red-100' : `border-slate-100 ${idx % 2 === 1 ? 'bg-slate-50/70' : 'bg-white'}`}`}
+                            className={`border-b transition-colors ${
+                              selectedRowIds.includes(entry.id)
+                                ? 'bg-rose-50'
+                                : isAnchoredElsewhere ? 'bg-red-50/60 border-red-100' : `border-slate-100 ${idx % 2 === 1 ? 'bg-slate-50/70' : 'bg-white'}`
+                            }`}
                           >
+                            <td className="px-2 py-2.5 text-center">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${entry.item || 'entry'}`}
+                                className="align-middle accent-rose-600 cursor-pointer"
+                                checked={selectedRowIds.includes(entry.id)}
+                                onChange={() => toggleRowSelected(entry.id)}
+                              />
+                            </td>
                             <td className="px-3 py-2.5">
                               <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${isAnchoredElsewhere ? 'bg-red-500 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
                                 {isAnchoredElsewhere ? '!' : idx + 1}
@@ -941,33 +1075,27 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                             </td>
                             <td className={`px-3 py-2.5 text-right font-bold ${isAnchoredElsewhere ? 'text-red-600' : 'text-rose-600'}`}>₹{Number(entry.amount).toLocaleString('en-IN')}</td>
                             <td className="px-3 py-2.5 text-center">
-                              {deletingId === entry.id ? (
-                                <div className="flex items-center justify-center gap-1.5 text-[10px]">
-                                  <button type="button" onClick={() => handleDelete(entry.id)} className="text-red-600 font-semibold hover:underline">Yes</button>
-                                  <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-center gap-1">
-                                  {isAnchoredElsewhere && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleMoveToCorrectMonth(entry)}
-                                      title={`Move to ${format(entryDate, 'MMMM yyyy')}`}
-                                      className="px-1.5 py-1 rounded text-[10px] font-semibold text-red-600 hover:bg-red-100 transition-colors"
-                                    >
-                                      ↷ Move
-                                    </button>
-                                  )}
-                                  <RowActionsMenu
-                                    menuKey={`entered-${entry.id}`}
-                                    openKey={openActionMenu}
-                                    onOpen={setOpenActionMenu}
-                                    onClose={() => setOpenActionMenu(null)}
-                                    onEdit={() => handleUnlockEnteredRow(dept, entry)}
-                                    onDelete={() => setDeletingId(entry.id)}
-                                  />
-                                </div>
-                              )}
+                              <div className="flex items-center justify-center gap-1">
+                                {isAnchoredElsewhere && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveToCorrectMonth(entry)}
+                                    title={`Move to ${format(entryDate, 'MMMM yyyy')}`}
+                                    className="px-1.5 py-1 rounded text-[10px] font-semibold text-red-600 hover:bg-red-100 transition-colors"
+                                  >
+                                    ↷ Move
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnlockEnteredRow(dept, entry)}
+                                  title="Edit this entry"
+                                  aria-label="Edit entry"
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                           )
@@ -989,7 +1117,20 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                                 })()
                               : false
                             return (
-                              <tr key={row._key} className={isOtherMonth ? 'bg-red-50/60 border-b border-red-100' : 'bg-emerald-50/50 border-b border-emerald-100'}>
+                              <tr key={row._key} className={
+                                selectedRowIds.includes(row.savedId)
+                                  ? 'bg-rose-50 border-b border-rose-100'
+                                  : isOtherMonth ? 'bg-red-50/60 border-b border-red-100' : 'bg-emerald-50/50 border-b border-emerald-100'
+                              }>
+                                <td className="px-2 py-2.5 text-center">
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`Select ${row.item || 'entry'}`}
+                                    className="align-middle accent-rose-600 cursor-pointer"
+                                    checked={selectedRowIds.includes(row.savedId)}
+                                    onChange={() => toggleRowSelected(row.savedId)}
+                                  />
+                                </td>
                                 <td className="px-3 py-2.5 text-center">
                                   <span
                                     title={isOtherMonth ? `Saved, but dated outside ${format(activeMonth, 'MMMM yyyy')} — not counted in this total` : 'Already saved'}
@@ -1007,27 +1148,22 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                                 </td>
                                 <td className={`px-3 py-2.5 text-right font-bold ${isOtherMonth ? 'text-red-600' : 'text-rose-600'}`}>₹{parseFlexibleAmount(row.amount).toLocaleString('en-IN')}</td>
                                 <td className="px-3 py-2.5 text-center">
-                                  {deletingId === row.savedId ? (
-                                    <div className="flex items-center justify-center gap-1.5 text-[10px]">
-                                      <button type="button" onClick={() => handleDeleteNewRow(dept, idx, row.savedId)} className="text-red-600 font-semibold hover:underline">Yes</button>
-                                      <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
-                                    </div>
-                                  ) : (
-                                    <RowActionsMenu
-                                      menuKey={`addnew-${dept}-${row.savedId}`}
-                                      openKey={openActionMenu}
-                                      onOpen={setOpenActionMenu}
-                                      onClose={() => setOpenActionMenu(null)}
-                                      onEdit={() => unlockRow(dept, idx)}
-                                      onDelete={() => setDeletingId(row.savedId)}
-                                    />
-                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => unlockRow(dept, idx)}
+                                    title="Edit this entry"
+                                    aria-label="Edit entry"
+                                    className="w-7 h-7 mx-auto flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                  >
+                                    <Pencil size={13} />
+                                  </button>
                                 </td>
                               </tr>
                             )
                           }
                           return (
                           <tr key={row._key} className={`bg-emerald-50/30 ${isFirstDraftRow ? 'border-t-2 border-dashed border-emerald-300' : 'border-t border-emerald-100/70'}`}>
+                            <td className="px-2 py-2.5" />
                             <td className="px-3 py-2.5 text-center">
                               <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">{slNumber}</span>
                             </td>

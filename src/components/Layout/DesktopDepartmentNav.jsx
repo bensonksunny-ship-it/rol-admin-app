@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { getDepartmentByName, getDepartmentPath, getDepartmentIcon, displayDeptName } from '../../constants/departments'
 import { getDepartmentSubpages, myDepartmentNames } from '../../utils/departmentSubpages'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
+import { TILE_STYLES } from '../../constants/tileStyles'
 
 // Desktop's persistent two-row department nav (lg: and up) — replaces
 // DepartmentDock's floating grid/modal as the primary nav surface on desktop;
@@ -55,18 +56,29 @@ export default function DesktopDepartmentNav() {
 
   return (
     <div className="hidden lg:block sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200">
-      {/* Row 1 — departments */}
-      <nav aria-label="Departments" className="max-w-5xl mx-auto px-6 h-12 flex items-center gap-5 overflow-x-auto scrollbar-hide">
-        {items.map((item) => {
+      {/* Row 1 — departments, each a compact icon-badge "tile" (colors cycle through the
+          same TILE_STYLES palette DepartmentFolderModal's mobile grid uses, so the two
+          nav surfaces read as one visual system) rather than a plain text link. */}
+      <nav aria-label="Departments" className="max-w-5xl mx-auto px-6 h-12 flex items-center gap-4 overflow-x-auto scrollbar-hide">
+        {items.map((item, i) => {
           const active = item === activeItem
+          const style = TILE_STYLES[i % TILE_STYLES.length]
+          const Icon = item.Icon
           return (
             <Link
               key={item.key}
               to={item.to}
-              className={`relative flex-shrink-0 flex items-center h-full text-sm font-semibold whitespace-nowrap transition-colors ${
+              className={`relative flex-shrink-0 flex items-center gap-1.5 h-full text-sm font-semibold whitespace-nowrap transition-colors ${
                 active ? 'text-indigo-700' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
+              <span
+                className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 bg-gradient-to-br ${style.gradient} shadow-sm ${style.shadow} ${
+                  active ? '' : 'opacity-80'
+                }`}
+              >
+                {Icon && <Icon size={13} className="text-white" strokeWidth={2} />}
+              </span>
               {item.label}
               {active && <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-indigo-600 rounded-full" />}
             </Link>

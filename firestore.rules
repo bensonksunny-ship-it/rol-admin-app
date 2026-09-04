@@ -567,7 +567,13 @@ service cloud.firestore {
     }
 
     match /finance_tally/{docId} {
-      allow read, write: if isSignedIn();
+      // Anyone with accounts access reads it (it drives the Previous Balance figure
+      // on the Tally sheet). Writes are the Founder-only, one-time opening-balance
+      // anchor — locked to the single genesis-month doc id (GENESIS_MONTH_KEY in
+      // TallyPage.jsx) so no other month can ever get a manual override that would
+      // break the automatic month-to-month carry-forward chain.
+      allow read: if isSignedIn();
+      allow write: if isFullAccess() && docId == '2025-01';
     }
 
     match /expense_departments/{docId} {
