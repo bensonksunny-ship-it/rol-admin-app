@@ -43,6 +43,40 @@ function inr(n) {
   return `${v < 0 ? '−' : ''}₹${Math.abs(v).toLocaleString('en-IN')}`
 }
 
+// Colourful KPI tile for the Account Sheet header strip — tinted background +
+// accent border + accent text. Inline styles only (no Tailwind colour classes):
+// Tailwind v4 emits oklch() for its palette, which html2canvas 1.x can't parse
+// during the PDF capture, so every colour that must survive the snapshot is
+// hex/rgb via `style`, the same convention SundayReportPrintView.jsx uses.
+function StatCard({ label, value, accent, bg, border, badge, big }) {
+  return (
+    <div style={{ background: bg, border: `0.4mm solid ${border}`, borderRadius: '2.5mm', padding: big ? '4mm 5mm' : '3mm 4mm' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1mm', gap: '2mm' }}>
+        <span style={{ fontSize: '7pt', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>{label}</span>
+        {badge && (
+          <span style={{ fontSize: '6.5pt', fontWeight: 800, textTransform: 'uppercase', color: accent, background: '#ffffff', border: `0.3mm solid ${border}`, borderRadius: '3mm', padding: '0.3mm 1.6mm', whiteSpace: 'nowrap' }}>{badge}</span>
+        )}
+      </div>
+      <p style={{ fontSize: big ? '17pt' : '13pt', fontWeight: 800, color: accent, margin: 0, lineHeight: 1.15 }}>{value}</p>
+    </div>
+  )
+}
+
+// Section header for the two detail tables — colour dot + label, no fill (keeps
+// the printed page colourful without laying ink-heavy background blocks, same
+// idiom as SundayReportPrintView's SectionLabel).
+function SectionLabel({ children, accent, right }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2.8mm 4mm', borderBottom: `0.3mm solid ${accent}33` }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: '1.8mm', fontSize: '7.5pt', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#334155' }}>
+        <span style={{ width: '2mm', height: '2mm', borderRadius: '50%', background: accent, display: 'inline-block', flexShrink: 0 }} />
+        {children}
+      </span>
+      {right}
+    </div>
+  )
+}
+
 function sumIncome(rows) {
   return rows.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 }
@@ -347,15 +381,20 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={editing ? () => setEditing(false) : startEdit}
-          className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-        >
-          {editing ? 'Close' : isManual ? 'Edit previous balance' : 'Set previous balance'}
-        </button>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Overriding the opening balance affects every later month's carry-forward,
+            so only the Founder can touch it — everyone else just sees the resulting
+            figure (with its Manual/Auto badge) in the sheet below. */}
+        {isFounder && (
+          <button
+            type="button"
+            onClick={editing ? () => setEditing(false) : startEdit}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+          >
+            {editing ? 'Close' : isManual ? 'Edit previous balance' : 'Set previous balance'}
+          </button>
+        )}
+        <div className="flex items-center gap-2 ml-auto">
           <button
             type="button"
             onClick={handleDownloadExcel}
@@ -379,8 +418,8 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{loadError || pdfError || xlsxError}</div>
       )}
 
-      {/* Previous-balance editor */}
-      {editing && (
+      {/* Previous-balance editor — Founder only (see the toggle button above) */}
+      {isFounder && editing && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
           <p className="text-xs text-slate-500">
             Override the previous (opening) balance for {format(activeMonth, 'MMMM yyyy')}.
@@ -429,90 +468,134 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
         <div className="p-10 text-center text-slate-500 text-sm">Loading…</div>
       ) : (
         <>
-          {/* ══ Account Sheet — the export target, A4-width ══ */}
+          {/* ══ Account Sheet — the export target, single A4 page ══ */}
+          {/* Every colour below is an inline hex/rgb style, never a Tailwind colour
+              class: Tailwind v4 emits oklch() for its palette, which html2canvas 1.x
+              can't parse during the PDF capture (see SundayReportPrintView.jsx). */}
           <div className="overflow-x-auto">
-          <div ref={sheetRef} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-5 mx-auto w-[210mm] max-w-full">
-            <div className="border-b border-slate-100 pb-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">River Of Life Christian Church</p>
-              <h2 className="text-lg font-bold text-slate-900 mt-0.5">Account Sheet</h2>
-              <p className="text-xs font-medium text-slate-500">{format(activeMonth, 'MMMM yyyy')}</p>
+          <div
+            ref={sheetRef}
+            className="mx-auto max-w-full"
+            style={{
+              width: '210mm',
+              minHeight: '297mm',
+              background: '#ffffff',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+              borderRadius: '2mm',
+              overflow: 'hidden',
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              color: '#334155',
+              lineHeight: 1.45,
+            }}
+          >
+            {/* Letterhead band */}
+            <div style={{ height: '3mm', background: 'linear-gradient(90deg, #4338ca, #6366f1 60%, #10b981)' }} />
+            <div style={{ padding: '8mm 12mm 4mm', borderBottom: '0.4mm solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '4mm' }}>
+                <div>
+                  <p style={{ fontSize: '8pt', letterSpacing: '0.15em', textTransform: 'uppercase', color: '#4f46e5', fontWeight: 700, margin: 0 }}>
+                    River Of Life Christian Church
+                  </p>
+                  <h2 style={{ fontSize: '18pt', fontWeight: 800, margin: '1.5mm 0 0', color: '#1e293b' }}>Account Sheet</h2>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{ fontSize: '7pt', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 700, margin: 0 }}>Period</p>
+                  <p style={{ fontSize: '12pt', fontWeight: 700, margin: '0.5mm 0 0', color: '#334155' }}>{format(activeMonth, 'MMMM yyyy')}</p>
+                </div>
+              </div>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              {/* Tally table */}
-              <div className="rounded-lg border border-slate-200 overflow-hidden self-start">
-                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200">
-                  <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Tally</h3>
-                </div>
-                <table className="w-full text-sm">
-                  <tbody className="divide-y divide-slate-100">
-                    {tallyRows.map(r => (
-                      <tr key={r.label} className={r.strong ? 'bg-slate-50/70' : ''}>
-                        <td className={`px-4 py-2.5 ${r.strong ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>
-                          {r.label}
-                          {r.badge && (
-                            <span className={`ml-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${r.badge === 'Manual' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-500'}`}>
-                              {r.badge}
-                            </span>
-                          )}
-                        </td>
-                        <td className={`px-4 py-2.5 text-right tabular-nums ${
-                          r.strong
-                            ? `font-bold ${r.signed ? (r.value >= 0 ? 'text-emerald-700' : 'text-red-600') : 'text-slate-900'}`
-                            : r.negative ? 'text-red-600' : 'text-slate-800'
-                        }`}>
-                          {inr(r.value)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {isManual && anchor.note && (
-                  <p className="px-4 py-2 text-[11px] text-slate-400 italic border-t border-slate-100">“{anchor.note}”</p>
-                )}
+            <div style={{ padding: '5mm 12mm 8mm' }}>
+              {/* KPI strip */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '3mm', marginBottom: '5mm' }}>
+                <StatCard label="Income of the Month" value={inr(totalIncome)} accent="#047857" bg="#ecfdf5" border="#a7f3d0" />
+                <StatCard label="Previous Balance" value={inr(openingBalance)} accent="#4338ca" bg="#eef2ff" border="#c7d2fe" badge={isManual ? 'Manual' : 'Auto'} />
+                <StatCard label="Total Expense" value={inr(totalExpense)} accent="#b91c1c" bg="#fef2f2" border="#fecaca" />
+                <StatCard
+                  label="Current Balance"
+                  value={inr(currentBalance)}
+                  accent={currentBalance >= 0 ? '#047857' : '#b91c1c'}
+                  bg={currentBalance >= 0 ? '#ecfdf5' : '#fef2f2'}
+                  border={currentBalance >= 0 ? '#6ee7b7' : '#fca5a5'}
+                  big
+                />
               </div>
 
-              {/* Departmental expense table — collapsed to its total until opened */}
-              <div className="rounded-lg border border-slate-200 overflow-hidden self-start">
-                <button
-                  type="button"
-                  onClick={() => setDeptOpen(o => !o)}
-                  aria-expanded={deptOpen}
-                  className="w-full px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 text-left hover:bg-slate-100 transition-colors"
-                >
-                  <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 uppercase tracking-wide">
-                    <span className={`inline-block transition-transform ${deptOpen ? 'rotate-90' : ''}`}>▸</span>
-                    Departmental Expense
-                  </span>
-                  <span className="text-sm font-bold text-red-600 tabular-nums">{inr(totalExpense)}</span>
-                </button>
-                {deptOpen && (
-                  <table className="w-full text-sm">
-                    <tbody className="divide-y divide-slate-100">
-                      {DEPT_ROWS.map(r => (
-                        <tr key={r.label}>
-                          <td className="px-4 py-2 text-slate-600">{r.label}</td>
-                          <td className="px-4 py-2 text-right tabular-nums text-slate-800">{inr(deptTotals.get(r.label))}</td>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4mm', alignItems: 'start' }}>
+                {/* Tally table */}
+                <div style={{ border: '0.35mm solid #e2e8f0', borderRadius: '2.5mm', overflow: 'hidden' }}>
+                  <SectionLabel accent="#4338ca">Tally</SectionLabel>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9pt' }}>
+                    <tbody>
+                      {tallyRows.map((r, i) => (
+                        <tr key={r.label} style={{ background: r.strong ? '#f8fafc' : i % 2 ? '#fafbfc' : '#ffffff', borderTop: '0.25mm solid #f1f5f9' }}>
+                          <td style={{ padding: '2.2mm 4mm', fontWeight: r.strong ? 700 : 500, color: r.strong ? '#1e293b' : '#475569' }}>
+                            {r.label}
+                            {r.badge && (
+                              <span style={{ marginLeft: '2mm', fontSize: '6.5pt', fontWeight: 800, textTransform: 'uppercase', color: r.badge === 'Manual' ? '#4338ca' : '#64748b', background: r.badge === 'Manual' ? '#e0e7ff' : '#f1f5f9', borderRadius: '3mm', padding: '0.3mm 1.6mm' }}>
+                                {r.badge}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{
+                            padding: '2.2mm 4mm', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                            fontWeight: r.strong ? 800 : 600,
+                            color: r.strong ? (r.signed ? (r.value >= 0 ? '#047857' : '#b91c1c') : '#1e293b') : (r.negative ? '#b91c1c' : '#334155'),
+                          }}>
+                            {inr(r.value)}
+                          </td>
                         </tr>
                       ))}
-                      {deptOther > 0 && (
-                        <tr>
-                          <td className="px-4 py-2 text-slate-500 italic">Other / Unallocated</td>
-                          <td className="px-4 py-2 text-right tabular-nums text-slate-800">{inr(deptOther)}</td>
-                        </tr>
-                      )}
                     </tbody>
-                    <tfoot>
-                      <tr className="bg-slate-50/70 border-t border-slate-200">
-                        <td className="px-4 py-2.5 font-semibold text-slate-800">Total</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums font-bold text-red-600">{inr(totalExpense)}</td>
-                      </tr>
-                    </tfoot>
                   </table>
-                )}
+                  {isManual && anchor.note && (
+                    <p style={{ padding: '2mm 4mm', fontSize: '7.5pt', color: '#94a3b8', fontStyle: 'italic', borderTop: '0.25mm solid #f1f5f9', margin: 0 }}>“{anchor.note}”</p>
+                  )}
+                </div>
+
+                {/* Departmental expense table — collapsed to its total until opened */}
+                <div style={{ border: '0.35mm solid #e2e8f0', borderRadius: '2.5mm', overflow: 'hidden' }}>
+                  <button
+                    type="button"
+                    onClick={() => setDeptOpen(o => !o)}
+                    aria-expanded={deptOpen}
+                    style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, textAlign: 'left', font: 'inherit', color: 'inherit' }}
+                  >
+                    <SectionLabel
+                      accent="#b91c1c"
+                      right={<span style={{ fontSize: '9pt', fontWeight: 800, color: '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>{inr(totalExpense)}</span>}
+                    >
+                      <span style={{ display: 'inline-block', transition: 'transform 0.15s', transform: deptOpen ? 'rotate(90deg)' : 'none' }}>▸</span>{' '}
+                      Departmental Expense
+                    </SectionLabel>
+                  </button>
+                  {deptOpen && (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9pt' }}>
+                      <tbody>
+                        {DEPT_ROWS.map((r, i) => (
+                          <tr key={r.label} style={{ background: i % 2 ? '#fafbfc' : '#ffffff', borderTop: '0.25mm solid #f1f5f9' }}>
+                            <td style={{ padding: '1.8mm 4mm', color: '#475569' }}>{r.label}</td>
+                            <td style={{ padding: '1.8mm 4mm', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#1e293b' }}>{inr(deptTotals.get(r.label))}</td>
+                          </tr>
+                        ))}
+                        {deptOther > 0 && (
+                          <tr style={{ borderTop: '0.25mm solid #f1f5f9' }}>
+                            <td style={{ padding: '1.8mm 4mm', color: '#94a3b8', fontStyle: 'italic' }}>Other / Unallocated</td>
+                            <td style={{ padding: '1.8mm 4mm', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#1e293b' }}>{inr(deptOther)}</td>
+                          </tr>
+                        )}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#fef2f2', borderTop: '0.35mm solid #fecaca' }}>
+                          <td style={{ padding: '2.2mm 4mm', fontWeight: 700, color: '#1e293b' }}>Total</td>
+                          <td style={{ padding: '2.2mm 4mm', textAlign: 'right', fontWeight: 800, color: '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>{inr(totalExpense)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  )}
+                </div>
               </div>
             </div>
-
           </div>
           </div>
 
