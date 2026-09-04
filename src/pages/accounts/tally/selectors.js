@@ -140,12 +140,14 @@ export function buildIncomeModel(incomeEntries) {
       { label: 'Contribution', total: sumAmount(cat.contribution) },
       { label: 'Support from ROLCC', total: sumAmount(cat.supportFromROLCC) },
       { label: 'Other Income', total: sumAmount(cat.otherIncome) },
+      { label: 'RSM', total: sumAmount(cat.rsm) },
     ],
     offeringRows,
     supportRows: ledger(cat.supportFromROLCC),
     titheEnglishRows: ledger(cat.titheEnglish),
     titheTamilRows: ledger(cat.titheTamil),
     contributionRows: ledger(cat.contribution),
+    rsmRows: ledger(cat.rsm),
     otherIncomeRows: [...cat.otherIncome]
       .sort((a, b) => (toJsDate(a.date)?.getTime() || 0) - (toJsDate(b.date)?.getTime() || 0))
       .map((e) => ({

@@ -36,7 +36,13 @@ export function buildDeptGridsSheet(wb, ctx, deptBuckets) {
   // grids start below the summary block: title+header+deptCount+total
   const gridsTop = summaryTop + 3 + deptBuckets.length + 1 + 2
 
-  let floodBottom = gridsTop
+  // Terracotta flood FIRST — grids/summary drawn afterwards overwrite their own
+  // cells. Height is the sum of every band's height (tallest grid + chrome).
+  const bandCount = Math.ceil(deptBuckets.length / GRIDS_PER_ROW)
+  let floodEstimate = gridsTop
+  for (let b = 0; b < bandCount; b += 1) floodEstimate += maxRowsInAnyBand(b) + 6
+  flood(ws, 1, 1, floodEstimate + 4, 2 + GRIDS_PER_ROW * GRID_PITCH + GRID_COLS)
+
   let bandTop = gridsTop
   const subtotalRefByLabel = new Map()
   const sumRangeByLabel = new Map()
@@ -73,10 +79,7 @@ export function buildDeptGridsSheet(wb, ctx, deptBuckets) {
     const range = `'Department Expense'!${ref(grid.firstDataRow, amtCol)}:${ref(grid.lastDataRow, amtCol)}`
     sumRangeByLabel.set(bucket.label, range)
     subtotalRefByLabel.set(bucket.label, `'Department Expense'!${ref(grid.totalRow, amtCol)}`)
-    floodBottom = Math.max(floodBottom, grid.bottom + 2)
   })
-
-  flood(ws, 1, 1, floodBottom + 4, 2 + GRIDS_PER_ROW * GRID_PITCH)
 
   // ── Summary block, now that subtotal refs exist ──
   drawTable(ws, {

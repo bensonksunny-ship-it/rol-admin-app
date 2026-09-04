@@ -23,17 +23,29 @@ function ledgerBlock(ws, top, left, title, rows) {
   })
 }
 
+// Height a title+header+rows+total block occupies (min one data row).
+const blockH = (n) => 3 + Math.max(n, 1)
+
+const OFFERING_TOP = 16 // leaves a gap row under the 9-row Income summary
+
 export function buildIncomeSheet(wb, ctx) {
   const ws = wb.addWorksheet('Income Sheet', { views: [{ showGridLines: false }] })
   const model = buildIncomeModel(ctx.incomeEntries)
 
-  flood(ws, 1, 1, 90, 20)
   ws.getColumn(1).width = 3
 
-  // ── Offering Table (B15) ──
+  // Terracotta flood FIRST (tables drawn after overwrite their own cells). Height
+  // is an upper bound from the row counts of the three column stacks.
+  const leftH = OFFERING_TOP - 1 + blockH(model.offeringRows.length) + 1 + blockH(model.supportRows.length)
+  const centreH = 2 + Math.max(blockH(model.titheEnglishRows.length), blockH(model.titheTamilRows.length))
+  const rightH =
+    2 + blockH(model.contributionRows.length) + 1 + blockH(model.otherIncomeRows.length) + 1 + blockH(model.rsmRows.length)
+  flood(ws, 1, 1, Math.max(leftH, centreH, rightH) + 3, 20)
+
+  // ── Offering Table ──
   const hasOffering = model.offeringRows.length > 0
   const offering = drawTable(ws, {
-    top: 15,
+    top: OFFERING_TOP,
     left: 2,
     title: 'Offering Table',
     columns: [
@@ -74,9 +86,10 @@ export function buildIncomeSheet(wb, ctx) {
   const titheE = ledgerBlock(ws, 3, 7, 'Tithe - English', model.titheEnglishRows)
   const titheT = ledgerBlock(ws, 3, 11, 'Tithe - Tamil', model.titheTamilRows)
 
-  // ── Contribution + Other Income (right) ──
+  // ── Contribution + Other Income + RSM (right) ──
   const contrib = ledgerBlock(ws, 3, 15, 'Contribution table', model.contributionRows)
   const other = ledgerBlock(ws, contrib.bottom + 2, 15, 'Other Income', model.otherIncomeRows)
+  const rsm = ledgerBlock(ws, other.bottom + 2, 15, 'RSM', model.rsmRows)
 
   const totalCellOf = (block) => ref(block.totalRow, block.colOf('amount'))
 
@@ -90,6 +103,7 @@ export function buildIncomeSheet(wb, ctx) {
     Contribution: totalCellOf(contrib),
     'Support from ROLCC': totalCellOf(support),
     'Other Income': totalCellOf(other),
+    RSM: totalCellOf(rsm),
   }
   const summary = drawTable(ws, {
     top: 3,
