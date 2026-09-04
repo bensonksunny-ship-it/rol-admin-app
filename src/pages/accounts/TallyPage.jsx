@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Navigate } from 'react-router-dom'
 import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
+import { normalizeDepartmentName } from '../../constants/roles'
 import {
   getFinanceIncome,
   getFinanceExpense,
@@ -12,6 +13,30 @@ import {
 } from '../../services/firestore'
 
 const EPOCH = new Date(2000, 0, 1)
+
+// The church's Account Sheet lists spend under these 16 fixed departments, in this
+// order. `match` bridges the app's own longer category names (Cell Ministry, Sunday
+// Ministry, River Kids / Junior Church, Building, General Affairs, …) — as stored on
+// finance_expense records — to the sheet's short labels. Anything unmatched rolls into
+// an "Other / Unallocated" row so the grid always reconciles to Total Expense.
+const DEPT_ROWS = [
+  { label: 'Worship', match: ['worship'] },
+  { label: 'Cell', match: ['cell', 'cell ministry'] },
+  { label: 'Caring', match: ['caring'] },
+  { label: 'Sunday M', match: ['sunday ministry', 'sunday m', 'sunday'] },
+  { label: 'D Light', match: ['d light', 'd-light', 'dlight'] },
+  { label: 'Junior C', match: ['junior church', 'river kids', 'junior c'] },
+  { label: 'Outreach', match: ['outreach'] },
+  { label: 'Build C', match: ['building', 'building care', 'build c'] },
+  { label: 'Event M', match: ['event m', 'event management', 'events', 'event-m'] },
+  { label: 'Mission', match: ['mission', 'missions'] },
+  { label: 'Media', match: ['media'] },
+  { label: 'Accounts', match: ['accounts', 'account', 'finance'] },
+  { label: 'Human Resources', match: ['human resources', 'hr'] },
+  { label: 'Gen Affairs', match: ['general affairs', 'gen affairs'] },
+  { label: 'Thunderstorm', match: ['thunderstorm'] },
+  { label: 'SP Office', match: ['sp office', 'senior pastor office', "senior pastor's office"] },
+]
 
 function inr(n) {
   const v = Math.round(Number(n) || 0)
@@ -28,11 +53,25 @@ function sumExpense(rows) {
   return rows.filter(e => e.status !== 'pending').reduce((s, e) => s + (Number(e.amount) || 0), 0)
 }
 
+// Bucket this month's expense entries into the 16 sheet departments + "Other".
+function groupByDepartment(rows) {
+  const totals = new Map(DEPT_ROWS.map(r => [r.label, 0]))
+  let other = 0
+  for (const e of rows) {
+    const key = String(normalizeDepartmentName(e.department || e.category || '')).trim().toLowerCase()
+    const row = DEPT_ROWS.find(r => r.label.toLowerCase() === key || r.match.includes(key))
+    if (row) totals.set(row.label, totals.get(row.label) + (Number(e.amount) || 0))
+    else other += Number(e.amount) || 0
+  }
+  return { totals, other }
+}
+
 export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
   const { userProfile, hasPermission, isFounder } = useAuth()
   const [internalMonth, setInternalMonth] = useState(startOfMonth(new Date()))
   const activeMonth = controlledMonth || internalMonth
   const monthKey = format(activeMonth, 'yyyy-MM')
+  const sheetRef = useRef(null)
 
   const [incomeEntries, setIncomeEntries] = useState([])
   const [expenseEntries, setExpenseEntries] = useState([])
@@ -41,11 +80,15 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
 
-  // Manual-entry editor
+  // Manual previous-balance editor
   const [editing, setEditing] = useState(false)
   const [draftAmount, setDraftAmount] = useState('')
   const [draftNote, setDraftNote] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // PDF export
+  const [downloading, setDownloading] = useState(false)
+  const [pdfError, setPdfError] = useState('')
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
@@ -53,6 +96,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
     if (!canAccess) return
     load()
     setEditing(false)
+    setPdfError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMonth, canAccess])
 
@@ -78,7 +122,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       setIncomeEntries(income)
       setExpenseEntries(expense.filter(e => e.status !== 'pending'))
 
-      // Opening balance.
+      // Previous / opening balance.
       let opening
       if (baseAnchor && baseAnchor.monthKey === monthKey) {
         opening = Number(baseAnchor.openingBalance) || 0
@@ -99,7 +143,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       setOpeningBalance(opening)
     } catch (err) {
       console.error('[Tally] load failed', err)
-      setLoadError('Could not load this month’s tally.')
+      setLoadError('Could not load this month’s account sheet.')
       setIncomeEntries([])
       setExpenseEntries([])
       setAnchor(null)
@@ -111,8 +155,10 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
 
   const totalIncome = sumIncome(incomeEntries)
   const totalExpense = sumExpense(expenseEntries)
-  const closing = openingBalance + totalIncome - totalExpense
+  const availableBalance = openingBalance + totalIncome
+  const currentBalance = availableBalance - totalExpense
   const isManual = !!anchor
+  const { totals: deptTotals, other: deptOther } = groupByDepartment(expenseEntries)
 
   function changeMonth(delta) {
     const next = delta < 0 ? subMonths(activeMonth, 1) : addMonths(activeMonth, 1)
@@ -138,7 +184,7 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
       await load()
     } catch (err) {
       console.error('[Tally] save anchor failed', err)
-      setLoadError('Could not save the manual opening balance.')
+      setLoadError('Could not save the manual previous balance.')
     } finally {
       setSaving(false)
     }
@@ -158,144 +204,237 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
     }
   }
 
+  async function handleDownloadPdf() {
+    if (!sheetRef.current) return
+    setDownloading(true)
+    setPdfError('')
+    try {
+      const [{ jsPDF }, html2canvasMod] = await Promise.all([
+        import('jspdf'),
+        import('html2canvas'),
+      ])
+      const html2canvas = html2canvasMod.default || html2canvasMod
+      const canvas = await html2canvas(sheetRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+      })
+      const doc = new jsPDF('p', 'mm', 'a4')
+      const PAGE_W = 210
+      const PAGE_H = 297
+      let w = PAGE_W
+      let h = (canvas.height / canvas.width) * PAGE_W
+      if (h > PAGE_H) {
+        h = PAGE_H
+        w = (canvas.width / canvas.height) * PAGE_H
+      }
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', (PAGE_W - w) / 2, 0, w, h)
+      doc.save(`account-sheet-${monthKey}.pdf`)
+    } catch (err) {
+      console.error('[Tally] PDF export failed', err)
+      setPdfError('Could not generate the PDF. Try again.')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   function fmtDate(d) {
     try { return format(d instanceof Date ? d : new Date(d), 'dd/MM/yyyy') } catch { return '—' }
   }
 
+  // ── Account Sheet inline styles (mm units — rasterises cleanly via html2canvas) ──
+  const cell = { padding: '2mm 3mm', fontSize: '9.5pt' }
+  const labelCell = { ...cell, color: '#475569' }
+  const amountCell = { ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#1e293b' }
+  const strongRow = { fontWeight: 700, background: '#f8fafc' }
+
   return (
     <div className="space-y-5 pb-12">
 
-      {/* Month picker — hidden when a parent owns it without syncing (not the case here) */}
+      {/* ── Toolbar (not part of the export) ── */}
       {(!controlledMonth || onMonthChange) && (
-        <div className="flex items-center justify-center gap-4 py-2">
+        <div className="flex items-center justify-center gap-4 py-1">
           <button type="button" onClick={() => changeMonth(-1)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none" aria-label="Previous month">‹</button>
           <span className="text-base font-semibold text-slate-800 w-36 text-center">{format(activeMonth, 'MMMM yyyy')}</span>
           <button type="button" onClick={() => changeMonth(1)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none" aria-label="Next month">›</button>
         </div>
       )}
 
-      {loadError && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{loadError}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={editing ? () => setEditing(false) : startEdit}
+          className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+        >
+          {editing ? 'Close' : isManual ? 'Edit previous balance' : 'Set previous balance'}
+        </button>
+        <button
+          type="button"
+          onClick={handleDownloadPdf}
+          disabled={downloading || loading}
+          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {downloading ? 'Generating PDF…' : '⬇ Download PDF'}
+        </button>
+      </div>
+
+      {(loadError || pdfError) && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{loadError || pdfError}</div>
       )}
 
-      {/* Opening balance */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-medium text-slate-500">Opening Balance</p>
-              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${isManual ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
-                {isManual ? 'Manual' : 'Auto'}
-              </span>
-            </div>
-            <p className="text-lg font-bold text-slate-800 mt-1">{inr(openingBalance)}</p>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {isManual
-                ? `Set manually${anchor.updatedBy ? ` by ${anchor.updatedBy}` : ''}`
-                : 'Carried forward from earlier months'}
-            </p>
-            {isManual && anchor.note && (
-              <p className="text-xs text-slate-500 mt-1 italic">“{anchor.note}”</p>
+      {/* Previous-balance editor */}
+      {editing && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+          <p className="text-xs text-slate-500">
+            Override the previous (opening) balance for {format(activeMonth, 'MMMM yyyy')}.
+            Later months carry forward from this figure. Leave it unset to roll over
+            automatically from earlier months.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs font-medium text-slate-600">
+              Previous balance (₹)
+              <input
+                type="number"
+                value={draftAmount}
+                onChange={e => setDraftAmount(e.target.value)}
+                className="mt-1 block w-44 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+                placeholder="0"
+              />
+            </label>
+            <label className="text-xs font-medium text-slate-600 flex-1 min-w-[12rem]">
+              Note (optional)
+              <input
+                type="text"
+                value={draftNote}
+                onChange={e => setDraftNote(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+                placeholder="e.g. bank statement carry-over"
+              />
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={saveManual} disabled={saving} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" onClick={() => setEditing(false)} disabled={saving} className="text-xs font-medium px-3 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50">
+              Cancel
+            </button>
+            {isManual && (
+              <button type="button" onClick={resetToAuto} disabled={saving} className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-50 ml-auto">
+                Reset to auto
+              </button>
             )}
           </div>
-          {!editing && (
-            <button
-              type="button"
-              onClick={startEdit}
-              className="text-xs font-medium text-indigo-600 hover:text-indigo-700 whitespace-nowrap"
-            >
-              {isManual ? 'Edit' : 'Set manually'}
-            </button>
-          )}
         </div>
-
-        {editing && (
-          <div className="mt-4 border-t border-slate-100 pt-4 space-y-3">
-            <p className="text-xs text-slate-500">
-              Override the opening balance for {format(activeMonth, 'MMMM yyyy')}. Later months
-              carry forward from this figure.
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="text-xs font-medium text-slate-600">
-                Opening balance (₹)
-                <input
-                  type="number"
-                  value={draftAmount}
-                  onChange={e => setDraftAmount(e.target.value)}
-                  className="mt-1 block w-40 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
-                  placeholder="0"
-                />
-              </label>
-              <label className="text-xs font-medium text-slate-600 flex-1 min-w-[12rem]">
-                Note (optional)
-                <input
-                  type="text"
-                  value={draftNote}
-                  onChange={e => setDraftNote(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
-                  placeholder="e.g. bank statement carry-over"
-                />
-              </label>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={saveManual}
-                disabled={saving}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                disabled={saving}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              {isManual && (
-                <button
-                  type="button"
-                  onClick={resetToAuto}
-                  disabled={saving}
-                  className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-50 ml-auto"
-                >
-                  Reset to auto
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Tally strip */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-          <div>
-            <p className="text-xs font-medium text-slate-500">Opening</p>
-            <p className="text-base font-bold text-slate-700 mt-1">{inr(openingBalance)}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-slate-500">+ Income</p>
-            <p className="text-base font-bold text-emerald-600 mt-1">{inr(totalIncome)}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-slate-500">− Expense</p>
-            <p className="text-base font-bold text-red-500 mt-1">{inr(totalExpense)}</p>
-          </div>
-          <div className={`rounded-lg py-1 ${closing >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-            <p className="text-xs font-medium text-slate-500">= Closing</p>
-            <p className={`text-base font-bold mt-1 ${closing >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{inr(closing)}</p>
-          </div>
-        </div>
-      </div>
+      )}
 
       {loading ? (
         <div className="p-10 text-center text-slate-500 text-sm">Loading…</div>
       ) : (
         <>
-          {/* Income table */}
+          {/* ══ Account Sheet — the export target ══ */}
+          <div className="overflow-x-auto">
+            <div
+              ref={sheetRef}
+              style={{
+                width: '190mm',
+                margin: '0 auto',
+                background: '#ffffff',
+                border: '0.3mm solid #e2e8f0',
+                borderRadius: '2mm',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                color: '#334155',
+                lineHeight: 1.45,
+              }}
+            >
+              {/* Header */}
+              <div style={{ padding: '7mm 8mm 4mm', borderBottom: '0.7mm solid #4338ca' }}>
+                <p style={{ fontSize: '7.5pt', letterSpacing: '0.15em', color: '#6366f1', textTransform: 'uppercase', margin: 0, fontWeight: 700 }}>
+                  River Of Life Community Church
+                </p>
+                <h1 style={{ fontSize: '15pt', fontWeight: 800, margin: '1.5mm 0 0', color: '#1e293b' }}>Account Sheet</h1>
+                <p style={{ fontSize: '10pt', fontWeight: 600, margin: '0.5mm 0 0', color: '#64748b' }}>
+                  {format(activeMonth, 'MMMM yyyy')}
+                </p>
+              </div>
+
+              {/* Two panels */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6mm', padding: '6mm 8mm' }}>
+
+                {/* Tally table */}
+                <div style={{ flex: '1 1 78mm', minWidth: '78mm' }}>
+                  <p style={{ fontSize: '8pt', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', margin: '0 0 2mm' }}>Tally</p>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', border: '0.3mm solid #e2e8f0' }}>
+                    <tbody>
+                      <tr style={{ borderBottom: '0.3mm solid #f1f5f9' }}>
+                        <td style={labelCell}>Income of the Month</td>
+                        <td style={amountCell}>{inr(totalIncome)}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '0.3mm solid #f1f5f9' }}>
+                        <td style={labelCell}>
+                          Previous Balance
+                          <span style={{ marginLeft: '2mm', fontSize: '6.5pt', fontWeight: 700, textTransform: 'uppercase', color: isManual ? '#4338ca' : '#94a3b8' }}>
+                            {isManual ? 'Manual' : 'Auto'}
+                          </span>
+                        </td>
+                        <td style={amountCell}>{inr(openingBalance)}</td>
+                      </tr>
+                      <tr style={{ ...strongRow, borderBottom: '0.3mm solid #e2e8f0' }}>
+                        <td style={labelCell}>Available Balance</td>
+                        <td style={{ ...amountCell, fontWeight: 700 }}>{inr(availableBalance)}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '0.3mm solid #f1f5f9' }}>
+                        <td style={labelCell}>Total Expense</td>
+                        <td style={{ ...amountCell, color: '#b91c1c' }}>{inr(totalExpense)}</td>
+                      </tr>
+                      <tr style={strongRow}>
+                        <td style={{ ...labelCell, fontWeight: 700, color: '#1e293b' }}>Current Balance</td>
+                        <td style={{ ...amountCell, fontWeight: 800, color: currentBalance >= 0 ? '#047857' : '#b91c1c' }}>{inr(currentBalance)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  {isManual && anchor.note && (
+                    <p style={{ fontSize: '7pt', color: '#94a3b8', margin: '1.5mm 0 0', fontStyle: 'italic' }}>“{anchor.note}”</p>
+                  )}
+                </div>
+
+                {/* Departmental expense grid */}
+                <div style={{ flex: '1 1 88mm', minWidth: '88mm' }}>
+                  <p style={{ fontSize: '8pt', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', margin: '0 0 2mm' }}>Departmental Expense</p>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', border: '0.3mm solid #e2e8f0' }}>
+                    <tbody>
+                      {DEPT_ROWS.map((r, i) => (
+                        <tr key={r.label} style={{ borderBottom: '0.3mm solid #f1f5f9', background: i % 2 ? '#ffffff' : '#fcfcfd' }}>
+                          <td style={{ ...labelCell, fontSize: '9pt' }}>{r.label}</td>
+                          <td style={{ ...amountCell, fontSize: '9pt' }}>{inr(deptTotals.get(r.label))}</td>
+                        </tr>
+                      ))}
+                      {deptOther > 0 && (
+                        <tr style={{ borderBottom: '0.3mm solid #f1f5f9' }}>
+                          <td style={{ ...labelCell, fontSize: '9pt', fontStyle: 'italic' }}>Other / Unallocated</td>
+                          <td style={{ ...amountCell, fontSize: '9pt' }}>{inr(deptOther)}</td>
+                        </tr>
+                      )}
+                      <tr style={strongRow}>
+                        <td style={{ ...labelCell, fontWeight: 700, color: '#1e293b' }}>Total</td>
+                        <td style={{ ...amountCell, fontWeight: 800, color: '#b91c1c' }}>{inr(totalExpense)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Sign-off */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '2mm 8mm 9mm' }}>
+                <div style={{ textAlign: 'center', minWidth: '60mm' }}>
+                  <div style={{ borderTop: '0.4mm solid #64748b', margin: '10mm 0 1.5mm' }} />
+                  <p style={{ fontSize: '9pt', fontWeight: 700, color: '#1e293b', margin: 0 }}>Senior Pastor, ROLCC</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Month detail (screen only) ── */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-100 bg-emerald-50/60 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-emerald-800">Income</h3>
@@ -339,7 +478,6 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
             )}
           </div>
 
-          {/* Expense table */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-100 bg-red-50/60 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-red-800">Expense</h3>
@@ -381,20 +519,6 @@ export default function TallyPage({ controlledMonth, onMonthChange } = {}) {
                 </table>
               </div>
             )}
-          </div>
-
-          {/* Net balance footer */}
-          <div className={`rounded-xl border shadow-sm px-5 py-4 flex items-center justify-between ${closing >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Closing Balance</p>
-              <p className="text-xs text-slate-500 mt-0.5">Opening + Income − Expense</p>
-            </div>
-            <div className="text-right">
-              <p className={`text-2xl font-bold ${closing >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{inr(closing)}</p>
-              <p className={`text-xs font-medium mt-0.5 ${closing >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                {closing >= 0 ? 'Surplus' : 'Deficit'}
-              </p>
-            </div>
           </div>
         </>
       )}
