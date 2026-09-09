@@ -21,7 +21,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, functions, httpsCallable } from '../lib/firebase'
-import { deriveRoleFromPositions } from '../constants/roles'
+import { ROLES, deriveRoleFromPositions } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
 
 // Firestore's writes reject any `undefined` field value, including ones nested inside
@@ -5025,6 +5025,66 @@ export async function savePastoralRoster(data, updatedBy) {
     updatedBy: updatedBy || 'unknown',
     updatedAt: Timestamp.now(),
   }, { merge: true })
+}
+
+// Global "Senior Pastor" designation — replaces the hardcoded SENIOR_PASTOR_NAME
+// fallback in utils/seniorPastor.js (see useSeniorPastor) once a Founder assigns one
+// from a PCS entry (DepartmentHub.jsx's PCS "⋮ More options" menu). Single settings
+// doc, same shape/pattern as pastoral_roster above.
+export function subscribeToSeniorPastor(onChange, onError) {
+  if (!db) { onError?.(); return () => {} }
+  return onSnapshot(
+    doc(db, 'settings', 'senior_pastor'),
+    (snap) => onChange(snap.exists() ? snap.data() : null),
+    (err) => { console.error('subscribeToSeniorPastor:', err); onError?.() }
+  )
+}
+
+// Assigns `pcsEntry` as the new Senior Pastor, replacing whoever held it before, and
+// keeps ROLES.SENIOR_PASTOR login permissions in sync with whichever `users` account
+// (if any) matches by email — the outgoing holder's role reverts to whatever their real
+// positions[] derive to, the incoming holder's role becomes Senior Pastor. A PCS entry
+// with no email, or no matching `users` doc, still gets the name-badge everywhere; there
+// is simply nothing to sync permissions to until they have a matching account.
+export async function assignSeniorPastor(pcsEntry, actorName) {
+  if (!db) return
+  const email = String(pcsEntry?.email || '').trim()
+
+  let incomingUid = null
+  if (email) {
+    const q = query(collection(db, 'users'), where('email', '==', email), limit(1))
+    const snap = await getDocs(q)
+    if (!snap.empty) incomingUid = snap.docs[0].id
+  }
+
+  const currentSnap = await getDoc(doc(db, 'settings', 'senior_pastor'))
+  const outgoingUid = currentSnap.exists() ? (currentSnap.data().linkedUid || null) : null
+
+  const batch = writeBatch(db)
+
+  if (outgoingUid && outgoingUid !== incomingUid) {
+    const outgoingUserSnap = await getDoc(doc(db, 'users', outgoingUid))
+    if (outgoingUserSnap.exists()) {
+      const positions = outgoingUserSnap.data().positions || []
+      batch.update(doc(db, 'users', outgoingUid), { role: deriveRoleFromPositions(positions) })
+    }
+  }
+
+  if (incomingUid) {
+    batch.update(doc(db, 'users', incomingUid), { role: ROLES.SENIOR_PASTOR })
+  }
+
+  batch.set(doc(db, 'settings', 'senior_pastor'), {
+    pcsEntryId: pcsEntry.id,
+    visitorId: pcsEntry.visitorId || null,
+    name: pcsEntry.name,
+    email,
+    linkedUid: incomingUid,
+    updatedAt: Timestamp.now(),
+    updatedBy: actorName || 'unknown',
+  })
+
+  await batch.commit()
 }
 
 // Expense department options (Accounts → Operations → Add Departments)

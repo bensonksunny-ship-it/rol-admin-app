@@ -30,7 +30,7 @@ import {
 } from '../services/firestore'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
-import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
+import useSeniorPastor from '../hooks/useSeniorPastor'
 import { computeWeekComerCandidates } from '../utils/weekComers'
 
 const MANUAL_ONLY_KEYS = [
@@ -117,6 +117,7 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
   const [query, setQuery] = useState('')
   const [linkingIdx, setLinkingIdx] = useState(null)
   const [linkQuery, setLinkQuery] = useState('')
+  const { isSeniorPastorName, title: SENIOR_PASTOR_TITLE, fullTitle: SENIOR_PASTOR_FULL_TITLE } = useSeniorPastor()
   const nameSet = useMemo(() => new Set((names || []).map(n => n.trim().toLowerCase())), [names])
   const unusedSuggestions = useMemo(
     () => suggestions.filter(s => !nameSet.has(s.trim().toLowerCase())),
@@ -3026,6 +3027,7 @@ function FiledSummaryView({ selectedDate, sortedProgram, programLogs, summaryCom
 /** One attendance category row — count badge + the actual names as a proper chip list,
  *  not a comma-joined sentence, so a large roster is still easy to scan at a glance. */
 function AttendanceRow({ label, count, names, accent = 'indigo' }) {
+  const { isSeniorPastorName, title: SENIOR_PASTOR_TITLE, fullTitle: SENIOR_PASTOR_FULL_TITLE } = useSeniorPastor()
   if (!count) return null
   const theme = ACCENT_THEME[accent] || ACCENT_THEME.indigo
   return (

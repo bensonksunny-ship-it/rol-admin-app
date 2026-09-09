@@ -135,6 +135,7 @@ import {
   dismissCellVisitorProposal,
   getSundayAttendanceCountsByName,
   subscribeToRecentSundayAttendanceWeeks,
+  assignSeniorPastor,
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { SAVINGS_FUNDS } from '../constants/savingsFunds'
@@ -143,7 +144,7 @@ import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { computeWeekComerCandidates } from '../utils/weekComers'
 import { differenceInDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
-import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
+import useSeniorPastor from '../hooks/useSeniorPastor'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
@@ -374,6 +375,7 @@ export default function DepartmentHub() {
   const location = useLocation()
   const navigate = useNavigate()
   const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder, isCellDirector, isSundayMinistryDirector } = useAuth()
+  const { isSeniorPastorName, title: SENIOR_PASTOR_TITLE, fullTitle: SENIOR_PASTOR_FULL_TITLE, name: seniorPastorName } = useSeniorPastor()
   const department = getDepartmentBySlug(slug)
 
   // Cell access helper must be defined BEFORE any effects that reference it (avoid TDZ crashes)
@@ -5406,6 +5408,20 @@ export default function DepartmentHub() {
               setPcsMenuOpenId(null)
             }
 
+            // Founder-only — see docs/superpowers/specs/2026-09-09-pcs-senior-pastor-assignment-design.md.
+            // Always a reassignment, never a clear-to-vacant: the only way to change who
+            // holds it is to assign a different PCS entry, which also syncs the outgoing/
+            // incoming holder's login role (ROLES.SENIOR_PASTOR) when they have an account
+            // matching by email.
+            const handleSetSeniorPastor = async (entry) => {
+              const msg = `Make ${entry.name} the Senior Pastor${seniorPastorName ? `, replacing ${seniorPastorName}` : ''}? This also updates their app login permissions if they have an account.`
+              if (!window.confirm(msg)) return
+              try {
+                await assignSeniorPastor(entry, userProfile?.displayName || userProfile?.email || '')
+              } catch { alert('Failed to set Senior Pastor. Please try again.') }
+              setPcsMenuOpenId(null)
+            }
+
             const handleDismissInactiveCellAlert = async (entry) => {
               try {
                 await dismissInactiveCellAlert(entry.id)
@@ -5533,6 +5549,18 @@ export default function DepartmentHub() {
                   {/* Dropdown menu */}
                   {menuOpen && (
                     <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[160px]">
+                      {isFounder && !isPastor && (
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); handleSetSeniorPastor(entry) }}
+                          className="w-full text-left px-4 py-2.5 text-sm text-amber-700 hover:bg-amber-50 font-medium flex items-center gap-2"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M2 18h20l-2-9-5 4-3-8-3 8-5-4-2 9z"/>
+                          </svg>
+                          Set as Senior Pastor
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={e => { e.stopPropagation(); handleRemoveFromPCS(entry) }}

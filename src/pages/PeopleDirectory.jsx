@@ -14,7 +14,7 @@ import { useAuth } from '../context/AuthContext'
 import { hasAccess } from '../utils/access'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
-import { isSeniorPastorName, SENIOR_PASTOR_TITLE, SENIOR_PASTOR_FULL_TITLE } from '../utils/seniorPastor'
+import useSeniorPastor from '../hooks/useSeniorPastor'
 
 const fmt = (d) => {
   if (!d) return null
@@ -29,13 +29,13 @@ function miniDur(from, to) {
   return [y > 0 ? `${y}y` : '', m > 0 ? `${m}m` : ''].filter(Boolean).join(' ') || '<1m'
 }
 
-function statusBadges(p) {
+function statusBadges(p, isSeniorPastorName, seniorPastorTitle, seniorPastorFullTitle) {
   const badges = []
   const isMember = p.membershipStatus === 'member' || p.pcs?.membershipStatus === 'member'
   const hasActiveCell = p.cells.some(c => c.status !== 'inactive')
   const hasMinistry = p.deptTeams.length > 0 || p.worshipTeams.length > 0 || (p.ministries?.length > 0) || (p.pcs?.ministries?.length > 0)
 
-  if (isSeniorPastorName(p.name)) badges.push({ label: SENIOR_PASTOR_TITLE, bg: 'bg-gradient-to-r from-amber-100 to-yellow-100', text: 'text-amber-800', border: 'border-amber-300', title: SENIOR_PASTOR_FULL_TITLE })
+  if (isSeniorPastorName(p.name)) badges.push({ label: seniorPastorTitle, bg: 'bg-gradient-to-r from-amber-100 to-yellow-100', text: 'text-amber-800', border: 'border-amber-300', title: seniorPastorFullTitle })
   if (isMember)      badges.push({ label: 'Member',  bg: 'bg-amber-100',   text: 'text-amber-700',   border: 'border-amber-200'   })
   if (hasActiveCell) badges.push({ label: 'Cell',    bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200' })
   if (p.pcs)         badges.push({ label: 'PCS',     bg: 'bg-indigo-100',  text: 'text-indigo-700',  border: 'border-indigo-200'  })
@@ -466,6 +466,7 @@ const FILTERS = [
 
 export default function PeopleDirectory() {
   const { userProfile, isFounder, isSeniorPastor, isAdmin, isCellDirector } = useAuth()
+  const { isSeniorPastorName, title: seniorPastorTitle, fullTitle: seniorPastorFullTitle } = useSeniorPastor()
   const [loading, setLoading] = useState(true)
   const [people, setPeople] = useState([])
   const [cellGroups, setCellGroups] = useState([])
@@ -713,7 +714,7 @@ export default function PeopleDirectory() {
                 {/* People in this year */}
                 <div className="rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm">
                   {entries.map((p, idx) => {
-                    const badges = statusBadges(p)
+                    const badges = statusBadges(p, isSeniorPastorName, seniorPastorTitle, seniorPastorFullTitle)
                     const isExpanded = expandedId === p._key
                     const initials = (p.name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?'
                     const primaryCell = p.cells.find(c => c.status !== 'inactive')
