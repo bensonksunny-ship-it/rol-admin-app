@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { format, differenceInCalendarDays } from 'date-fns'
-import { Plus, X, MoreVertical, Pencil, Trash2, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search, Monitor, Play, Pause, SkipForward, RotateCcw } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, CalendarPlus, ChevronDown, Download, History as HistoryIcon, Search, Monitor, Play, Pause, SkipForward, RotateCcw } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import html2canvas from 'html2canvas'
 import PersonSearchInput from '../../components/PersonSearchInput'
@@ -176,6 +176,19 @@ const POSITION_STYLES = {
   secretary:   { active: 'bg-emerald-600 border-emerald-600 text-white', dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
 }
 
+// Every roster row (Chairman / Secretaries / Directors / Coordinators) renders with
+// this one style — same avatar, same card, same spacing — so the whole board is a
+// single uniform list. POSITION_STYLES stays for the MemberForm type picker.
+const BOARD_MEMBER_STYLE = { dot: 'bg-indigo-500', badge: 'bg-indigo-50 text-indigo-700 border-indigo-100' }
+
+// The ONLY thing that varies per position is the name / subtitle font colour.
+const POSITION_TEXT = {
+  chairman:    { name: 'text-amber-700',   sub: 'text-amber-600' },
+  secretary:   { name: 'text-emerald-700', sub: 'text-emerald-600' },
+  director:    { name: 'text-indigo-700',  sub: 'text-indigo-500' },
+  coordinator: { name: 'text-violet-700',  sub: 'text-violet-500' },
+}
+
 function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
   const person = value.personId ? { personId: value.personId, name: value.name } : null
   const style = POSITION_STYLES[value.type] || POSITION_STYLES.director
@@ -193,15 +206,15 @@ function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
     <div className="px-4 py-3 space-y-3">
       {/* Row 1: Position + Department */}
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Position">
+        <Field label="Role / Designation">
           <select
             value={value.type}
             onChange={e => onChange({ ...value, type: e.target.value })}
             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
           >
+            <option value="secretary">Secretary</option>
             <option value="director">Director</option>
             <option value="coordinator">Coordinator</option>
-            <option value="secretary">Secretary</option>
           </select>
         </Field>
         <Field label="Department" sub="(optional)">
@@ -367,14 +380,24 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
   const [editIdx, setEditIdx]   = useState(null)
   const [showForm, setShowForm] = useState(false)
   const [meetings, setMeetings] = useState([])
+  // Which member row is expanded (index into `members`, or null). Held here rather
+  // than inside MemberRow so it survives the remounts that happen every time this
+  // component re-defines MemberRow on render.
+  const [expandedIdx, setExpandedIdx] = useState(null)
+  // Chairman of the Board — a single standalone person on the same director_board
+  // doc, separate from `members[]`. null / absent = not set.
+  const [chairman, setChairman] = useState(null)   // { personId, name, userId, email } | null
+  const [chairmanEditing, setChairmanEditing] = useState(false)
+  const [chairmanForm, setChairmanForm] = useState({ personId: '', name: '' })
+  const [chairmanLinkOpen, setChairmanLinkOpen] = useState(false)
 
   useEffect(() => {
     const unsub = subscribeToDirectorBoard(
-      (d) => { setMembers(d.members || []); setLoading(false) },
+      (d) => { setMembers(d.members || []); setChairman(d.chairman || null); setLoading(false) },
       ()  => {
         // Listener failed — fall back to one-time read
         getSecCoreDirectorBoard()
-          .then(d => setMembers(d.members || []))
+          .then(d => { setMembers(d.members || []); setChairman(d.chairman || null) })
           .catch(() => {})
           .finally(() => setLoading(false))
       }
@@ -479,15 +502,56 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
     setLinkModalIdx(null)
   }
 
-  // One-time self-healing backfill: roster entries saved before userId/email
-  // tracking existed only carry personId+name. Resolving those here (canEdit-gated,
-  // only once per entry — `userId === undefined` is "never attempted", not "no
-  // account found") means the workspace banner's strict uid/email match doesn't
-  // quietly stop working for pre-existing directors until someone happens to
-  // re-save their row.
+  // Chairman of the Board — merge-writes only the `chairman` field, leaving
+  // `members[]` untouched (setSecCoreDirectorBoard uses { merge: true }).
+  const saveChairman = useCallback(async (nextChairman) => {
+    setSaving(true)
+    setSaveError('')
+    try {
+      await setSecCoreDirectorBoard({ chairman: nextChairman }, userProfile?.displayName || userProfile?.email)
+    } catch (e) {
+      console.error('Chairman save failed:', e)
+      setSaveError('Save failed. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }, [userProfile?.displayName, userProfile?.email])
+
+  const submitChairman = async () => {
+    const name = chairmanForm.name.trim()
+    if (!name) return
+    // Only re-resolve the account when the name actually changed — same guard as
+    // applyEdit, so an unrelated re-save can't clobber a good stored link.
+    const { userId, email } = chairman && name === chairman.name && chairman.userId
+      ? { userId: chairman.userId, email: chairman.email || '' }
+      : await resolveAccount(name)
+    await saveChairman({ personId: chairmanForm.personId || '', name, userId, email })
+    setChairmanEditing(false)
+  }
+
+  const removeChairman = () => { saveChairman(null); setChairmanEditing(false) }
+
+  const applyChairmanLink = ({ userId, email }) => {
+    saveChairman({ ...(chairman || { personId: '', name: '' }), userId, email })
+    setChairmanLinkOpen(false)
+  }
+
+  const startEditChairman = () => {
+    setChairmanForm({ personId: chairman?.personId || '', name: chairman?.name || '' })
+    setChairmanEditing(true)
+  }
+
+  // Self-healing backfill: keep every roster entry's userId/email link resolved so
+  // the workspace banner (BoardMeetingWorkspaceWidget) can match a signed-in
+  // director to their entry. Covers both entries saved before link-tracking existed
+  // (`userId === undefined`) and entries whose resolveAccount silently failed at
+  // add-time because the name didn't match user_directory yet (`userId === ''` /
+  // `email === ''`) — those would otherwise stay unlinked forever. canEdit-gated.
+  // Only writes when a link is actually gained, so a name that still can't be
+  // resolved can't loop the save.
   useEffect(() => {
     if (!canEdit || loading) return
-    const missing = members.filter(m => m.userId === undefined)
+    const missing = members.filter(m => !m.userId && !m.email && m.name)
     if (missing.length === 0) return
     let cancelled = false
     ;(async () => {
@@ -495,7 +559,8 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
       if (cancelled) return
       const byName = new Map(resolved.map(r => [r.name, r]))
       const next = members.map(m => byName.has(m.name) ? { ...m, ...byName.get(m.name) } : m)
-      save(next)
+      const gainedLink = next.some((m, i) => (m.userId || m.email) && !(members[i].userId || members[i].email))
+      if (gainedLink) save(next)
     })()
     return () => { cancelled = true }
   }, [members, canEdit, loading, save])
@@ -511,9 +576,15 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
 
   const MemberRow = ({ m, idx }) => {
     const isEditing = editIdx === idx
-    const style = POSITION_STYLES[m.type] || POSITION_STYLES.director
+    const style = BOARD_MEMBER_STYLE
+    const position = m.type || 'director'
+    const text = POSITION_TEXT[position] || POSITION_TEXT.director
     const tenure = dur(m.from, m.to || null)
-    const [menuOpen, setMenuOpen] = useState(false)
+    // Collapsed by default — the row shows only avatar / name / designation and
+    // the expand chevron; email, dates, tenure and the action buttons live in the
+    // panel that opens on click.
+    const expanded = expandedIdx === idx
+    const toggleExpanded = () => setExpandedIdx(cur => (cur === idx ? null : idx))
 
     if (isEditing) {
       return (
@@ -529,100 +600,216 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
       )
     }
 
+    const dateRange = m.from && (
+      `${new Date(m.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })} – ${m.to ? new Date(m.to).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Present'}`
+    )
+    const hasDetails = canEdit || dateRange || tenure
+
     return (
-      <div className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-slate-300 hover:shadow-sm transition-all">
-        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 ${style.dot}`}>
-          {m.name[0]?.toUpperCase() || '?'}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-800 truncate">{m.name}</p>
-          <div className="flex items-center gap-2 flex-wrap mt-1">
-            {m.department && (
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${style.badge}`}>{m.department}</span>
-            )}
-            {m.role && <span className="text-xs text-slate-500">{m.role}</span>}
-            {m.from && (
-              <span className="text-[10px] text-slate-400">
-                {new Date(m.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
-                {' – '}
-                {m.to ? new Date(m.to).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Present'}
-              </span>
-            )}
+      <div
+        role={hasDetails ? 'button' : undefined}
+        tabIndex={hasDetails ? 0 : undefined}
+        aria-expanded={hasDetails ? expanded : undefined}
+        onClick={() => hasDetails && toggleExpanded()}
+        onKeyDown={(e) => {
+          if (hasDetails && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleExpanded() }
+        }}
+        className={`bg-white border border-slate-200 rounded-xl overflow-hidden transition-all ${hasDetails ? 'cursor-pointer hover:border-slate-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-300' : ''}`}
+      >
+        {/* Collapsed row — avatar / name on the left, department on the right */}
+        <div className="flex items-center gap-4 px-4 py-3">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black text-white flex-shrink-0 ${style.dot}`}>
+            {m.name[0]?.toUpperCase() || '?'}
           </div>
-          {/* Linked-account status — the workspace banner only matches on this
-              userId/email, not on name, so a missing or wrong link here is exactly
-              why someone on this list wouldn't see their Board Meeting invite. */}
-          {canEdit && (
-            m.userId
-              ? <p className="text-[10px] text-slate-400 mt-1 truncate">Linked: {m.email || '—'}</p>
-              : <p className="text-[10px] font-semibold text-amber-600 mt-1">⚠ Account not linked</p>
-          )}
-        </div>
 
-        <div className="flex items-center gap-3 flex-shrink-0">
-          {tenure && (
-            <span className={`text-[10px] font-black px-2 py-1 rounded-full border whitespace-nowrap ${style.badge}`}>
-              {tenure}
+          <div className="flex-1 min-w-0">
+            <p className={`text-base font-bold truncate leading-tight ${text.name}`}>{m.name}</p>
+            <p className={`text-xs truncate mt-0.5 ${text.sub}`}>{m.role || typeLabel(position)}</p>
+          </div>
+
+          {m.department && (
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 whitespace-nowrap ${style.badge}`}>
+              {m.department}
             </span>
           )}
-          {canEdit && (
-            <div className="relative" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                onClick={() => setMenuOpen(v => !v)}
-                aria-label="Member actions"
-                className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-              >
-                <MoreVertical size={16} />
-              </button>
-              {menuOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
-                  <div className="absolute right-0 top-full mt-1 z-20 w-36 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false)
-                        setEditIdx(idx)
-                        setNewMember({ personId: m.personId || '', name: m.name, role: m.role || '', type: m.type || 'director', department: m.department || '', from: m.from || '', to: m.to || '' })
-                        setShowForm(false)
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-                    >
-                      <Pencil size={13} /> Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setMenuOpen(false); setLinkModalIdx(idx) }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-                    >
-                      <RotateCcw size={13} /> Link Account…
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setMenuOpen(false); removeMember(idx) }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
-                    >
-                      <Trash2 size={13} /> Remove
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
         </div>
+
+        {/* Expanded detail panel — email, dates, tenure, actions. Stop click
+            propagation so the action buttons don't also collapse the row. */}
+        {expanded && hasDetails && (
+          <div
+            className="px-4 pb-3 pt-2 border-t border-slate-100 space-y-2.5 cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {(dateRange || tenure) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {dateRange && <span className="text-[11px] text-slate-500">{dateRange}</span>}
+                {tenure && (
+                  <span className={`text-[10px] font-black px-2 py-1 rounded-full border whitespace-nowrap ${style.badge}`}>
+                    {tenure}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Linked-account status — the workspace banner only matches on this
+                userId/email, not on name, so a missing or wrong link here is exactly
+                why someone on this list wouldn't see their Board Meeting invite. */}
+            {canEdit && (
+              m.userId
+                ? <p className="text-[11px] text-slate-400 truncate">Linked: {m.email || '—'}</p>
+                : <p className="text-[11px] font-semibold text-amber-600">⚠ Account not linked</p>
+            )}
+
+            {canEdit && (
+              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditIdx(idx)
+                    setNewMember({ personId: m.personId || '', name: m.name, role: m.role || '', type: m.type || 'director', department: m.department || '', from: m.from || '', to: m.to || '' })
+                    setShowForm(false)
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition-colors"
+                >
+                  <Pencil size={13} /> Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLinkModalIdx(idx)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition-colors"
+                >
+                  <RotateCcw size={13} /> Link Account…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeMember(idx)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+                >
+                  <Trash2 size={13} /> Remove
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     )
   }
 
-  const SECTIONS = [
-    { key: 'secretary',   label: 'Secretaries' },
-    { key: 'director',    label: 'Directors' },
-    { key: 'coordinator', label: 'Coordinators' },
-  ]
-
   const typeLabel = (t) => t.charAt(0).toUpperCase() + t.slice(1)
+
+  // One combined roster, ordered by seniority. Chairman is stored on its own field
+  // (rendered by ChairmanRow); everyone else comes from members[] grouped by type.
+  const orderedMembers = [...byType.secretary, ...byType.director, ...byType.coordinator]
+
+  // Chairman inline add / edit form — kept directly in the card render (not inside
+  // ChairmanRow) so a keystroke re-render doesn't remount the input and drop focus.
+  const chairmanEditForm = (
+    <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden p-4 space-y-2">
+      <PersonPicker
+        value={chairmanForm.personId ? { personId: chairmanForm.personId, name: chairmanForm.name } : null}
+        onChange={p => setChairmanForm(p ? { personId: p.personId, name: p.name } : { personId: '', name: '' })}
+      />
+      <input
+        type="text"
+        value={chairmanForm.name}
+        onChange={e => setChairmanForm(f => ({ ...f, name: e.target.value, personId: '' }))}
+        placeholder="or type a name"
+        className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-300"
+      />
+      <div className="flex flex-wrap items-center gap-2 justify-end pt-1">
+        {chairman?.name && (
+          <button type="button" onClick={removeChairman}
+            className="mr-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors">
+            <Trash2 size={13} /> Remove
+          </button>
+        )}
+        <button type="button" onClick={() => setChairmanEditing(false)}
+          className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+          Cancel
+        </button>
+        <button type="button" onClick={submitChairman} disabled={!chairmanForm.name.trim()}
+          className="px-4 py-1.5 rounded-lg text-white text-xs font-bold bg-amber-500 hover:bg-amber-600 disabled:opacity-40 transition-colors">
+          Save
+        </button>
+      </div>
+    </div>
+  )
+
+  // Chairman row — same card shell / avatar / spacing as MemberRow, only the name
+  // colour differs. Keeps its own link + edit flow (separate Firestore field).
+  const ChairmanRow = () => {
+    const expanded = expandedIdx === 'chairman'
+    const toggle = () => setExpandedIdx(c => (c === 'chairman' ? null : 'chairman'))
+    const text = POSITION_TEXT.chairman
+
+    if (!chairman?.name) {
+      return (
+        <button type="button" onClick={startEditChairman}
+          className="w-full flex items-center gap-4 px-4 py-3 bg-white border border-dashed border-slate-300 rounded-xl text-left hover:border-slate-400 transition-colors">
+          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+            <Plus size={18} className="text-slate-400" strokeWidth={2.5} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className={`text-base font-bold truncate leading-tight ${text.name}`}>Chairman of the Board</p>
+            <p className="text-xs text-slate-400 truncate mt-0.5">Not set — tap to assign</p>
+          </div>
+        </button>
+      )
+    }
+
+    const hasDetails = canEdit
+    return (
+      <div
+        role={hasDetails ? 'button' : undefined}
+        tabIndex={hasDetails ? 0 : undefined}
+        aria-expanded={hasDetails ? expanded : undefined}
+        onClick={() => hasDetails && toggle()}
+        onKeyDown={(e) => { if (hasDetails && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle() } }}
+        className={`bg-white border border-slate-200 rounded-xl overflow-hidden transition-all ${hasDetails ? 'cursor-pointer hover:border-slate-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-300' : ''}`}
+      >
+        <div className="flex items-center gap-4 px-4 py-3">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black text-white flex-shrink-0 ${BOARD_MEMBER_STYLE.dot}`}>
+            {chairman.name[0]?.toUpperCase() || '?'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className={`text-base font-bold truncate leading-tight ${text.name}`}>{chairman.name}</p>
+            <p className={`text-xs truncate mt-0.5 ${text.sub}`}>Chairman of the Board</p>
+          </div>
+        </div>
+
+        {expanded && hasDetails && (
+          <div className="px-4 pb-3 pt-2 border-t border-slate-100 space-y-2.5 cursor-default" onClick={(e) => e.stopPropagation()}>
+            {chairman.userId
+              ? <p className="text-[11px] text-slate-400 truncate">Linked: {chairman.email || '—'}</p>
+              : <p className="text-[11px] font-semibold text-amber-600">⚠ Account not linked</p>}
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              <button type="button" onClick={startEditChairman}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition-colors">
+                <Pencil size={13} /> Edit
+              </button>
+              <button type="button" onClick={() => setChairmanLinkOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition-colors">
+                <RotateCcw size={13} /> Link Account…
+              </button>
+              <button type="button" onClick={removeChairman}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors">
+                <Trash2 size={13} /> Remove
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Open the Add Person form, optionally pre-set to a section's type so the
+  // per-section "+ Add" links drop straight into the right group.
+  const openAddForm = (type = 'director') => {
+    setEditIdx(null)
+    setNewMember({ ...BLANK_MEMBER, type })
+    setShowForm(true)
+  }
 
   return (
     <div className="flex flex-col space-y-4 max-w-4xl mx-auto">
@@ -641,9 +828,9 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
                 onClick={() => onScheduleMeeting?.()}
                 aria-label="Schedule Meeting"
                 title="Schedule Meeting"
-                className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
               >
-                <CalendarPlus size={18} strokeWidth={2.5} />
+                <CalendarPlus size={20} strokeWidth={2.5} />
               </button>
               <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
                 Schedule Meeting
@@ -654,30 +841,29 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
             <div className="relative group">
               <button
                 type="button"
-                onClick={() => { setShowForm(true); setEditIdx(null); setNewMember(BLANK_MEMBER) }}
-                aria-label="Add Leader"
-                title="Add Leader"
-                className="w-11 h-11 flex items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
+                onClick={() => openAddForm()}
+                aria-label="Add Member"
+                title="Add Member"
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-800 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
               >
                 <Plus size={20} strokeWidth={2.5} />
               </button>
               <span className="pointer-events-none absolute top-full right-0 mt-2 whitespace-nowrap rounded-lg bg-slate-900 text-white text-xs font-semibold px-2.5 py-1.5 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
-                Add Leader
+                Add Member
               </span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Scheduled Meetings — each row opens the Board Agenda drawer pre-selected to
-          that meeting's date. */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="flex items-center px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
-          <h3 className="font-semibold text-slate-800 text-sm">Scheduled Meetings</h3>
-        </div>
-        {upcomingMeetings.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-slate-400">No upcoming meetings scheduled.</p>
-        ) : (
+      {/* Scheduled Meetings — only rendered when there are upcoming meetings; with
+          none, the roster sections start straight below the header. Each row opens
+          the Board Agenda drawer pre-selected to that meeting's date. */}
+      {upcomingMeetings.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60">
+            <h3 className="font-semibold text-slate-800 text-sm">Scheduled Meetings</h3>
+          </div>
           <ul className="divide-y divide-slate-100">
             {upcomingMeetings.map((m) => (
               <li key={m.id}>
@@ -700,39 +886,49 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
 
-      {SECTIONS.map((sec) => {
-        const secMembers = byType[sec.key]
-        const style = POSITION_STYLES[sec.key]
-        return (
-          <div key={sec.key} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
-              <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${style.dot}`} />
-                <h3 className="font-semibold text-slate-800 text-sm">
-                  {sec.label} <span className="text-slate-400 font-normal">({secMembers.length})</span>
-                </h3>
-              </div>
-              {saving && <span className="text-xs text-slate-400">Saving…</span>}
-            </div>
+      {/* Board Members — Chairman + Secretaries + Directors + Coordinators in one
+          list. Position is conveyed only by the name / subtitle colour. */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
+          <h3 className="font-semibold text-slate-800 text-sm">
+            Board Members{' '}
+            <span className="text-slate-400 font-normal">({(chairman?.name ? 1 : 0) + orderedMembers.length})</span>
+          </h3>
+          {saving && <span className="text-xs text-slate-400">Saving…</span>}
+        </div>
 
-            <div className="p-4 space-y-2.5">
-              {secMembers.length === 0 ? (
-                <div className="px-4 py-6 text-center text-sm text-slate-400 bg-slate-50/60 border border-dashed border-slate-200 rounded-lg">
-                  No {sec.label.toLowerCase()} added yet.
-                </div>
-              ) : (
-                secMembers.map((m, i) => {
-                  const realIdx = members.indexOf(m)
-                  return <MemberRow key={i} m={m} idx={realIdx} />
-                })
+        <div className="p-4 space-y-2.5">
+          {chairmanEditing
+            ? chairmanEditForm
+            : (chairman?.name || canEdit) && <ChairmanRow />}
+
+          {orderedMembers.map((m) => {
+            const realIdx = members.indexOf(m)
+            return <MemberRow key={realIdx} m={m} idx={realIdx} />
+          })}
+
+          {!chairmanEditing && !chairman?.name && orderedMembers.length === 0 && (
+            <div className="px-4 py-6 text-center text-sm text-slate-400 bg-slate-50/60 border border-dashed border-slate-200 rounded-lg">
+              No board members yet.
+              {canEdit && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    onClick={() => openAddForm()}
+                    className="font-semibold text-indigo-600 hover:text-indigo-700 hover:underline"
+                  >
+                    Add member
+                  </button>
+                </>
               )}
             </div>
-          </div>
-        )
-      })}
+          )}
+        </div>
+      </div>
 
       {saveError && (
         <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{saveError}</p>
@@ -745,7 +941,7 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => { setShowForm(false); setNewMember(BLANK_MEMBER) }}>
             <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                <h3 className="font-semibold text-slate-900">Add Person</h3>
+                <h3 className="font-semibold text-slate-900">Add Board Member</h3>
                 <button type="button" onClick={() => { setShowForm(false); setNewMember(BLANK_MEMBER) }}
                   className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition-colors">
                   <X size={16} />
@@ -768,6 +964,14 @@ export function DirectorBoardTab({ canEdit, userProfile, onOpenMeetingAgenda, on
           member={members[linkModalIdx]}
           onSave={(patch) => applyAccountLink(linkModalIdx, patch)}
           onClose={() => setLinkModalIdx(null)}
+        />
+      )}
+
+      {canEdit && chairmanLinkOpen && (
+        <LinkAccountModal
+          member={chairman}
+          onSave={applyChairmanLink}
+          onClose={() => setChairmanLinkOpen(false)}
         />
       )}
 
@@ -1654,7 +1858,7 @@ function sundayDateChips() {
   })
 }
 
-export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onScheduleMeeting, members = [] }) {
+export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onScheduleMeeting, members = [], chairman = null }) {
   const [allPoints, setAllPoints] = useState([])
   const [loading, setLoading]     = useState(true)
   const [selectedDate, setSelectedDate] = useState(null)
@@ -1723,9 +1927,9 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
   // can give way to a clean empty state instead of a meeting-shaped card with nothing in it.
   const hasScheduledMeeting = !!selectedDate && meetings.some(m => m.date === selectedDate)
 
-  // Active Director for each department (for the table's Director Name column) —
-  // same active-membership rule ScheduleMeetingModal used to use to decide who's
-  // currently on the roster.
+  // Active Director for each department — shown in the Discussion Point modal
+  // header; same active-membership rule ScheduleMeetingModal used to use to decide
+  // who's currently on the roster.
   const activeDirectorByDept = useMemo(() => {
     const today = format(new Date(), 'yyyy-MM-dd')
     const map = {}
@@ -1903,6 +2107,18 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
     }
   }
 
+  // Reject — sends the point back to the "No Date" inbox for re-assignment rather
+  // than deleting it, so nothing the department submitted is lost.
+  const handleReject = async (id) => {
+    setSaving(true)
+    try {
+      await updateBoardPoint(id, { meetingDate: '' })
+      setAllPoints(prev => prev.map(p => p.id === id ? { ...p, meetingDate: '' } : p))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleAssignToDate = async (id, date) => {
     setSaving(true)
     try {
@@ -2075,6 +2291,9 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
             )}
             <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-300 mb-0.5">ROL Board Meeting</p>
             <p className="text-xl font-black">{format(new Date(selectedDate + 'T00:00:00'), 'EEEE, d MMMM yyyy')}</p>
+            {chairman?.name && (
+              <p className="text-xs text-indigo-300 mt-1">Chaired by {chairman.name}</p>
+            )}
             <p className="text-xs text-indigo-300 mt-1.5">
               {fixedPoints.length} of {datePoints.length} agenda item{datePoints.length !== 1 ? 's' : ''} fixed
             </p>
@@ -2127,44 +2346,69 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
             <p className="px-6 py-2 bg-red-50 border-b border-red-100 text-xs text-red-600">{liveError}</p>
           )}
 
-          {/* Department table — every registered department gets a row (or one row
-              per point it submitted); departments with nothing yet show the
-              empty-state label instead of just vanishing from the sheet. */}
+          {/* Department table — one row per submitted discussion point. Departments
+              with nothing submitted for this date are hidden entirely; Accept /
+              Reject / Present / Unfix live in the row's ⋮ menu. */}
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
                   <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Department</th>
-                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Director Name</th>
                   <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Discussion Points</th>
                   <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Requested Time</th>
                   <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Time Allotted</th>
-                  <th className="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Actions</th>
+                  <th className="px-2 py-3 w-10" aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
-                {deptRows.flatMap(row => {
-                  if (row.points.length === 0) {
+                {(() => {
+                  // Requirement: only departments with at least one submitted point
+                  // for this date appear — empty rows are hidden entirely.
+                  const visibleRows = deptRows.filter(row => row.points.length > 0)
+                  if (visibleRows.length === 0) {
                     return (
-                      <tr key={row.dept} className="border-b border-slate-100 last:border-0">
-                        <td className="px-4 py-3 align-top text-sm font-semibold text-slate-800 whitespace-nowrap">{row.dept}</td>
-                        <td className="px-4 py-3 align-top text-sm text-slate-600 whitespace-nowrap">{row.director || '—'}</td>
-                        <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
-                        <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
-                        <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
-                        <td className="px-4 py-3 align-top text-sm text-slate-300">—</td>
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
+                          No discussion points submitted yet.
+                        </td>
                       </tr>
                     )
                   }
 
-                  return row.points.map(bp => {
+                  return visibleRows.flatMap(row => row.points.map(bp => {
                     const isFixed   = !!(bp.slNo && bp.allottedTime)
                     const isEditing = editId === bp.id
+
+                    const menuItems = !canEdit
+                      ? []
+                      : isFixed
+                        ? [
+                            ...(bp.isActive ? [] : [{
+                              label: 'Present',
+                              onClick: () => {
+                                setLiveError('')
+                                stagePoint(bp.id, { previousActiveIds: fixedPoints.filter(p => p.isActive).map(p => p.id) })
+                                  .catch(e => { console.error('stagePoint (row Present) failed:', e); setLiveError(e?.message || 'Failed to present this point.') })
+                              },
+                            }]),
+                            { label: 'Unfix', danger: true, onClick: () => handleUnfix(bp.id) },
+                          ]
+                        : [
+                            {
+                              label: 'Accept',
+                              onClick: () => {
+                                setEditId(bp.id)
+                                // Prefill from the submitter's requested time if it's a bare number.
+                                const guess = /^\d+$/.test(String(bp.timeNeeded || '').trim()) ? bp.timeNeeded.trim() : ''
+                                setEditVals({ durationMinutes: guess })
+                              },
+                            },
+                            { label: 'Reject', danger: true, disabled: saving, onClick: () => handleReject(bp.id) },
+                          ]
 
                     return (
                       <tr key={bp.id} className={`border-b border-slate-100 last:border-0 transition-colors ${isFixed ? 'bg-emerald-50/30' : ''}`}>
                         <td className="px-4 py-3 align-top text-sm font-semibold text-slate-800 whitespace-nowrap">{row.dept}</td>
-                        <td className="px-4 py-3 align-top text-sm text-slate-600 whitespace-nowrap">{row.director || '—'}</td>
                         <td className="px-4 py-3 align-top text-sm whitespace-nowrap">
                           <button
                             type="button"
@@ -2176,91 +2420,52 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
                         </td>
                         <td className="px-4 py-3 align-top text-sm text-slate-500 whitespace-nowrap">{bp.timeNeeded || '—'}</td>
                         <td className="px-4 py-3 align-top text-sm whitespace-nowrap">
-                          {isFixed ? (
+                          {isEditing ? (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <input
+                                type="number"
+                                min="1"
+                                placeholder="Duration"
+                                autoFocus
+                                value={editVals.durationMinutes}
+                                onChange={e => setEditVals({ durationMinutes: e.target.value })}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAcceptPoint(bp) } }}
+                                className="w-16 px-2 py-1.5 rounded-lg border border-indigo-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                              />
+                              <span className="text-xs text-slate-500">min</span>
+                              {startTime && editVals.durationMinutes && Number(editVals.durationMinutes) > 0 && (
+                                <span className="text-xs text-indigo-600 font-semibold whitespace-nowrap">
+                                  → {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes))} – {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes + Number(editVals.durationMinutes)))}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                disabled={!editVals.durationMinutes || Number(editVals.durationMinutes) <= 0 || saving}
+                                onClick={() => handleAcceptPoint(bp)}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                              >{saving ? '…' : 'Accept'}</button>
+                              <button
+                                type="button"
+                                onClick={() => { setEditId(null); setEditVals({ durationMinutes: '' }) }}
+                                className="text-slate-400 hover:text-slate-600 text-sm leading-none px-1"
+                              >✕</button>
+                            </div>
+                          ) : isFixed ? (
                             <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
                               #{bp.slNo} · {fixedPointTimes[fixedPoints.indexOf(bp)] || bp.allottedTime}
+                              {bp.isActive && <span className="ml-1 text-indigo-600">· Presenting</span>}
                             </span>
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 align-top text-sm whitespace-nowrap">
-                          {isFixed ? (
-                            canEdit ? (
-                              <div className="flex items-center gap-2">
-                                {bp.isActive ? (
-                                  <span className="text-xs font-bold text-indigo-600">Presenting</span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setLiveError('')
-                                      stagePoint(bp.id, { previousActiveIds: fixedPoints.filter(p => p.isActive).map(p => p.id) })
-                                        .catch(e => { console.error('stagePoint (row Present) failed:', e); setLiveError(e?.message || 'Failed to present this point.') })
-                                    }}
-                                    className="text-xs text-indigo-600 font-semibold hover:underline"
-                                  >Present</button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleUnfix(bp.id)}
-                                  className="text-xs text-slate-400 hover:text-red-500 transition-colors"
-                                >Unfix</button>
-                              </div>
-                            ) : (
-                              <span className="text-slate-300">—</span>
-                            )
-                          ) : canEdit ? (
-                            isEditing ? (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <input
-                                  type="number"
-                                  min="1"
-                                  placeholder="Duration"
-                                  autoFocus
-                                  value={editVals.durationMinutes}
-                                  onChange={e => setEditVals({ durationMinutes: e.target.value })}
-                                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAcceptPoint(bp) } }}
-                                  className="w-16 px-2 py-1.5 rounded-lg border border-indigo-300 text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                                />
-                                <span className="text-xs text-slate-500">min</span>
-                                {startTime && editVals.durationMinutes && Number(editVals.durationMinutes) > 0 && (
-                                  <span className="text-xs text-indigo-600 font-semibold whitespace-nowrap">
-                                    → {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes))} – {formatTime12h(addMinutesToTime(startTime, cumulativeMinutes + Number(editVals.durationMinutes)))}
-                                  </span>
-                                )}
-                                <button
-                                  type="button"
-                                  disabled={!editVals.durationMinutes || Number(editVals.durationMinutes) <= 0 || saving}
-                                  onClick={() => handleAcceptPoint(bp)}
-                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                                >{saving ? '…' : 'Accept Point'}</button>
-                                <button
-                                  type="button"
-                                  onClick={() => { setEditId(null); setEditVals({ durationMinutes: '' }) }}
-                                  className="text-slate-400 hover:text-slate-600 text-sm leading-none px-1"
-                                >✕</button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditId(bp.id)
-                                  // Prefill from the submitter's requested time if it's a bare number.
-                                  const guess = /^\d+$/.test(String(bp.timeNeeded || '').trim()) ? bp.timeNeeded.trim() : ''
-                                  setEditVals({ durationMinutes: guess })
-                                }}
-                                className="text-xs text-emerald-600 font-semibold hover:underline"
-                              >Accept Point</button>
-                            )
-                          ) : (
-                            <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full whitespace-nowrap">Awaiting schedule</span>
-                          )}
+                        <td className="px-2 py-3 align-top text-right">
+                          {isEditing ? null : <RowActionMenu items={menuItems} />}
                         </td>
                       </tr>
                     )
-                  })
-                })}
+                  }))
+                })()}
               </tbody>
             </table>
           </div>
@@ -2281,6 +2486,69 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
 
       {openDiscussionPoint && (
         <DiscussionPointModal data={openDiscussionPoint} onClose={() => setOpenDiscussionPoint(null)} />
+      )}
+    </div>
+  )
+}
+
+// Compact ⋮ row menu for the Board Agenda table. Portal-anchored to the button's
+// viewport rect so the table's `overflow-x-auto` wrapper can't clip it, and so it
+// escapes the row's stacking context. `items` = [{ label, onClick, danger?, disabled? }].
+function RowActionMenu({ items = [] }) {
+  const btnRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState(null)
+  const openMenu = () => {
+    const r = btnRef.current?.getBoundingClientRect()
+    if (r) setPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
+    setOpen(true)
+  }
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [open])
+
+  if (!items.length) return null
+
+  return (
+    <div className="relative inline-block">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        aria-label="Row actions"
+        className="w-7 h-7 flex items-center justify-center rounded-full text-lg leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+      >
+        ⋮
+      </button>
+      {open && pos && createPortal(
+        <>
+          <div className="fixed inset-0 z-[115]" onClick={() => setOpen(false)} aria-hidden />
+          <div
+            className="fixed z-[116] w-40 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden py-1"
+            style={{ top: pos.top, right: pos.right }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {items.map((it, i) => (
+              <button
+                key={i}
+                type="button"
+                disabled={it.disabled}
+                onClick={() => { setOpen(false); it.onClick() }}
+                className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors disabled:opacity-40 ${it.danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                {it.label}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body
       )}
     </div>
   )
@@ -2397,9 +2665,10 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
   // department's active Director for the Director Name column, and to resolve
   // *this* signed-in user's own roster entry below.
   const [members, setMembers] = useState([])
+  const [chairman, setChairman] = useState(null)
   useEffect(() => {
     const unsub = subscribeToDirectorBoard(
-      (d) => setMembers(d.members || []),
+      (d) => { setMembers(d.members || []); setChairman(d.chairman || null) },
       () => {}
     )
     return unsub
@@ -2461,6 +2730,7 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
             initialDate={agendaDate}
             onScheduleMeeting={openScheduleMeeting}
             members={members}
+            chairman={chairman}
           />
         </BoardAgendaDrawer>
       )}
