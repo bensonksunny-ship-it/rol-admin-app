@@ -4392,6 +4392,18 @@ export async function saveMidweekPrayerPoints(cellId, dateStr, points, updatedBy
   }, { merge: true })
 }
 
+/** Real-time subscription to prayer points for a cell meeting on a given date —
+ *  used so a Director's read-only mirror of the Live Control tab updates as the
+ *  Leader (or another viewer with Live Control on) adds/removes points. */
+export function subscribeMidweekPrayerPoints(cellId, dateStr, callback) {
+  if (!db || !cellId || !dateStr) return () => {}
+  const d = String(dateStr).slice(0, 10)
+  const id = `${cellId}_${d}`
+  return onSnapshot(doc(db, 'cell_midweek_prayer', id), (snap) => {
+    callback(snap.exists() ? (snap.data().points || []) : [])
+  })
+}
+
 /** Get saved midweek settings (segment order) for a cell group. */
 export async function getMidweekSettings(cellId) {
   if (!db || !cellId) return null
@@ -4461,6 +4473,41 @@ export async function saveMidweekShepherdNotes(cellId, dateStr, notes, updatedBy
     shepherdNotes: notes || '',
     updatedBy: updatedBy || 'unknown',
     updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+/**
+ * Real-time subscription to a midweek session's in-progress `live` state — used by
+ * the Live Control tab's Director View-Only mirror (and to hydrate a Director taking
+ * over Live Control mid-meeting). Calls back with the `live` map or null if no live
+ * session has been pushed yet for this cell + date.
+ */
+export function subscribeMidweekLiveSession(cellId, dateStr, callback) {
+  if (!db || !cellId || !dateStr) return () => {}
+  const d = String(dateStr).slice(0, 10)
+  const id = `${cellId}_${d}`
+  return onSnapshot(doc(db, MIDWEEK_SESSIONS, id), (snap) => {
+    callback(snap.exists() ? (snap.data().live || null) : null)
+  })
+}
+
+/**
+ * Push the current in-progress live state (segment/attendance/visitors/etc.) for a
+ * midweek session, overwriting the whole `live` map. Called by whoever currently has
+ * write access — the Leader always, or a Director with Live Control enabled.
+ */
+export async function pushMidweekLiveState(cellId, dateStr, liveState, updatedBy) {
+  if (!db || !cellId || !dateStr) return
+  const d = String(dateStr).slice(0, 10)
+  const id = `${cellId}_${d}`
+  await setDoc(doc(db, MIDWEEK_SESSIONS, id), {
+    cellId,
+    date: d,
+    live: {
+      ...liveState,
+      updatedBy: updatedBy || 'unknown',
+      updatedAt: Timestamp.now(),
+    },
   }, { merge: true })
 }
 

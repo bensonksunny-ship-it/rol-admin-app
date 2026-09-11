@@ -13,9 +13,12 @@ import {
   updateCellGroupMember,
   getActiveBackToBibleForDate,
   getMidweekPrayerPoints,
+  subscribeMidweekPrayerPoints,
   saveMidweekPrayerPoints,
   getMidweekSettings,
   setMidweekSettings,
+  subscribeMidweekLiveSession,
+  pushMidweekLiveState,
   saveMidweekSessionSummary,
   syncMidweekAttendanceToCellReport,
   getDepartmentChildren,
@@ -231,11 +234,22 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
   const [prayerPoints, setPrayerPoints]   = useState([])
   const [loadingPrayer, setLoadingPrayer] = useState(false)
 
-  // Persist in-progress attendance so navigating away doesn't lose it.
+  // Director View-Only vs Live Control. Always defaults to View-Only (false) and
+  // resets back to it whenever the selected cell/date changes — see the effect
+  // below. Leaders are never gated by this; canWrite covers both roles.
+  const [liveControlEnabled, setLiveControlEnabled] = useState(false)
+  useEffect(() => {
+    setLiveControlEnabled(false)
+  }, [selectedCellId, today])
+  const canWrite = isLeader || (isDirector && liveControlEnabled)
+
+  // Persist in-progress attendance so navigating away doesn't lose it. Only for the
+  // Leader's own device — a Director's session (View-Only or Live Control) is driven
+  // by the shared Firestore live doc instead, so it shouldn't read/write this cache.
   // Cleared only on save or manual reset.
   const _lsKeyRef = useRef(null)
   useEffect(() => {
-    if (!selectedCellId) return
+    if (!isLeader || !selectedCellId) return
     const key = `rol_live_${selectedCellId}_${today}`
     if (_lsKeyRef.current !== key) {
       _lsKeyRef.current = key
@@ -262,7 +276,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         askedParentIds: [...askedParentIds],
       }))
     } catch {}
-  }, [selectedCellId, today, presentIds, attendanceDetails, visitors, visitorInput, childrenAttending, askedParentIds])
+  }, [isLeader, selectedCellId, today, presentIds, attendanceDetails, visitors, visitorInput, childrenAttending, askedParentIds])
 
   // River Kids registry — loaded once; used to spot parents among cell members via
   // name matching (fatherName/motherName are free-text, no ID linkage exists).
@@ -290,7 +304,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
     if (nameMatch) setSelectedCellId(nameMatch.id)
   }, [cellGroups, userProfile, isDirector, isLeader])
 
-  // Load members + segment order + prayer points when cell changes
+  // Load members + segment order when cell changes
   useEffect(() => {
     if (!selectedCellId) return
     setLoadingMembers(true)
@@ -307,12 +321,89 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         setSegmentDurations(map)
       }
     })
-
-    setLoadingPrayer(true)
-    getMidweekPrayerPoints(selectedCellId, today)
-      .then(setPrayerPoints)
-      .finally(() => setLoadingPrayer(false))
   }, [selectedCellId, today])
+
+  // Prayer points — real-time, so a Director's mirror (and anyone else viewing)
+  // updates as points are added/removed without a manual refresh.
+  useEffect(() => {
+    if (!selectedCellId) { setPrayerPoints([]); return }
+    setLoadingPrayer(true)
+    const unsub = subscribeMidweekPrayerPoints(selectedCellId, today, (points) => {
+      setPrayerPoints(points)
+      setLoadingPrayer(false)
+    })
+    return unsub
+  }, [selectedCellId, today])
+
+  // ── Live session mirroring ──────────────────────────────────────────────────
+  // Shared Firestore doc (`cell_midweek_sessions/{cellId}_{date}`.live) is the
+  // cross-device source of truth for in-progress segment/attendance state.
+  // A pure viewer (Director in View-Only mode) applies every incoming snapshot
+  // straight onto local state below. A writer (Leader always, or a Director with
+  // Live Control on) never applies incoming snapshots — local state stays
+  // authoritative and is instead pushed out, debounced, via the effect further
+  // down. This one-directional split avoids feedback loops between the two.
+  const remoteLiveRef = useRef(null)
+
+  const applyRemoteLive = useCallback((live) => {
+    if (!live) {
+      setSegmentIdx(-1)
+      setSegmentStartedAt(null)
+      segmentTimingsRef.current = []
+      setPresentIds(new Set())
+      setAttendanceDetails({})
+      setVisitors([])
+      setChildrenAttending([])
+      setAskedParentIds(new Set())
+      return
+    }
+    setSegmentIdx(typeof live.segmentIdx === 'number' ? live.segmentIdx : -1)
+    setSegmentStartedAt(live.segmentStartedAt ?? null)
+    segmentTimingsRef.current = Array.isArray(live.completedTimings) ? live.completedTimings : []
+    setPresentIds(new Set(live.presentIds || []))
+    setAttendanceDetails(live.attendanceDetails || {})
+    setVisitors(live.visitors || [])
+    setChildrenAttending(live.childrenAttending || [])
+    setAskedParentIds(new Set(live.askedParentIds || []))
+  }, [])
+
+  useEffect(() => {
+    if (!selectedCellId) { remoteLiveRef.current = null; return }
+    const unsub = subscribeMidweekLiveSession(selectedCellId, today, (live) => {
+      remoteLiveRef.current = live
+      if (isDirector && !liveControlEnabled) applyRemoteLive(live)
+    })
+    return unsub
+  }, [selectedCellId, today, isDirector, liveControlEnabled, applyRemoteLive])
+
+  // A Director flipping the toggle on takes over from wherever the live session
+  // currently is, rather than resetting it — hydrate once from the last snapshot.
+  const enableLiveControl = useCallback(() => {
+    if (remoteLiveRef.current) applyRemoteLive(remoteLiveRef.current)
+    setLiveControlEnabled(true)
+  }, [applyRemoteLive])
+
+  // Debounced push of local state to the shared live doc, whenever this tab has
+  // write access. Leaders push continuously (as today, just also to Firestore
+  // instead of only localStorage); a Director only pushes while Live Control is on.
+  const pushTimerRef = useRef(null)
+  useEffect(() => {
+    if (!canWrite || !selectedCellId) return
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current)
+    pushTimerRef.current = setTimeout(() => {
+      pushMidweekLiveState(selectedCellId, today, {
+        segmentIdx,
+        segmentStartedAt,
+        completedTimings: segmentTimingsRef.current,
+        presentIds: Array.from(presentIds),
+        attendanceDetails,
+        visitors,
+        childrenAttending,
+        askedParentIds: Array.from(askedParentIds),
+      }, userProfile?.name || userProfile?.email || 'unknown').catch(() => {})
+    }, 500)
+    return () => clearTimeout(pushTimerRef.current)
+  }, [canWrite, selectedCellId, today, segmentIdx, segmentStartedAt, presentIds, attendanceDetails, visitors, childrenAttending, askedParentIds, userProfile])
 
   // De-duplicate by name (case/whitespace-insensitive) — keeps the first occurrence
   // only, so a member listed twice in the underlying roster shows once in Attendance.
@@ -642,6 +733,39 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         </div>
       )}
 
+      {/* ── View Mode / Live Control toggle — Directors only. Always defaults to
+          View Mode (see the reset effect above); this is the only way to reach
+          Live Control, and it resets back the moment the cell/date changes. ── */}
+      {isDirector && selectedCellId && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-100/70 rounded-2xl px-3 py-2.5">
+          <div className="flex gap-1 bg-white rounded-xl p-1 border border-slate-200 shrink-0">
+            {[
+              { key: 'view', label: '👁 View Mode', on: () => setLiveControlEnabled(false) },
+              { key: 'edit', label: '⚡ Enable Live Control', on: enableLiveControl },
+            ].map(({ key, label, on }) => {
+              const active = (key === 'edit') === liveControlEnabled
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={on}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    active ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          <p className={`text-xs font-medium flex-1 ${liveControlEnabled ? 'text-amber-700' : 'text-slate-500'}`}>
+            {liveControlEnabled
+              ? '⚡ Live Control active — your changes affect this cell’s live meeting.'
+              : '👁 Viewing this cell’s live session — read-only.'}
+          </p>
+        </div>
+      )}
+
       {/* Empty state */}
       {!selectedCellId && !loadingGroups && (
         <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-12 text-center text-slate-400 shadow-sm">
@@ -668,9 +792,11 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
           <div className="flex justify-center">
             <motion.button
               type="button"
-              onClick={handleMasterTap}
-              whileTap={{ scale: 0.96 }}
-              className={`${masterBg} ${masterText} w-full rounded-3xl shadow-lg ring-1 ring-black/5 p-12 flex flex-col items-center gap-3 transition-colors select-none`}
+              onClick={canWrite ? handleMasterTap : undefined}
+              whileTap={canWrite ? { scale: 0.96 } : undefined}
+              className={`${masterBg} ${masterText} w-full rounded-3xl shadow-lg ring-1 ring-black/5 p-12 flex flex-col items-center gap-3 transition-colors select-none ${
+                canWrite ? '' : 'cursor-default'
+              }`}
             >
               <span className="text-7xl leading-none">{masterIcon}</span>
               <span className="text-4xl font-bold tracking-tight">{masterLabel}</span>
@@ -736,7 +862,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
               {presentIds.size} / {activeMembers.length}
             </span>
           </div>
-          {!loadingMembers && activeMembers.length > 0 && (
+          {canWrite && !loadingMembers && activeMembers.length > 0 && (
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -766,8 +892,8 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
                   member={member}
                   present={presentIds.has(member.id)}
                   detail={attendanceDetails[member.id]}
-                  onToggle={togglePresent}
-                  onOpenSheet={setSheetMemberId}
+                  onToggle={canWrite ? togglePresent : undefined}
+                  onOpenSheet={canWrite ? setSheetMemberId : undefined}
                 />
               ))}
             </div>
@@ -786,24 +912,26 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
               </span>
             )}
           </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={visitorInput}
-              onChange={(e) => setVisitorInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addVisitor() } }}
-              placeholder="Visitor name"
-              className="flex-1 px-4 py-2.5 rounded-2xl border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-300 placeholder-slate-400"
-            />
-            <button
-              type="button"
-              onClick={addVisitor}
-              disabled={!visitorInput.trim()}
-              className="px-4 py-2.5 rounded-2xl bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 disabled:opacity-40 transition-all"
-            >
-              + Add
-            </button>
-          </div>
+          {canWrite && (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={visitorInput}
+                onChange={(e) => setVisitorInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addVisitor() } }}
+                placeholder="Visitor name"
+                className="flex-1 px-4 py-2.5 rounded-2xl border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-300 placeholder-slate-400"
+              />
+              <button
+                type="button"
+                onClick={addVisitor}
+                disabled={!visitorInput.trim()}
+                className="px-4 py-2.5 rounded-2xl bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 disabled:opacity-40 transition-all"
+              >
+                + Add
+              </button>
+            </div>
+          )}
           {visitors.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {visitors.map((v) => (
@@ -812,13 +940,15 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-teal-800 text-sm font-medium"
                 >
                   {v.name}
-                  <button
-                    type="button"
-                    onClick={() => removeVisitor(v.id)}
-                    className="text-teal-400 hover:text-teal-700 leading-none text-base"
-                  >
-                    ×
-                  </button>
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => removeVisitor(v.id)}
+                      className="text-teal-400 hover:text-teal-700 leading-none text-base"
+                    >
+                      ×
+                    </button>
+                  )}
                 </span>
               ))}
             </div>
@@ -846,13 +976,15 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
               >
                 {c.name}
                 {c.parentName && <span className="text-amber-500 font-normal text-xs">· {c.parentName}</span>}
-                <button
-                  type="button"
-                  onClick={() => removeChildAttending(c.id)}
-                  className="text-amber-400 hover:text-amber-700 leading-none text-base"
-                >
-                  ×
-                </button>
+                {canWrite && (
+                  <button
+                    type="button"
+                    onClick={() => removeChildAttending(c.id)}
+                    className="text-amber-400 hover:text-amber-700 leading-none text-base"
+                  >
+                    ×
+                  </button>
+                )}
               </span>
             ))}
           </div>
@@ -865,13 +997,14 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
           points={prayerPoints}
           currentUserUid={userProfile?.id}
           isDirector={isDirector}
+          canRemove={canWrite}
           onRemove={removePrayerPoint}
         />
       )}
 
 
       {/* ── Floating Prayer Button ── */}
-      {selectedCellId && (
+      {selectedCellId && canWrite && (
         <FloatingPrayerButton onAdd={addPrayerPoint} />
       )}
 
@@ -1243,19 +1376,20 @@ function MemberBubble({ member, present, detail, onToggle, onOpenSheet }) {
     detail?.status === 'excused' ? 'Excused'
       : detail?.status === 'absent' && detail.reason ? `Absent — ${detail.reason}`
       : null
+  const readOnly = !onToggle
 
   return (
     <div className="relative">
       <motion.button
         type="button"
-        onClick={() => onToggle(member.id)}
-        whileTap={{ scale: 0.97 }}
+        onClick={readOnly ? undefined : () => onToggle(member.id)}
+        whileTap={readOnly ? undefined : { scale: 0.97 }}
         className={`w-full min-h-[52px] flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-colors ${
           onOpenSheet ? 'pr-11' : ''
-        } ${
+        } ${readOnly ? 'cursor-default' : ''} ${
           present
             ? 'bg-emerald-600 text-white shadow-sm'
-            : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+            : readOnly ? 'bg-slate-50 text-slate-700' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
         }`}
       >
         <span className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
@@ -1291,7 +1425,7 @@ function MemberBubble({ member, present, detail, onToggle, onOpenSheet }) {
 
 // ─── Prayer Points List ───────────────────────────────────────────────────────
 
-function PrayerPointsList({ points, currentUserUid, isDirector, onRemove }) {
+function PrayerPointsList({ points, currentUserUid, isDirector, canRemove, onRemove }) {
   return (
     <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3">
       <h2 className="font-bold text-slate-900 text-lg">Prayer Points</h2>
@@ -1319,7 +1453,7 @@ function PrayerPointsList({ points, currentUserUid, isDirector, onRemove }) {
                 </div>
                 <p className="text-slate-600 text-sm leading-relaxed">{point.subject}</p>
               </div>
-              {(isMine || isDirector) && (
+              {canRemove && (isMine || isDirector) && (
                 <button
                   type="button"
                   onClick={() => onRemove(point.id)}
