@@ -147,7 +147,7 @@ export default function AdminUserManagement() {
       positions: positions.slice(0, MAX_POSITIONS),
       cellGroup: u.cellGroup || '',
       cellId: u.cellId || '',
-      roleOverride: [ROLES.FOUNDER, ROLES.ADMIN, ROLES.SENIOR_PASTOR, ROLES.WEEKLY_ENTRY].includes(u.role) ? u.role : '',
+      roleOverride: [ROLES.FOUNDER, ROLES.ADMIN, ROLES.SENIOR_PASTOR, ROLES.FIRST_LADY, ROLES.WEEKLY_ENTRY].includes(u.role) ? u.role : '',
       globalRole: u.globalRole === 'FOUNDER' ? 'FOUNDER' : '',
       status: u.status || 'active',
     })
@@ -691,6 +691,7 @@ export default function AdminUserManagement() {
                       <option value={ROLES.FOUNDER}>Founder</option>
                       <option value={ROLES.ADMIN}>Admin</option>
                       <option value={ROLES.SENIOR_PASTOR}>Senior Pastor</option>
+                      <option value={ROLES.FIRST_LADY}>First Lady</option>
                       <option value={ROLES.WEEKLY_ENTRY}>Weekly Entry</option>
                     </select>
                     <p className="text-xs text-slate-500 mt-1">

@@ -2427,6 +2427,8 @@ export async function addCellMemberPendingChange(data) {
   }
   if (data.changeSummary != null) payload.changeSummary = data.changeSummary
   if (data.reason != null) payload.reason = String(data.reason)
+  if (data.toCellId != null) payload.toCellId = data.toCellId
+  if (data.toCellName != null) payload.toCellName = data.toCellName
   const ref = await addDoc(collection(db, CELL_MEMBER_PENDING_CHANGES_COLLECTION), payload)
   return ref.id
 }
@@ -2448,6 +2450,8 @@ export async function getCellMemberPendingChanges() {
       reason: data.reason || '',
       cellId: data.cellId || '',
       cellName: data.cellName || '',
+      toCellId: data.toCellId || '',
+      toCellName: data.toCellName || '',
       memberId: data.memberId || '',
       memberData: data.memberData || null,
       requestedBy: data.requestedBy || '',
@@ -2482,6 +2486,8 @@ export function subscribeCellMemberPendingChanges(onChange) {
         reason: data.reason || '',
         cellId: data.cellId || '',
         cellName: data.cellName || '',
+        toCellId: data.toCellId || '',
+        toCellName: data.toCellName || '',
         memberId: data.memberId || '',
         memberData: data.memberData || null,
         requestedBy: data.requestedBy || '',

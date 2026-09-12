@@ -1,59 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, MessageSquare, LayoutDashboard } from 'lucide-react'
+import { Bell, MessageSquare } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { getDepartmentRole } from '../../utils/access'
-import { getBoardPoints } from '../../services/firestore'
 import useDirectMessages from '../../hooks/useDirectMessages'
 import NotifPanel from '../NotifPanel'
 import MessagesPanel from '../MessagesPanel'
 import SundayPlanBubble from '../SundayPlanBubble'
-import BoardPointsModal from '../BoardPointsModal'
 
-const SEC_CORE_DEPARTMENT = 'Sec-Core'
-
-// The department this user actually directs (first match), or null if they don't
-// direct any department they belong to. Used both to decide whether to show the
-// icon at all, and — critically — as the department a submitted board point gets
-// tagged with, so canAccessDept(department) in firestore.rules passes for THIS
-// account. Previously this modal always submitted under a hardcoded 'Sec-Core',
-// which any non-Sec-Core Director (Worship, Cell, etc.) doesn't have access to —
-// "Missing or insufficient permissions" on every submission.
-function findDirectedDepartment(userProfile) {
-  const departments = userProfile?.departments || (userProfile?.department ? [userProfile.department] : [])
-  return departments.find((d) => getDepartmentRole(userProfile, d) === 'DIRECTOR') || null
-}
-
-// Top-right action row for My Workspace: Sunday Plan preview, notifications, direct
-// messages, and (Director/Admin only) the Director Board shortcut. Notifications
-// reuse the same feed as the collapsed sidebar rail (passed down from MyWorkspace,
-// which already subscribes via useActionNotifications); messages get their own
-// independent useDirectMessages instance, same pattern as the rail. The profile
-// avatar lives in the sidebar rail now, not here.
+// Top-right action row for My Workspace: Sunday Plan preview, notifications, and
+// direct messages. Notifications reuse the same feed as the collapsed sidebar rail
+// (passed down from MyWorkspace, which already subscribes via
+// useActionNotifications); messages get their own independent useDirectMessages
+// instance, same pattern as the rail. The profile avatar lives in the sidebar rail
+// now, not here.
 export default function WorkspaceHeader({ notifications, onNotifAction, onDismissNotification, onAddNotificationToTodo }) {
-  const { user, userProfile, isFounder, isAdmin } = useAuth()
-  const myDirectedDept = findDirectedDepartment(userProfile)
-  const showDirectorBoard = isFounder || isAdmin || !!myDirectedDept
+  const { user, userProfile } = useAuth()
 
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
-
-  // Director Board — opens the same BoardPointsModal the department hubs use, scoped
-  // to the department this Director actually leads (Founder/Admin fall back to
-  // Sec-Core, harmless since isFullAccess() bypasses the department check for
-  // them), so a Director can see/submit points from My Workspace without having to
-  // first navigate into a specific department page.
-  const [boardPointsOpen, setBoardPointsOpen] = useState(false)
-  const [boardPointCount, setBoardPointCount] = useState(0)
-  const myBoardDepartment = myDirectedDept || SEC_CORE_DEPARTMENT
-
-  useEffect(() => {
-    if (!showDirectorBoard) { setBoardPointCount(0); return }
-    let alive = true
-    getBoardPoints(myBoardDepartment)
-      .then((pts) => { if (alive) setBoardPointCount(pts.filter((p) => p.status === 'pending').length) })
-      .catch(() => { if (alive) setBoardPointCount(0) })
-    return () => { alive = false }
-  }, [showDirectorBoard, myBoardDepartment])
 
   const [messagesOpen, setMessagesOpen] = useState(false)
   const msgRef = useRef(null)
@@ -140,33 +103,6 @@ export default function WorkspaceHeader({ notifications, onNotifAction, onDismis
           />
         })()}
       </div>
-
-      {showDirectorBoard && (
-        <button
-          type="button"
-          onClick={() => setBoardPointsOpen(true)}
-          title="Director Board"
-          aria-label="Director Board"
-          className={`relative ${iconBtnClass}`}
-        >
-          <LayoutDashboard size={18} strokeWidth={1.75} />
-          {boardPointCount > 0 && (
-            <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-amber-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none px-0.5">
-              {boardPointCount > 9 ? '9+' : boardPointCount}
-            </span>
-          )}
-        </button>
-      )}
-
-      {boardPointsOpen && (
-        <BoardPointsModal
-          department={myBoardDepartment}
-          userEmail={userProfile?.email}
-          userId={user?.uid || userProfile?.id || ''}
-          displayName={userProfile?.displayName || userProfile?.name || ''}
-          onClose={() => setBoardPointsOpen(false)}
-        />
-      )}
     </div>
   )
 }

@@ -93,6 +93,11 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
   const [parallelPrograms, setParallelPrograms] = useState({})
   const [expandedBlock, setExpandedBlock] = useState(null)
   const [removedItems, setRemovedItems] = useState([])
+  // Inline rename of a program item's title, keyed by localId — mirrors the
+  // pencil/rename pattern in DesignProgramTab's grid cards.
+  const [renamingBlock, setRenamingBlock] = useState(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const renameCancelledRef = useRef(false)
 
   // Reload dept inputs + notification whenever the push date changes
   useEffect(() => {
@@ -174,6 +179,21 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
 
   const setProgNumber = (localId, val) => {
     setItems((prev) => prev.map((x) => (x.localId === localId ? { ...x, programNumber: val } : x)))
+  }
+
+  const beginRenameBlock = (row) => {
+    renameCancelledRef.current = false
+    setRenamingBlock(row.localId)
+    setRenameDraft(row.programName)
+  }
+
+  const commitRenameBlock = () => {
+    const localId = renamingBlock
+    const name = renameDraft.trim()
+    setRenamingBlock(null)
+    if (renameCancelledRef.current) { renameCancelledRef.current = false; return }
+    if (!localId || !name) return
+    setItems((prev) => prev.map((x) => (x.localId === localId ? { ...x, programName: name } : x)))
   }
 
   const saveDefault = async () => {
@@ -471,18 +491,60 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                       boxShadow: isExpanded ? `0 4px 16px ${color.accent}22, 0 0 0 1.5px ${color.accent}55` : '0 1px 3px #0000000a, 0 0 0 1px #e9ecef',
                     }}>
                       {/* Collapsed header */}
-                      <div onClick={() => setExpandedBlock(isExpanded ? null : row.localId)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', cursor: 'pointer', userSelect: 'none', minHeight: MIN_BLOCK_PX }}>
-                        <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: color.accent, flexShrink: 0, opacity: 0.4 }} />
-                        {row.programNumber && (
-                          <span style={{ fontSize: 9, fontWeight: 800, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 6px', flexShrink: 0 }}>#{row.programNumber}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', minHeight: MIN_BLOCK_PX }}>
+                        <div
+                          onClick={() => setExpandedBlock(isExpanded ? null : row.localId)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, cursor: 'pointer', userSelect: 'none' }}>
+                          <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: color.accent, flexShrink: 0, opacity: 0.4 }} />
+                          {row.programNumber && (
+                            <span style={{ fontSize: 9, fontWeight: 800, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 6px', flexShrink: 0 }}>#{row.programNumber}</span>
+                          )}
+                          {renamingBlock === row.localId ? (
+                            <input
+                              autoFocus
+                              type="text"
+                              value={renameDraft}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                e.stopPropagation()
+                                if (e.key === 'Enter') commitRenameBlock()
+                                if (e.key === 'Escape') { renameCancelledRef.current = true; setRenamingBlock(null) }
+                              }}
+                              onBlur={commitRenameBlock}
+                              style={{
+                                flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: '#1e293b',
+                                lineHeight: 1.25, padding: '2px 6px', borderRadius: 6,
+                                border: `1.5px solid ${color.accent}`, outline: `2px solid ${color.accent}33`,
+                                outlineOffset: 1, background: '#fff',
+                              }}
+                            />
+                          ) : (
+                            <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b', lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {row.programName}
+                            </p>
+                          )}
+                          {dur > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 5px', flexShrink: 0 }}>{dur}m</span>}
+                          {deptRows.some(d => d.elements.length > 0) && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />}
+                          <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0, transition: 'transform 0.15s', display: 'inline-block', transform: isExpanded ? 'rotate(180deg)' : 'none' }}>▼</span>
+                        </div>
+                        {canEdit && renamingBlock !== row.localId && (
+                          <button
+                            type="button"
+                            onClick={() => beginRenameBlock(row)}
+                            title="Rename"
+                            aria-label="Rename"
+                            style={{
+                              width: 20, height: 20, flexShrink: 0, borderRadius: '50%',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              background: '#f1f5f9', color: '#64748b', border: 'none', cursor: 'pointer',
+                            }}
+                          >
+                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                              <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5z"/>
+                            </svg>
+                          </button>
                         )}
-                        <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b', lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {row.programName}
-                        </p>
-                        {dur > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 5px', flexShrink: 0 }}>{dur}m</span>}
-                        {deptRows.some(d => d.elements.length > 0) && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />}
-                        <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0, transition: 'transform 0.15s', display: 'inline-block', transform: isExpanded ? 'rotate(180deg)' : 'none' }}>▼</span>
                       </div>
 
                       {/* Expanded panel */}

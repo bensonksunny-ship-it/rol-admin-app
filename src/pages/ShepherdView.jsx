@@ -15,6 +15,7 @@ import {
   saveMidweekPrayerPoints,
   addCellMemberPendingChange,
   getCellMemberPendingChanges,
+  subscribeCellMemberPendingChanges,
   getPCSLookup,
   getMemberProfile,
   getMemberProfileWithContext,
@@ -54,7 +55,7 @@ function miniDur(from, to) {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const NOTE_QUICK_TAGS = ['Transfer Member', 'Needs Follow-up', 'Inactivity Note']
+const NOTE_QUICK_TAGS = ['Needs Follow-up', 'Inactivity Note']
 
 const SHEPHERD_FIELDS = [
   { key: 'worship_song',  label: '🎵 Worship Song',   placeholder: 'e.g. Great Are You Lord — C major' },
@@ -529,6 +530,22 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [inactiveTarget, setInactiveTarget]   = useState(null)
   const [markingInactive, setMarkingInactive] = useState(false)
 
+  // Pending transfer/deactivation requests awaiting Director approval — drives the
+  // "⏳ Pending" badge and disables re-submitting while one is outstanding.
+  const [pendingChangeByMemberId, setPendingChangeByMemberId] = useState(new Map())
+  useEffect(() => {
+    const unsub = subscribeCellMemberPendingChanges((changes) => {
+      const m = new Map()
+      changes.forEach((c) => {
+        if (c.cellId === selectedCellId && (c.changeType === 'transfer' || c.changeType === 'deactivate')) {
+          m.set(c.memberId, c.changeType)
+        }
+      })
+      setPendingChangeByMemberId(m)
+    })
+    return unsub
+  }, [selectedCellId])
+
   // People's directory map for canonical name enrichment
   const [visitorMap, setVisitorMap] = useState(new Map())
   useEffect(() => {
@@ -709,16 +726,35 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     finally { setMarkingNoteReadId(null) }
   }
 
+  // Directors move a member instantly. Cell Leaders instead submit a transfer
+  // request that lands in the Director's Pending Member Changes card — see
+  // CellDirectorCockpit.jsx's handleApprove for the transferCellMember() call.
   const handleTransfer = async () => {
     if (!transferTarget || !transferState) return
     setTransferring(true)
     try {
-      await transferCellMember(selectedCellId, transferState.memberId, transferTarget)
-      showToast(`${transferState.memberName} moved successfully.`)
+      if (isDirector) {
+        await transferCellMember(selectedCellId, transferState.memberId, transferTarget)
+        showToast(`${transferState.memberName} moved successfully.`)
+        const updated = await getCellGroupMembers(selectedCellId)
+        setMembers(updated)
+      } else {
+        const cellName = cellGroups.find((g) => g.id === selectedCellId)?.cellName || ''
+        const toCellName = cellGroups.find((g) => g.id === transferTarget)?.cellName || ''
+        await addCellMemberPendingChange({
+          changeType: 'transfer',
+          cellId: selectedCellId,
+          cellName,
+          toCellId: transferTarget,
+          toCellName,
+          memberId: transferState.memberId,
+          memberData: { name: transferState.memberName },
+          requestedBy: userProfile?.name || userProfile?.email || 'Cell Leader',
+        })
+        showToast(`Transfer request submitted for ${transferState.memberName}. Awaiting Director approval.`)
+      }
       setTransferState(null)
       setTransferTarget('')
-      const updated = await getCellGroupMembers(selectedCellId)
-      setMembers(updated)
     } catch (err) {
       showToast(err.message || 'Transfer failed.', 'error')
     } finally {
@@ -726,19 +762,34 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     }
   }
 
+  // Directors deactivate instantly. Cell Leaders submit a request for Director
+  // approval, matching the same action's behavior in the weekly Cell Report page.
   const handleMarkInactiveShepherd = async () => {
     if (!inactiveTarget || !selectedCellId) return
     setMarkingInactive(true)
     try {
-      const result = await deactivateCellGroupMember(selectedCellId, inactiveTarget.id, inactiveTarget.name)
-      const category = result?.memberCategory || 'not_attending'
-      showToast(`${inactiveTarget.name} moved to ${memberCategoryLabel(category)}.`)
-      setMembers(prev => prev.map(m => m.id === inactiveTarget.id
-        ? { ...m, status: 'inactive', memberCategory: category, leftDate: new Date().toISOString().slice(0, 10) }
-        : m))
+      if (isDirector) {
+        const result = await deactivateCellGroupMember(selectedCellId, inactiveTarget.id, inactiveTarget.name)
+        const category = result?.memberCategory || 'not_attending'
+        showToast(`${inactiveTarget.name} moved to ${memberCategoryLabel(category)}.`)
+        setMembers(prev => prev.map(m => m.id === inactiveTarget.id
+          ? { ...m, status: 'inactive', memberCategory: category, leftDate: new Date().toISOString().slice(0, 10) }
+          : m))
+      } else {
+        const cellName = cellGroups.find((g) => g.id === selectedCellId)?.cellName || ''
+        await addCellMemberPendingChange({
+          changeType: 'deactivate',
+          cellId: selectedCellId,
+          cellName,
+          memberId: inactiveTarget.id,
+          memberData: { name: inactiveTarget.name, phone: inactiveTarget.phone || '', locality: inactiveTarget.locality || '' },
+          requestedBy: userProfile?.name || userProfile?.email || 'Cell Leader',
+        })
+        showToast(`Deactivation request submitted for ${inactiveTarget.name}. Awaiting Director approval.`)
+      }
       setInactiveTarget(null)
       setDetailMember(null)
-    } catch { showToast('Failed to mark inactive.', 'error') }
+    } catch { showToast('Failed to submit request.', 'error') }
     finally { setMarkingInactive(false) }
   }
 
@@ -754,10 +805,10 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
     finally { setReactivatingId(null) }
   }
 
-  // Transfer only for Directors/Founders (effectiveIsDirector covers both)
+  // Directors transfer instantly; Cell Leaders submit a request (handleTransfer branches on isDirector above).
   const canTransfer = useCallback(
-    () => canTransferProp && isDirector,
-    [canTransferProp, isDirector]
+    () => canTransferProp && (isDirector || isLeader),
+    [canTransferProp, isDirector, isLeader]
   )
 
   const handleAddPrayer = async () => {
@@ -1180,15 +1231,25 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                   {/* ── Action buttons (Transfer / Notify Caring) ── */}
                   {(canTransfer() && otherCells.length > 0 || pcsStatus === 'out') && (
                     <div className="flex gap-2 mt-2">
-                      {canTransfer() && otherCells.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setTransferState({ memberId: member.id, memberName: member.name }); setTransferTarget('') }}
-                          className="flex-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200 transition"
-                        >
-                          Transfer
-                        </button>
-                      )}
+                      {canTransfer() && otherCells.length > 0 && (() => {
+                        const pendingType = pendingChangeByMemberId.get(member.id)
+                        if (pendingType) {
+                          return (
+                            <span className="flex-1 flex items-center justify-center px-3 py-2 rounded-xl bg-amber-50 text-amber-700 text-xs font-semibold">
+                              ⏳ Pending {pendingType === 'transfer' ? 'Transfer' : 'Deactivation'}
+                            </span>
+                          )
+                        }
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setTransferState({ memberId: member.id, memberName: member.name }); setTransferTarget('') }}
+                            className="flex-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200 transition"
+                          >
+                            {isDirector ? 'Transfer' : 'Request Transfer'}
+                          </button>
+                        )
+                      })()}
                       {pcsStatus === 'out' && (
                         notified ? (
                           <span className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-500 text-xs font-semibold">
@@ -1345,7 +1406,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               </div>
             </div>
             <p className="text-sm text-slate-600">
-              This will remove <span className="font-semibold">{inactiveTarget.name}</span> from the active members list and move them to Inactive.
+              This will submit a request to your Cell Director to mark <span className="font-semibold">{inactiveTarget.name}</span> inactive. They stay active until approved.
             </p>
             <div className="flex gap-3">
               <button type="button" onClick={() => setInactiveTarget(null)}
@@ -1354,7 +1415,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               </button>
               <button type="button" onClick={handleMarkInactiveShepherd} disabled={markingInactive}
                 className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold disabled:opacity-50 hover:bg-red-600">
-                {markingInactive ? 'Moving…' : 'Mark Inactive'}
+                {markingInactive ? 'Submitting…' : 'Submit Request'}
               </button>
             </div>
           </div>
@@ -1365,9 +1426,11 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       {transferState && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-slate-900">Transfer Member</h3>
+            <h3 className="font-bold text-slate-900">{isDirector ? 'Transfer Member' : 'Request Transfer'}</h3>
             <p className="text-sm text-slate-600">
-              Move <strong>{transferState.memberName}</strong> to a different cell group.
+              {isDirector
+                ? <>Move <strong>{transferState.memberName}</strong> to a different cell group.</>
+                : <>Ask your Cell Director to move <strong>{transferState.memberName}</strong> to a different cell group. They stay in this cell until approved.</>}
             </p>
             <select
               value={transferTarget}
@@ -1386,7 +1449,9 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                 disabled={!transferTarget || transferring}
                 className="flex-1 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50"
               >
-                {transferring ? 'Moving…' : 'Confirm Transfer'}
+                {transferring
+                  ? (isDirector ? 'Moving…' : 'Submitting…')
+                  : (isDirector ? 'Confirm Transfer' : 'Submit Request')}
               </button>
               <button
                 type="button"
@@ -1420,17 +1485,26 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                 <p className={`text-xs font-medium ${GLOW_TEXT[getGlow(detailMember.name, heatmap)]}`}>{GLOW_LABEL[getGlow(detailMember.name, heatmap)]}</p>
               </div>
               {isLeader && !isDirector && (
-                <button
-                  type="button"
-                  onClick={() => setInactiveTarget(detailMember)}
-                  title="Mark Inactive"
-                  aria-label="Mark Inactive"
-                  className="w-9 h-9 flex items-center justify-center rounded-full text-red-500 hover:bg-red-50 flex-shrink-0"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>
-                  </svg>
-                </button>
+                pendingChangeByMemberId.has(detailMember.id) ? (
+                  <span
+                    title={`Pending ${pendingChangeByMemberId.get(detailMember.id) === 'transfer' ? 'Transfer' : 'Deactivation'} — awaiting Director approval`}
+                    className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700 flex-shrink-0"
+                  >
+                    ⏳ Pending
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setInactiveTarget(detailMember)}
+                    title="Request Mark Inactive"
+                    aria-label="Request Mark Inactive"
+                    className="w-9 h-9 flex items-center justify-center rounded-full text-red-500 hover:bg-red-50 flex-shrink-0"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>
+                    </svg>
+                  </button>
+                )
               )}
               <button type="button" onClick={() => setDetailMember(null)} className="w-9 h-9 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
             </div>

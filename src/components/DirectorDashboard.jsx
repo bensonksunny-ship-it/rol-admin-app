@@ -149,7 +149,8 @@ function MissingWeeksList({ weeks }) {
   )
 }
 
-export function MissingCellReportsTable({ rows, loading, remindLeader, remindingIds = new Set(), remindedIds = new Set(), dismissedIds = new Set(), onDismiss, onUndismiss }) {
+export function MissingCellReportsTable({ rows, tenWeekByCellId = new Map(), loading, remindLeader, remindingIds = new Set(), remindedIds = new Set(), dismissedIds = new Set(), onDismiss, onUndismiss }) {
+  const [openCellId, setOpenCellId] = useState(null)
   const submitted = rows.filter((r) => r.submitted).length
   const missing   = rows.filter((r) => r.isDue && !dismissedIds.has(r.cellId)).length
   const dismissed = rows.filter((r) => r.isDue && dismissedIds.has(r.cellId)).length
@@ -158,7 +159,7 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, reminding
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100">
         <p className="text-sm font-bold text-slate-800">Cell Report Status</p>
-        <p className="text-xs text-slate-400 mt-0.5">Current week (Mon–Sun) · Expected date follows each cell's meeting day</p>
+        <p className="text-xs text-slate-400 mt-0.5">Current week (Mon–Sun) · Expected date follows each cell's meeting day · Tap a Missing badge to see which of the last 10 weeks were skipped</p>
         {!loading && rows.length > 0 && (
           <div className="flex gap-3 mt-3">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
@@ -190,22 +191,57 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, reminding
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-left">
                 <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Cell</th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Leader</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Due Date</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Missing (10 Wks)</th>
                 <th className="px-4 py-3 w-44" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {rows.map((row) => {
                 const isDismissed = row.isDue && dismissedIds.has(row.cellId)
+                const tw = tenWeekByCellId.get(row.cellId)
+                const isOpen = openCellId === row.cellId
+                const missingWeeks = tw ? tw.weeks.filter((w) => !w.submitted) : []
                 return (
-                  <tr key={row.cellId} className="hover:bg-slate-50 transition-colors">
+                  <tr key={row.cellId} className="hover:bg-slate-50 transition-colors align-top">
                     <td className="px-5 py-3 font-medium text-slate-800">{row.cellName}</td>
-                    <td className="px-4 py-3 text-slate-600">{row.leaderName || '—'}</td>
                     <td className="px-4 py-3 text-slate-500 tabular-nums">{row.expectedDate}</td>
                     <td className="px-4 py-3">
                       <StatusPill row={row} isDismissed={isDismissed} />
+                    </td>
+                    <td className="px-4 py-3 relative">
+                      {tw ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setOpenCellId(isOpen ? null : row.cellId)}
+                            title={missingWeeks.length > 0 ? 'Click to see which weeks are missing' : undefined}
+                            className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${tenWeekBadgeStyle(tw.missingCount)} ${
+                              missingWeeks.length > 0 ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'
+                            }`}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-current inline-block opacity-70" />
+                            {tenWeekBadgeLabel(tw.missingCount)}
+                          </button>
+
+                          {isOpen && missingWeeks.length > 0 && (
+                            <>
+                              <div className="fixed inset-0 z-10" onClick={() => setOpenCellId(null)} aria-hidden />
+                              <div className="absolute z-20 left-4 top-full mt-1.5 w-56 bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
+                                <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
+                                  Missing weeks for {row.cellName}
+                                </p>
+                                <div className="max-h-56 overflow-y-auto">
+                                  <MissingWeeksList weeks={missingWeeks} />
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2 justify-end">
@@ -253,15 +289,35 @@ export function MissingCellReportsTable({ rows, loading, remindLeader, reminding
         <div className="md:hidden divide-y divide-slate-100">
           {rows.map((row) => {
             const isDismissed = row.isDue && dismissedIds.has(row.cellId)
+            const tw = tenWeekByCellId.get(row.cellId)
+            const isOpen = openCellId === row.cellId
+            const missingWeeks = tw ? tw.weeks.filter((w) => !w.submitted) : []
             return (
               <div key={row.cellId} className="px-5 py-4">
                 <div className="flex items-start justify-between gap-3">
                   <p className="font-semibold text-slate-800 text-sm">{row.cellName}</p>
                   <StatusPill row={row} isDismissed={isDismissed} />
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  {row.leaderName || '—'} &middot; Due {compactDate(row.expectedDate)}
-                </p>
+                <p className="text-xs text-slate-500 mt-1">Due {compactDate(row.expectedDate)}</p>
+                {tw && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setOpenCellId(isOpen ? null : row.cellId)}
+                      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border mt-2 transition-colors ${tenWeekBadgeStyle(tw.missingCount)} ${
+                        missingWeeks.length > 0 ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'
+                      }`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-current inline-block opacity-70" />
+                      {tenWeekBadgeLabel(tw.missingCount)}
+                    </button>
+                    {isOpen && missingWeeks.length > 0 && (
+                      <div className="mt-2 rounded-xl border border-slate-200 overflow-hidden">
+                        <MissingWeeksList weeks={missingWeeks} />
+                      </div>
+                    )}
+                  </>
+                )}
                 {(row.isDue || isDismissed) && (
                   <div className="flex gap-2 mt-3">
                     {row.isDue && !isDismissed && (
@@ -320,111 +376,6 @@ function tenWeekBadgeLabel(missingCount) {
   if (missingCount === 0) return `${TEN_WEEK_COUNT}/${TEN_WEEK_COUNT} Submitted`
   if (missingCount <= 2) return `${missingCount} Missing`
   return `${missingCount}/${TEN_WEEK_COUNT} Missing — Action Required`
-}
-
-/**
- * Per-cell compliance over the last 10 weeks, click-to-expand per row to see the
- * specific missing week dates. Reuses the same reportsByCellWeek lookup the 6-week
- * trend chart already builds — no extra Firestore reads.
- */
-export function TenWeekComplianceTable({ rows, loading }) {
-  const [openCellId, setOpenCellId] = useState(null)
-
-  return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100">
-        <p className="text-sm font-bold text-slate-800">Report Submission Tracking (Last 10 Weeks)</p>
-        <p className="text-xs text-slate-400 mt-0.5">Click a cell's badge to see which weeks are missing</p>
-      </div>
-
-      {loading ? (
-        <div className="px-5 py-6 text-sm text-slate-400 text-center">Loading…</div>
-      ) : rows.length === 0 ? (
-        <div className="px-5 py-6 text-sm text-slate-400 text-center">No cell groups in scope.</div>
-      ) : (
-        <>
-        <div className="hidden md:block overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100 text-left">
-                <th className="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Cell</th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Leader</th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Missing Reports (Last 10 Weeks)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {rows.map((row) => {
-                const isOpen = openCellId === row.cellId
-                const missingWeeks = row.weeks.filter((w) => !w.submitted)
-                return (
-                  <tr key={row.cellId} className="hover:bg-slate-50 transition-colors align-top">
-                    <td className="px-5 py-3 font-medium text-slate-800">{row.cellName}</td>
-                    <td className="px-4 py-3 text-slate-600">{row.leaderName || '—'}</td>
-                    <td className="px-4 py-3 relative">
-                      <button
-                        type="button"
-                        onClick={() => setOpenCellId(isOpen ? null : row.cellId)}
-                        title={missingWeeks.length > 0 ? 'Click to see which weeks are missing' : undefined}
-                        className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${tenWeekBadgeStyle(row.missingCount)} ${
-                          missingWeeks.length > 0 ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'
-                        }`}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-current inline-block opacity-70" />
-                        {tenWeekBadgeLabel(row.missingCount)}
-                      </button>
-
-                      {isOpen && missingWeeks.length > 0 && (
-                        <>
-                          <div className="fixed inset-0 z-10" onClick={() => setOpenCellId(null)} aria-hidden />
-                          <div className="absolute z-20 left-4 top-full mt-1.5 w-56 bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
-                            <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
-                              Missing weeks for {row.cellName}
-                            </p>
-                            <div className="max-h-56 overflow-y-auto">
-                              <MissingWeeksList weeks={missingWeeks} />
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="md:hidden divide-y divide-slate-100">
-          {rows.map((row) => {
-            const isOpen = openCellId === row.cellId
-            const missingWeeks = row.weeks.filter((w) => !w.submitted)
-            return (
-              <div key={row.cellId} className="px-5 py-4">
-                <p className="font-semibold text-slate-800 text-sm">{row.cellName}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{row.leaderName || '—'}</p>
-                <button
-                  type="button"
-                  onClick={() => setOpenCellId(isOpen ? null : row.cellId)}
-                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border mt-2 transition-colors ${tenWeekBadgeStyle(row.missingCount)} ${
-                    missingWeeks.length > 0 ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'
-                  }`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-current inline-block opacity-70" />
-                  {tenWeekBadgeLabel(row.missingCount)}
-                </button>
-                {isOpen && missingWeeks.length > 0 && (
-                  <div className="mt-2 rounded-xl border border-slate-200 overflow-hidden">
-                    <MissingWeeksList weeks={missingWeeks} />
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-        </>
-      )}
-    </div>
-  )
 }
 
 export function CellWeeklyTrendsChart({ chartData }) {
@@ -612,6 +563,11 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
     })
   }, [visibleGroups, reportsByCellWeek])
 
+  const tenWeekByCellId = useMemo(
+    () => new Map(tenWeekRows.map((r) => [r.cellId, r])),
+    [tenWeekRows]
+  )
+
   const remindLeader = useCallback(async (row) => {
     if (!row?.cellId || remindingIds.has(row.cellId)) return
     setRemindingIds((prev) => new Set([...prev, row.cellId]))
@@ -665,6 +621,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
       <div id="missing-cell-reports-table">
         <MissingCellReportsTable
           rows={rows}
+          tenWeekByCellId={tenWeekByCellId}
           loading={loading}
           remindLeader={remindLeader}
           remindingIds={remindingIds}
@@ -674,7 +631,6 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
           onUndismiss={undismissAlert}
         />
       </div>
-      <TenWeekComplianceTable rows={tenWeekRows} loading={loading} />
       <CellWeeklyTrendsChart chartData={chartData} />
     </div>
   )
