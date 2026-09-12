@@ -2693,6 +2693,15 @@ export default function DepartmentHub() {
                     onChangeResolved={handleCellChangeResolved}
                     tasks={tasks}
                     onTaskUpdated={(id, patch) => setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))}
+                    onNavigateToCellGroups={() => { setActiveTab('cellGroups'); setSearchParams({ tab: 'cellGroups' }, { replace: true }) }}
+                    initialUnassignedFilter={searchParams.get('filter') === 'unassigned'}
+                    onUnassignedFilterChange={(open) => {
+                      const next = new URLSearchParams(searchParams)
+                      next.set('tab', 'summary')
+                      if (open) next.set('filter', 'unassigned')
+                      else next.delete('filter')
+                      setSearchParams(next, { replace: true })
+                    }}
                   />
                 </>
               ) : slug === 'd-light' ? (

@@ -1,5 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { format, startOfWeek } from 'date-fns'
 import {
   getCellGroupMembers,
@@ -8,6 +7,7 @@ import {
   addCellGroupMember,
   updateCellGroupMember,
   deactivateCellGroupMember,
+  transferCellMember,
   deleteCellMemberPendingChange,
   updateTask,
   createTask,
@@ -34,6 +34,7 @@ const CHANGE_TYPE_STYLES = {
   deactivate: 'bg-red-100 text-red-700',
   activate:   'bg-blue-100 text-blue-700',
   edit:       'bg-slate-100 text-slate-600',
+  transfer:   'bg-indigo-100 text-indigo-700',
 }
 
 export function CellDirectorCockpit({
@@ -44,6 +45,9 @@ export function CellDirectorCockpit({
   onChangeResolved,
   tasks = [],
   onTaskUpdated,
+  onNavigateToCellGroups,
+  initialUnassignedFilter = false,
+  onUnassignedFilterChange,
 }) {
   const [cellMemberData, setCellMemberData] = useState([])
   const [loadingMembers, setLoadingMembers] = useState(true)
@@ -53,6 +57,28 @@ export function CellDirectorCockpit({
   const [assignedNames, setAssignedNames] = useState(new Set())
 
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // Opens on mount when arriving via the Unassigned stat card's deep link
+  // (?tab=summary&filter=unassigned) so the drawer is reachable/shareable as a URL,
+  // not just a local click. Closing (either close button or backdrop) clears the
+  // filter param back out through onUnassignedFilterChange.
+  useEffect(() => {
+    if (initialUnassignedFilter) setDrawerOpen(true)
+  }, [initialUnassignedFilter])
+  const openUnassignedDrawer = useCallback(() => {
+    setDrawerOpen(true)
+    onUnassignedFilterChange?.(true)
+  }, [onUnassignedFilterChange])
+  const closeUnassignedDrawer = useCallback(() => {
+    setDrawerOpen(false)
+    onUnassignedFilterChange?.(false)
+  }, [onUnassignedFilterChange])
+  const pendingChangesRef = useRef(null)
+  const [pendingHighlight, setPendingHighlight] = useState(false)
+  const focusPendingChanges = useCallback(() => {
+    pendingChangesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setPendingHighlight(true)
+    setTimeout(() => setPendingHighlight(false), 1500)
+  }, [])
   const [assignOpenName, setAssignOpenName] = useState(null)
   const [assignSelectedCellId, setAssignSelectedCellId] = useState('')
   const [assigning, setAssigning] = useState(false)
@@ -266,6 +292,8 @@ export function CellDirectorCockpit({
           await updateCellGroupMember(change.cellId, change.memberId, { ...change.memberData })
         } else if (change.changeType === 'add' && change.memberData) {
           await addCellGroupMember(change.cellId, change.memberData)
+        } else if (change.changeType === 'transfer' && change.memberId && change.toCellId) {
+          await transferCellMember(change.cellId, change.memberId, change.toCellId)
         }
         await deleteCellMemberPendingChange(change.id)
         onChangeResolved(change.id)
@@ -404,30 +432,42 @@ export function CellDirectorCockpit({
         </div>
       )}
 
-      {/* ── Stat Cards ── */}
+      {/* ── Stat Cards — all four are clickable navigation triggers. ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-base mb-3">⏳</div>
+        <button
+          type="button"
+          onClick={focusPendingChanges}
+          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left cursor-pointer hover:border-amber-200 hover:shadow-md transition-all group"
+        >
+          <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-base mb-3 group-hover:bg-amber-200 transition-colors">⏳</div>
           <p className="text-2xl font-black text-slate-800">{loadingCellPending ? '—' : cellPendingChanges.length}</p>
           <p className="text-xs font-medium text-slate-500 mt-0.5">Pending Approvals</p>
-        </div>
-
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-base mb-3">🏘</div>
-          <p className="text-2xl font-black text-slate-800">{activeCells.length}</p>
-          <p className="text-xs font-medium text-slate-500 mt-0.5">Active Cells</p>
-        </div>
-
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-base mb-3">👥</div>
-          <p className="text-2xl font-black text-slate-800">{loadingMembers ? '—' : totalMembers}</p>
-          <p className="text-xs font-medium text-slate-500 mt-0.5">Total Members</p>
-        </div>
+        </button>
 
         <button
           type="button"
-          onClick={() => setDrawerOpen(true)}
-          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left hover:border-violet-200 hover:shadow-md transition-all group"
+          onClick={onNavigateToCellGroups}
+          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left cursor-pointer hover:border-emerald-200 hover:shadow-md transition-all group"
+        >
+          <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-base mb-3 group-hover:bg-emerald-200 transition-colors">🏘</div>
+          <p className="text-2xl font-black text-slate-800">{activeCells.length}</p>
+          <p className="text-xs font-medium text-slate-500 mt-0.5">Active Cells</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={onNavigateToCellGroups}
+          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left cursor-pointer hover:border-blue-200 hover:shadow-md transition-all group"
+        >
+          <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-base mb-3 group-hover:bg-blue-200 transition-colors">👥</div>
+          <p className="text-2xl font-black text-slate-800">{loadingMembers ? '—' : totalMembers}</p>
+          <p className="text-xs font-medium text-slate-500 mt-0.5">Total Members</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={openUnassignedDrawer}
+          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left cursor-pointer hover:border-violet-200 hover:shadow-md transition-all group"
         >
           <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center text-base mb-3 group-hover:bg-violet-200 transition-colors">🔍</div>
           <p className="text-2xl font-black text-slate-800">{loadingUnassigned ? '—' : visibleUnassigned.length}</p>
@@ -437,7 +477,12 @@ export function CellDirectorCockpit({
       </div>
 
       {/* ── Pending Member Changes ── */}
-      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+      <div
+        ref={pendingChangesRef}
+        className={`bg-white border rounded-2xl shadow-sm overflow-hidden transition-all ${
+          pendingHighlight ? 'border-amber-300 ring-2 ring-amber-200' : 'border-slate-100'
+        }`}
+      >
         <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
           <p className="text-sm font-bold text-slate-800">Pending Member Changes</p>
           {!loadingCellPending && (cellPendingChanges.length + leaderNotes.length) > 0 && (
@@ -498,14 +543,6 @@ export function CellDirectorCockpit({
                   >
                     {resolvingNoteId === note.id ? 'Resolving…' : 'Resolve'}
                   </button>
-                  {note.tags?.includes('Transfer') && note.cellId && (
-                    <Link
-                      to="/department/cell?tab=cellGroups"
-                      className="flex-1 py-2 rounded-xl border border-indigo-200 text-indigo-600 text-xs font-bold hover:bg-indigo-50 transition-colors text-center"
-                    >
-                      Reassign →
-                    </Link>
-                  )}
                 </div>
               </div>
             ))}
@@ -520,7 +557,10 @@ export function CellDirectorCockpit({
                     <div>
                       <p className="font-bold text-slate-900 text-sm">{change.memberData?.name || '—'}</p>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        {change.requestedBy || '—'} · {change.cellName || '—'}
+                        {change.requestedBy || '—'} ·{' '}
+                        {change.changeType === 'transfer'
+                          ? `${change.cellName || '—'} → ${change.toCellName || '—'}`
+                          : (change.cellName || '—')}
                       </p>
                     </div>
                   </div>
@@ -569,7 +609,7 @@ export function CellDirectorCockpit({
       {drawerOpen && (
         <div
           className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center"
-          onClick={(e) => { if (e.target === e.currentTarget) setDrawerOpen(false) }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeUnassignedDrawer() }}
         >
           <div className="bg-white rounded-t-3xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
             {/* Drawer header */}
@@ -582,7 +622,7 @@ export function CellDirectorCockpit({
               </div>
               <button
                 type="button"
-                onClick={() => setDrawerOpen(false)}
+                onClick={closeUnassignedDrawer}
                 className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors text-lg"
               >
                 ✕
