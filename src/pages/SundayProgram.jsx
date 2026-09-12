@@ -158,15 +158,22 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
 
   const sorted = [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
+  // A program name already used by another row on the schedule (case-insensitive),
+  // excluding `exceptLocalId` so a row can keep its own current name while editing.
+  const isDuplicateProgramName = (name, exceptLocalId) =>
+    sorted.some((x) => x.localId !== exceptLocalId && x.programName.trim().toLowerCase() === name.trim().toLowerCase())
+
   const addRow = () => {
     const name = (form.programName || '').trim()
     if (!name) return
     if (editingId) {
+      if (isDuplicateProgramName(name, editingId)) { alert('A programme with this name is already on the schedule.'); return }
       setItems((prev) => prev.map((x) => (x.localId === editingId ? { ...x, programName: name } : x)))
       setEditingId(null)
       setForm({ programName: '', order: sorted.length + 1 })
       return
     }
+    if (isDuplicateProgramName(name)) { alert('A programme with this name is already on the schedule.'); return }
     const pos = Math.max(1, Math.min(sorted.length + 1, Number(form.order) || sorted.length + 1))
     const newItem = { programName: name, order: 0, duration: 0, startTime: '', localId: `new-${Date.now()}` }
     const next = [...sorted]
@@ -195,20 +202,22 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     setRenameDraft(row.programName)
   }
 
-  const commitRenameBlock = () => {
-    const localId = renamingBlock
-    const name = renameDraft.trim()
-    setRenamingBlock(null)
-    if (renameCancelledRef.current) { renameCancelledRef.current = false; return }
-    if (!localId || !name) return
-    setItems((prev) => prev.map((x) => (x.localId === localId ? { ...x, programName: name } : x)))
-  }
-
-  const saveDefault = async () => {
+  // Writes a given item list to Firestore — shared by the page-level "Save
+  // Programme & Timing" button and the per-row rename Save button, so a rename
+  // can be persisted immediately without waiting for the whole-page save.
+  const persistDefaultProgram = async (itemsToSave) => {
+    const seen = new Set()
+    const dupe = itemsToSave.find((x) => {
+      const key = x.programName.trim().toLowerCase()
+      if (seen.has(key)) return true
+      seen.add(key)
+      return false
+    })
+    if (dupe) { alert(`Cannot save: "${dupe.programName}" appears more than once on the schedule.`); return }
     setSaving(true); setSavedOk(false)
     try {
       await setSundayProgramDefault(
-        sorted.map((x, i) => ({ programName: x.programName, order: i, duration: x.duration || 0, startTime: x.startTime || '', programNumber: x.programNumber || '' })),
+        itemsToSave.map((x, i) => ({ programName: x.programName, order: i, duration: x.duration || 0, startTime: x.startTime || '', programNumber: x.programNumber || '' })),
         userProfile?.email || 'unknown',
         serviceStartTime,
         parallelPrograms
@@ -218,6 +227,26 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     } catch (e) { console.error(e); alert('Failed to save') }
     setSaving(false)
   }
+
+  // `save: true` also persists the rename to Firestore immediately (the row's
+  // Save button), instead of leaving it to the page-level Save Programme & Timing
+  // button — renames were getting lost when people assumed typing/blur alone saved.
+  const commitRenameBlock = ({ save = false } = {}) => {
+    const localId = renamingBlock
+    const name = renameDraft.trim()
+    setRenamingBlock(null)
+    if (renameCancelledRef.current) { renameCancelledRef.current = false; return }
+    if (!localId || !name) return
+    if (isDuplicateProgramName(name, localId)) { alert('A programme with this name is already on the schedule.'); return }
+    const nextItems = items.map((x) => (x.localId === localId ? { ...x, programName: name } : x))
+    setItems(nextItems)
+    if (save) {
+      const nextSorted = [...nextItems].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      persistDefaultProgram(nextSorted)
+    }
+  }
+
+  const saveDefault = () => persistDefaultProgram(sorted)
 
   const totalMinutes = sorted.reduce((sum, r) => sum + (r.duration || 0), 0)
 
@@ -565,6 +594,45 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                               <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5z"/>
                             </svg>
                           </button>
+                        )}
+                        {renamingBlock === row.localId && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => commitRenameBlock({ save: true })}
+                              title="Save name"
+                              aria-label="Save name"
+                              style={{
+                                width: 20, height: 20, flexShrink: 0, borderRadius: '50%',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                background: '#10b981', color: '#fff', border: 'none', cursor: saving ? 'default' : 'pointer',
+                                opacity: saving ? 0.6 : 1,
+                              }}
+                            >
+                              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="3 8.5 6.5 12 13 4" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => { renameCancelledRef.current = true; setRenamingBlock(null) }}
+                              title="Cancel"
+                              aria-label="Cancel"
+                              style={{
+                                width: 20, height: 20, flexShrink: 0, borderRadius: '50%',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                background: '#f1f5f9', color: '#64748b', border: 'none', cursor: 'pointer',
+                              }}
+                            >
+                              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                                <line x1="3" y1="3" x2="13" y2="13" />
+                                <line x1="13" y1="3" x2="3" y2="13" />
+                              </svg>
+                            </button>
+                          </>
                         )}
                       </div>
 
@@ -1053,7 +1121,9 @@ function DesignProgramTab({ canEdit, userProfile }) {
   const addProgram = () => {
     const name = newProgram.trim()
     if (!name) { setAddingProgram(false); return }
-    if (programs.includes(name) || customPrograms.includes(name)) {
+    // Case-insensitive — matches commitRename's check, so a program can't be
+    // re-added under a different casing and silently duplicate on the schedule.
+    if ([...programs, ...customPrograms].some((p) => p.trim().toLowerCase() === name.toLowerCase())) {
       setNewProgram('')
       setAddingProgram(false)
       return
@@ -1160,14 +1230,18 @@ function DesignProgramTab({ canEdit, userProfile }) {
       const freshItems = Object.keys(renameMap).length
         ? fresh.items.map((i) => (renameMap[i.programName] ? { ...i, programName: renameMap[i.programName] } : i))
         : fresh.items
-      const existingNames = new Set(freshItems.map((i) => i.programName))
+      // Case/whitespace-insensitive lookup — a duration tracked here under a
+      // slightly different casing than the schedule's actual entry must still be
+      // treated as "already exists", or it gets appended as a silent duplicate.
+      const existingNames = new Set(freshItems.map((i) => i.programName.trim().toLowerCase()))
       const updatedItems = freshItems.map((i) =>
         durations[i.programName] !== undefined ? { ...i, duration: durations[i.programName] } : i
       )
       let nextOrder = updatedItems.length
       Object.entries(durations).forEach(([name, mins]) => {
-        if (!existingNames.has(name) && mins > 0) {
+        if (!existingNames.has(name.trim().toLowerCase()) && mins > 0) {
           updatedItems.push({ programName: name, order: nextOrder++, duration: mins, startTime: '' })
+          existingNames.add(name.trim().toLowerCase())
         }
       })
       await setSundayProgramDefault(updatedItems, userProfile?.email || 'unknown', fresh.serviceStartTime, fresh.parallelPrograms)
