@@ -94,7 +94,10 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
   const [expandedBlock, setExpandedBlock] = useState(null)
   const [removedItems, setRemovedItems] = useState([])
   // Inline rename of a program item's title, keyed by localId — mirrors the
-  // pencil/rename pattern in DesignProgramTab's grid cards.
+  // pencil/rename pattern in DesignProgramTab's grid cards. Two-step: the pencil
+  // arms rename mode on a row (armedRenameBlock), then clicking the title itself
+  // switches it into the actual input (renamingBlock).
+  const [armedRenameBlock, setArmedRenameBlock] = useState(null)
   const [renamingBlock, setRenamingBlock] = useState(null)
   const [renameDraft, setRenameDraft] = useState('')
   const renameCancelledRef = useRef(false)
@@ -181,8 +184,13 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     setItems((prev) => prev.map((x) => (x.localId === localId ? { ...x, programNumber: val } : x)))
   }
 
+  const toggleArmRenameBlock = (localId) => {
+    setArmedRenameBlock((prev) => (prev === localId ? null : localId))
+  }
+
   const beginRenameBlock = (row) => {
     renameCancelledRef.current = false
+    setArmedRenameBlock(null)
     setRenamingBlock(row.localId)
     setRenameDraft(row.programName)
   }
@@ -519,6 +527,18 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                                 outlineOffset: 1, background: '#fff',
                               }}
                             />
+                          ) : armedRenameBlock === row.localId ? (
+                            <p
+                              onClick={(e) => { e.stopPropagation(); beginRenameBlock(row) }}
+                              title="Click to edit name"
+                              style={{
+                                flex: 1, minWidth: 0, margin: 0, fontSize: 12, fontWeight: 700, color: color.accent,
+                                lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                cursor: 'text', borderBottom: `1.5px dashed ${color.accent}`, paddingBottom: 1,
+                              }}
+                            >
+                              {row.programName}
+                            </p>
                           ) : (
                             <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b', lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {row.programName}
@@ -531,13 +551,14 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                         {canEdit && renamingBlock !== row.localId && (
                           <button
                             type="button"
-                            onClick={() => beginRenameBlock(row)}
-                            title="Rename"
+                            onClick={() => toggleArmRenameBlock(row.localId)}
+                            title={armedRenameBlock === row.localId ? 'Click the name to edit it' : 'Rename'}
                             aria-label="Rename"
                             style={{
                               width: 20, height: 20, flexShrink: 0, borderRadius: '50%',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              background: '#f1f5f9', color: '#64748b', border: 'none', cursor: 'pointer',
+                              background: armedRenameBlock === row.localId ? color.accent : '#f1f5f9',
+                              color: armedRenameBlock === row.localId ? '#fff' : '#64748b', border: 'none', cursor: 'pointer',
                             }}
                           >
                             <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
