@@ -16,6 +16,7 @@ import {
   subscribeCellLeaderDirectorNotes,
   markCellLeaderDirectorNoteRead,
   dismissUnassignedPerson,
+  undismissUnassignedPerson,
   subscribeCellUnassignedDismissals,
 } from '../services/firestore'
 import { totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
@@ -92,6 +93,19 @@ export function CellDirectorCockpit({
     return unsub
   }, [])
 
+  // "Undo" on a dismiss toast overrides persistedDismissedNames until the
+  // subscription above confirms the durable record is actually gone (undismiss is
+  // async, so there's a brief window where the old dismissal doc still exists).
+  // Pruned here once that happens, so it never grows unbounded across a session.
+  const [restoredNames, setRestoredNames] = useState(new Set())
+  useEffect(() => {
+    setRestoredNames((prev) => {
+      if (prev.size === 0) return prev
+      const next = new Set([...prev].filter((k) => persistedDismissedNames.has(k)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [persistedDismissedNames])
+
 
   // Live PCS referral tasks — independent of parent tasks prop so they update in real time
   const [livePcsTasks, setLivePcsTasks] = useState([])
@@ -131,9 +145,9 @@ export function CellDirectorCockpit({
   const [sendingConsult, setSendingConsult]   = useState(false)
 
   const [toast, setToast] = useState(null)
-  const showToast = useCallback((msg, type = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
+  const showToast = useCallback((msg, type = 'success', action = null) => {
+    setToast({ msg, type, action })
+    setTimeout(() => setToast(null), action ? 6000 : 3500)
   }, [])
 
   const activeCells = useMemo(
@@ -267,7 +281,8 @@ export function CellDirectorCockpit({
   )
 
   const visibleUnassigned = useMemo(() => {
-    const isDismissed = (nameKey) => dismissedNames.has(nameKey) || persistedDismissedNames.has(nameKey)
+    const isDismissed = (nameKey) =>
+      (dismissedNames.has(nameKey) || persistedDismissedNames.has(nameKey)) && !restoredNames.has(nameKey)
     const sundayItems = unassignedVisitors
       .filter(v => !assignedNames.has(v.name.toLowerCase()) && !isDismissed(v.name.toLowerCase()))
       .map(v => ({ ...v, source: 'sunday' }))
@@ -279,7 +294,35 @@ export function CellDirectorCockpit({
            !sundayNames.has(r.name.toLowerCase())
     )
     return [...pcsItems, ...sundayItems]
-  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames])
+  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames, restoredNames])
+
+  // Reverses a dismiss — used by the "Undo" action on the dismiss toast. Mirrors
+  // dismiss's own branch (task-backed vs. durable-record-backed) in reverse.
+  const handleUndismiss = useCallback(async (item, nameKey) => {
+    setDismissedNames(prev => {
+      const next = new Set(prev)
+      next.delete(nameKey)
+      return next
+    })
+    setRestoredNames(prev => new Set([...prev, nameKey]))
+    try {
+      if (item.taskId) {
+        await updateTask(item.taskId, { status: 'Pending' })
+        onTaskUpdated?.(item.taskId, { status: 'Pending' })
+      } else {
+        await undismissUnassignedPerson(nameKey)
+      }
+    } catch (err) {
+      console.error('Failed to undo dismiss', item.name, err)
+      showToast(`Failed to restore ${item.name}.`, 'error')
+      setDismissedNames(prev => new Set([...prev, nameKey]))
+      setRestoredNames(prev => {
+        const next = new Set(prev)
+        next.delete(nameKey)
+        return next
+      })
+    }
+  }, [onTaskUpdated, showToast])
 
   const handleApprove = useCallback(
     async (change) => {
@@ -425,10 +468,19 @@ export function CellDirectorCockpit({
     <div className="space-y-6">
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
           toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
         }`}>
           {toast.msg}
+          {toast.action && (
+            <button
+              type="button"
+              onClick={() => { toast.action.onClick(); setToast(null) }}
+              className="text-xs font-bold underline underline-offset-2 hover:opacity-80 transition-opacity flex-shrink-0"
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
 
@@ -730,7 +782,10 @@ export function CellDirectorCockpit({
                         <button
                           type="button"
                           title="Dismiss"
-                          onClick={async () => {
+                          onClick={async (e) => {
+                            // Stops this from bubbling to anything listening further up the
+                            // row/drawer (e.g. the backdrop's click-outside-to-close check).
+                            e.stopPropagation()
                             const nameKey = item.name.toLowerCase()
                             // Optimistic — instant removal from the list; reverted below if the
                             // backing write fails, so a failed dismiss doesn't look like a
@@ -749,6 +804,10 @@ export function CellDirectorCockpit({
                                   userProfile?.displayName || userProfile?.email || ''
                                 )
                               }
+                              showToast('Member removed from unassigned list', 'success', {
+                                label: 'Undo',
+                                onClick: () => handleUndismiss(item, nameKey),
+                              })
                             } catch (err) {
                               console.error('Failed to dismiss unassigned person', item.name, err)
                               showToast(`Failed to dismiss ${item.name}. Please try again.`, 'error')

@@ -6386,6 +6386,12 @@ export async function dismissUnassignedPerson(nameKey, dismissedBy = '') {
   })
 }
 
+/** Undo a dismissUnassignedPerson() call — removes the durable dismissal record. */
+export async function undismissUnassignedPerson(nameKey) {
+  if (!db || !nameKey) return
+  await deleteDoc(doc(db, CELL_UNASSIGNED_DISMISSALS, nameKey))
+}
+
 export function subscribeCellUnassignedDismissals(onChange) {
   if (!db) return () => {}
   return onSnapshot(collection(db, CELL_UNASSIGNED_DISMISSALS), (snap) => {
