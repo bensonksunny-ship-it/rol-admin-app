@@ -9583,6 +9583,10 @@ export default function DepartmentHub() {
                                       const isDuplicate = duplicateCellMemberKeys.has(m.visitorId || ('name:' + (m.name || '').toLowerCase().trim()))
                                       const nameKey = String(m.name || '').trim().toLowerCase()
                                       const isAbsent = !!nameKey && !cellRecentAttendedNames.has(nameKey)
+                                      // "Newly Added" — createdAt is when the doc was added to this cell (not the
+                                      // user-editable `since` date), so it can't be backdated and self-expires.
+                                      const daysSinceAdded = m.createdAt ? differenceInDays(new Date(), new Date(m.createdAt)) : null
+                                      const isNewMember = daysSinceAdded !== null && daysSinceAdded >= 0 && daysSinceAdded <= 14
                                       return (
                                         <div
                                           key={m.id}
@@ -9590,7 +9594,11 @@ export default function DepartmentHub() {
                                           tabIndex={0}
                                           onClick={() => openMemberDetail(m, cell.id)}
                                           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMemberDetail(m, cell.id) } }}
-                                          className={`relative h-24 w-full flex flex-col justify-between rounded-2xl border p-3.5 shadow-sm transition-all hover:shadow-md cursor-pointer ${isDuplicate ? 'bg-red-50/70 border-red-200 hover:border-red-300' : 'bg-white border-slate-200 hover:border-indigo-200'}`}
+                                          className={`relative h-24 w-full flex flex-col justify-between rounded-2xl border p-3.5 shadow-sm transition-all hover:shadow-md cursor-pointer ${
+                                            isDuplicate ? 'bg-red-50/70 border-red-200 hover:border-red-300'
+                                            : isNewMember ? 'bg-emerald-50/40 border-emerald-300 hover:border-emerald-400'
+                                            : 'bg-white border-slate-200 hover:border-indigo-200'
+                                          }`}
                                         >
                                           <div className="flex items-start justify-between gap-2">
                                             <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
@@ -9601,6 +9609,11 @@ export default function DepartmentHub() {
                                                   <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Not attended cell or Sunday service in over 4 weeks" />
                                                 )}
                                                 <p className={`font-bold text-sm truncate ${isDuplicate ? 'text-red-800' : 'text-slate-900'}`}>{m.name || '—'}</p>
+                                                {isNewMember && (
+                                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0">
+                                                    ✨ New
+                                                  </span>
+                                                )}
                                             </div>
                                             {canEdit && (
                                               <div className="relative flex-shrink-0">

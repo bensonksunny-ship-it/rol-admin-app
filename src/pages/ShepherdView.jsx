@@ -144,6 +144,19 @@ function isUpcomingSoon(dateStr, days = 7) {
   return diffDays >= 0 && diffDays <= days
 }
 
+// True for the first 14 days after a member record was created — drives the
+// "Newly Added" badge/highlight. Uses createdAt (when the doc was added to this
+// cell), not the user-editable `since`/"member since" date, so it can't be
+// backdated and always self-expires without any cleanup job.
+const NEWLY_ADDED_DAYS = 14
+function isNewlyAdded(createdAt) {
+  if (!createdAt) return false
+  const d = createdAt instanceof Date ? createdAt : new Date(createdAt)
+  if (Number.isNaN(d.getTime())) return false
+  const diffDays = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)
+  return diffDays >= 0 && diffDays <= NEWLY_ADDED_DAYS
+}
+
 // Collapsible list of Former / Not-Attending members, shared by the cell leader
 // and director views. `members` must already be filtered to the right category.
 function InactiveCategoryList({ title, members, expanded, onToggle, showTenure, onReactivate, reactivatingId }) {
@@ -1051,6 +1064,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               const inPCS      = isInPCS(member)
               const notified   = notifiedPCS.has(member.id)
               const notifying  = notifyingPCS.has(member.id)
+              const isNew      = isNewlyAdded(member.createdAt)
 
               const pcsStatus = pcsLoading ? 'checking' : inPCS ? 'in' : 'out'
 
@@ -1098,7 +1112,9 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                   onClick={openMemberDetail}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMemberDetail() } }}
                   style={pcsStatus === 'out' ? { borderLeft: '4px solid #f97316' } : { borderLeft: '4px solid #e2e8f0' }}
-                  className={`bg-white rounded-3xl shadow-sm transition-all overflow-hidden cursor-pointer ${GLOW_RING[glow]}`}
+                  className={`rounded-3xl shadow-sm transition-all overflow-hidden cursor-pointer ${GLOW_RING[glow]} ${
+                    isNew ? 'bg-emerald-50/40 border border-emerald-200' : 'bg-white'
+                  }`}
                 >
                   <div className="p-3 sm:p-5">
                   {/* ── Header row ── */}
@@ -1106,7 +1122,14 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={`w-3 h-3 rounded-full flex-shrink-0 mt-0.5 ${GLOW_DOT[glow]}`} />
                       <div className="min-w-0">
-                        <p className="font-bold text-slate-900 text-sm truncate">{member.name}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-bold text-slate-900 text-sm truncate">{member.name}</p>
+                          {isNew && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0">
+                              ✨ Newly Added
+                            </span>
+                          )}
+                        </div>
                         <p className={`text-xs font-medium ${GLOW_TEXT[glow]}`}>{GLOW_LABEL[glow]}</p>
                       </div>
                     </div>
