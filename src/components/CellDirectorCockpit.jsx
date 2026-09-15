@@ -83,7 +83,14 @@ export function CellDirectorCockpit({
   const [assignOpenName, setAssignOpenName] = useState(null)
   const [assignSelectedCellId, setAssignSelectedCellId] = useState('')
   const [assigning, setAssigning] = useState(false)
+  // Sunday-attendance-derived rows have no backing doc — name is their only
+  // identity — so dismissal there is necessarily name-keyed (see
+  // cell_unassigned_dismissals below, whose doc id *is* the name key).
   const [dismissedNames, setDismissedNames] = useState(new Set())
+  // PCS/D-Light-referral rows are backed by a real task doc, so their dismissal is
+  // keyed by taskId instead — two referrals that happen to share a person's name
+  // (duplicate submissions, etc.) must never share dismiss/undo state.
+  const [dismissedTaskIds, setDismissedTaskIds] = useState(new Set())
   // Durable, cross-session dismissal record for Sunday-report-sourced cards (which
   // have no task/member doc of their own to persist a "handled" state onto).
   // `dismissedNames` above stays as the optimistic/instant local layer.
@@ -265,8 +272,9 @@ export function CellDirectorCockpit({
   // opens DepartmentHub's Recommendation modal directly on *this same task doc*
   // (?openPcsReferralTaskId=, see ToDoListCard.jsx + DepartmentHub.jsx) — submitting it
   // writes recommendation/recommendedCellId/status:'Responded' straight onto here.
-  const pcsReferrals = useMemo(
-    () => livePcsTasks.map(t => ({
+  const pcsReferrals = useMemo(() => {
+    const mapped = livePcsTasks.map(t => ({
+      id: t.id,
       name: t.pcsPersonName || (t.taskTitle || '').replace(/^Add /, '').replace(/ to a cell group$/, ''),
       phone: t.pcsPersonPhone || '',
       visitorId: t.pcsPersonVisitorId || '',
@@ -276,29 +284,62 @@ export function CellDirectorCockpit({
       recommendation: t.recommendation || '',
       recommendedCellId: t.recommendedCellId || '',
       recommendedCellName: t.recommendedCellName || '',
-    })),
-    [livePcsTasks]
-  )
+    }))
+    // Client-side consolidation — two separate referral tasks can end up pointing at
+    // the same person (submitted twice, referred from more than one flow, etc.).
+    // Collapse to one row per person, keyed by whichever identifier is actually
+    // present: visitorId is the strongest signal, phone next, name as the fallback
+    // for referrals carrying neither.
+    const seen = new Set()
+    return mapped.filter((item) => {
+      const dedupeKey = item.visitorId || item.phone || item.name.toLowerCase()
+      if (seen.has(dedupeKey)) return false
+      seen.add(dedupeKey)
+      return true
+    })
+  }, [livePcsTasks])
 
   const visibleUnassigned = useMemo(() => {
-    const isDismissed = (nameKey) =>
+    const isNameDismissed = (nameKey) =>
       (dismissedNames.has(nameKey) || persistedDismissedNames.has(nameKey)) && !restoredNames.has(nameKey)
+    // Sunday-derived rows are already unique per name (nameMap merges duplicates at
+    // the source above), so a stable synthetic id is safe here — there's no backing
+    // doc to key off instead.
     const sundayItems = unassignedVisitors
-      .filter(v => !assignedNames.has(v.name.toLowerCase()) && !isDismissed(v.name.toLowerCase()))
-      .map(v => ({ ...v, source: 'sunday' }))
-    // PCS referrals come first; deduplicate by name against Sunday list
+      .filter(v => !assignedNames.has(v.name.toLowerCase()) && !isNameDismissed(v.name.toLowerCase()))
+      .map(v => ({ ...v, source: 'sunday', id: `sunday-${v.name.toLowerCase()}` }))
+    // PCS referrals come first; deduplicate against the Sunday list by name (cross-
+    // source overlap — a PCS referral for someone who also showed up in Sunday
+    // attendance shouldn't render twice).
     const sundayNames = new Set(sundayItems.map(v => v.name.toLowerCase()))
     const pcsItems = pcsReferrals.filter(
       r => !assignedNames.has(r.name.toLowerCase()) &&
-           !isDismissed(r.name.toLowerCase()) &&
+           !dismissedTaskIds.has(r.taskId) &&
            !sundayNames.has(r.name.toLowerCase())
     )
     return [...pcsItems, ...sundayItems]
-  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames, restoredNames])
+  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames, restoredNames, dismissedTaskIds])
 
   // Reverses a dismiss — used by the "Undo" action on the dismiss toast. Mirrors
-  // dismiss's own branch (task-backed vs. durable-record-backed) in reverse.
-  const handleUndismiss = useCallback(async (item, nameKey) => {
+  // handleRemove's own branch (task-backed vs. name-backed) in reverse.
+  const handleUndismiss = useCallback(async (item) => {
+    if (item.taskId) {
+      setDismissedTaskIds(prev => {
+        const next = new Set(prev)
+        next.delete(item.taskId)
+        return next
+      })
+      try {
+        await updateTask(item.taskId, { status: 'Pending' })
+        onTaskUpdated?.(item.taskId, { status: 'Pending' })
+      } catch (err) {
+        console.error('Failed to undo dismiss', item.name, err)
+        showToast(`Failed to restore ${item.name}.`, 'error')
+        setDismissedTaskIds(prev => new Set([...prev, item.taskId]))
+      }
+      return
+    }
+    const nameKey = item.name.toLowerCase()
     setDismissedNames(prev => {
       const next = new Set(prev)
       next.delete(nameKey)
@@ -306,12 +347,7 @@ export function CellDirectorCockpit({
     })
     setRestoredNames(prev => new Set([...prev, nameKey]))
     try {
-      if (item.taskId) {
-        await updateTask(item.taskId, { status: 'Pending' })
-        onTaskUpdated?.(item.taskId, { status: 'Pending' })
-      } else {
-        await undismissUnassignedPerson(nameKey)
-      }
+      await undismissUnassignedPerson(nameKey)
     } catch (err) {
       console.error('Failed to undo dismiss', item.name, err)
       showToast(`Failed to restore ${item.name}.`, 'error')
@@ -323,6 +359,42 @@ export function CellDirectorCockpit({
       })
     }
   }, [onTaskUpdated, showToast])
+
+  // Dismisses a specific row by its record id (item.taskId for PCS/D-Light-referral
+  // rows, item.name for Sunday-derived ones — see the id-scheme note on
+  // dismissedTaskIds/dismissedNames above). Two rows that happen to share a display
+  // name never share dismiss state, so removing one can't collide with the other.
+  const handleRemove = useCallback(async (item) => {
+    const isTaskBacked = Boolean(item.taskId)
+    const identityKey = isTaskBacked ? item.taskId : item.name.toLowerCase()
+    const setDismissed = isTaskBacked ? setDismissedTaskIds : setDismissedNames
+    // Optimistic — instant removal from the list; reverted below if the backing
+    // write fails, so a failed dismiss doesn't look like a successful one.
+    setDismissed(prev => new Set([...prev, identityKey]))
+    if (assignOpenName === item.name) setAssignOpenName(null)
+    try {
+      if (isTaskBacked) {
+        await updateTask(item.taskId, { status: 'Completed' })
+        onTaskUpdated?.(item.taskId, { status: 'Completed' })
+      } else {
+        // Sunday-attendance-derived card — no task/member doc to update, so
+        // persist the dismissal itself (see cell_unassigned_dismissals).
+        await dismissUnassignedPerson(identityKey, userProfile?.displayName || userProfile?.email || '')
+      }
+      showToast('Member removed from unassigned list', 'success', {
+        label: 'Undo',
+        onClick: () => handleUndismiss(item),
+      })
+    } catch (err) {
+      console.error('Failed to dismiss unassigned person', item.name, err)
+      showToast(`Failed to dismiss ${item.name}. Please try again.`, 'error')
+      setDismissed(prev => {
+        const next = new Set(prev)
+        next.delete(identityKey)
+        return next
+      })
+    }
+  }, [assignOpenName, onTaskUpdated, showToast, userProfile, handleUndismiss])
 
   const handleApprove = useCallback(
     async (change) => {
@@ -700,7 +772,7 @@ export function CellDirectorCockpit({
                     ? (item.status === 'Responded' ? item : null)
                     : dlightConsultByName.get(item.name.toLowerCase())
                   return (
-                    <div key={`${item.source}-${item.name}`} className="relative">
+                    <div key={item.id} className="relative">
                       <div className={`flex items-center gap-3 bg-white border rounded-2xl px-4 py-3 shadow-sm ${
                         isPCS ? 'border-indigo-100' : 'border-slate-100'
                       }`}>
@@ -782,41 +854,11 @@ export function CellDirectorCockpit({
                         <button
                           type="button"
                           title="Dismiss"
-                          onClick={async (e) => {
+                          onClick={(e) => {
                             // Stops this from bubbling to anything listening further up the
                             // row/drawer (e.g. the backdrop's click-outside-to-close check).
                             e.stopPropagation()
-                            const nameKey = item.name.toLowerCase()
-                            // Optimistic — instant removal from the list; reverted below if the
-                            // backing write fails, so a failed dismiss doesn't look like a
-                            // successful one.
-                            setDismissedNames(prev => new Set([...prev, nameKey]))
-                            if (assignOpenName === item.name) setAssignOpenName(null)
-                            try {
-                              if (item.taskId) {
-                                await updateTask(item.taskId, { status: 'Completed' })
-                                onTaskUpdated?.(item.taskId, { status: 'Completed' })
-                              } else {
-                                // Sunday-attendance-derived card — no task/member doc to update, so
-                                // persist the dismissal itself (see cell_unassigned_dismissals).
-                                await dismissUnassignedPerson(
-                                  nameKey,
-                                  userProfile?.displayName || userProfile?.email || ''
-                                )
-                              }
-                              showToast('Member removed from unassigned list', 'success', {
-                                label: 'Undo',
-                                onClick: () => handleUndismiss(item, nameKey),
-                              })
-                            } catch (err) {
-                              console.error('Failed to dismiss unassigned person', item.name, err)
-                              showToast(`Failed to dismiss ${item.name}. Please try again.`, 'error')
-                              setDismissedNames(prev => {
-                                const next = new Set(prev)
-                                next.delete(nameKey)
-                                return next
-                              })
-                            }
+                            handleRemove(item)
                           }}
                           className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 hover:text-slate-600 flex-shrink-0 transition-colors text-xs leading-none"
                         >
