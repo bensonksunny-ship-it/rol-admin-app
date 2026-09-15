@@ -528,6 +528,9 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [detailSundayHistory, setDetailSundayHistory] = useState([])
   const [detailMinistries, setDetailMinistries]   = useState([])
   const [detailLoading, setDetailLoading]         = useState(false)
+  // Detail sheet's "⋮" overflow menu — holds Request Transfer + Request Mark
+  // Inactive, replacing the old header icon + bottom standalone button.
+  const [detailMenuOpen, setDetailMenuOpen]       = useState(false)
 
   // PCS lookup — names + visitorIds of people already in PCS
   const [pcsNames, setPcsNames]     = useState(new Set())
@@ -1070,6 +1073,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
 
               const openMemberDetail = () => {
                 setDetailMember(member)
+                setDetailMenuOpen(false)
                 setDetailProfile(null)
                 setDetailVisitor(null)
                 setDetailAttendance([])
@@ -1251,44 +1255,23 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                     </button>
                   </div>
 
-                  {/* ── Action buttons (Transfer / Notify Caring) ── */}
-                  {(canTransfer() && otherCells.length > 0 || pcsStatus === 'out') && (
+                  {/* ── Action buttons (Notify Caring) ── */}
+                  {pcsStatus === 'out' && (
                     <div className="flex gap-2 mt-2">
-                      {canTransfer() && otherCells.length > 0 && (() => {
-                        const pendingType = pendingChangeByMemberId.get(member.id)
-                        if (pendingType) {
-                          return (
-                            <span className="flex-1 flex items-center justify-center px-3 py-2 rounded-xl bg-amber-50 text-amber-700 text-xs font-semibold">
-                              ⏳ Pending {pendingType === 'transfer' ? 'Transfer' : 'Deactivation'}
-                            </span>
-                          )
-                        }
-                        return (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setTransferState({ memberId: member.id, memberName: member.name }); setTransferTarget('') }}
-                            className="flex-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200 transition"
-                          >
-                            {isDirector ? 'Transfer' : 'Request Transfer'}
-                          </button>
-                        )
-                      })()}
-                      {pcsStatus === 'out' && (
-                        notified ? (
-                          <span className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-500 text-xs font-semibold">
-                            ✓ Caring Notified
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={notifying}
-                            onClick={(e) => { e.stopPropagation(); handleNotifyCaring(member) }}
-                            className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition disabled:opacity-50"
-                          >
-                            <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
-                            {notifying ? 'Notifying…' : 'Notify Caring'}
-                          </button>
-                        )
+                      {notified ? (
+                        <span className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-500 text-xs font-semibold">
+                          ✓ Caring Notified
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={notifying}
+                          onClick={(e) => { e.stopPropagation(); handleNotifyCaring(member) }}
+                          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-orange-50 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition disabled:opacity-50"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
+                          {notifying ? 'Notifying…' : 'Notify Caring'}
+                        </button>
                       )}
                     </div>
                   )}
@@ -1507,27 +1490,77 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                 <p className="font-bold text-slate-900 text-base truncate">{detailMember.name}</p>
                 <p className={`text-xs font-medium ${GLOW_TEXT[getGlow(detailMember.name, heatmap)]}`}>{GLOW_LABEL[getGlow(detailMember.name, heatmap)]}</p>
               </div>
-              {isLeader && !isDirector && (
-                pendingChangeByMemberId.has(detailMember.id) ? (
-                  <span
-                    title={`Pending ${pendingChangeByMemberId.get(detailMember.id) === 'transfer' ? 'Transfer' : 'Deactivation'} — awaiting Director approval`}
-                    className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700 flex-shrink-0"
-                  >
-                    ⏳ Pending
-                  </span>
-                ) : (
+              {isLeader && !isDirector && pendingChangeByMemberId.has(detailMember.id) && (
+                <span
+                  title={`Pending ${pendingChangeByMemberId.get(detailMember.id) === 'transfer' ? 'Transfer' : 'Deactivation'} — awaiting Director approval`}
+                  className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700 flex-shrink-0"
+                >
+                  ⏳ Pending
+                </span>
+              )}
+
+              {/* ── "⋮" overflow menu — Request Transfer + Request Mark Inactive.
+                  Consolidated here instead of a header icon button (mark-inactive)
+                  and a separate full-width footer button (transfer). ── */}
+              {(
+                (canTransfer() && otherCells.length > 0) ||
+                (isLeader && !isDirector && !pendingChangeByMemberId.has(detailMember.id))
+              ) && (
+                <div className="relative flex-shrink-0">
                   <button
                     type="button"
-                    onClick={() => setInactiveTarget(detailMember)}
-                    title="Request Mark Inactive"
-                    aria-label="Request Mark Inactive"
-                    className="w-9 h-9 flex items-center justify-center rounded-full text-red-500 hover:bg-red-50 flex-shrink-0"
+                    onClick={() => setDetailMenuOpen(o => !o)}
+                    title="More options"
+                    aria-label="More options"
+                    aria-haspopup="menu"
+                    aria-expanded={detailMenuOpen}
+                    className="w-9 h-9 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 flex-shrink-0"
                   >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>
-                    </svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="12" cy="19" r="1.75"/></svg>
                   </button>
-                )
+                  {detailMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setDetailMenuOpen(false)} />
+                      <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 overflow-hidden" role="menu">
+                        {canTransfer() && otherCells.length > 0 && (() => {
+                          const pendingType = pendingChangeByMemberId.get(detailMember.id)
+                          if (pendingType) {
+                            return (
+                              <div className="px-3.5 py-2.5 text-xs font-semibold text-amber-700">
+                                ⏳ Pending {pendingType === 'transfer' ? 'Transfer' : 'Deactivation'} — awaiting Director approval
+                              </div>
+                            )
+                          }
+                          return (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setTransferState({ memberId: detailMember.id, memberName: detailMember.name })
+                                setTransferTarget('')
+                                setDetailMenuOpen(false)
+                                setDetailMember(null)
+                              }}
+                              className="w-full text-left px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
+                            >
+                              {isDirector ? 'Transfer to Another Cell' : 'Request Transfer'}
+                            </button>
+                          )
+                        })()}
+                        {isLeader && !isDirector && !pendingChangeByMemberId.has(detailMember.id) && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => { setDetailMenuOpen(false); setInactiveTarget(detailMember) }}
+                            className="w-full text-left px-3.5 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 transition"
+                          >
+                            Request Mark Inactive
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
               <button type="button" onClick={() => setDetailMember(null)} className="w-9 h-9 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 text-xl flex-shrink-0">×</button>
             </div>
