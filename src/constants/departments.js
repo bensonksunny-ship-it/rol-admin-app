@@ -1,4 +1,4 @@
-import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Settings, Sparkles, GraduationCap } from 'lucide-react'
+import { Music, Users, Heart, CalendarDays, Sun, UsersRound, Video, Wallet, Building2, Megaphone, Settings, Sparkles, GraduationCap, Crown } from 'lucide-react'
 
 /**
  * Canonical list of church departments (exact names as provided).
@@ -31,6 +31,7 @@ export const DEPARTMENT_LIST = [
   { name: 'Sec-Core', slug: 'sec-core', customPage: null },
   { name: 'Administration', slug: 'administration', customPage: null },
   { name: 'RFF', slug: 'rff', customPage: 'rff' },
+  { name: 'First Lady', slug: 'first-lady', customPage: 'first-lady' },
 ]
 
 /** Display name for a department (a few stored names get a friendlier label). */
@@ -58,6 +59,7 @@ export function getDepartmentPath(departmentName) {
   if (!d) return `/departments`
   if (d.customPage === 'worship') return '/department/worship'
   if (d.customPage === 'rff') return '/rff'
+  if (d.customPage === 'first-lady') return '/first-lady'
   return `/department/${d.slug}`
 }
 
@@ -76,5 +78,6 @@ export function getDepartmentIcon(departmentName) {
   if (n === 'building care') return Building2
   if (n === 'administration') return Settings
   if (n === 'rff') return GraduationCap
+  if (n === 'first lady') return Crown
   return Sparkles
 }

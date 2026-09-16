@@ -207,6 +207,10 @@ function getTabPath(slug, tab) {
  * drills into instead of navigating straight there.
  */
 export function getDepartmentSubpages(slug, userProfile) {
+  // First Lady is a single standalone page (/first-lady, via customPage), not the
+  // generic tabbed hub — no subpages grid, so the dock/desktop nav tile navigates
+  // straight there (same "no drill-down" treatment Worship Leader/Member get below).
+  if (slug === 'first-lady') return []
   const allTabs = getDepartmentHubTabs(slug)
   const tabs = slug === 'cell'
     ? visibleCellTabs(userProfile).filter((t) => allTabs.includes(t))

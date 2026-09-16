@@ -1,5 +1,4 @@
-import { useOutletContext, Link } from 'react-router-dom'
-import { ChevronRight } from 'lucide-react'
+import { useOutletContext } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import WorkspaceHeader from '../components/workspace/WorkspaceHeader'
 import ToDoListCard from '../components/workspace/ToDoListCard'
@@ -32,7 +31,7 @@ function greeting() {
 // single unified surface (ToDoListCard's own soft glass panel) with no outer box,
 // so content rests directly on the page background instead.
 export default function MyWorkspace() {
-  const { userProfile, isFounder, hasPermission } = useAuth()
+  const { userProfile, isFounder } = useAuth()
   const {
     notifications, handleNotifAction, dismissNotification, addNotificationToTodo,
   } = useOutletContext()
@@ -72,15 +71,6 @@ export default function MyWorkspace() {
           <FounderInsightsPanel />
           <EdenGardenGrid />
         </>
-      )}
-      {(hasPermission('firstLadyHub') || isFounder) && (
-        <Link
-          to="/first-lady"
-          className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800 hover:bg-rose-100 transition-colors sm:max-w-2xl"
-        >
-          First Lady
-          <ChevronRight size={16} />
-        </Link>
       )}
       <ToDoListCard />
       <WorshipWorkspaceWidget />

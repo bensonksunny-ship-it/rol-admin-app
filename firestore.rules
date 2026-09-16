@@ -227,10 +227,17 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
     }
 
+    // Same cross-department write pattern as sunday_reports' riverKids field above:
+    // River Kids-1/River Kids-2 attendance toggles were canAccessDept(department)-only,
+    // so a Sunday Ministry Director/Coordinator running Live Control (which already
+    // reads department_children for River Kids, and already writes the Sunday School
+    // group's presence via sunday_reports) hit permission-denied on these two groups.
     match /department_child_attendance/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
-      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
-      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department) ||
+        (request.resource.data.department == 'River Kids' && canAccessDept('Sunday Ministry')));
+      allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department) ||
+        (resource.data.department == 'River Kids' && canAccessDept('Sunday Ministry')));
     }
 
     // Name-only index of active River Kids children (doc id == department_children

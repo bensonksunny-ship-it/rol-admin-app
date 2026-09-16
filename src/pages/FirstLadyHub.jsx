@@ -510,8 +510,8 @@ function PCSViewOnly() {
 }
 
 export default function FirstLadyHub() {
-  const { hasPermission, isFounder } = useAuth()
-  const canAccess = hasPermission('firstLadyHub') || isFounder
+  const { canAccessDepartment, isFounder } = useAuth()
+  const canAccess = canAccessDepartment('first-lady') || isFounder
 
   if (!canAccess) {
     return (

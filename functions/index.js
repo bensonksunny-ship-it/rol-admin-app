@@ -632,15 +632,22 @@ exports.archiveCurrentWeekCellReportsToHistory = onSchedule(
 /**
  * Daily 2 AM IST: light-touch lifecycle for D-Light visitors flagged "Only Visit"
  * (one-time/rare guests, delight_visitors.onlyVisit) —
- *   - archives one 30+ days past their last-seen date with no return visit, so
- *     they drop out of active follow-up without anyone having to remember to do it;
- *   - if an already-archived one shows up again, un-archives them and sets
- *     flaggedForReview instead of silently re-deciding their status — a person
- *     still has to look at them once they're back.
- * "Last seen" cross-references sunday_reports by name (nonCell + every cell's
- * sundayCellAttendance) — the same name-based join the D-Light Visitor Entry
- * table already uses for its week-count badge — since delight_visitors.attendedDate
- * is only ever the date the record was first entered, not a running "last seen".
+ *   - graduates one out of Only Visit entirely (clears onlyVisit/isArchived/
+ *     flaggedForReview) once they've attended at least half of the last 8 recorded
+ *     Sunday reports — frequent enough that they should be visible again to the
+ *     cell-placement/PCS pipelines Only Visit excludes them from;
+ *   - otherwise archives one 30+ days past their last-seen date with no return
+ *     visit, so they drop out of active follow-up without anyone having to
+ *     remember to do it;
+ *   - if an already-archived one shows up again (without yet meeting the
+ *     graduation bar), un-archives them and sets flaggedForReview instead of
+ *     silently re-deciding their status — a person still has to look at them
+ *     once they're back.
+ * "Last seen"/attendance count cross-reference sunday_reports by name (nonCell +
+ * every cell's sundayCellAttendance) — the same name-based join the D-Light
+ * Visitor Entry table already uses for its week-count badge — since
+ * delight_visitors.attendedDate is only ever the date the record was first
+ * entered, not a running "last seen".
  */
 exports.archiveStaleOnlyVisitVisitors = onSchedule(
   { schedule: '0 2 * * *', timeZone: 'Asia/Kolkata' },
@@ -649,12 +656,16 @@ exports.archiveStaleOnlyVisitVisitors = onSchedule(
     const now = toISTDate(new Date())
 
     const visitorsSnap = await db.collection('delight_visitors').where('onlyVisit', '==', true).get()
-    if (visitorsSnap.empty) return { checked: 0, archived: 0, reviewed: 0 }
+    if (visitorsSnap.empty) return { checked: 0, graduated: 0, archived: 0, reviewed: 0 }
 
-    // Last 10 Sunday reports is enough runway to catch a return visit before the
-    // nightly job would've archived them anyway (30 days ≈ 4 Sundays).
-    const reportsSnap = await db.collection('sunday_reports').orderBy('date', 'desc').limit(10).get()
+    // Last 8 Sunday reports doubles as both the attendance-frequency window (50%
+    // of 8 = 4+ Sundays graduates someone out of Only Visit) and enough runway to
+    // catch a return visit before the nightly job would've archived them anyway
+    // (30 days ≈ 4 Sundays).
+    const reportsSnap = await db.collection('sunday_reports').orderBy('date', 'desc').limit(8).get()
+    const totalReports = reportsSnap.size
     const lastSeenByName = new Map() // lowercased name -> most recent YYYY-MM-DD seen
+    const attendanceCountByName = new Map() // lowercased name -> # of the fetched reports they appear in
     for (const reportDoc of reportsSnap.docs) {
       const data = reportDoc.data()
       const date = reportDoc.id
@@ -662,15 +673,19 @@ exports.archiveStaleOnlyVisitVisitors = onSchedule(
         ...(Array.isArray(data.nonCell) ? data.nonCell : []),
         ...Object.values(data.sundayCellAttendance || {}).flatMap((l) => (Array.isArray(l) ? l : [])),
       ]
+      const seenThisReport = new Set()
       for (const raw of names) {
         const key = String(raw || '').trim().toLowerCase()
-        if (!key) continue
+        if (!key || seenThisReport.has(key)) continue
+        seenThisReport.add(key)
         const prev = lastSeenByName.get(key)
         if (!prev || date > prev) lastSeenByName.set(key, date)
+        attendanceCountByName.set(key, (attendanceCountByName.get(key) || 0) + 1)
       }
     }
 
     const batch = db.batch()
+    let graduated = 0
     let archived = 0
     let reviewed = 0
 
@@ -679,6 +694,18 @@ exports.archiveStaleOnlyVisitVisitors = onSchedule(
       const nameKey = String(v.name || '').trim().toLowerCase()
       if (!nameKey) continue
       const lastSeenDate = lastSeenByName.get(nameKey) || null
+      const attendanceCount = attendanceCountByName.get(nameKey) || 0
+
+      if (totalReports > 0 && attendanceCount / totalReports >= 0.5) {
+        batch.update(doc.ref, {
+          onlyVisit: false,
+          isArchived: false,
+          archivedAt: admin.firestore.FieldValue.delete(),
+          flaggedForReview: false,
+        })
+        graduated++
+        continue
+      }
 
       if (v.isArchived) {
         const archivedAtDate = v.archivedAt?.toDate ? formatISODateYYYYMMDD(v.archivedAt.toDate()) : null
@@ -706,8 +733,8 @@ exports.archiveStaleOnlyVisitVisitors = onSchedule(
       }
     }
 
-    if (archived > 0 || reviewed > 0) await batch.commit()
-    return { checked: visitorsSnap.size, archived, reviewed }
+    if (graduated > 0 || archived > 0 || reviewed > 0) await batch.commit()
+    return { checked: visitorsSnap.size, graduated, archived, reviewed }
   }
 )
 

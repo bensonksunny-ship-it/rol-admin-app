@@ -2049,6 +2049,14 @@ export default function DepartmentHub() {
     ? (department.name === 'Cell' ? canViewAllCells : canManageDepartment(department.name))
     : false
 
+  // River Kids attendance is also taken live during the Sunday service by
+  // Sunday Ministry's Live Control (Sunday School group is already synced
+  // through sunday_reports — see the "Synced with Sunday Ministry Live
+  // Control" notice below); River Kids-1/River Kids-2 need the same cross-
+  // department allowance so a Sunday Ministry Director/Coordinator running
+  // Live Control isn't blocked from saving those groups' presence too.
+  const canEditRkAttendance = canEdit || canManageDepartment('Sunday Ministry')
+
   const planningDraftPeriod = useMemo(() => new Date().toISOString().slice(0, 7), [])
   const planningDraftStorageKey = useMemo(() => {
     if (!department?.name) return null
@@ -8685,10 +8693,10 @@ export default function DepartmentHub() {
                           <button
                             key={c.id}
                             type="button"
-                            disabled={!canEdit}
+                            disabled={!canEditRkAttendance}
                             title={parents || undefined}
                             onClick={async () => {
-                              if (!canEdit || !department) return
+                              if (!canEditRkAttendance || !department) return
                               // Every group's presence toggle merges the kid's name into/out of the
                               // Sunday Ministry report's "River Kids" list — that's the single total
                               // Sunday Ministry shows, so it must reflect all three groups, not just
@@ -8726,7 +8734,7 @@ export default function DepartmentHub() {
                               isPresent
                                 ? 'bg-emerald-500 text-white border-emerald-600 shadow-sm'
                                 : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                            } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            } ${!canEditRkAttendance ? 'opacity-50 cursor-not-allowed' : ''}`}
                           >
                             {c.name}
                             {age !== null && <span className={`ml-1 ${isPresent ? 'text-emerald-100' : 'text-slate-400'}`}>· {age}y</span>}
