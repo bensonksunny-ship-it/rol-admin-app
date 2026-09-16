@@ -142,7 +142,7 @@ import { SAVINGS_FUNDS } from '../constants/savingsFunds'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { differenceInDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
-import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
+import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate, formatTimestampFull, formatRelativeTime } from '../utils/date'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
@@ -900,6 +900,7 @@ export default function DepartmentHub() {
     howKnown: '',
     source: '',
     year: VISITOR_CURRENT_YEAR,
+    onlyVisit: false,
   })
   const [dlightSubDepts, setDlightSubDepts] = useState([])
   const [loadingDlightSubDepts, setLoadingDlightSubDepts] = useState(false)
@@ -2429,7 +2430,13 @@ export default function DepartmentHub() {
                               <p className="font-medium text-slate-800 text-sm truncate">{t.consultPersonName || t.taskTitle}</p>
                               {t.consultPersonPhone && <p className="text-xs text-slate-500">{t.consultPersonPhone}</p>}
                               <p className="text-xs text-slate-400 mt-0.5">{t.consultNote}</p>
-                              <p className="text-[11px] text-slate-400 mt-0.5">Requested by {t.requestedBy || 'Cell Director'}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                Requested by {t.requestedBy || 'Cell Director'}
+                                {t.createdAt && ` • ${formatTimestampFull(t.createdAt)}`}
+                              </p>
+                              {t.createdAt && (
+                                <p className="text-xs text-slate-500">{formatRelativeTime(t.createdAt)}</p>
+                              )}
                               {responded && t.recommendation && (
                                 <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5 italic">
                                   Your reply: "{t.recommendation}"
@@ -3499,7 +3506,7 @@ export default function DepartmentHub() {
                       type="button"
                       onClick={() => {
                         setEditingDelightVisitorId(null)
-                        setDelightVisitorForm({ name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: upcomingSunday(), howKnown: '', source: '', year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear })
+                        setDelightVisitorForm({ name: '', dob: '', phone: '', email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: upcomingSunday(), howKnown: '', source: '', year: visitorSubPage === 'current' ? VISITOR_CURRENT_YEAR : visitorPrevYear, onlyVisit: false })
                         setDelightVisitorModalOpen(true)
                       }}
                       className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
@@ -3571,42 +3578,80 @@ export default function DepartmentHub() {
                 </div>
                 {visitorSearchOpen && visitorSearchResults.length > 0 && (
                   <div className="absolute left-5 right-5 top-full mt-1 bg-white rounded-xl border border-slate-200 shadow-lg z-30 overflow-hidden max-w-sm">
-                    {visitorSearchResults.map((v) => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onMouseDown={() => {
-                          // onMouseDown (not onClick) fires before the search input's
-                          // onBlur closes the dropdown, so the click still registers.
-                          const yr = getVisitorYear(v)
-                          if (yr === VISITOR_CURRENT_YEAR) {
-                            setVisitorSubPage('current')
-                          } else {
-                            setVisitorSubPage('previous')
-                            setVisitorPrevYear(yr)
-                          }
-                          setEditingDelightVisitorId(v.id)
-                          setDelightVisitorForm({
-                            name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '',
-                            email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '',
-                            serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '',
-                            howKnown: v.howKnown || '', source: v.source || '', year: yr,
-                          })
-                          setDelightVisitorModalOpen(true)
-                          setVisitorSearch('')
-                          setVisitorSearchOpen(false)
-                        }}
-                        className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-indigo-50 text-left transition-colors"
-                      >
-                        <div>
-                          <p className="text-sm font-medium text-slate-800">{v.name}</p>
-                          <p className="text-xs text-slate-400">{[v.phone, v.email].filter(Boolean).join(' · ') || 'No contact info'}</p>
+                    {visitorSearchResults.map((v) => {
+                      const nameKey = String(v.name || '').trim().toLowerCase()
+                      const attendedThisSunday = sundayAttendanceNames.has(nameKey)
+                      const togglingThisRow = togglingVisitorName === nameKey
+                      return (
+                        <div
+                          key={v.id}
+                          role="button"
+                          tabIndex={0}
+                          onMouseDown={() => {
+                            // onMouseDown (not onClick) fires before the search input's
+                            // onBlur closes the dropdown, so the click still registers.
+                            const yr = getVisitorYear(v)
+                            if (yr === VISITOR_CURRENT_YEAR) {
+                              setVisitorSubPage('current')
+                            } else {
+                              setVisitorSubPage('previous')
+                              setVisitorPrevYear(yr)
+                            }
+                            setEditingDelightVisitorId(v.id)
+                            setDelightVisitorForm({
+                              name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '',
+                              email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '',
+                              serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '',
+                              howKnown: v.howKnown || '', source: v.source || '', year: yr, onlyVisit: !!v.onlyVisit,
+                            })
+                            setDelightVisitorModalOpen(true)
+                            setVisitorSearch('')
+                            setVisitorSearchOpen(false)
+                          }}
+                          className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-indigo-50 text-left transition-colors cursor-pointer"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800">{v.name}</p>
+                            <p className="text-xs text-slate-400">{[v.phone, v.email].filter(Boolean).join(' · ') || 'No contact info'}</p>
+                          </div>
+                          <div className="ml-3 shrink-0 flex items-center gap-2">
+                            <span className="text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                              {getVisitorYear(v)}
+                            </span>
+                            {canEditDelightVisitors && (
+                              <button
+                                type="button"
+                                disabled={togglingThisRow || loadingSundayAttendanceNames || !v.name}
+                                title={attendedThisSunday ? 'Attended this Sunday — click to unmark' : 'Mark attended this Sunday'}
+                                aria-pressed={attendedThisSunday}
+                                aria-label={attendedThisSunday ? 'Mark not attended this Sunday' : 'Mark attended this Sunday'}
+                                // Same reasoning as the row itself: toggle on mousedown (with
+                                // stopPropagation) so it fires — and blocks the row's own
+                                // onMouseDown navigation — before the search blur/close runs.
+                                onMouseDown={(e) => {
+                                  e.stopPropagation()
+                                  if (togglingThisRow || loadingSundayAttendanceNames || !v.name) return
+                                  toggleVisitorSundayAttendance(v)
+                                }}
+                                className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors disabled:opacity-50 ${
+                                  attendedThisSunday
+                                    ? 'bg-emerald-500 border-emerald-500 text-white hover:bg-emerald-600'
+                                    : 'bg-white border-slate-300 hover:border-emerald-400'
+                                }`}
+                              >
+                                {togglingThisRow ? (
+                                  <span className="text-[9px] leading-none">…</span>
+                                ) : attendedThisSunday ? (
+                                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                                    <path fillRule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.5 7.5a1 1 0 01-1.42 0l-3.5-3.5a1 1 0 111.42-1.42L8.5 12.09l6.79-6.8a1 1 0 011.42 0z" clipRule="evenodd" />
+                                  </svg>
+                                ) : null}
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <span className="ml-3 shrink-0 text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                          {getVisitorYear(v)}
-                        </span>
-                      </button>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
                 {visitorSearchOpen && visitorSearch.trim().length > 0 && visitorSearchResults.length === 0 && (
@@ -3691,6 +3736,21 @@ export default function DepartmentHub() {
                                       {sundayWeeks}wk
                                     </span>
                                   )}
+                                  {v.onlyVisit && (
+                                    <span title="Marked as a one-time visitor — excluded from cell placement and PCS follow-up" className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                                      Only Visit
+                                    </span>
+                                  )}
+                                  {v.isArchived && (
+                                    <span title="Auto-archived — 30+ days since their last visit with no return" className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-400 border border-slate-200">
+                                      Archived
+                                    </span>
+                                  )}
+                                  {v.flaggedForReview && (
+                                    <span title="Attended again after being archived — needs a look" className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                                      Review
+                                    </span>
+                                  )}
                                 </span>
                               </td>
                               <td className="px-6 py-3 text-sm text-slate-400">{monthLabel}</td>
@@ -3744,7 +3804,42 @@ export default function DepartmentHub() {
                                   </div>
                                   {canEditDelightVisitors && (
                                     <div className="flex gap-3">
-                                      <button type="button" onClick={(e) => { e.stopPropagation(); setVisitorMenuOpenId(null); setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '', year: getVisitorYear(v) }); setDelightVisitorModalOpen(true) }} className="text-xs font-medium text-blue-600 hover:underline">Edit</button>
+                                      <button type="button" onClick={(e) => { e.stopPropagation(); setVisitorMenuOpenId(null); setEditingDelightVisitorId(v.id); setDelightVisitorForm({ name: v.name || '', dob: v.dob ? String(v.dob).slice(0, 10) : '', phone: v.phone || '', email: v.email || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '', serviceAttended: v.serviceAttended || '', attendedDate: v.attendedDate ? String(v.attendedDate).slice(0, 10) : '', howKnown: v.howKnown || '', source: v.source || '', year: getVisitorYear(v), onlyVisit: !!v.onlyVisit }); setDelightVisitorModalOpen(true) }} className="text-xs font-medium text-blue-600 hover:underline">Edit</button>
+                                      <button
+                                        type="button"
+                                        onClick={async (e) => {
+                                          e.stopPropagation()
+                                          const next = !v.onlyVisit
+                                          try {
+                                            await updateDelightVisitor(v.id, { onlyVisit: next })
+                                            setDelightVisitors((prev) => prev.map((x) => (x.id === v.id ? { ...x, onlyVisit: next } : x)))
+                                          } catch (err) {
+                                            console.error(err)
+                                            alert('Failed to update visitor')
+                                          }
+                                        }}
+                                        className="text-xs font-medium text-slate-500 hover:underline"
+                                      >
+                                        {v.onlyVisit ? 'Unmark Only Visit' : 'Mark Only Visit'}
+                                      </button>
+                                      {v.flaggedForReview && (
+                                        <button
+                                          type="button"
+                                          onClick={async (e) => {
+                                            e.stopPropagation()
+                                            try {
+                                              await updateDelightVisitor(v.id, { flaggedForReview: false })
+                                              setDelightVisitors((prev) => prev.map((x) => (x.id === v.id ? { ...x, flaggedForReview: false } : x)))
+                                            } catch (err) {
+                                              console.error(err)
+                                              alert('Failed to update visitor')
+                                            }
+                                          }}
+                                          className="text-xs font-medium text-amber-600 hover:underline"
+                                        >
+                                          Clear Review Flag
+                                        </button>
+                                      )}
                                       <button type="button" onClick={async (e) => { e.stopPropagation(); setVisitorMenuOpenId(null); if (!window.confirm('Delete this visitor entry?')) return; try { await deleteDelightVisitor(v.id); setDelightVisitors((prev) => prev.filter((x) => x.id !== v.id)) } catch (err) { console.error(err); alert('Failed to delete') } }} className="text-xs font-medium text-red-500 hover:underline">Delete</button>
                                     </div>
                                   )}
@@ -4187,6 +4282,18 @@ export default function DepartmentHub() {
                         </select>
                       </div>
                     </div>
+                    <label className="flex items-start gap-2.5 pt-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!delightVisitorForm.onlyVisit}
+                        onChange={(e) => setDelightVisitorForm((f) => ({ ...f, onlyVisit: e.target.checked }))}
+                        className="mt-0.5 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-slate-900 dark:text-white">Only Visit / One-Time Visitor</span>
+                        <span className="block text-xs text-slate-400 dark:text-slate-500 mt-0.5">Excludes them from PCS and cell-placement recommendations and follow-up alerts</span>
+                      </span>
+                    </label>
                   </div>
 
                   {/* Actions */}

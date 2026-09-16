@@ -2,6 +2,7 @@ import { format, parseISO, isValid } from 'date-fns'
 
 function toDate(value) {
   if (!value) return null
+  if (typeof value?.toDate === 'function') return toDate(value.toDate())
   if (value instanceof Date) return isValid(value) ? value : null
   if (typeof value === 'string') {
     const s = value.trim()
@@ -82,6 +83,29 @@ export function formatDisplayDate(value) {
   if (!value) return '—'
   const d = toDate(value)
   return d ? format(d, 'dd/MMM/yyyy') : '—'
+}
+
+/** "16 Sep 2026, 04:30 PM" — full date+time for an activity/request timestamp. */
+export function formatTimestampFull(value) {
+  const d = toDate(value)
+  return d ? format(d, 'd MMM yyyy, hh:mm a') : ''
+}
+
+/** "Just now" / "5 mins ago" / "2 hrs ago" / "3 days ago", falling back to a short
+ *  date once older than a week. Returns '' for an unparseable/future value. */
+export function formatRelativeTime(value) {
+  const d = toDate(value)
+  if (!d) return ''
+  const diffMs = Date.now() - d.getTime()
+  if (diffMs < 0) return format(d, 'd MMM yyyy')
+  const minutes = Math.floor(diffMs / 60000)
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? '' : 's'} ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hr${hours === 1 ? '' : 's'} ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`
+  return format(d, 'd MMM yyyy')
 }
 
 /** This coming Sunday's date (today itself if today is Sunday), as YYYY-MM-DD. */

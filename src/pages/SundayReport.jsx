@@ -27,6 +27,7 @@ import {
   subscribeToPastoralRoster,
   savePastoralRoster,
   getRecentNonCellAttendeeNames,
+  getSundayAttendanceNameSetsInRange,
 } from '../services/firestore'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
@@ -1270,7 +1271,6 @@ export default function SundayReport({ embedded = false }) {
   /** True once this report has been saved — shows a read-only "filed" summary instead of
    *  the edit form, until "Edit" is tapped. Synced from report.filed when the date loads. */
   const [filedView, setFiledView] = useState(false)
-  const [dlightSuggestions, setDlightSuggestions] = useState([])
   const [loadingDlight, setLoadingDlight] = useState(false)
   const [peopleDirectory, setPeopleDirectory] = useState([])
   const [delightVisitorsAll, setDelightVisitorsAll] = useState([])
@@ -1453,13 +1453,14 @@ export default function SundayReport({ embedded = false }) {
   // (othersLinkDirectory), so anyone recorded anywhere in the church's records is searchable here,
   // not just people explicitly added to the standalone People Directory.
   const loadDirectoryData = useCallback(() => {
+    setLoadingDlight(true)
     return Promise.all([
       getPeople().then(setPeopleDirectory).catch(() => setPeopleDirectory([])),
       getDelightVisitors().then(setDelightVisitorsAll).catch(() => setDelightVisitorsAll([])),
       getPCSEntries().then(setPcsEntriesAll).catch(() => setPcsEntriesAll([])),
       getAllDepartmentTeamMembers().then(setDeptTeamMembersAll).catch(() => setDeptTeamMembersAll([])),
       getAllWorshipTeamMembers().then(setWorshipTeamMembersAll).catch(() => setWorshipTeamMembersAll([])),
-    ])
+    ]).finally(() => setLoadingDlight(false))
   }, [])
 
   useEffect(() => {
@@ -1528,26 +1529,25 @@ export default function SundayReport({ embedded = false }) {
     })
   }, [membersForCell, delightVisitorsAll, peopleDirectory, cellGroups, expandedCellId])
 
-  // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days
-  // before the Sunday) for "New Comers" suggestions.
-  useEffect(() => {
-    setLoadingDlight(true)
+  // D-Light visitors for the week of selectedDate (attendedDate within 7 days before
+  // the Sunday) — "New Comers" suggestion chips. Derived from the shared delightVisitorsAll
+  // directory fetch (refreshed on tab focus, see loadDirectoryData) instead of its own
+  // fetch tied only to selectedDate — a visitor D-Light adds while this report is open
+  // in another tab must show up here as soon as delightVisitorsAll refreshes, otherwise
+  // dlightRecommendationNames below (which excludes anyone in this list) never learns
+  // about them and wrongly offers them as a D-Light Recommendation instead.
+  const dlightSuggestions = useMemo(() => {
+    if (!selectedDate) return []
     const sunday = new Date(selectedDate + 'T00:00:00')
     const weekAgo = new Date(sunday)
     weekAgo.setDate(sunday.getDate() - 6)
-
-    getDelightVisitors()
-      .then((visitors) => {
-        const thisWeek = visitors.filter(v => {
-          if (!v.attendedDate) return false
-          const d = new Date(v.attendedDate + 'T00:00:00')
-          return d >= weekAgo && d <= sunday
-        })
-        setDlightSuggestions([...new Set(thisWeek.map(v => v.name).filter(Boolean))])
-      })
-      .catch(() => setDlightSuggestions([]))
-      .finally(() => setLoadingDlight(false))
-  }, [selectedDate])
+    const thisWeek = delightVisitorsAll.filter(v => {
+      if (!v.attendedDate) return false
+      const d = new Date(v.attendedDate + 'T00:00:00')
+      return d >= weekAgo && d <= sunday
+    })
+    return [...new Set(thisWeek.map(v => v.name).filter(Boolean))]
+  }, [delightVisitorsAll, selectedDate])
 
   // Names already sitting in Non Cell, Others, or a Cell's attendance — the buckets
   // a D-Light Recommendation click writes into (see addDlightRecommendation). Shared
@@ -1574,14 +1574,36 @@ export default function SundayReport({ embedded = false }) {
     [dlightSuggestions, alreadyPresentElsewhere]
   )
 
+  // Real confirmed attendance within the D-Light Recommendations' 30-day window — so a
+  // visitor isn't recommended purely because their FIRST visit is recent (attendedDate
+  // alone proves nothing about whether they ever came back). They must have at least
+  // one actual sunday_reports attendance record somewhere in the window — written by
+  // the D-Light "Sunday Worship" toggle on some other Sunday, or any other attendance
+  // entry — before they're a real candidate, not a guess.
+  const [confirmedAttendanceNames, setConfirmedAttendanceNames] = useState(new Set())
+  useEffect(() => {
+    if (!selectedDate) { setConfirmedAttendanceNames(new Set()); return }
+    const sunday = new Date(selectedDate + 'T00:00:00')
+    const windowStart = new Date(sunday)
+    windowStart.setDate(sunday.getDate() - 30)
+    getSundayAttendanceNameSetsInRange(format(windowStart, 'yyyy-MM-dd'), selectedDate)
+      .then((weeks) => {
+        const names = new Set()
+        weeks.forEach((w) => w.names.forEach((n) => names.add(n)))
+        setConfirmedAttendanceNames(names)
+      })
+      .catch(() => setConfirmedAttendanceNames(new Set()))
+  }, [selectedDate])
+
   // D-Light Recommendations — visitors within their first month (attendedDate in the
-  // last 30 days of selectedDate), not yet marked present anywhere on this report.
-  // Fully computed, no separate Firestore write of its own: clicking one just adds
-  // the name into their Cell's attendance (or Non Cell, if they're not a member) via
-  // the same local updateReport() every other section uses — see
-  // addDlightRecommendation below. Replaces the old separate Second/Third/Fourth Week
-  // Attendee sections, which were their own bucket kept apart from Cell/Non Cell to
-  // avoid double-counting; recommendations route straight into the real bucket
+  // last 30 days of selectedDate) who have at least one confirmed attendance record
+  // somewhere in that same window (see confirmedAttendanceNames above), and are not yet
+  // marked present anywhere on this report. Fully computed, no separate Firestore write
+  // of its own: clicking one just adds the name into their Cell's attendance (or Non
+  // Cell, if they're not a member) via the same local updateReport() every other section
+  // uses — see addDlightRecommendation below. Replaces the old separate Second/Third/
+  // Fourth Week Attendee sections, which were their own bucket kept apart from Cell/Non
+  // Cell to avoid double-counting; recommendations route straight into the real bucket
   // instead, so there's nothing separate left to double-count.
   const dlightRecommendationNames = useMemo(() => {
     if (!selectedDate) return new Set()
@@ -1606,8 +1628,13 @@ export default function SundayReport({ embedded = false }) {
       .map((v) => String(v.name || '').trim())
       .filter(Boolean)
 
-    return new Set(names.filter((n) => !alreadyPresent.has(n.toLowerCase())).map((n) => n.toLowerCase()))
-  }, [delightVisitorsAll, selectedDate, alreadyPresentElsewhere, report?.newComers, dlightSuggestions])
+    return new Set(
+      names
+        .filter((n) => !alreadyPresent.has(n.toLowerCase()))
+        .filter((n) => confirmedAttendanceNames.has(n.toLowerCase()))
+        .map((n) => n.toLowerCase())
+    )
+  }, [delightVisitorsAll, selectedDate, alreadyPresentElsewhere, report?.newComers, dlightSuggestions, confirmedAttendanceNames])
 
   const dlightRecommendations = useMemo(() => {
     const byLower = new Map()

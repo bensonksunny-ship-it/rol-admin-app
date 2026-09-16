@@ -2957,6 +2957,7 @@ export async function getDelightVisitorById(id) {
     email: d.email || '', nativity: d.nativity || '', currentPlace: d.currentPlace || '',
     serviceAttended: d.serviceAttended || '', attendedDate: d.attendedDate || '',
     howKnown: d.howKnown || '', source: d.source || '', year: d.year ? Number(d.year) : null,
+    onlyVisit: !!d.onlyVisit, isArchived: !!d.isArchived, flaggedForReview: !!d.flaggedForReview,
   }
 }
 
@@ -2985,6 +2986,9 @@ export async function getDelightVisitors() {
       howKnown: data.howKnown || '',
       source: data.source || '',
       year: data.year ? Number(data.year) : null,
+      onlyVisit: !!data.onlyVisit,
+      isArchived: !!data.isArchived,
+      flaggedForReview: !!data.flaggedForReview,
       createdAt: toDate(data.createdAt),
       createdBy: data.createdBy || '',
     }
@@ -3010,6 +3014,9 @@ export function subscribeDelightVisitors(onChange) {
         howKnown: data.howKnown || '',
         source: data.source || '',
         year: data.year ? Number(data.year) : null,
+        onlyVisit: !!data.onlyVisit,
+        isArchived: !!data.isArchived,
+        flaggedForReview: !!data.flaggedForReview,
         createdAt: toDate(data.createdAt),
         createdBy: data.createdBy || '',
       }
@@ -3031,6 +3038,7 @@ export async function addDelightVisitor(data) {
     howKnown: data.howKnown || '',
     source: data.source || '',
     year: data.year || new Date().getFullYear(),
+    onlyVisit: !!data.onlyVisit,
     createdAt: Timestamp.now(),
     createdBy: data.createdBy || 'unknown',
   })
@@ -3050,6 +3058,9 @@ export async function updateDelightVisitor(id, data) {
     attendedDate: data.attendedDate !== undefined ? String(data.attendedDate).slice(0, 10) : undefined,
     howKnown: data.howKnown !== undefined ? String(data.howKnown) : undefined,
     source: data.source !== undefined ? String(data.source) : undefined,
+    onlyVisit: data.onlyVisit !== undefined ? !!data.onlyVisit : undefined,
+    isArchived: data.isArchived !== undefined ? !!data.isArchived : undefined,
+    flaggedForReview: data.flaggedForReview !== undefined ? !!data.flaggedForReview : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, DELIGHT_VISITORS_COLLECTION, id), clean)

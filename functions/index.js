@@ -629,4 +629,86 @@ exports.archiveCurrentWeekCellReportsToHistory = onSchedule(
 // their own entry page (see CellReport.jsx), so this was pure redundant
 // auto-generation with no upside.
 
+/**
+ * Daily 2 AM IST: light-touch lifecycle for D-Light visitors flagged "Only Visit"
+ * (one-time/rare guests, delight_visitors.onlyVisit) —
+ *   - archives one 30+ days past their last-seen date with no return visit, so
+ *     they drop out of active follow-up without anyone having to remember to do it;
+ *   - if an already-archived one shows up again, un-archives them and sets
+ *     flaggedForReview instead of silently re-deciding their status — a person
+ *     still has to look at them once they're back.
+ * "Last seen" cross-references sunday_reports by name (nonCell + every cell's
+ * sundayCellAttendance) — the same name-based join the D-Light Visitor Entry
+ * table already uses for its week-count badge — since delight_visitors.attendedDate
+ * is only ever the date the record was first entered, not a running "last seen".
+ */
+exports.archiveStaleOnlyVisitVisitors = onSchedule(
+  { schedule: '0 2 * * *', timeZone: 'Asia/Kolkata' },
+  async () => {
+    const db = admin.firestore()
+    const now = toISTDate(new Date())
+
+    const visitorsSnap = await db.collection('delight_visitors').where('onlyVisit', '==', true).get()
+    if (visitorsSnap.empty) return { checked: 0, archived: 0, reviewed: 0 }
+
+    // Last 10 Sunday reports is enough runway to catch a return visit before the
+    // nightly job would've archived them anyway (30 days ≈ 4 Sundays).
+    const reportsSnap = await db.collection('sunday_reports').orderBy('date', 'desc').limit(10).get()
+    const lastSeenByName = new Map() // lowercased name -> most recent YYYY-MM-DD seen
+    for (const reportDoc of reportsSnap.docs) {
+      const data = reportDoc.data()
+      const date = reportDoc.id
+      const names = [
+        ...(Array.isArray(data.nonCell) ? data.nonCell : []),
+        ...Object.values(data.sundayCellAttendance || {}).flatMap((l) => (Array.isArray(l) ? l : [])),
+      ]
+      for (const raw of names) {
+        const key = String(raw || '').trim().toLowerCase()
+        if (!key) continue
+        const prev = lastSeenByName.get(key)
+        if (!prev || date > prev) lastSeenByName.set(key, date)
+      }
+    }
+
+    const batch = db.batch()
+    let archived = 0
+    let reviewed = 0
+
+    for (const doc of visitorsSnap.docs) {
+      const v = doc.data()
+      const nameKey = String(v.name || '').trim().toLowerCase()
+      if (!nameKey) continue
+      const lastSeenDate = lastSeenByName.get(nameKey) || null
+
+      if (v.isArchived) {
+        const archivedAtDate = v.archivedAt?.toDate ? formatISODateYYYYMMDD(v.archivedAt.toDate()) : null
+        if (lastSeenDate && (!archivedAtDate || lastSeenDate > archivedAtDate)) {
+          batch.update(doc.ref, {
+            isArchived: false,
+            archivedAt: admin.firestore.FieldValue.delete(),
+            flaggedForReview: true,
+            flaggedAt: admin.firestore.FieldValue.serverTimestamp(),
+          })
+          reviewed++
+        }
+        continue
+      }
+
+      const baselineDate = lastSeenDate && lastSeenDate > String(v.attendedDate || '') ? lastSeenDate : String(v.attendedDate || '')
+      if (!baselineDate) continue
+      const daysSince = (now.getTime() - new Date(baselineDate).getTime()) / (24 * 60 * 60 * 1000)
+      if (daysSince >= 30) {
+        batch.update(doc.ref, {
+          isArchived: true,
+          archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        })
+        archived++
+      }
+    }
+
+    if (archived > 0 || reviewed > 0) await batch.commit()
+    return { checked: visitorsSnap.size, archived, reviewed }
+  }
+)
+
 

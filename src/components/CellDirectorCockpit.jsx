@@ -18,6 +18,7 @@ import {
   dismissUnassignedPerson,
   undismissUnassignedPerson,
   subscribeCellUnassignedDismissals,
+  getDelightVisitors,
 } from '../services/firestore'
 import { totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
@@ -135,6 +136,20 @@ export function CellDirectorCockpit({
   useEffect(() => {
     const unsub = subscribeCellDlightConsultTasks(setDlightConsultTasks)
     return unsub
+  }, [])
+
+  // D-Light visitors flagged "Only Visit" (one-time/rare guests) — excluded below
+  // from the Unassigned drawer so they never surface for cell placement, PCS
+  // referral, or a D-Light consult request.
+  const [onlyVisitNames, setOnlyVisitNames] = useState(new Set())
+  useEffect(() => {
+    getDelightVisitors()
+      .then((list) => {
+        setOnlyVisitNames(new Set(
+          list.filter((v) => v.onlyVisit).map((v) => String(v.name || '').trim().toLowerCase())
+        ))
+      })
+      .catch(() => setOnlyVisitNames(new Set()))
   }, [])
 
   // Live leader notes sent via "Message Cell Director" (the ! icon in MyFellowship) —
@@ -350,7 +365,7 @@ export function CellDirectorCockpit({
     // the source above), so a stable synthetic id is safe here — there's no backing
     // doc to key off instead.
     const sundayItems = unassignedVisitors
-      .filter(v => !assignedNames.has(v.name.toLowerCase()) && !isNameDismissed(v.name.toLowerCase()))
+      .filter(v => !assignedNames.has(v.name.toLowerCase()) && !isNameDismissed(v.name.toLowerCase()) && !onlyVisitNames.has(v.name.toLowerCase()))
       .map(v => ({ ...v, source: 'sunday', id: `sunday-${v.name.toLowerCase()}` }))
     // PCS referrals come first; deduplicate against the Sunday list by name (cross-
     // source overlap — a PCS referral for someone who also showed up in Sunday
@@ -362,10 +377,11 @@ export function CellDirectorCockpit({
       r => !assignedNames.has(r.name.toLowerCase()) &&
            !dismissedTaskIds.has(r.taskId) &&
            !sundayNames.has(r.name.toLowerCase()) &&
+           !onlyVisitNames.has(r.name.toLowerCase()) &&
            !isAlreadyCellMember(r)
     )
     return [...pcsItems, ...sundayItems]
-  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames, restoredNames, dismissedTaskIds, isAlreadyCellMember])
+  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames, restoredNames, dismissedTaskIds, isAlreadyCellMember, onlyVisitNames])
 
   // Self-healing: a referral/recommendation task only ever gets marked Completed
   // when someone clicks Assign in *this* drawer — but the person it's about can be
@@ -871,7 +887,7 @@ export function CellDirectorCockpit({
                                 isPCS ? 'bg-indigo-100 text-indigo-700' : 'bg-violet-100 text-violet-700'
                               }`}
                             >
-                              {isPCS ? 'From Caring (PCS)' : 'From Sunday Visitor Log'}
+                              {isPCS ? 'From Caring (PCS)' : 'From Sunday Worship Log'}
                             </span>
                             {!isPCS && item.nonCell && (
                               <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
