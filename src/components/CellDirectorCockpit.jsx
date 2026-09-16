@@ -729,13 +729,15 @@ export function CellDirectorCockpit({
       {/* ── Attendance trends + missing reports ── */}
       <DirectorDashboardCellWidgets userProfile={userProfile} />
 
-      {/* ── Unassigned Visitors Drawer ── */}
+      {/* ── Unassigned Visitors Drawer — a centered modal (not a bottom sheet), so
+          it stays reachable and doesn't get clipped at the bottom edge on short
+          viewports. ── */}
       {drawerOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={(e) => { if (e.target === e.currentTarget) closeUnassignedDrawer() }}
         >
-          <div className="bg-white rounded-t-3xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
               <div>
