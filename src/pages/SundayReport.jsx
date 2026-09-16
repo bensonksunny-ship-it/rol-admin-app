@@ -31,7 +31,6 @@ import {
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import useSeniorPastor from '../hooks/useSeniorPastor'
-import { computeWeekComerCandidates } from '../utils/weekComers'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'nonCell', title: 'Non Cell' },
@@ -39,14 +38,10 @@ const MANUAL_ONLY_KEYS = [
   { key: 'riverKids', title: 'River Kids' },
 ]
 
-const SECOND_WEEK_KEY = { key: 'secondWeekAttendeesNames', title: 'Second Week Attendees' }
-const THIRD_WEEK_KEY = { key: 'thirdWeekAttendeesNames', title: 'Third Week Attendees' }
-const FOURTH_WEEK_KEY = { key: 'fourthWeekAttendeesNames', title: 'Fourth Week Attendees' }
-
 const PASTORAL_KEY = { key: 'pastoralAttendees', title: 'Pastoral Attendees' }
 
 /** Local-only UX: order for Done → scroll to next attendance section */
-const ATTENDANCE_SECTION_ORDER = ['pastoral', 'cells', 'nonCell', 'others', 'riverKids', 'newComers', 'secondWeekAttendeesNames', 'thirdWeekAttendeesNames', 'fourthWeekAttendeesNames']
+const ATTENDANCE_SECTION_ORDER = ['pastoral', 'cells', 'nonCell', 'others', 'riverKids', 'newComers']
 
 
 /** Map legacy report field → normalized cell name (lowercase, no spaces) */
@@ -1277,15 +1272,6 @@ export default function SundayReport({ embedded = false }) {
   const [filedView, setFiledView] = useState(false)
   const [dlightSuggestions, setDlightSuggestions] = useState([])
   const [loadingDlight, setLoadingDlight] = useState(false)
-  const [secondWeekSuggestions, setSecondWeekSuggestions] = useState([])
-  const [thirdWeekSuggestions, setThirdWeekSuggestions] = useState([])
-  const [fourthWeekSuggestions, setFourthWeekSuggestions] = useState([])
-  // One loading flag covers all three milestone buckets — they're now computed
-  // together in a single visitCount pass (see the effect below).
-  const [loadingMilestoneSuggestions, setLoadingMilestoneSuggestions] = useState(false)
-  // Lowercased names currently classified into ANY milestone bucket this week —
-  // used to keep them out of the generic Non Cell suggestion list.
-  const [milestoneSuggestionNames, setMilestoneSuggestionNames] = useState(new Set())
   const [peopleDirectory, setPeopleDirectory] = useState([])
   const [delightVisitorsAll, setDelightVisitorsAll] = useState([])
   const [cellMemberNames, setCellMemberNames] = useState(new Set())
@@ -1310,9 +1296,6 @@ export default function SundayReport({ embedded = false }) {
   const newComersSectionRef = useRef(null)
   const othersSectionRef = useRef(null)
   const nonCellSectionRef = useRef(null)
-  const secondWeekSectionRef = useRef(null)
-  const thirdWeekSectionRef = useRef(null)
-  const fourthWeekSectionRef = useRef(null)
   const riverKidsSectionRef = useRef(null)
 
   const sectionRefById = useMemo(
@@ -1322,9 +1305,6 @@ export default function SundayReport({ embedded = false }) {
       newComers: newComersSectionRef,
       others: othersSectionRef,
       nonCell: nonCellSectionRef,
-      secondWeekAttendeesNames: secondWeekSectionRef,
-      thirdWeekAttendeesNames: thirdWeekSectionRef,
-      fourthWeekAttendeesNames: fourthWeekSectionRef,
       riverKids: riverKidsSectionRef,
     }),
     []
@@ -1549,46 +1529,102 @@ export default function SundayReport({ embedded = false }) {
   }, [membersForCell, delightVisitorsAll, peopleDirectory, cellGroups, expandedCellId])
 
   // Fetch D-Light visitors for the week of selectedDate (attendedDate within 7 days
-  // before the Sunday) for "New Comers" suggestions, plus Second/Third/Fourth Week
-  // Comer candidates via computeWeekComerCandidates() (src/utils/weekComers.js) —
-  // shared with the D-Light Follow-Up panel (DepartmentHub.jsx) so both surfaces
-  // always suggest the same people. See that file for the exact rules.
+  // before the Sunday) for "New Comers" suggestions.
   useEffect(() => {
     setLoadingDlight(true)
-    setLoadingMilestoneSuggestions(true)
     const sunday = new Date(selectedDate + 'T00:00:00')
     const weekAgo = new Date(sunday)
     weekAgo.setDate(sunday.getDate() - 6)
 
     getDelightVisitors()
-      .then((visitors) => computeWeekComerCandidates(selectedDate, visitors).then((buckets) => [visitors, buckets]))
-      .then(([visitors, { second, third, fourth }]) => {
+      .then((visitors) => {
         const thisWeek = visitors.filter(v => {
           if (!v.attendedDate) return false
           const d = new Date(v.attendedDate + 'T00:00:00')
           return d >= weekAgo && d <= sunday
         })
         setDlightSuggestions([...new Set(thisWeek.map(v => v.name).filter(Boolean))])
-
-        setSecondWeekSuggestions(second)
-        setThirdWeekSuggestions(third)
-        setFourthWeekSuggestions(fourth)
-        setMilestoneSuggestionNames(new Set(
-          [...second, ...third, ...fourth].map((n) => String(n).trim().toLowerCase())
-        ))
       })
-      .catch(() => {
-        setDlightSuggestions([])
-        setSecondWeekSuggestions([])
-        setThirdWeekSuggestions([])
-        setFourthWeekSuggestions([])
-        setMilestoneSuggestionNames(new Set())
-      })
-      .finally(() => {
-        setLoadingDlight(false)
-        setLoadingMilestoneSuggestions(false)
-      })
+      .catch(() => setDlightSuggestions([]))
+      .finally(() => setLoadingDlight(false))
   }, [selectedDate])
+
+  // D-Light Recommendations — visitors within their first month (attendedDate in the
+  // last 30 days of selectedDate), not yet marked present anywhere on this report.
+  // Fully computed, no separate Firestore write of its own: clicking one just adds
+  // the name into their Cell's attendance (or Non Cell, if they're not a member) via
+  // the same local updateReport() every other section uses — see
+  // addDlightRecommendation below. Replaces the old separate Second/Third/Fourth Week
+  // Attendee sections, which were their own bucket kept apart from Cell/Non Cell to
+  // avoid double-counting; recommendations route straight into the real bucket
+  // instead, so there's nothing separate left to double-count.
+  const dlightRecommendationNames = useMemo(() => {
+    if (!selectedDate) return new Set()
+    const sunday = new Date(selectedDate + 'T00:00:00')
+    const windowStart = new Date(sunday)
+    windowStart.setDate(sunday.getDate() - 30)
+
+    const alreadyPresent = new Set()
+    const addAll = (arr) => (arr || []).forEach((n) => {
+      const t = String(n || '').trim().toLowerCase()
+      if (t) alreadyPresent.add(t)
+    })
+    addAll(report?.nonCell)
+    addAll(report?.others)
+    addAll(report?.newComers)
+    Object.values(report?.sundayCellAttendance || {}).forEach(addAll)
+
+    const names = delightVisitorsAll
+      .filter((v) => v.attendedDate)
+      .filter((v) => {
+        const d = new Date(v.attendedDate + 'T00:00:00')
+        return d >= windowStart && d <= sunday
+      })
+      .map((v) => String(v.name || '').trim())
+      .filter(Boolean)
+
+    return new Set(names.filter((n) => !alreadyPresent.has(n.toLowerCase())).map((n) => n.toLowerCase()))
+  }, [delightVisitorsAll, selectedDate, report?.nonCell, report?.others, report?.newComers, report?.sundayCellAttendance])
+
+  const dlightRecommendations = useMemo(() => {
+    const byLower = new Map()
+    delightVisitorsAll.forEach((v) => {
+      const name = String(v.name || '').trim()
+      const key = name.toLowerCase()
+      if (dlightRecommendationNames.has(key) && !byLower.has(key)) byLower.set(key, v)
+    })
+    return [...byLower.values()]
+  }, [delightVisitorsAll, dlightRecommendationNames])
+
+  // Adds a D-Light-recommended visitor straight into the correct existing bucket —
+  // their Cell's attendance if they're already an active member (avoids the
+  // duplication a separate bucket would risk), otherwise Non Cell. Same routing
+  // linkOthersNameToCell uses below, just triggered from the recommendation chip
+  // instead of an Others entry.
+  const addDlightRecommendation = (visitor) => {
+    const name = String(visitor?.name || '').trim()
+    if (!name || !canEditEffective) return
+    const matchedMember = allCellMembers.find(
+      (m) => String(m.name || '').trim().toLowerCase() === name.toLowerCase()
+    )
+    if (matchedMember) {
+      const sca = { ...(report?.sundayCellAttendance || {}) }
+      const list = [...(sca[matchedMember.cellId] || [])]
+      if (!list.some((n) => String(n).trim().toLowerCase() === name.toLowerCase())) list.push(name)
+      sca[matchedMember.cellId] = list
+      updateReport({ sundayCellAttendance: sca })
+    } else {
+      const nonCell = [...(report?.nonCell || [])]
+      if (!nonCell.some((n) => String(n).trim().toLowerCase() === name.toLowerCase())) nonCell.push(name)
+      updateReport({ nonCell })
+    }
+    recordPersonSundayAttendance({
+      date: selectedDate,
+      visitorId: visitor.id || null,
+      name,
+      recordedBy: userProfile?.email || 'unknown',
+    }).catch(() => {})
+  }
 
   // Single master load — clears stale data immediately so previous date never bleeds through
   useEffect(() => {
@@ -1890,13 +1926,13 @@ export default function SundayReport({ embedded = false }) {
       const key = n.trim().toLowerCase()
       if (!key || nonCellSet.has(key)) return false
       if (cellMemberNames?.has(key)) return false
-      // Anyone currently classified as a 2nd/3rd/4th Week Attendee belongs in that
-      // milestone section only — keeping them here too would render them twice.
-      if (milestoneSuggestionNames.has(key)) return false
+      // Anyone currently a D-Light Recommendation belongs in that panel only —
+      // keeping them here too would render them twice.
+      if (dlightRecommendationNames.has(key)) return false
       return true
     })
     return names.map((n) => byName.get(n.trim().toLowerCase()) || { name: n })
-  }, [recentAttendeeNames, report?.nonCell, cellMemberNames, nonCellSearchPool, milestoneSuggestionNames])
+  }, [recentAttendeeNames, report?.nonCell, cellMemberNames, nonCellSearchPool, dlightRecommendationNames])
 
   // Combined people pool for bulk import matching: cell members + people directory + visitors + River Kids
   const bulkImportSearchPool = useMemo(() => {
@@ -2183,9 +2219,7 @@ export default function SundayReport({ embedded = false }) {
     rows.push(['Others', othersCount])
     rows.push(['Non Cell', nonCellCount])
     rows.push(['New Comers', newcomersCount])
-    rows.push(['Second Week Attendees', secondWeekCount])
-    rows.push(['Third Week Attendees', thirdWeekCount])
-    rows.push(['Fourth Week Attendees', fourthWeekCount])
+    rows.push(['First Month Comers', secondWeekCount + thirdWeekCount + fourthWeekCount])
     rows.push(['River Kids', riverKidsCount])
     rows.push(['Sunday School', Number(report?.summary?.sundaySchool) || 0])
     rows.push([])
@@ -2207,15 +2241,21 @@ export default function SundayReport({ embedded = false }) {
       { label: 'New Comers', key: 'newComers' },
       { label: 'Others', key: 'others' },
       { label: 'Non Cell', key: 'nonCell' },
-      { label: 'Second Week Attendees', key: 'secondWeekAttendeesNames' },
-      { label: 'Third Week Attendees', key: 'thirdWeekAttendeesNames' },
-      { label: 'Fourth Week Attendees', key: 'fourthWeekAttendeesNames' },
       { label: 'River Kids', key: 'riverKids' },
     ]
     listsToExport.forEach(({ label, key }) => {
       const names = (report?.[key] || []).filter(Boolean)
       names.forEach((name) => detailRows.push([label, name]))
     })
+    // First Month Comers — legacy data only (secondWeekAttendeesNames/thirdWeek.../
+    // fourthWeek...), kept for reports that still carry it; new reports route
+    // straight into Cell/Non Cell above via the D-Light Recommendations panel
+    // instead, so this stays empty for them.
+    ;[
+      ...(report?.secondWeekAttendeesNames || []),
+      ...(report?.thirdWeekAttendeesNames || []),
+      ...(report?.fourthWeekAttendeesNames || []),
+    ].filter(Boolean).forEach((name) => detailRows.push(['First Month Comers', name]))
 
     const ws2 = XLSX.utils.aoa_to_sheet(detailRows)
     ws2['!cols'] = [{ wch: 28 }, { wch: 28 }]
@@ -2593,77 +2633,34 @@ export default function SundayReport({ embedded = false }) {
                 />
               </AttendanceSectionShell>
 
-              <AttendanceSectionShell
-                sectionRef={secondWeekSectionRef}
-                completed={completedSections[SECOND_WEEK_KEY.key]}
-                isActive={activeSectionId === SECOND_WEEK_KEY.key}
-                canManage={canEditEffective}
-                onDone={() => handleAttendanceDone(SECOND_WEEK_KEY.key)}
-                onUndo={() => handleAttendanceUndo(SECOND_WEEK_KEY.key)}
-              >
-                <NameListSection
-                  title={SECOND_WEEK_KEY.title}
-                  names={report?.[SECOND_WEEK_KEY.key] || []}
-                  canEdit={canEditEffective && !completedSections[SECOND_WEEK_KEY.key]}
-                  onAdd={() => addCellName(SECOND_WEEK_KEY.key)}
-                  onAddValue={(value) => addCellNameValue(SECOND_WEEK_KEY.key, value)}
-                  onEdit={(idx, value) => updateCellList(SECOND_WEEK_KEY.key, idx, value)}
-                  onRemove={(idx) => removeCellName(SECOND_WEEK_KEY.key, idx)}
-                  suggestions={secondWeekSuggestions}
-                  loadingSuggestions={loadingMilestoneSuggestions}
-                  suggestionsLabel="2nd Sunday check-in — tap to add"
-                  duplicateNorms={duplicateNorms}
-                  className="border-0 shadow-none bg-transparent p-0"
-                />
-              </AttendanceSectionShell>
-
-              <AttendanceSectionShell
-                sectionRef={thirdWeekSectionRef}
-                completed={completedSections[THIRD_WEEK_KEY.key]}
-                isActive={activeSectionId === THIRD_WEEK_KEY.key}
-                canManage={canEditEffective}
-                onDone={() => handleAttendanceDone(THIRD_WEEK_KEY.key)}
-                onUndo={() => handleAttendanceUndo(THIRD_WEEK_KEY.key)}
-              >
-                <NameListSection
-                  title={THIRD_WEEK_KEY.title}
-                  names={report?.[THIRD_WEEK_KEY.key] || []}
-                  canEdit={canEditEffective && !completedSections[THIRD_WEEK_KEY.key]}
-                  onAdd={() => addCellName(THIRD_WEEK_KEY.key)}
-                  onAddValue={(value) => addCellNameValue(THIRD_WEEK_KEY.key, value)}
-                  onEdit={(idx, value) => updateCellList(THIRD_WEEK_KEY.key, idx, value)}
-                  onRemove={(idx) => removeCellName(THIRD_WEEK_KEY.key, idx)}
-                  suggestions={thirdWeekSuggestions}
-                  loadingSuggestions={loadingMilestoneSuggestions}
-                  suggestionsLabel="3rd Sunday check-in — tap to add"
-                  duplicateNorms={duplicateNorms}
-                  className="border-0 shadow-none bg-transparent p-0"
-                />
-              </AttendanceSectionShell>
-
-              <AttendanceSectionShell
-                sectionRef={fourthWeekSectionRef}
-                completed={completedSections[FOURTH_WEEK_KEY.key]}
-                isActive={activeSectionId === FOURTH_WEEK_KEY.key}
-                canManage={canEditEffective}
-                onDone={() => handleAttendanceDone(FOURTH_WEEK_KEY.key)}
-                onUndo={() => handleAttendanceUndo(FOURTH_WEEK_KEY.key)}
-              >
-                <NameListSection
-                  title={FOURTH_WEEK_KEY.title}
-                  names={report?.[FOURTH_WEEK_KEY.key] || []}
-                  canEdit={canEditEffective && !completedSections[FOURTH_WEEK_KEY.key]}
-                  onAdd={() => addCellName(FOURTH_WEEK_KEY.key)}
-                  onAddValue={(value) => addCellNameValue(FOURTH_WEEK_KEY.key, value)}
-                  onEdit={(idx, value) => updateCellList(FOURTH_WEEK_KEY.key, idx, value)}
-                  onRemove={(idx) => removeCellName(FOURTH_WEEK_KEY.key, idx)}
-                  suggestions={fourthWeekSuggestions}
-                  loadingSuggestions={loadingMilestoneSuggestions}
-                  suggestionsLabel="4th Sunday check-in — tap to add"
-                  duplicateNorms={duplicateNorms}
-                  className="border-0 shadow-none bg-transparent p-0"
-                />
-              </AttendanceSectionShell>
+              {/* ── D-Light Recommendations — replaces the old separate Second/Third/
+                  Fourth Week Attendee sections. Not a guided/completable step (no
+                  sectionRef, no Done/Undo): purely optional, live-computed chips.
+                  Tapping one routes the name straight into their Cell's attendance
+                  or Non Cell via addDlightRecommendation, so there's no separate
+                  bucket left to double-count against Total Adults. ── */}
+              {dlightRecommendations.length > 0 && (
+                <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
+                  <p className="text-sm font-semibold text-indigo-900">💡 D-Light Recommendations</p>
+                  <p className="text-xs text-slate-500 mt-0.5 mb-3">
+                    First-month D-Light visitors not yet marked present today — tap a name to add them
+                    (to their Cell if they're already a member, otherwise Non Cell).
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {dlightRecommendations.map((v) => (
+                      <button
+                        key={v.id || v.name}
+                        type="button"
+                        disabled={!canEditEffective}
+                        onClick={() => addDlightRecommendation(v)}
+                        className="px-2.5 py-1 rounded-full text-xs font-medium bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                      >
+                        + {v.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── Right sidebar: Total banner + Program ── */}
@@ -3003,9 +3000,14 @@ function FiledSummaryView({ selectedDate, sortedProgram, programLogs, summaryCom
             <AttendanceRow label="Pastoral" count={pastoralCount} names={pastoralNames} accent="violet" />
             <AttendanceRow label="Non Cell" count={nonCellCount} names={nonCellNames} accent="amber" />
             <AttendanceRow label="Others" count={othersCount} names={othersNames} accent="sky" />
-            <AttendanceRow label="Second Week Comers" count={secondWeekCount} names={secondWeekNames} accent="rose" />
-            <AttendanceRow label="Third Week Comers" count={thirdWeekCount} names={thirdWeekNames} accent="violet" />
-            <AttendanceRow label="Fourth Week Comers" count={fourthWeekCount} names={fourthWeekNames} accent="sky" />
+            {(secondWeekCount + thirdWeekCount + fourthWeekCount) > 0 && (
+              <AttendanceRow
+                label="First Month Comers"
+                count={secondWeekCount + thirdWeekCount + fourthWeekCount}
+                names={[...secondWeekNames, ...thirdWeekNames, ...fourthWeekNames]}
+                accent="rose"
+              />
+            )}
             <AttendanceRow label="New Comers" count={newcomersCount} names={newcomersNames} accent="emerald" />
             <AttendanceRow label="River Kids" count={riverKidsCount} names={riverKidsNames} accent="teal" />
 
