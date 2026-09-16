@@ -345,6 +345,25 @@ function rkPermissionErrorMessage(error) {
   return `Failed to save: ${error?.message || 'unknown error'}`
 }
 
+// Digits-only, last-10 comparison key for a phone number — ignores spaces,
+// dashes, and a leading country code (+91, 0, etc.) so "+91 98765 43210" and
+// "9876543210" match. Used to auto-resolve a cell member's D-Light/PCS visitor
+// record by phone when it wasn't explicitly linked (e.g. legacy data from
+// before every "Add Member" flow required picking a directory entry).
+function phoneMatchKey(phone) {
+  const digits = String(phone || '').replace(/\D/g, '')
+  return digits.length >= 7 ? digits.slice(-10) : ''
+}
+
+// Finds the D-Light visitor record that matches a cell member without an
+// already-saved visitorId — by phone number, since that's the one identifying
+// field both a cell_group member and a delight visitor record reliably share.
+function findVisitorMatchForMember(member, visitorsByPhone) {
+  if (!member || member.visitorId) return null
+  const key = phoneMatchKey(member.phone)
+  return key ? visitorsByPhone.get(key) || null : null
+}
+
 // Multi-select pill toggle for a kid's Class/Group — a child can belong to more than
 // one (e.g. Sunday School + River Kids-1), so this toggles membership in the array
 // rather than picking a single value like a native <select> would.
@@ -1975,6 +1994,56 @@ export default function DepartmentHub() {
     }).catch(() => setCellRecentAttendedNames(new Set()))
   }, [expandedCellId])
 
+  // Loads the full D-Light directory as soon as a cell group is expanded (not just
+  // lazily when the "+ Add Member" modal opens) so cellVisitorsByPhone above is
+  // ready to auto-resolve/badge every member row, not only members added through
+  // that modal.
+  useEffect(() => {
+    if (!expandedCellId) return
+    getDelightVisitors().then(setCellMemberVisitors).catch(() => {})
+  }, [expandedCellId])
+
+  // Phone-keyed index of the central D-Light directory, for auto-resolving a cell
+  // member's visitor link (findVisitorMatchForMember above) without requiring the
+  // manual "Link" menu action — see the auto-link effect and badge logic below.
+  // Declared here (rather than further down where it's also read) because the
+  // auto-link effect's dependency array below evaluates it synchronously during
+  // render — a later declaration threw "Cannot access before initialization".
+  const cellVisitorsByPhone = useMemo(() => {
+    const map = new Map()
+    cellMemberVisitors.forEach((v) => {
+      const key = phoneMatchKey(v.phone)
+      if (key && !map.has(key)) map.set(key, v)
+    })
+    return map
+  }, [cellMemberVisitors])
+
+  // Auto-link pass: every cell member originates from the D-Light pipeline (the
+  // "Add Member" flow only ever adds an existing directory entry — see
+  // addCellGroupMember calls below), so a member showing no visitorId is either
+  // legacy data from before that requirement, or was linked via the transfer/
+  // referral paths without it. Rather than requiring the manual "Link" menu
+  // action, silently resolve and persist the match by phone once both this cell's
+  // members and the directory are loaded. autoLinkedRef guards against re-writing
+  // the same member every time this effect re-runs (e.g. a sibling row's edit
+  // triggers a cellMembers refresh).
+  const autoLinkAttemptedRef = useRef(new Set())
+  useEffect(() => {
+    if (!expandedCellId || !cellMembers.length || !cellVisitorsByPhone.size) return
+    cellMembers.forEach((m) => {
+      if (m.visitorId || autoLinkAttemptedRef.current.has(m.id)) return
+      const match = findVisitorMatchForMember(m, cellVisitorsByPhone)
+      if (!match) return
+      autoLinkAttemptedRef.current.add(m.id)
+      updateCellGroupMember(expandedCellId, m.id, { visitorId: match.id })
+        .then(() => {
+          setCellMembers((prev) => prev.map((x) => (x.id === m.id ? { ...x, visitorId: match.id } : x)))
+          refreshAllCellMembers()
+        })
+        .catch((err) => console.error('Auto-link failed for cell member', m.id, err))
+    })
+  }, [expandedCellId, cellMembers, cellVisitorsByPhone, refreshAllCellMembers])
+
   const canEdit = department
     ? (department.name === 'Cell' ? canViewAllCells : canManageDepartment(department.name))
     : false
@@ -3588,7 +3657,7 @@ export default function DepartmentHub() {
                       <tr>
                         <th className="text-left px-6 py-3 font-semibold text-slate-700 text-base">Name</th>
                         <th className="text-left px-6 py-3 font-medium text-slate-500 w-28">Month</th>
-                        <th className="text-left px-6 py-3 font-medium text-slate-500 w-40">
+                        <th className="text-center px-6 py-3 font-medium text-slate-500 w-40">
                           Sunday Worship
                           <span className="block text-[10px] font-normal text-slate-400 normal-case">{formatDMY(visitorAttendanceDate)}</span>
                         </th>
@@ -3626,26 +3695,38 @@ export default function DepartmentHub() {
                               </td>
                               <td className="px-6 py-3 text-sm text-slate-400">{monthLabel}</td>
                               <td className="px-6 py-3">
-                                {canEditDelightVisitors ? (
-                                  <button
-                                    type="button"
-                                    disabled={togglingThisRow || loadingSundayAttendanceNames || !v.name}
-                                    onClick={(e) => { e.stopPropagation(); toggleVisitorSundayAttendance(v) }}
-                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors disabled:opacity-50 ${
-                                      attendedThisSunday
-                                        ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200'
-                                        : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
-                                    }`}
-                                  >
-                                    {togglingThisRow ? '…' : attendedThisSunday ? '✓ Attended' : 'Mark Attended'}
-                                  </button>
-                                ) : attendedThisSunday ? (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
-                                    ✓ Attended
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-slate-300">—</span>
-                                )}
+                                <div className="flex justify-center">
+                                  {canEditDelightVisitors ? (
+                                    <button
+                                      type="button"
+                                      disabled={togglingThisRow || loadingSundayAttendanceNames || !v.name}
+                                      onClick={(e) => { e.stopPropagation(); toggleVisitorSundayAttendance(v) }}
+                                      aria-pressed={attendedThisSunday}
+                                      aria-label={attendedThisSunday ? 'Mark not attended' : 'Mark attended'}
+                                      className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors disabled:opacity-50 ${
+                                        attendedThisSunday
+                                          ? 'bg-emerald-500 border-emerald-500 text-white hover:bg-emerald-600'
+                                          : 'bg-white border-slate-300 hover:border-emerald-400'
+                                      }`}
+                                    >
+                                      {togglingThisRow ? (
+                                        <span className="text-[10px] leading-none">…</span>
+                                      ) : attendedThisSunday ? (
+                                        <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                          <path fillRule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.5 7.5a1 1 0 01-1.42 0l-3.5-3.5a1 1 0 111.42-1.42L8.5 12.09l6.79-6.8a1 1 0 011.42 0z" clipRule="evenodd" />
+                                        </svg>
+                                      ) : null}
+                                    </button>
+                                  ) : attendedThisSunday ? (
+                                    <span className="w-6 h-6 rounded-md bg-emerald-500 text-white flex items-center justify-center">
+                                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                        <path fillRule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.5 7.5a1 1 0 01-1.42 0l-3.5-3.5a1 1 0 111.42-1.42L8.5 12.09l6.79-6.8a1 1 0 011.42 0z" clipRule="evenodd" />
+                                      </svg>
+                                    </span>
+                                  ) : (
+                                    <span className="w-6 h-6 rounded-md border border-slate-200" />
+                                  )}
+                                </div>
                               </td>
                             </tr>
                             {open && (
@@ -5248,6 +5329,7 @@ export default function DepartmentHub() {
                 currentPlace: entry.currentPlace || '', serviceAttended: entry.serviceAttended || '', howKnown: entry.howKnown || '',
                 ministries: entry.ministries || [],
                 baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
+                gender: '',
                 maritalStatus: '', marriageDate: '', spouseName: '', spouseVisitorId: '',
                 hasKids: autoKids.length ? 'yes' : '', children: autoKids,
                 previousChurchName: '', previousChurchPlace: '',
@@ -5318,6 +5400,7 @@ export default function DepartmentHub() {
                       baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '',
                       baptismChurch: p.baptismChurch || '',
                       baptismChurchIsOther: !!p.baptismChurch && p.baptismChurch !== 'River Of Life Christian Church',
+                      gender: p.gender || '',
                       maritalStatus: p.maritalStatus || '',
                       marriageDate: p.marriageDate || '', spouseName: p.spouseName || '', spouseVisitorId: p.spouseVisitorId || '',
                       hasKids: p.hasKids || (mergedChildren.length ? 'yes' : ''),
@@ -5526,6 +5609,10 @@ export default function DepartmentHub() {
             // Inline expanded profile panel
             const PCSInlineProfile = ({ entry }) => {
               const isEditing = pcsEditingId === entry.id
+              // Recomputed here (matches the collapsed-chip's own `isPastor` above) — this
+              // is a separate closure over the same `entry`, not a shared scope, so it
+              // isn't visible via the outer map's local unless computed again.
+              const isPastor = isSeniorPastorName(entry.name)
               const f = pcsExpandedForm
               const setF = setPcsExpandedForm
               const inp = 'w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-colors'
@@ -5964,6 +6051,20 @@ export default function DepartmentHub() {
                     <div className="px-4 py-3 border-b border-slate-100 border-l-4 border-l-teal-300">
                       <SecHeader label="Personal Data" fill={sPersonalFill} labelColor="text-teal-700" headerBg="bg-teal-50 border-b border-teal-100" />
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {/* Gender — drives "husband first" ordering on spouse-paired
+                            Family View cards in the First Lady hub */}
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Gender</p>
+                          <select
+                            value={f.gender}
+                            onChange={e => setF(p => ({ ...p, gender: e.target.value }))}
+                            className={inp}>
+                            <option value="">— Select —</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                          </select>
+                        </div>
+
                         {/* Marital status */}
                         <div className="space-y-1">
                           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Marital Status</p>
@@ -6470,7 +6571,7 @@ export default function DepartmentHub() {
                           setPcsExpandedSaving(true)
                           try {
                             const { personId, name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown,
-                              ministries,
+                              ministries, gender,
                               baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
                               hasKids, children, previousChurchName, previousChurchPlace,
                               membershipStatus, membershipDocs, permanentAddress } = f
@@ -6510,7 +6611,7 @@ export default function DepartmentHub() {
                               updateDeptTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
                               updateWorshipTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
                               upsertMemberProfile(entry.visitorId, {
-                                phone, email, dob, nativity, currentPlace,
+                                phone, email, dob, nativity, currentPlace, gender,
                                 baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
                                 hasKids: hasKids || '',
                                 children: hasKids === 'yes' ? (children || []) : [],
@@ -6521,6 +6622,61 @@ export default function DepartmentHub() {
                                 ...(savedPhotoUrl ? { photoUrl: savedPhotoUrl } : {}),
                               }, userProfile?.email || '').catch(() => {})
                             }
+
+                            // Reciprocal spouse link — the spouse picker (above) matches against
+                            // pcsEntries by name, so the matched entry there carries the actual
+                            // visitorId/personId needed to mirror this marriage onto THEIR own
+                            // member_profiles/people records too, not just this one. Without this,
+                            // only the person being edited shows as married; the spouse's own
+                            // profile stays untouched until someone happens to edit them separately.
+                            // Note: member_profiles keys its reciprocal field `spouseVisitorId`
+                            // (a visitor id) while people keys it `spousePersonId` (a people-doc
+                            // id) — they're deliberately different id spaces, matching how each
+                            // collection already stores this person's own spouse link above.
+                            const prevSpouseVisitorId = (() => {
+                              try { return JSON.parse(pcsSavedRef.current || '{}').spouseVisitorId || '' } catch { return '' }
+                            })()
+                            if (maritalStatus === 'Married' && spouseVisitorId) {
+                              const spouseEntry = pcsEntries.find(e => e.id === spouseVisitorId || e.visitorId === spouseVisitorId)
+                              if (spouseEntry) {
+                                if (spouseEntry.visitorId) {
+                                  upsertMemberProfile(spouseEntry.visitorId, {
+                                    maritalStatus: 'Married', marriageDate, spouseName: name, spouseVisitorId: entry.visitorId || '',
+                                  }, userProfile?.email || '').catch(() => {})
+                                }
+                                if (spouseEntry.personId) {
+                                  updatePerson(spouseEntry.personId, {
+                                    maritalStatus: 'Married', marriageDate, spouseName: name, spousePersonId: resolvedPersonId || '',
+                                  }, userProfile?.email || '').catch(() => {})
+                                }
+                              }
+                            }
+                            // The spouse link changed (picked someone new, cleared it, or marital
+                            // status moved off "Married") — unlink the old spouse's reciprocal
+                            // pointer too, but only if it still points back to this person, so we
+                            // never clobber a relationship they've since set with someone else in
+                            // the meantime. pcsEntries doesn't carry the reciprocal field itself, so
+                            // this reads the old spouse's own record fresh to check before clearing.
+                            if (prevSpouseVisitorId && (prevSpouseVisitorId !== spouseVisitorId || maritalStatus !== 'Married')) {
+                              const oldSpouseEntry = pcsEntries.find(e => e.id === prevSpouseVisitorId || e.visitorId === prevSpouseVisitorId)
+                              if (oldSpouseEntry) {
+                                if (oldSpouseEntry.visitorId) {
+                                  getMemberProfile(oldSpouseEntry.visitorId).then(p => {
+                                    if (p && p.spouseVisitorId === (entry.visitorId || '') && entry.visitorId) {
+                                      upsertMemberProfile(oldSpouseEntry.visitorId, { spouseName: '', spouseVisitorId: '' }, userProfile?.email || '').catch(() => {})
+                                    }
+                                  }).catch(() => {})
+                                }
+                                if (oldSpouseEntry.personId) {
+                                  getPerson(oldSpouseEntry.personId).then(p => {
+                                    if (p && p.spousePersonId === (resolvedPersonId || '') && resolvedPersonId) {
+                                      updatePerson(oldSpouseEntry.personId, { spouseName: '', spousePersonId: '' }, userProfile?.email || '').catch(() => {})
+                                    }
+                                  }).catch(() => {})
+                                }
+                              }
+                            }
+
                             if (savedPhotoUrl) setF(p => ({ ...p, photoUrl: savedPhotoUrl }))
                             pcsSavedRef.current = JSON.stringify(savedPhotoUrl ? { ...pcsExpandedForm, photoUrl: savedPhotoUrl } : pcsExpandedForm)
                             setPcsFormDirty(false)
@@ -9673,11 +9829,19 @@ export default function DepartmentHub() {
                                             )}
                                           </div>
                                           <div className="flex items-center gap-1.5 flex-wrap">
-                                            {m.visitorId ? (
-                                              <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">Linked</span>
-                                            ) : (
-                                              <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Unlinked</span>
-                                            )}
+                                            {(() => {
+                                              // A member with no saved visitorId but a phone match in the D-Light
+                                              // directory shows as Linked too — the auto-link effect above is
+                                              // already persisting this match; showing "Unlinked" here in the
+                                              // meantime would be a false-positive warning for a profile that
+                                              // does have a matching central record.
+                                              const autoMatched = m.visitorId ? null : findVisitorMatchForMember(m, cellVisitorsByPhone)
+                                              return (m.visitorId || autoMatched) ? (
+                                                <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Linked</span>
+                                              ) : (
+                                                <span title="No matching D-Light/PCS record found by phone — use Link to connect manually" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Unlinked</span>
+                                              )
+                                            })()}
                                           </div>
                                         </div>
                                       )
@@ -9846,11 +10010,19 @@ export default function DepartmentHub() {
                                             )}
                                           </div>
                                           <div className="flex items-center gap-1.5 flex-wrap">
-                                            {m.visitorId ? (
-                                              <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">Linked</span>
-                                            ) : (
-                                              <span title="Not linked to visitor entry" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Unlinked</span>
-                                            )}
+                                            {(() => {
+                                              // A member with no saved visitorId but a phone match in the D-Light
+                                              // directory shows as Linked too — the auto-link effect above is
+                                              // already persisting this match; showing "Unlinked" here in the
+                                              // meantime would be a false-positive warning for a profile that
+                                              // does have a matching central record.
+                                              const autoMatched = m.visitorId ? null : findVisitorMatchForMember(m, cellVisitorsByPhone)
+                                              return (m.visitorId || autoMatched) ? (
+                                                <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Linked</span>
+                                              ) : (
+                                                <span title="No matching D-Light/PCS record found by phone — use Link to connect manually" className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Unlinked</span>
+                                              )
+                                            })()}
                                           </div>
                                         </div>
                                       ))}

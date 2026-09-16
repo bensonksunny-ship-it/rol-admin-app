@@ -49,6 +49,23 @@ function formatWeekRange(weekStartISO) {
   return `${start.toLocaleDateString('en-IN', opts)} – ${end.toLocaleDateString('en-IN', opts)}`
 }
 
+// Colour system shared by the month divider and each week band's "Cells
+// Submitted" badge — a week/month's compliance is scored as a plain
+// percentage (submitted ÷ possible), then bucketed the same way regardless of
+// how many weeks that period actually has: 100% is "high" (10/10 style),
+// 60–99% is "medium" (6-9/10), below 60% is "low" (<6/10).
+function submissionTier(pct) {
+  if (pct >= 100) return 'high'
+  if (pct >= 60) return 'medium'
+  return 'low'
+}
+
+const TIER_STYLES = {
+  high:   { badgeCls: 'text-emerald-700 bg-emerald-50 border-emerald-100', barBg: 'bg-emerald-500', rowBg: 'bg-emerald-50/30',  borderColor: 'border-emerald-300' },
+  medium: { badgeCls: 'text-amber-700 bg-amber-50 border-amber-100',       barBg: 'bg-amber-500',   rowBg: 'bg-amber-50/30',    borderColor: 'border-amber-300' },
+  low:    { badgeCls: 'text-rose-700 bg-rose-50 border-rose-100',          barBg: 'bg-rose-500',    rowBg: 'bg-rose-50/30',     borderColor: 'border-rose-300' },
+}
+
 function formatDuration(minutes) {
   if (minutes == null || Number.isNaN(Number(minutes))) return '—'
   const m = Number(minutes)
@@ -526,11 +543,17 @@ export default function CellHistory({ embedded = false }) {
         const avgDurationMinutes = durations.length
           ? durations.reduce((s, m) => s + m, 0) / durations.length
           : null
+        // Bucketed by the week's own start date — a week straddling a month
+        // boundary counts toward the month it starts in, which is close enough
+        // for "which month am I scrolling through" at a glance.
+        const startDate = new Date(`${key}T00:00:00`)
         return {
           key,
           rows,
           isCurrentWeek: key === currentWeekKey,
           label: formatWeekRange(key),
+          monthKey: formatDateFns(startDate, 'yyyy-MM'),
+          monthLabel: formatDateFns(startDate, 'MMMM yyyy'),
           cellsSubmitted,
           totalCells: totalActiveCells,
           totalAttendance,
@@ -538,6 +561,24 @@ export default function CellHistory({ embedded = false }) {
         }
       })
   }, [sorted, currentWeekKey, totalActiveCells])
+
+  // Per-month compliance, aggregated across that month's own weeks — drives the
+  // MonthDivider's colour/bar so months read consistently even though each
+  // week's own badge is scored individually.
+  const monthStats = useMemo(() => {
+    const map = new Map()
+    weekGroups.forEach((g) => {
+      if (!map.has(g.monthKey)) map.set(g.monthKey, { label: g.monthLabel, submitted: 0, possible: 0 })
+      const m = map.get(g.monthKey)
+      m.submitted += g.cellsSubmitted
+      m.possible += g.totalCells
+    })
+    map.forEach((m) => {
+      m.pct = m.possible ? Math.round((m.submitted / m.possible) * 100) : 0
+      m.tier = submissionTier(m.pct)
+    })
+    return map
+  }, [weekGroups])
 
   // PDF export now happens per-week (icon button in each week's header band) rather
   // than one global "current week" button.
@@ -663,63 +704,73 @@ export default function CellHistory({ embedded = false }) {
     </div>
   )
 
-  const weeklyContent = (
-    <div className="space-y-6">
-      {weekGroups.map((group, idx) => {
-        const bandClasses = group.isCurrentWeek
-          ? 'bg-indigo-50/70 border-l-4 border-indigo-500'
-          : idx % 2 === 1
-            ? 'bg-slate-100/80 border-l-4 border-slate-300'
-            : 'bg-white border-l-4 border-slate-200'
-        const isExporting = exportingWeekKey === group.key
-        return (
-          <div key={group.key} className="space-y-3">
-            <div className={`rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2.5 ${bandClasses}`}>
-              <p className="text-sm font-black text-slate-800 uppercase tracking-wide whitespace-nowrap">
-                Week of {group.label}
-              </p>
-              {group.isCurrentWeek && (
-                <span className="text-[9px] font-bold text-indigo-600 bg-white border border-indigo-200 px-2 py-0.5 rounded-full whitespace-nowrap">
-                  Current
-                </span>
+  const weeklyContent = (() => {
+    let lastMonthKey = null
+    return (
+      <div className="space-y-6">
+        {weekGroups.map((group) => {
+          const weekPct = group.totalCells ? Math.round((group.cellsSubmitted / group.totalCells) * 100) : 0
+          const weekTier = submissionTier(weekPct)
+          const tierStyle = TIER_STYLES[weekTier]
+          const bandClasses = `${tierStyle.rowBg} border-l-4 ${group.isCurrentWeek ? 'border-indigo-500' : tierStyle.borderColor}`
+          const isExporting = exportingWeekKey === group.key
+          const showMonthDivider = group.monthKey !== lastMonthKey
+          lastMonthKey = group.monthKey
+          const monthStat = monthStats.get(group.monthKey)
+          return (
+            <Fragment key={group.key}>
+              {showMonthDivider && monthStat && (
+                <MonthDivider label={monthStat.label} pct={monthStat.pct} tier={monthStat.tier} />
               )}
+              <div className="space-y-3">
+                <div className={`rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2.5 ${bandClasses}`}>
+                  <p className="text-sm font-black text-slate-800 uppercase tracking-wide whitespace-nowrap">
+                    Week of {group.label}
+                  </p>
+                  {group.isCurrentWeek && (
+                    <span className="text-[9px] font-bold text-indigo-600 bg-white border border-indigo-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                      Current
+                    </span>
+                  )}
 
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] font-bold text-slate-600 bg-white/80 border border-slate-200 px-2 py-1 rounded-full whitespace-nowrap">
-                  {group.cellsSubmitted}/{group.totalCells} Cells Submitted
-                </span>
-                <span className="text-[10px] font-bold text-slate-600 bg-white/80 border border-slate-200 px-2 py-1 rounded-full whitespace-nowrap">
-                  Total Attendance: {group.totalAttendance}
-                </span>
-                {group.avgDurationMinutes != null && (
-                  <span className="text-[10px] font-bold text-slate-600 bg-white/80 border border-slate-200 px-2 py-1 rounded-full whitespace-nowrap">
-                    Avg Time: {formatDuration(Math.round(group.avgDurationMinutes))}
-                  </span>
-                )}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full border whitespace-nowrap ${tierStyle.badgeCls}`}>
+                      {group.cellsSubmitted}/{group.totalCells} Cells Submitted
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-600 bg-white/80 border border-slate-200 px-2 py-1 rounded-full whitespace-nowrap">
+                      Total Attendance: {group.totalAttendance}
+                    </span>
+                    {group.avgDurationMinutes != null && (
+                      <span className="text-[10px] font-bold text-slate-600 bg-white/80 border border-slate-200 px-2 py-1 rounded-full whitespace-nowrap">
+                        Avg Time: {formatDuration(Math.round(group.avgDurationMinutes))}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex-1" />
+
+                  {isDirector && (
+                    <button
+                      type="button"
+                      onClick={() => handleExportWeekPDF(group)}
+                      disabled={isExporting}
+                      title={`Download PDF summary for week of ${group.label}`}
+                      className="flex items-center justify-center w-8 h-8 rounded-xl text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 transition-all flex-shrink-0"
+                    >
+                      {isExporting
+                        ? <span className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+                        : <Download size={14} strokeWidth={2.5} />}
+                    </button>
+                  )}
+                </div>
+                {renderGrid(group.rows)}
               </div>
-
-              <div className="flex-1" />
-
-              {isDirector && (
-                <button
-                  type="button"
-                  onClick={() => handleExportWeekPDF(group)}
-                  disabled={isExporting}
-                  title={`Download PDF summary for week of ${group.label}`}
-                  className="flex items-center justify-center w-8 h-8 rounded-xl text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 transition-all flex-shrink-0"
-                >
-                  {isExporting
-                    ? <span className="w-3.5 h-3.5 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
-                    : <Download size={14} strokeWidth={2.5} />}
-                </button>
-              )}
-            </div>
-            {renderGrid(group.rows)}
-          </div>
-        )
-      })}
-    </div>
-  )
+            </Fragment>
+          )
+        })}
+      </div>
+    )
+  })()
 
   const deleteModal = (
     <AnimatePresence>
@@ -923,6 +974,25 @@ function StatCard({ icon, label, value, sub, accent }) {
         <p className={`text-2xl font-black mt-1 tracking-tight truncate ${accent.value}`} title={String(value)}>{value}</p>
         {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
       </div>
+    </div>
+  )
+}
+
+// ── Month Divider ──────────────────────────────────────────────────────────────
+// Sits above the first week band of each calendar month so a long, newest-first
+// list of weekly bands reads as distinct months at a glance — the bar fill and
+// badge share the same high/medium/low tier as that month's own weeks below it.
+function MonthDivider({ label, pct, tier }) {
+  const t = TIER_STYLES[tier]
+  return (
+    <div className="flex items-center gap-3 pt-1">
+      <p className="text-xs font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">{label}</p>
+      <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+        <div className={`h-full rounded-full ${t.barBg}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+      </div>
+      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${t.badgeCls}`}>
+        {pct}% Submitted
+      </span>
     </div>
   )
 }

@@ -451,14 +451,23 @@ service cloud.firestore {
           (userDepartment() == 'Cell' || 'Cell' in userDepartments()))
       );
     }
+    // First Lady's role name on `users/{uid}.role`, set via Admin User Management's
+    // Account Role override — mirrors isCellDirector()'s plain role-string check
+    // above, since First Lady isn't a positions[]-department role.
+    function isFirstLady() {
+      return isSignedIn() && getUserRole() == 'First Lady';
+    }
     match /cell_reports/{reportId} {
-      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(resource.data.cellId)));
+      // Caring Director and First Lady get read-only visibility into cell attendance
+      // (First Lady hub's PCS view tracks Sunday + Cell attendance per person) —
+      // write stays exactly as before, Cell-only.
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(resource.data.cellId)) || canAccessDept('Caring') || isFirstLady());
       allow create: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(request.resource.data.cellId)));
       allow update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(resource.data.cellId)));
       allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }
     match /cell_reports/{reportId}/attendees/{attendeeId} {
-      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))));
+      allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))) || canAccessDept('Caring') || isFirstLady());
       allow create, update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))));
       allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }

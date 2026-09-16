@@ -2205,8 +2205,43 @@ export async function getAllCellGroupMembers() {
   }))
 }
 
+// Normalise phone to 10 digits — same rule used across the app's other member-matching
+// helpers (ShepherdView.jsx, CellDirectorCockpit.jsx) for identifying the same person.
+function memberPhoneKey(raw) {
+  if (!raw) return ''
+  const digits = String(raw).replace(/\D/g, '')
+  if (digits.startsWith('91') && digits.length === 12) return digits.slice(2)
+  if (digits.startsWith('0') && digits.length === 11) return digits.slice(1)
+  return digits.length >= 10 ? digits : ''
+}
+
 export async function addCellGroupMember(cellId, data) {
-  if (!db || !cellId) return null
+  if (!db || !cellId) return { id: null, created: false }
+
+  // Duplicate guard — every UI path that adds a member (Assign from a referral,
+  // approving an "add" pending change, the Director's own Add Member form, the
+  // To-Do List's quick-add) funnels through this one function, so the check lives
+  // here instead of being re-implemented (inconsistently) at each call site. Scoped
+  // to *this* cell only — matches an existing active member by visitorId, then
+  // phone, then exact name — and is idempotent (returns the existing member's id
+  // rather than erroring), so a double-click or two independent flows racing to add
+  // the same person can't create a second roster entry for them.
+  const visitorId = data.visitorId || ''
+  const phoneKey = memberPhoneKey(data.phone)
+  const nameKey = String(data.name || '').trim().toLowerCase()
+  let existingMembers = null
+  if ((data.status !== 'inactive') && (visitorId || phoneKey || nameKey)) {
+    existingMembers = await getCellGroupMembers(cellId)
+    const dupe = existingMembers.find((m) => {
+      if (m.status === 'inactive') return false
+      if (visitorId && m.visitorId === visitorId) return true
+      if (phoneKey && memberPhoneKey(m.phone) === phoneKey) return true
+      if (nameKey && String(m.name || '').trim().toLowerCase() === nameKey) return true
+      return false
+    })
+    if (dupe) return { id: dupe.id, created: false }
+  }
+
   const ref = await addDoc(cellGroupMembersRef(cellId), {
     name:        data.name        || '',
     phone:       data.phone       || '',
@@ -2223,9 +2258,9 @@ export async function addCellGroupMember(cellId, data) {
     status: data.status === 'inactive' ? 'inactive' : 'active',
     createdAt: Timestamp.now(),
   })
-  const members = await getCellGroupMembers(cellId)
-  await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId), { memberCount: members.length })
-  return ref.id
+  const memberCount = existingMembers ? existingMembers.length + 1 : (await getCellGroupMembers(cellId)).length
+  await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId), { memberCount })
+  return { id: ref.id, created: true }
 }
 
 export async function updateCellGroupMember(cellId, memberId, data) {
@@ -2766,6 +2801,7 @@ export async function getCellReportAttendees(reportId) {
       anniversary: data.anniversary || '',
       phone: data.phone || '',
       locality: data.locality || '',
+      isVisitor: !!data.isVisitor,
     }
   })
 }
@@ -4707,6 +4743,7 @@ export async function updateCellReportFull(row, { attendees, segmentTimings, she
       anniversary: a.anniversary || '',
       phone: a.phone || '',
       locality: a.locality || '',
+      isVisitor: !!a.isVisitor,
     })
   }
   await addBatch.commit()
@@ -5511,6 +5548,7 @@ export async function getMemberProfile(visitorId) {
     dob:              d.dob              || '',
     nativity:         d.nativity         || '',
     currentPlace:     d.currentPlace     || '',
+    gender:           d.gender           || '',
     baptised:         d.baptised         || '',
     baptismDate:      d.baptismDate      || '',
     baptismPlace:     d.baptismPlace     || '',
@@ -5539,11 +5577,29 @@ export async function getMemberProfile(visitorId) {
   }
 }
 
+// Lightweight bulk read for Family View grouping (First Lady hub) — just the
+// relationship fields, not getMemberProfile()'s full per-person shape, since
+// this reads every profile in the collection at once.
+export async function getAllFamilyLinks() {
+  if (!db) return new Map()
+  const snap = await getDocs(collection(db, MEMBER_PROFILES_COLLECTION))
+  const map = new Map()
+  snap.docs.forEach((d) => {
+    const data = d.data()
+    map.set(d.id, {
+      spouseVisitorId: data.spouseVisitorId || '',
+      children: Array.isArray(data.children) ? data.children.filter((c) => c?.name) : [],
+      gender: data.gender || '',
+    })
+  })
+  return map
+}
+
 export async function upsertMemberProfile(visitorId, data, updatedBy = '') {
   if (!db || !visitorId) return
   const payload = {}
   const allowed = [
-    'phone','email','dob','nativity','currentPlace',
+    'phone','email','dob','nativity','currentPlace','gender',
     'baptised','baptismDate','baptismPlace','baptismChurch','maritalStatus','marriageDate','spouseName','spouseVisitorId',
     'isDirector','directorOf','directorSince','leaderSince','leaderUntil','ministryNotes',
     'ministryHistory','membershipStatus','membershipDocs','permanentAddress','photoUrl',

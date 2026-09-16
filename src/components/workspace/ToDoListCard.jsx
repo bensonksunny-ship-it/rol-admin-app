@@ -226,7 +226,7 @@ export default function ToDoListCard() {
     if (!cellId || assigningId) return
     setAssigningId(t.id)
     try {
-      await addCellGroupMember(cellId, {
+      const { created } = await addCellGroupMember(cellId, {
         name: t.consultPersonName || t.taskTitle || 'Unassigned',
         status: 'active',
         ...(t.consultPersonPhone ? { phone: t.consultPersonPhone } : {}),
@@ -238,7 +238,9 @@ export default function ToDoListCard() {
         try { await markTaskCompleted(t.sourceConsultTaskId) } catch { /* non-fatal */ }
       }
       const cellName = activeCells.find((c) => c.id === cellId)?.cellName || 'the cell'
-      showToast(`${t.consultPersonName || 'Member'} assigned to ${cellName}.`)
+      showToast(created
+        ? `${t.consultPersonName || 'Member'} assigned to ${cellName}.`
+        : `${t.consultPersonName || 'Member'} was already in ${cellName} — task cleared.`)
     } catch {
       showToast('Failed to assign. Please try again.', 'error')
     } finally {

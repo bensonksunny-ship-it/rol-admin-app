@@ -70,6 +70,7 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
           anniversary: a.anniversary,
           phone: a.phone,
           locality: a.locality,
+          isVisitor: !!a.isVisitor,
         })))
         if (sessionData) {
           setSegmentTimings(
@@ -131,6 +132,18 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
 
   function removeAttendee(index) {
     setAttendees((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function addVisitor(name, phone) {
+    const trimmedName = String(name || '').trim()
+    if (!trimmedName) return
+    setAttendees((prev) => {
+      const alreadyPresent = prev.some(
+        (a) => String(a.name || '').trim().toLowerCase() === trimmedName.toLowerCase()
+      )
+      if (alreadyPresent) return prev
+      return [...prev, { memberId: null, name: trimmedName, phone: String(phone || '').trim(), birthday: '', anniversary: '', locality: '', isVisitor: true }]
+    })
   }
 
   function addSegment() {
@@ -285,6 +298,7 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
                   allMembers={allMembers}
                   onAdd={addAttendee}
                   onRemove={removeAttendee}
+                  onAddVisitor={addVisitor}
                 />
               )}
               {activeTab === 'Timing' && (
@@ -302,7 +316,7 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
               )}
               {activeTab === 'Counts' && (
                 <CountsTab
-                  membersAttended={attendees.length}
+                  membersAttended={attendees.filter((a) => !a.isVisitor).length}
                   visitors={visitors}
                   children={children}
                   onVisitorsChange={setVisitors}
@@ -345,10 +359,17 @@ export default function EditReportSheet({ row, isNew = false, cellGroups = [], l
 
 // ── Tab sub-components ────────────────────────────────────────────────────────
 
-function AttendanceTab({ attendees, allMembers, onAdd, onRemove }) {
+function AttendanceTab({ attendees, allMembers, onAdd, onRemove, onAddVisitor }) {
   const [search, setSearch] = useState('')
+  const [showVisitorForm, setShowVisitorForm] = useState(false)
+  const [visitorName, setVisitorName] = useState('')
+  const [visitorPhone, setVisitorPhone] = useState('')
 
   const presentSet = new Set(attendees.map((a) => String(a.name || '').trim().toLowerCase()))
+  const memberCount = attendees.filter((a) => !a.isVisitor).length
+  const visitorEntries = attendees
+    .map((a, i) => ({ ...a, index: i }))
+    .filter((a) => a.isVisitor)
 
   const filtered = allMembers.filter(
     (m) => !search.trim() || m.name.toLowerCase().includes(search.trim().toLowerCase())
@@ -365,10 +386,18 @@ function AttendanceTab({ attendees, allMembers, onAdd, onRemove }) {
     }
   }
 
+  function submitVisitor() {
+    if (!visitorName.trim()) return
+    onAddVisitor(visitorName, visitorPhone)
+    setVisitorName('')
+    setVisitorPhone('')
+    setShowVisitorForm(false)
+  }
+
   return (
     <div className="space-y-3">
       <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-        👥 Members Attended — {attendees.length}
+        👥 Members Attended — {memberCount}
       </p>
 
       {allMembers.length === 0 ? (
@@ -411,6 +440,81 @@ function AttendanceTab({ attendees, allMembers, onAdd, onRemove }) {
           </div>
         </>
       )}
+
+      <div className="pt-3 mt-3 border-t border-slate-100 space-y-2">
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+          🙋 Visitors — {visitorEntries.length}
+        </p>
+
+        {visitorEntries.map((v) => (
+          <div
+            key={v.id || v.index}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border bg-emerald-50 border-emerald-200"
+          >
+            <span className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[11px] font-bold bg-emerald-500 text-white">✓</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-800 truncate">{v.name}</span>
+                <span className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">Visitor</span>
+              </div>
+              {v.phone && <p className="text-xs text-slate-500">{v.phone}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={() => onRemove(v.index)}
+              className="text-slate-300 hover:text-red-400 transition-colors font-bold text-lg leading-none flex-shrink-0"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+
+        {showVisitorForm ? (
+          <div className="space-y-2 p-3 rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40">
+            <input
+              type="text"
+              value={visitorName}
+              onChange={(e) => setVisitorName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitVisitor() } }}
+              placeholder="Visitor name"
+              autoFocus
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+            <input
+              type="tel"
+              value={visitorPhone}
+              onChange={(e) => setVisitorPhone(e.target.value)}
+              placeholder="Phone number (optional)"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setShowVisitorForm(false); setVisitorName(''); setVisitorPhone('') }}
+                className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitVisitor}
+                disabled={!visitorName.trim()}
+                className="flex-1 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-all disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowVisitorForm(true)}
+            className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-sm font-medium hover:border-indigo-300 hover:text-indigo-500 transition-all"
+          >
+            + Add Visitor
+          </button>
+        )}
+      </div>
     </div>
   )
 }

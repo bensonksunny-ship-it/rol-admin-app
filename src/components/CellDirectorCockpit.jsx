@@ -30,6 +30,15 @@ function initials(name) {
     .join('')
 }
 
+// Normalise phone to 10 digits — same rule ShepherdView.jsx uses for member matching.
+function phoneKey(raw) {
+  if (!raw) return ''
+  const digits = String(raw).replace(/\D/g, '')
+  if (digits.startsWith('91') && digits.length === 12) return digits.slice(2)
+  if (digits.startsWith('0') && digits.length === 11) return digits.slice(1)
+  return digits.length >= 10 ? digits : ''
+}
+
 const CHANGE_TYPE_STYLES = {
   add:        'bg-emerald-100 text-emerald-700',
   deactivate: 'bg-red-100 text-red-700',
@@ -181,6 +190,15 @@ export function CellDirectorCockpit({
           names: active
             .map((m) => String(m.name || '').trim().toLowerCase())
             .filter(Boolean),
+          // Identity fields kept per-member (not just the flattened `names` above) so
+          // referral/recommendation rows can be matched by visitorId/phone too — a
+          // name-only match misses nicknames/typos and was the root cause of members
+          // who'd already been added still showing up as a pending recommendation.
+          members: active.map((m) => ({
+            nameKey: String(m.name || '').trim().toLowerCase(),
+            visitorId: m.visitorId || '',
+            phoneKey: phoneKey(m.phone),
+          })),
         }
       })
     )
@@ -197,6 +215,32 @@ export function CellDirectorCockpit({
     () => new Set(cellMemberData.flatMap((c) => c.names)),
     [cellMemberData]
   )
+
+  // Full-membership identity index (visitorId / phone / name), used to auto-resolve
+  // referral & recommendation rows for people who've already been added to a cell —
+  // regardless of *how* they were added (this component's own Assign button, the
+  // weekly Cell Report's approval flow, a Director adding directly, a transfer, etc).
+  const memberIdentity = useMemo(() => {
+    const byVisitorId = new Set()
+    const byPhone = new Set()
+    const byName = new Set()
+    cellMemberData.forEach((c) => (c.members || []).forEach((m) => {
+      if (m.visitorId) byVisitorId.add(m.visitorId)
+      if (m.phoneKey) byPhone.add(m.phoneKey)
+      if (m.nameKey) byName.add(m.nameKey)
+    }))
+    return { byVisitorId, byPhone, byName }
+  }, [cellMemberData])
+
+  // Same visitorId → phone → name priority already used to dedupe referrals below.
+  const isAlreadyCellMember = useCallback((item) => {
+    if (item.visitorId && memberIdentity.byVisitorId.has(item.visitorId)) return true
+    const ph = phoneKey(item.phone)
+    if (ph && memberIdentity.byPhone.has(ph)) return true
+    const nameKey = String(item.name || '').trim().toLowerCase()
+    if (nameKey && memberIdentity.byName.has(nameKey)) return true
+    return false
+  }, [memberIdentity])
 
   // This week's cell reports — joined onto growthData so the chart can compare
   // active member count against who actually attended this week's meeting.
@@ -310,15 +354,43 @@ export function CellDirectorCockpit({
       .map(v => ({ ...v, source: 'sunday', id: `sunday-${v.name.toLowerCase()}` }))
     // PCS referrals come first; deduplicate against the Sunday list by name (cross-
     // source overlap — a PCS referral for someone who also showed up in Sunday
-    // attendance shouldn't render twice).
+    // attendance shouldn't render twice). Also drop anyone who's already an active
+    // cell member — the self-healing effect below completes their referral task in
+    // Firestore too, but that write can lag a render or two behind this filter.
     const sundayNames = new Set(sundayItems.map(v => v.name.toLowerCase()))
     const pcsItems = pcsReferrals.filter(
       r => !assignedNames.has(r.name.toLowerCase()) &&
            !dismissedTaskIds.has(r.taskId) &&
-           !sundayNames.has(r.name.toLowerCase())
+           !sundayNames.has(r.name.toLowerCase()) &&
+           !isAlreadyCellMember(r)
     )
     return [...pcsItems, ...sundayItems]
-  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames, restoredNames, dismissedTaskIds])
+  }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames, restoredNames, dismissedTaskIds, isAlreadyCellMember])
+
+  // Self-healing: a referral/recommendation task only ever gets marked Completed
+  // when someone clicks Assign in *this* drawer — but the person it's about can be
+  // added to a cell through several other paths (weekly Cell Report approval, a
+  // Director adding them directly, a transfer landing them in this cell, etc.), none
+  // of which know the referral task exists. Left alone, that task sits "Pending"
+  // forever and the person keeps showing up here as a stale recommendation. Once
+  // membership data shows they're already in a cell, close the task out for real —
+  // this fixes it in Firestore (so it's gone for every viewer, not just hidden
+  // locally) rather than only filtering it out of visibleUnassigned above.
+  const autoResolvedTaskIdsRef = useRef(new Set())
+  useEffect(() => {
+    if (loadingMembers) return
+    pcsReferrals.forEach((r) => {
+      if (!r.taskId || autoResolvedTaskIdsRef.current.has(r.taskId)) return
+      if (!isAlreadyCellMember(r)) return
+      autoResolvedTaskIdsRef.current.add(r.taskId)
+      updateTask(r.taskId, { status: 'Completed' })
+        .then(() => onTaskUpdated?.(r.taskId, { status: 'Completed' }))
+        .catch((err) => {
+          console.error('Failed to auto-resolve stale referral for already-added member', r.name, err)
+          autoResolvedTaskIdsRef.current.delete(r.taskId)
+        })
+    })
+  }, [pcsReferrals, isAlreadyCellMember, loadingMembers, onTaskUpdated])
 
   // Reverses a dismiss — used by the "Undo" action on the dismiss toast. Mirrors
   // handleRemove's own branch (task-backed vs. name-backed) in reverse.
@@ -454,7 +526,7 @@ export function CellDirectorCockpit({
       if (!targetCellId) return
       setAssigning(true)
       try {
-        await addCellGroupMember(targetCellId, {
+        const { created } = await addCellGroupMember(targetCellId, {
           name: item.name,
           status: 'active',
           ...(item.phone ? { phone: item.phone } : {}),
@@ -473,16 +545,23 @@ export function CellDirectorCockpit({
           try { await updateTask(consultTask.id, { status: 'Completed' }) } catch { /* non-fatal */ }
         }
         setAssignedNames((prev) => new Set([...prev, item.name.toLowerCase()]))
-        // Patch the cell's roster locally so Total Members / growth chart / the
-        // Sunday-visitor recompute all reflect the new member immediately —
-        // without this they stay stale until the component remounts.
-        setCellMemberData((prev) => prev.map((c) =>
-          c.cellId === targetCellId
-            ? { ...c, memberCount: c.memberCount + 1, names: [...c.names, item.name.toLowerCase()] }
-            : c
-        ))
         const cellName = activeCells.find((c) => c.id === targetCellId)?.cellName || 'cell'
-        showToast(`${item.name} added to ${cellName}.`)
+        if (created) {
+          // Patch the cell's roster locally so Total Members / growth chart / the
+          // Sunday-visitor recompute all reflect the new member immediately —
+          // without this they stay stale until the component remounts.
+          setCellMemberData((prev) => prev.map((c) =>
+            c.cellId === targetCellId
+              ? { ...c, memberCount: c.memberCount + 1, names: [...c.names, item.name.toLowerCase()] }
+              : c
+          ))
+          showToast(`${item.name} added to ${cellName}.`)
+        } else {
+          // Already an active member there (e.g. someone else assigned them first,
+          // or they were added through a different path) — the referral/consult
+          // above is still cleared out, but don't double-count them in the roster.
+          showToast(`${item.name} was already in ${cellName} — referral cleared.`)
+        }
         setAssignOpenName(null)
         setAssignSelectedCellId('')
       } catch (err) {

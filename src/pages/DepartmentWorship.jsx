@@ -1,7 +1,7 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2 } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2 } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -164,6 +164,16 @@ const ROLE_GROUP_THEMES = {
     avatar: 'bg-amber-500',
     cardEdge: 'border-l-amber-400',
   },
+}
+
+// Inline-hex twin of ROLE_GROUP_THEMES above, for the off-screen "Share Plan"
+// render — that capture target is styled entirely in inline hex (see
+// handleSharePlan), not Tailwind classes, so it can't reuse the `pill`/`cardEdge`
+// class strings here.
+const SHARE_ROLE_ACCENT = {
+  vocals: { bg: '#eef2ff', line: '#6366f1' },
+  band: { bg: '#ecfdf5', line: '#10b981' },
+  technical: { bg: '#fffbeb', line: '#f59e0b' },
 }
 
 const ROLE_CATEGORY_GROUP = {
@@ -1593,6 +1603,12 @@ export default function DepartmentWorship() {
   // assigned + linked song titles) — the interactive selects/song-search fields and
   // Save Plan button only mount once this flips true via the "Edit Plan" button.
   const [isEditing, setIsEditing] = useState(false)
+  // "Share Plan" — captures a dedicated off-screen share render (built below the
+  // on-screen table, not the interactive table itself) as an image and copies it
+  // to the clipboard so it can be pasted straight into a WhatsApp chat.
+  const assignTableRef = useRef(null)
+  const [sharingPlan, setSharingPlan] = useState(false)
+  const [shareToastVisible, setShareToastVisible] = useState(false)
   const [assignStamp, setAssignStamp] = useState(null)
   const [stampOpen, setStampOpen] = useState(false)
   const [archiveSchedules, setArchiveSchedules] = useState([])
@@ -1998,6 +2014,45 @@ export default function DepartmentWorship() {
       alert('Failed to save')
     } finally {
       setSavingAssign(false)
+    }
+  }
+
+  // Captures the off-screen share render (built below the on-screen table, styled
+  // entirely in inline hex — see SHARE_ROLE_ACCENT — for a clean standalone image
+  // instead of a screenshot of the cramped, interaction-styled live table) as a
+  // PNG and copies it to the clipboard. Uses html2canvas-pro (not the plain
+  // html2canvas already used for PDF exports elsewhere in this app) as a
+  // belt-and-suspenders guard: html2canvas 1.x can't parse Tailwind v4's oklch()
+  // palette ("Attempting to parse an unsupported color function"), and while this
+  // render shouldn't ever emit oklch (all inline hex), html2canvas-pro's native
+  // oklch/oklab/lch/lab support means it doesn't matter if something slips through.
+  // The clipboard write uses 'image/png' rather than the spec's 'image/jpeg' —
+  // Chrome/Edge/Firefox's Async Clipboard API only reliably accepts 'image/png'
+  // (and 'text/plain'/'text/html') as a ClipboardItem type; writing a JPEG blob
+  // under an 'image/png' key throws, and 'image/jpeg' itself isn't a supported
+  // write type in most of these browsers.
+  async function handleSharePlan() {
+    if (!assignTableRef.current) return
+    setSharingPlan(true)
+    try {
+      const html2canvasMod = await import('html2canvas-pro')
+      const html2canvas = html2canvasMod.default || html2canvasMod
+      const canvas = await html2canvas(assignTableRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+      })
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+      if (!blob) throw new Error('Could not create image')
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      setShareToastVisible(true)
+      setTimeout(() => setShareToastVisible(false), 3000)
+    } catch (e) {
+      console.error('Error sharing plan:', e)
+      const detail = e?.message ? ` (${String(e.message).slice(0, 140)})` : ''
+      alert(`Could not copy the plan as an image. Try again.${detail}`)
+    } finally {
+      setSharingPlan(false)
     }
   }
 
@@ -2448,13 +2503,23 @@ export default function DepartmentWorship() {
                       </button>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => setIsEditing(true)}
-                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 text-sm font-semibold hover:bg-amber-100 transition-colors"
-                    >
-                      <Pencil size={14} /> Edit Plan
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleSharePlan}
+                        disabled={sharingPlan}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60 transition-colors"
+                      >
+                        <Share2 size={14} /> {sharingPlan ? 'Copying...' : 'Share Plan'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 text-sm font-semibold hover:bg-amber-100 transition-colors"
+                      >
+                        <Pencil size={14} /> Edit Plan
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -2644,10 +2709,85 @@ export default function DepartmentWorship() {
                     ))}
                   </tbody>
                 </table>
+
+                {/* Off-screen, purpose-built render for "Share Plan" (handleSharePlan
+                    captures this, not the interactive content above). The on-screen
+                    table/cards are sized for editing — a wide 900px table, hover
+                    states, responsive breakpoints — and make a cramped, awkward
+                    screenshot. This is a fixed single-column layout with its own
+                    header/date and generous padding, positioned off-canvas via a
+                    large negative offset (not display:none, which html2canvas can't
+                    lay out or capture) rather than visually hidden on the page. */}
+                <div
+                  ref={assignTableRef}
+                  aria-hidden="true"
+                  style={{ position: 'fixed', top: 0, left: '-99999px', zIndex: -1, width: 480, background: '#ffffff' }}
+                >
+                  <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #10b981 55%, #f59e0b 100%)', padding: '22px 26px' }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase' }}>
+                      River Of Life · Worship
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', marginTop: 6, lineHeight: 1.25 }}>
+                      Assign Worship Team
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.92)', marginTop: 4 }}>
+                      {format(new Date(selectedDate + 'T12:00:00'), 'EEEE, d MMMM yyyy')}
+                    </div>
+                  </div>
+                  <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {assignRows.map(({ role, isLeadVocal }) => {
+                      const memberId = getLocalField(role, 'memberId')
+                      const memberName = getLocalField(role, 'memberName')
+                      const songName = isLeadVocal ? getLocalField(role, 'songName') : ''
+                      const songKeyVal = isLeadVocal ? getLocalField(role, 'key') : ''
+                      const songId = isLeadVocal ? getLocalField(role, 'songId') : ''
+                      const linkedSong = songId ? songs.find((s) => s.id === songId) : null
+                      const accent = SHARE_ROLE_ACCENT[ROLE_CATEGORY_GROUP[parseRoleKey(role).category] || 'band']
+                      return (
+                        <div key={role} style={{
+                          display: 'flex', flexDirection: 'column', gap: 3,
+                          padding: '11px 14px', borderRadius: 10,
+                          background: accent.bg, borderLeft: `4px solid ${accent.line}`,
+                        }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: accent.line }}>
+                            {roleDisplayLabel(role)}
+                          </span>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: memberId ? '#1e293b' : '#94a3b8', fontStyle: memberId ? 'normal' : 'italic' }}>
+                            {memberId ? memberName : 'Unassigned'}
+                          </span>
+                          {(songName || linkedSong) && (
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: '#4338ca' }}>
+                              🎵 {songName || linkedSong?.title}
+                              {(songKeyVal || linkedSong?.key) ? ` · Key ${songKeyVal || linkedSong?.key}` : ''}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div style={{ padding: '4px 22px 20px', textAlign: 'center', fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
+                    Generated from ROL Admin App
+                  </div>
+                </div>
                 </>
                 )
               })()}
             </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* "Plan copied as image" confirmation for the Share Plan button above. */}
+          <AnimatePresence>
+            {shareToastVisible && (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 16 }}
+                className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-slate-900 text-white text-sm font-medium shadow-lg"
+              >
+                <CheckCircle2 size={16} className="text-emerald-400" />
+                Plan copied as image! Paste directly into WhatsApp
+              </motion.div>
             )}
           </AnimatePresence>
 
