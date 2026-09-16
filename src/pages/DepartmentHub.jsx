@@ -141,7 +141,6 @@ import { ROLES } from '../constants/roles'
 import { SAVINGS_FUNDS } from '../constants/savingsFunds'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
-import { computeWeekComerCandidates } from '../utils/weekComers'
 import { differenceInDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate } from '../utils/date'
 import useSeniorPastor from '../hooks/useSeniorPastor'
@@ -556,26 +555,20 @@ export default function DepartmentHub() {
   const [delightVisitors, setDelightVisitors] = useState([])
   const [loadingDelightVisitors, setLoadingDelightVisitors] = useState(false)
   const [visitorSundayCounts, setVisitorSundayCounts] = useState(new Map())
-  // Week-comer follow-up: which Sunday's report to mark, and the candidate names for
-  // second/third/fourth week comers, sourced from D-Light attendedDate + last week's
-  // confirmed Sunday Ministry attendance (see the effect that populates these).
-  // Must always be a Sunday — this date is the doc ID of the sunday_reports report being
-  // written into, and Sunday Ministry attendance only exists per-Sunday.
-  const [weekComerDate, setWeekComerDate] = useState(() => upcomingSunday())
-  const [weekComerDateWarning, setWeekComerDateWarning] = useState(false)
-  const [weekComerCandidates, setWeekComerCandidates] = useState({ second: [], third: [], fourth: [] })
-  const [loadingWeekComerCandidates, setLoadingWeekComerCandidates] = useState(false)
-  const [markingWeekComerName, setMarkingWeekComerName] = useState(null)
-  // All active cell members across every cell, for the mark-present routing below:
-  // a person already in a cell gets checked into that cell's Sunday attendance;
-  // everyone else gets checked into Non Cell.
-  const [weekComerCellMembers, setWeekComerCellMembers] = useState([])
-  // Manual search-and-add escape hatch per card — for visitors the automatic filters
-  // miss (e.g. they came back after a longer gap than the window covers). No
-  // validation against the card's own filter; any D-Light visitor can be added to
-  // any bucket.
-  const [weekComerAddOpenBucket, setWeekComerAddOpenBucket] = useState(null)
-  const [weekComerAddQuery, setWeekComerAddQuery] = useState('')
+  // Inline Sunday Worship attendance toggle (Visitor Entry table): which Sunday's
+  // report the column reflects/writes to, and the set of lowercased names already
+  // present in that Sunday's report (nonCell + every cell's sundayCellAttendance
+  // combined) — drives each row's Attended/not badge. Must always be a Sunday —
+  // this date is the doc ID of the sunday_reports report being read/written.
+  const [visitorAttendanceDate, setVisitorAttendanceDate] = useState(() => upcomingSunday())
+  const [visitorAttendanceDateWarning, setVisitorAttendanceDateWarning] = useState(false)
+  const [sundayAttendanceNames, setSundayAttendanceNames] = useState(new Set())
+  const [loadingSundayAttendanceNames, setLoadingSundayAttendanceNames] = useState(false)
+  const [togglingVisitorName, setTogglingVisitorName] = useState(null)
+  // All active cell members across every cell, for the toggle's routing: a person
+  // already in a cell gets checked into that cell's Sunday attendance; everyone
+  // else gets checked into Non Cell.
+  const [visitorAttendanceCellMembers, setVisitorAttendanceCellMembers] = useState([])
   const [delightVisitorModalOpen, setDelightVisitorModalOpen] = useState(false)
   const [editingDelightVisitorId, setEditingDelightVisitorId] = useState(null)
   const [_importingVisitors, setImportingVisitors] = useState(false)
@@ -1575,68 +1568,74 @@ export default function DepartmentHub() {
     getSundayAttendanceCountsByName().then(setVisitorSundayCounts).catch(() => setVisitorSundayCounts(new Map()))
   }, [slug, activeTab])
 
-  // Second/Third/Fourth week comer candidates for the Follow-Up panel. Shared with the
-  // Sunday Ministry Report page via computeWeekComerCandidates() (src/utils/weekComers.js)
-  // so both surfaces always suggest the same people — see that file for the exact rules.
   useEffect(() => {
     if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
-    setLoadingWeekComerCandidates(true)
-    computeWeekComerCandidates(weekComerDate, delightVisitors)
-      .then(setWeekComerCandidates)
-      .catch(() => setWeekComerCandidates({ second: [], third: [], fourth: [] }))
-      .finally(() => setLoadingWeekComerCandidates(false))
-  }, [slug, activeTab, weekComerDate, delightVisitors])
-
-  useEffect(() => {
-    if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
-    getAllCellGroupMembers().then(setWeekComerCellMembers).catch(() => setWeekComerCellMembers([]))
+    getAllCellGroupMembers().then(setVisitorAttendanceCellMembers).catch(() => setVisitorAttendanceCellMembers([]))
   }, [slug, activeTab])
 
-  // Marking someone present from the Follow-Up panel routes their attendance straight
-  // into the Sunday Ministry Report for weekComerDate — into their own cell's roster if
-  // they're an active cell member, otherwise into Non Cell — instead of a separate
-  // "Nth Week Attendees" bucket, so they're counted exactly once in that Sunday's total.
-  const markWeekComer = async (bucket, name) => {
-    setMarkingWeekComerName(name)
-    try {
-      const trimmedName = name.trim()
-      const norm = trimmedName.toLowerCase()
-      const updatedBy = userProfile?.email || userProfile?.displayName || 'unknown'
-      const current = await getSundayReport(weekComerDate)
+  // Names already present in visitorAttendanceDate's Sunday report — nonCell plus
+  // every cell's sundayCellAttendance combined — drives each row's inline
+  // Attended/not toggle state. Refetched whenever the selected Sunday changes.
+  useEffect(() => {
+    if (slug !== 'd-light' || activeTab !== 'visitorEntry') return
+    setLoadingSundayAttendanceNames(true)
+    getSundayReport(visitorAttendanceDate)
+      .then((report) => {
+        const names = new Set()
+        ;(report?.nonCell || []).forEach((n) => names.add(String(n).trim().toLowerCase()))
+        Object.values(report?.sundayCellAttendance || {}).forEach((list) => {
+          (list || []).forEach((n) => names.add(String(n).trim().toLowerCase()))
+        })
+        setSundayAttendanceNames(names)
+      })
+      .catch(() => setSundayAttendanceNames(new Set()))
+      .finally(() => setLoadingSundayAttendanceNames(false))
+  }, [slug, activeTab, visitorAttendanceDate])
 
-      const membership = weekComerCellMembers.find((m) =>
+  // Inline toggle in the Visitor Entry table — writes/removes the name straight in
+  // the Sunday Ministry Report for visitorAttendanceDate: into their own cell's
+  // roster if they're an active cell member, otherwise into Non Cell. Optimistic,
+  // reverted on failure so a failed write doesn't look like a successful one.
+  const toggleVisitorSundayAttendance = async (visitor) => {
+    const trimmedName = String(visitor.name || '').trim()
+    if (!trimmedName) return
+    const norm = trimmedName.toLowerCase()
+    const wasPresent = sundayAttendanceNames.has(norm)
+    setTogglingVisitorName(norm)
+    setSundayAttendanceNames((prev) => {
+      const next = new Set(prev)
+      if (wasPresent) next.delete(norm)
+      else next.add(norm)
+      return next
+    })
+    try {
+      const updatedBy = userProfile?.email || userProfile?.displayName || 'unknown'
+      const current = await getSundayReport(visitorAttendanceDate)
+      const membership = visitorAttendanceCellMembers.find((m) =>
         m.status !== 'inactive' && String(m.name || '').trim().toLowerCase() === norm
       )
+      const applyNext = (existing) => wasPresent
+        ? existing.filter((n) => String(n).trim().toLowerCase() !== norm)
+        : (existing.some((n) => String(n).trim().toLowerCase() === norm) ? existing : [...existing, trimmedName])
 
       if (membership) {
-        const existing = current?.sundayCellAttendance?.[membership.cellId] || []
-        const next = existing.some((n) => String(n).trim().toLowerCase() === norm) ? existing : [...existing, trimmedName]
-        await patchSundayReportCellAttendance(weekComerDate, membership.cellId, next, updatedBy)
+        const next = applyNext(current?.sundayCellAttendance?.[membership.cellId] || [])
+        await patchSundayReportCellAttendance(visitorAttendanceDate, membership.cellId, next, updatedBy)
       } else {
-        const existing = current?.nonCell || []
-        const next = existing.some((n) => String(n).trim().toLowerCase() === norm) ? existing : [...existing, trimmedName]
-        await patchSundayReportNameField(weekComerDate, 'nonCell', next, updatedBy)
+        const next = applyNext(current?.nonCell || [])
+        await patchSundayReportNameField(visitorAttendanceDate, 'nonCell', next, updatedBy)
       }
-
-      setWeekComerCandidates((prev) => ({ ...prev, [bucket]: prev[bucket].filter((n) => n !== name) }))
-    } catch {
-      alert('Failed to add — please try again.')
+    } catch (err) {
+      console.error('Failed to toggle Sunday attendance', trimmedName, err)
+      setSundayAttendanceNames((prev) => {
+        const next = new Set(prev)
+        if (wasPresent) next.add(norm)
+        else next.delete(norm)
+        return next
+      })
+      alert('Failed to update attendance — please try again.')
     }
-    setMarkingWeekComerName(null)
-  }
-
-  // Manual search-and-add: appends a name straight to the local candidate list (no
-  // Firestore write until it's actually tapped via markWeekComer) so it renders and
-  // behaves exactly like an auto-recommended chip.
-  const addManualWeekComerCandidate = (bucket, name) => {
-    const norm = name.trim().toLowerCase()
-    setWeekComerCandidates((prev) =>
-      prev[bucket].some((n) => n.trim().toLowerCase() === norm)
-        ? prev
-        : { ...prev, [bucket]: [...prev[bucket], name.trim()] }
-    )
-    setWeekComerAddOpenBucket(null)
-    setWeekComerAddQuery('')
+    setTogglingVisitorName(null)
   }
 
   // Backs the "Add Member" person picker on every department's Team tab.
@@ -3442,131 +3441,40 @@ export default function DepartmentHub() {
                 )}
               </div>
 
-              {/* Follow-Up: mark returning visitors as 2nd/3rd/4th week comers — writes straight
-                  into that Sunday's report on Sunday Ministry's side. */}
+              {/* Sunday selector for the inline Sunday Worship toggle column below —
+                  replaces the old separate Follow-Up: Week Comers panel. Tapping the
+                  toggle on a row writes/removes that name straight into this Sunday's
+                  attendance report on Sunday Ministry's side. */}
               {canEditDelightVisitors && (
-                <div className="px-5 py-4 border-b border-slate-100 bg-indigo-50/30">
-                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-800">Follow-Up: Week Comers</h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Tap a name to mark it present — it reflects straight into that Sunday's attendance report.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <label className="text-xs text-slate-500">Sunday</label>
-                      <input
-                        type="date"
-                        value={weekComerDate}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          if (!val) return
-                          const d = new Date(val + 'T00:00:00')
-                          if (d.getDay() === 0) {
-                            setWeekComerDate(val)
-                            setWeekComerDateWarning(false)
-                          } else {
-                            // Not a Sunday — snap to whichever Sunday (before or after) is closer,
-                            // since this date picks which sunday_reports doc gets written to.
-                            const dow = d.getDay()
-                            const snapped = new Date(d)
-                            snapped.setDate(d.getDate() + (dow <= 3 ? -dow : 7 - dow))
-                            setWeekComerDate(format(snapped, 'yyyy-MM-dd'))
-                            setWeekComerDateWarning(true)
-                          }
-                        }}
-                        className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                      />
-                    </div>
-                  </div>
-                  {weekComerDateWarning && (
-                    <p className="text-xs text-amber-600 font-medium mb-3 -mt-1">
-                      ⚠ Sunday Ministry attendance only exists per-Sunday — snapped to the nearest Sunday ({weekComerDate}).
+                <div className="px-5 py-3 border-b border-slate-100 bg-indigo-50/30 flex flex-wrap items-center gap-2">
+                  <label className="text-xs font-medium text-slate-600">Sunday Worship attendance for</label>
+                  <input
+                    type="date"
+                    value={visitorAttendanceDate}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (!val) return
+                      const d = new Date(val + 'T00:00:00')
+                      if (d.getDay() === 0) {
+                        setVisitorAttendanceDate(val)
+                        setVisitorAttendanceDateWarning(false)
+                      } else {
+                        // Not a Sunday — snap to whichever Sunday (before or after) is closer,
+                        // since this date picks which sunday_reports doc gets read/written.
+                        const dow = d.getDay()
+                        const snapped = new Date(d)
+                        snapped.setDate(d.getDate() + (dow <= 3 ? -dow : 7 - dow))
+                        setVisitorAttendanceDate(format(snapped, 'yyyy-MM-dd'))
+                        setVisitorAttendanceDateWarning(true)
+                      }
+                    }}
+                    className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  />
+                  {visitorAttendanceDateWarning && (
+                    <p className="text-xs text-amber-600 font-medium w-full">
+                      ⚠ Sunday Ministry attendance only exists per-Sunday — snapped to the nearest Sunday ({visitorAttendanceDate}).
                     </p>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {[
-                      { bucket: 'second', label: 'Second Week' },
-                      { bucket: 'third', label: 'Third Week' },
-                      { bucket: 'fourth', label: 'Fourth Week' },
-                    ].map(({ bucket, label }) => {
-                      const addOpen = weekComerAddOpenBucket === bucket
-                      const addQuery = weekComerAddQuery.trim().toLowerCase()
-                      const addResults = addOpen && addQuery.length > 0
-                        ? delightVisitors
-                            .filter((v) => {
-                              const name = (v.name || '').toLowerCase()
-                              return name.startsWith(addQuery) || name.split(' ').some((word) => word.startsWith(addQuery))
-                            })
-                            .slice(0, 6)
-                        : []
-                      return (
-                        <div key={bucket} className="bg-white rounded-xl border border-slate-200 p-3">
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">{label}</p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setWeekComerAddOpenBucket(addOpen ? null : bucket)
-                                setWeekComerAddQuery('')
-                              }}
-                              className="text-[11px] font-semibold text-indigo-600 hover:underline flex-shrink-0"
-                            >
-                              {addOpen ? 'Cancel' : '+ Add'}
-                            </button>
-                          </div>
-                          {addOpen && (
-                            <div className="relative mb-2">
-                              <input
-                                type="text"
-                                autoFocus
-                                value={weekComerAddQuery}
-                                onChange={(e) => setWeekComerAddQuery(e.target.value)}
-                                placeholder="Search visitors…"
-                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                              />
-                              {addResults.length > 0 && (
-                                <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-lg border border-slate-200 shadow-lg z-20 overflow-hidden">
-                                  {addResults.map((v) => (
-                                    <button
-                                      key={v.id}
-                                      type="button"
-                                      onMouseDown={() => addManualWeekComerCandidate(bucket, v.name)}
-                                      className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-indigo-50 transition-colors"
-                                    >
-                                      {v.name}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                              {addQuery.length > 0 && addResults.length === 0 && (
-                                <p className="text-[11px] text-slate-400 mt-1">No visitors found.</p>
-                              )}
-                            </div>
-                          )}
-                          {loadingWeekComerCandidates ? (
-                            <p className="text-xs text-slate-400">Loading…</p>
-                          ) : weekComerCandidates[bucket].length === 0 ? (
-                            <p className="text-xs text-slate-400">No candidates.</p>
-                          ) : (
-                            <div className="flex flex-wrap gap-1.5">
-                              {weekComerCandidates[bucket].map((name) => (
-                                <button
-                                  key={name}
-                                  type="button"
-                                  disabled={markingWeekComerName === name}
-                                  onClick={() => markWeekComer(bucket, name)}
-                                  className="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-50"
-                                >
-                                  {markingWeekComerName === name ? 'Adding…' : `+ ${name}`}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
                 </div>
               )}
 
@@ -3680,6 +3588,10 @@ export default function DepartmentHub() {
                       <tr>
                         <th className="text-left px-6 py-3 font-semibold text-slate-700 text-base">Name</th>
                         <th className="text-left px-6 py-3 font-medium text-slate-500 w-28">Month</th>
+                        <th className="text-left px-6 py-3 font-medium text-slate-500 w-40">
+                          Sunday Worship
+                          <span className="block text-[10px] font-normal text-slate-400 normal-case">{formatDMY(visitorAttendanceDate)}</span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3690,6 +3602,9 @@ export default function DepartmentHub() {
                         const rowBg = d ? monthPalette[d.getMonth()] : ''
                         const monthLabel = d ? d.toLocaleDateString('en-US', { month: 'short' }) : '—'
                         const sundayWeeks = visitorSundayCounts.get(String(v.name || '').trim().toLowerCase()) || 0
+                        const nameKey = String(v.name || '').trim().toLowerCase()
+                        const attendedThisSunday = sundayAttendanceNames.has(nameKey)
+                        const togglingThisRow = togglingVisitorName === nameKey
                         return (
                           <Fragment key={v.id}>
                             <tr
@@ -3710,10 +3625,32 @@ export default function DepartmentHub() {
                                 </span>
                               </td>
                               <td className="px-6 py-3 text-sm text-slate-400">{monthLabel}</td>
+                              <td className="px-6 py-3">
+                                {canEditDelightVisitors ? (
+                                  <button
+                                    type="button"
+                                    disabled={togglingThisRow || loadingSundayAttendanceNames || !v.name}
+                                    onClick={(e) => { e.stopPropagation(); toggleVisitorSundayAttendance(v) }}
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors disabled:opacity-50 ${
+                                      attendedThisSunday
+                                        ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200'
+                                        : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                                    }`}
+                                  >
+                                    {togglingThisRow ? '…' : attendedThisSunday ? '✓ Attended' : 'Mark Attended'}
+                                  </button>
+                                ) : attendedThisSunday ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                    ✓ Attended
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-300">—</span>
+                                )}
+                              </td>
                             </tr>
                             {open && (
                               <tr className={rowBg}>
-                                <td colSpan={2} className="px-6 py-3 border-b border-slate-200">
+                                <td colSpan={3} className="px-6 py-3 border-b border-slate-200">
                                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1.5 text-sm mb-3">
                                     {v.phone && <div><span className="text-slate-500">Phone: </span><span className="text-slate-800">{v.phone}</span></div>}
                                     {v.dob && <div><span className="text-slate-500">DOB: </span><span className="text-slate-800">{formatDMY(v.dob)}</span></div>}
