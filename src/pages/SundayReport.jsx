@@ -1549,6 +1549,31 @@ export default function SundayReport({ embedded = false }) {
       .finally(() => setLoadingDlight(false))
   }, [selectedDate])
 
+  // Names already sitting in Non Cell, Others, or a Cell's attendance — the buckets
+  // a D-Light Recommendation click writes into (see addDlightRecommendation). Shared
+  // by both directions of the New Comers / D-Light Recommendations split below:
+  // someone added via a Recommendation chip must drop out of the New Comers
+  // suggestion list, not just the other way around.
+  const alreadyPresentElsewhere = useMemo(() => {
+    const set = new Set()
+    const addAll = (arr) => (arr || []).forEach((n) => {
+      const t = String(n || '').trim().toLowerCase()
+      if (t) set.add(t)
+    })
+    addAll(report?.nonCell)
+    addAll(report?.others)
+    Object.values(report?.sundayCellAttendance || {}).forEach(addAll)
+    return set
+  }, [report?.nonCell, report?.others, report?.sundayCellAttendance])
+
+  // New Comers suggestion chips — this week's D-Light visitors, minus anyone already
+  // marked present elsewhere on the report (e.g. added via a D-Light Recommendation
+  // click instead). NameListSection separately hides anyone already IN report.newComers.
+  const dlightSuggestionsVisible = useMemo(
+    () => dlightSuggestions.filter((n) => !alreadyPresentElsewhere.has(String(n || '').trim().toLowerCase())),
+    [dlightSuggestions, alreadyPresentElsewhere]
+  )
+
   // D-Light Recommendations — visitors within their first month (attendedDate in the
   // last 30 days of selectedDate), not yet marked present anywhere on this report.
   // Fully computed, no separate Firestore write of its own: clicking one just adds
@@ -1564,15 +1589,13 @@ export default function SundayReport({ embedded = false }) {
     const windowStart = new Date(sunday)
     windowStart.setDate(sunday.getDate() - 30)
 
-    const alreadyPresent = new Set()
-    const addAll = (arr) => (arr || []).forEach((n) => {
-      const t = String(n || '').trim().toLowerCase()
-      if (t) alreadyPresent.add(t)
-    })
-    addAll(report?.nonCell)
-    addAll(report?.others)
-    addAll(report?.newComers)
-    Object.values(report?.sundayCellAttendance || {}).forEach(addAll)
+    const alreadyPresent = new Set(alreadyPresentElsewhere)
+    const addOne = (n) => { const t = String(n || '').trim().toLowerCase(); if (t) alreadyPresent.add(t) }
+    ;(report?.newComers || []).forEach(addOne)
+    // Anyone already showing as a New Comers suggestion chip (this week's D-Light
+    // visitors, not yet clicked into report.newComers) belongs there only — strict
+    // separation between the two lists, not just dedup against what's actually saved.
+    dlightSuggestions.forEach(addOne)
 
     const names = delightVisitorsAll
       .filter((v) => v.attendedDate)
@@ -1584,7 +1607,7 @@ export default function SundayReport({ embedded = false }) {
       .filter(Boolean)
 
     return new Set(names.filter((n) => !alreadyPresent.has(n.toLowerCase())).map((n) => n.toLowerCase()))
-  }, [delightVisitorsAll, selectedDate, report?.nonCell, report?.others, report?.newComers, report?.sundayCellAttendance])
+  }, [delightVisitorsAll, selectedDate, alreadyPresentElsewhere, report?.newComers, dlightSuggestions])
 
   const dlightRecommendations = useMemo(() => {
     const byLower = new Map()
@@ -2625,7 +2648,7 @@ export default function SundayReport({ embedded = false }) {
                   onAddValue={(value) => addCellNameValue('newComers', value)}
                   onEdit={(idx, value) => updateCellList('newComers', idx, value)}
                   onRemove={(idx) => removeCellName('newComers', idx)}
-                  suggestions={dlightSuggestions}
+                  suggestions={dlightSuggestionsVisible}
                   loadingSuggestions={loadingDlight}
                   suggestionsLabel="From D-Light visitors this week — tap to add"
                   duplicateNorms={duplicateNorms}
