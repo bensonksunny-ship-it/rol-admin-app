@@ -364,6 +364,20 @@ function findVisitorMatchForMember(member, visitorsByPhone) {
   return key ? visitorsByPhone.get(key) || null : null
 }
 
+// Loose key for matching a D-Light sub-department name against a team member's
+// assigned sub-department(s) — directors free-type these in "+ Add Sub-Department"
+// with no fixed vocabulary, so the Assign tab's hardcoded duty names ("Light
+// Shiners") need to tolerate case, whitespace, and singular/plural differences
+// ("light shiner", "Light Shiners ", "Light Shiner") rather than requiring a
+// byte-exact match against what got typed in.
+function subDeptMatchKey(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/s$/, '')
+}
+
 // Multi-select pill toggle for a kid's Class/Group — a child can belong to more than
 // one (e.g. Sunday School + River Kids-1), so this toggles membership in the array
 // rather than picking a single value like a native <select> would.
@@ -2399,7 +2413,10 @@ export default function DepartmentHub() {
                the Hub landing tab, Visitor Entry, and Assign, so a D-Light Director
                can't land on the page and miss a pending consult request. ── */}
           {slug === 'd-light' && (activeTab === 'summary' || activeTab === 'visitorEntry' || activeTab === 'assign') && (() => {
-            const consultTasks = tasks.filter(t => t.cellAssignConsult === true && t.status !== 'Completed')
+            // 'Responded' means D-Light already sent a recommendation back — it isn't
+            // pending on D-Light anymore (only the Cell Director closing it out with
+            // 'Completed' is), so it's excluded here too, same as 'Completed'.
+            const consultTasks = tasks.filter(t => t.cellAssignConsult === true && t.status !== 'Completed' && t.status !== 'Responded')
             if (consultTasks.length === 0) return null
             return (
               <div className="bg-gradient-to-r from-red-50 to-orange-50 border-2 border-red-300 rounded-2xl shadow-md overflow-hidden">
@@ -4842,11 +4859,16 @@ export default function DepartmentHub() {
                       ].map((row) => {
                         const options = team.filter((m) => {
                           if (m.isFormer) return false
-                          if (row.subDept && Array.isArray(m.subDepartments) && m.subDepartments.length) {
-                            return m.subDepartments.includes(row.subDept)
+                          const memberSubDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
+                            ? m.subDepartments
+                            : (m.subDepartment ? [m.subDepartment] : [])
+                          if (row.subDept && memberSubDepts.length) {
+                            const targetKey = subDeptMatchKey(row.subDept)
+                            if (memberSubDepts.some((s) => subDeptMatchKey(s) === targetKey)) return true
                           }
-                          if (row.subDept && m.subDepartment) return m.subDepartment === row.subDept
-                          // Fallback: match by role text if no sub-departments set
+                          // Fallback: match by role text — covers members with no sub-department
+                          // set yet, and members whose custom-named sub-department doesn't line
+                          // up with this duty's name at all (rather than excluding them outright).
                           const roleText = (m.role || m.rolePosition || '').toLowerCase()
                           return roleText.includes((row.subDept || '').toLowerCase().split(' ')[1] || '')
                         })

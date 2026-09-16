@@ -74,6 +74,29 @@ export async function setDepartmentAssignments(departmentSlug, payload) {
   await setDoc(ref, payload, { merge: true })
 }
 
+// D-Light Assign tab — per-Sunday duty assignments, one doc per service date
+// (doc id = 'YYYY-MM-DD'). Distinct from the generic, undated
+// department_assignments doc above, which other departments' Assign tabs still use.
+const DLIGHT_ASSIGNMENTS_COLLECTION = 'dlight_assignments'
+
+export async function getDlightAssignmentsForDate(serviceDate) {
+  if (!db || !serviceDate) return null
+  const id = String(serviceDate).slice(0, 10)
+  const snap = await getDoc(doc(db, DLIGHT_ASSIGNMENTS_COLLECTION, id))
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null
+}
+
+export async function setDlightAssignmentsForDate(serviceDate, assignments, updatedBy) {
+  if (!db || !serviceDate) return
+  const id = String(serviceDate).slice(0, 10)
+  await setDoc(doc(db, DLIGHT_ASSIGNMENTS_COLLECTION, id), {
+    serviceDate: id,
+    assignments,
+    updatedAt: Timestamp.now(),
+    updatedBy: updatedBy || 'unknown',
+  }, { merge: true })
+}
+
 // Users – admin management helpers
 export async function getAllUsers() {
   if (!db) return []
