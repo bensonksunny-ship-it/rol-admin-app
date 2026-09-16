@@ -597,8 +597,10 @@ export default function CellHistory({ embedded = false }) {
     setExpandedId((prev) => (prev === id ? null : id))
   }, [])
 
+  // Compact grid, sized to match Sunday Ministry's Reports tab density (its own
+  // report tiles run 5-per-row) rather than the previous roomier 3-per-row cards.
   const renderGrid = (rows) => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 items-start">
       {rows.map((row) => {
         const expanded = expandedId === row.id
         return (
@@ -615,7 +617,7 @@ export default function CellHistory({ embedded = false }) {
               onDelete={() => requestDelete(row)}
             />
             {expanded && (
-              <div className="sm:col-span-2 xl:col-span-3 bg-white rounded-2xl border border-indigo-200 shadow-sm shadow-indigo-50 overflow-hidden">
+              <div className="col-span-full bg-white rounded-2xl border border-indigo-200 shadow-sm shadow-indigo-50 overflow-hidden">
                 <HistoryDetail row={row} />
               </div>
             )}
@@ -939,18 +941,18 @@ function ReportCard({ row, leaderName, status, expanded, onToggle, canEdit = fal
       tabIndex={0}
       onClick={onToggle}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
-      className={`group relative bg-white rounded-2xl border shadow-sm p-5 cursor-pointer transition-all ${
+      className={`group relative bg-white rounded-xl border shadow-sm p-3 cursor-pointer transition-all ${
         expanded ? 'border-indigo-300 shadow-indigo-100 ring-1 ring-indigo-100' : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
       }`}
     >
-      {/* Edit / delete — revealed on hover so the larger cards stay uncluttered */}
+      {/* Edit / delete — revealed on hover so the compact cards stay uncluttered */}
       {(canEdit || isDirector) && (
-        <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+        <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           {canEdit && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onEdit() }}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all text-sm"
+              className="w-6 h-6 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all text-xs"
               title="Edit report"
             >
               ✏️
@@ -960,7 +962,7 @@ function ReportCard({ row, leaderName, status, expanded, onToggle, canEdit = fal
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onDelete() }}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all text-sm"
+              className="w-6 h-6 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all text-xs"
               title="Delete report"
             >
               🗑️
@@ -969,38 +971,38 @@ function ReportCard({ row, leaderName, status, expanded, onToggle, canEdit = fal
         </div>
       )}
 
-      <div className="pr-14">
-        <p className="font-black text-slate-900 text-base leading-snug truncate">{row.cellName || '—'}</p>
-        <p className="text-xs text-slate-400 mt-0.5">{row.meetingDateISO ? formatDisplayDate(row.meetingDateISO) : '—'}</p>
+      <div className="pr-10">
+        <p className="font-black text-slate-900 text-sm leading-snug truncate">{row.cellName || '—'}</p>
+        <p className="text-[10px] text-slate-400 mt-0.5">{row.meetingDateISO ? formatDisplayDate(row.meetingDateISO) : '—'}</p>
         {row.startTime && row.endTime && (
-          <p className="text-xs text-indigo-600 font-medium mt-0.5">{formatMeetingTimeRange(row.startTime, row.endTime)}</p>
+          <p className="text-[10px] text-indigo-600 font-medium mt-0.5">{formatMeetingTimeRange(row.startTime, row.endTime)}</p>
         )}
       </div>
 
-      <span className={`inline-block text-[10px] font-bold px-2.5 py-1 rounded-full border mt-3 ${status.cls}`}>
+      <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full border mt-2 ${status.cls}`}>
         {status.label}
       </span>
 
-      <div className="flex items-end justify-between gap-3 mt-4">
+      <div className="flex items-end justify-between gap-2 mt-2.5">
         <div>
-          <p className="text-3xl font-black text-slate-800 leading-none">{total}</p>
-          <p className="text-[10px] text-slate-400 mt-1.5 uppercase tracking-wide font-bold">Total Attendance</p>
+          <p className="text-xl font-black text-slate-800 leading-none">{total}</p>
+          <p className="text-[9px] text-slate-400 mt-1 uppercase tracking-wide font-bold">Total Attendance</p>
         </div>
-        <div className="text-right text-xs text-slate-500 space-y-0.5">
+        <div className="text-right text-[10px] text-slate-500 space-y-0.5">
           <p><span className="font-semibold text-slate-700">{members}</span> members</p>
           {visitors > 0 && <p><span className="font-semibold text-slate-700">{visitors}</span> visitors</p>}
           {children > 0 && <p><span className="font-semibold text-slate-700">{children}</span> children</p>}
         </div>
       </div>
 
-      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+      <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[9px] font-bold flex items-center justify-center flex-shrink-0">
             {getInitials(leaderName) || '—'}
           </span>
-          <span className="text-xs text-slate-500 truncate">{leaderName || 'No leader linked'}</span>
+          <span className="text-[10px] text-slate-500 truncate">{leaderName || 'No leader linked'}</span>
         </div>
-        <svg className={`w-4 h-4 text-slate-300 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className={`w-3.5 h-3.5 text-slate-300 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </div>
