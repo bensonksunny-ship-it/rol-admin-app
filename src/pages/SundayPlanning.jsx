@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan, getSundayProgramDefault, getSundayPreServiceEntry, getDepartmentAssignments, getDepartmentTeamMembers } from '../services/firestore'
+import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan, getSundayProgramDefault, getSundayPreServiceEntry, getDlightAssignmentsForDate, getDepartmentTeamMembers, getMediaScheduleByDate } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
@@ -42,7 +42,7 @@ const SECTION_ACCENT = {
   [SUNDAY_PLAN_SECTIONS.RIVER_KIDS]: { border: 'border-l-teal-500', btn: 'bg-teal-500 hover:bg-teal-600' },
 }
 
-function WorshipPlanSummary({ selectedDate }) {
+export function WorshipPlanSummary({ selectedDate }) {
   const [worshipPlan, setWorshipPlan] = useState(null)
   const [loading, setLoading] = useState(true)
   const [expandedRole, setExpandedRole] = useState(null)
@@ -88,7 +88,7 @@ function WorshipPlanSummary({ selectedDate }) {
       {!hasAnything ? (
         <p className="text-slate-500 text-xs">No worship assignments yet.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {/* Lead Vocals — expandable cards with song + structure */}
           {leadVocalEntries.map(({ role, a }) => {
             const structure = a?.structure
@@ -99,26 +99,24 @@ function WorshipPlanSummary({ selectedDate }) {
                 <button
                   type="button"
                   onClick={() => setExpandedRole(isExpanded ? null : role)}
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-amber-50/80 transition-colors"
+                  className="w-full flex items-center justify-between gap-2 px-2 py-1 text-left hover:bg-amber-50/80 transition-colors"
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide">{role.replace('-', ' ')}</span>
-                      {a.songName && <span className="text-slate-300 text-xs">|</span>}
-                      {a.songName && <span className="text-xs text-slate-700 font-medium truncate">{a.songName}</span>}
-                      {a.key && <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-bold flex-shrink-0">{a.key}</span>}
-                    </div>
-                    <p className="text-sm font-semibold text-slate-800 mt-0.5 truncate">{a.memberName}</p>
+                  <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide flex-shrink-0">{role.replace('-', ' ')}</span>
+                    <span className="text-xs font-semibold text-slate-800 truncate">{a.memberName}</span>
+                    {a.songName && <span className="text-slate-300 text-xs">|</span>}
+                    {a.songName && <span className="text-xs text-slate-700 truncate">{a.songName}</span>}
+                    {a.key && <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-bold flex-shrink-0">{a.key}</span>}
                   </div>
-                  <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     {hasStructure && (
-                      <span className="text-[9px] font-semibold text-amber-600 uppercase tracking-wide leading-none">📄 structure</span>
+                      <span className="text-[9px] font-semibold text-amber-600 uppercase tracking-wide leading-none">📄</span>
                     )}
                     <span className={`text-amber-400 text-sm transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>▾</span>
                   </div>
                 </button>
                 {isExpanded && (
-                  <div className="border-t border-amber-100 px-3 py-2.5 bg-white/80">
+                  <div className="border-t border-amber-100 px-2 py-1.5 bg-white/80">
                     {hasStructure ? (
                       <>
                         <p className="text-xs font-semibold text-amber-700 mb-1.5 uppercase tracking-wide">
@@ -142,9 +140,9 @@ function WorshipPlanSummary({ selectedDate }) {
             <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
               <div className="divide-y divide-slate-100">
                 {otherAssigned.map(({ role, a }) => (
-                  <div key={role} className="flex items-center gap-3 px-3 py-1.5">
-                    <span className="text-xs text-slate-500 w-28 shrink-0">{role}</span>
-                    <span className="text-xs font-medium text-slate-800">{a.memberName}</span>
+                  <div key={role} className="flex items-center gap-2 px-2 py-1">
+                    <span className="text-xs text-slate-500 w-24 shrink-0 truncate">{role}</span>
+                    <span className="text-xs font-medium text-slate-800 truncate">{a.memberName}</span>
                   </div>
                 ))}
               </div>
@@ -165,14 +163,14 @@ const DLIGHT_ROWS = [
   { key: 'lightCraftersRoomPrep', label: 'Light Crafters – Room preparation & card distribution' },
 ]
 
-function DLitePlanSummary() {
+export function DLitePlanSummary({ selectedDate }) {
   const [assignments, setAssignments] = useState(null)
   const [teamById, setTeamById] = useState({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     Promise.all([
-      getDepartmentAssignments('d-light'),
+      getDlightAssignmentsForDate(selectedDate || nextSundayISO()),
       getDepartmentTeamMembers('d-light'),
     ])
       .then(([doc, members]) => {
@@ -183,9 +181,15 @@ function DLitePlanSummary() {
       })
       .catch(() => { setAssignments(null); setTeamById({}) })
       .finally(() => setLoading(false))
-  }, [])
+  }, [selectedDate])
 
-  const assigned = DLIGHT_ROWS.filter((r) => assignments?.[r.key])
+  // Each duty's value is an array of assigned member ids (a duty can have more
+  // than one assignee) — older saved data may still hold a single id string.
+  const assigneesFor = (key) => {
+    const val = assignments?.[key]
+    return Array.isArray(val) ? val.filter(Boolean) : (val ? [val] : [])
+  }
+  const assigned = DLIGHT_ROWS.filter((r) => assigneesFor(r.key).length > 0)
 
   return (
     <div className="bg-white rounded-xl border border-rose-200 border-l-4 border-l-rose-500 p-3 shadow-sm">
@@ -203,16 +207,58 @@ function DLitePlanSummary() {
         <div className="rounded-lg border border-slate-200 overflow-hidden">
           <div className="divide-y divide-slate-100">
             {assigned.map(({ key, label }) => {
-              const memberId = assignments[key]
-              const member = teamById[memberId]
-              const displayName = member?.name || memberId
+              const displayName = assigneesFor(key)
+                .map((id) => teamById[id]?.name || id)
+                .join(', ')
               return (
-                <div key={key} className="flex items-center gap-3 px-3 py-1.5">
-                  <span className="text-xs text-slate-500 flex-1">{label}</span>
-                  <span className="text-xs font-medium text-slate-800 flex-shrink-0">{displayName}</span>
+                <div key={key} className="flex items-center gap-2 px-2 py-1">
+                  <span className="text-xs text-slate-500 flex-1 min-w-0 truncate">{label}</span>
+                  <span className="text-xs font-medium text-slate-800 flex-shrink-0 max-w-[45%] truncate">{displayName}</span>
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function MediaPlanSummary({ selectedDate }) {
+  const [assignments, setAssignments] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    getMediaScheduleByDate(selectedDate || nextSundayISO())
+      .then((doc) => setAssignments(Array.isArray(doc?.assignments) ? doc.assignments : []))
+      .catch(() => setAssignments([]))
+      .finally(() => setLoading(false))
+  }, [selectedDate])
+
+  const assigned = assignments.filter((a) => a?.memberName)
+
+  return (
+    <div className="bg-white rounded-xl border border-emerald-200 border-l-4 border-l-emerald-500 p-3 shadow-sm">
+      <div className="flex items-center justify-between mb-2.5">
+        <h3 className="font-semibold text-emerald-900 text-sm">Media</h3>
+        <Link to="/department/media?tab=assign" className="text-emerald-600 hover:text-emerald-700 text-xs font-semibold">
+          Edit in Media dept →
+        </Link>
+      </div>
+      {loading ? (
+        <p className="text-slate-500 text-xs">Loading Media assignments…</p>
+      ) : !assigned.length ? (
+        <p className="text-slate-400 text-xs italic">No crew assignments saved yet.</p>
+      ) : (
+        <div className="rounded-lg border border-slate-200 overflow-hidden">
+          <div className="divide-y divide-slate-100">
+            {assigned.map((a, i) => (
+              <div key={`${a.subDeptId || a.role || i}`} className="flex items-center gap-2 px-2 py-1">
+                <span className="text-xs text-slate-500 flex-1 min-w-0 truncate">{a.role}</span>
+                <span className="text-xs font-medium text-slate-800 flex-shrink-0 max-w-[45%] truncate">{a.memberName}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -654,7 +700,9 @@ export default function SundayPlanning() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {SECTION_ORDER.filter((key) => key !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) =>
               key === SUNDAY_PLAN_SECTIONS.D_LITE ? (
-                <DLitePlanSummary key={key} />
+                <DLitePlanSummary key={key} selectedDate={selectedDate} />
+              ) : key === SUNDAY_PLAN_SECTIONS.MEDIA ? (
+                <MediaPlanSummary key={key} selectedDate={selectedDate} />
               ) : (
                 <SectionForm
                   key={key}
@@ -677,7 +725,7 @@ export default function SundayPlanning() {
 // ── Digital Bulletin — polished read-only view shown once published ────────
 export function DigitalBulletin({ plan, preServiceEntry, selectedDate }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       {/* Header */}
       <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-3xl p-6 text-white shadow-lg">
         <p className="text-indigo-200 text-xs uppercase tracking-widest mb-1">River Of Life Church</p>
@@ -691,25 +739,28 @@ export function DigitalBulletin({ plan, preServiceEntry, selectedDate }) {
       {/* Sunday Program — same list as draft view, read-only */}
       <SundayProgramBlock plan={plan} preServiceEntry={preServiceEntry} canEdit={false} selectedDate={selectedDate} />
 
-      {/* Worship — pulls from the Worship dept schedule */}
+      {/* Department rosters — Worship, D-Light, Media, River Kids (+ any other
+          section with notes) side by side instead of stacked, so the full plan
+          fits on one A4 page/screen without scrolling. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <WorshipPlanSummary selectedDate={selectedDate} />
-
-      {/* All other sections */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       {SECTION_ORDER.filter((k) => k !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) => {
         if (key === SUNDAY_PLAN_SECTIONS.D_LITE) {
-          return <DLitePlanSummary key={key} />
+          return <DLitePlanSummary key={key} selectedDate={selectedDate} />
+        }
+        if (key === SUNDAY_PLAN_SECTIONS.MEDIA) {
+          return <MediaPlanSummary key={key} selectedDate={selectedDate} />
         }
         const data = plan?.[key]
         const notes = data?.notes || ''
         const style = SECTION_ACCENT[key] || { border: 'border-l-indigo-400' }
         return (
-          <div key={key} className={`bg-white rounded-xl border border-slate-200 border-l-4 ${style.border} p-3 shadow-sm`}>
-            <h3 className="font-semibold text-slate-900 mb-1.5 text-sm">{SECTION_LABELS[key]}</h3>
+          <div key={key} className={`bg-white rounded-xl border border-slate-200 border-l-4 ${style.border} p-2.5 shadow-sm`}>
+            <h3 className="font-semibold text-slate-900 mb-1 text-sm">{SECTION_LABELS[key]}</h3>
             {notes ? (
-              <p className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">{notes}</p>
+              <p className="text-slate-700 whitespace-pre-wrap text-xs leading-relaxed">{notes}</p>
             ) : (
-              <p className="text-slate-400 italic text-sm">Nothing entered for this section.</p>
+              <p className="text-slate-400 italic text-xs">Nothing entered for this section.</p>
             )}
           </div>
         )

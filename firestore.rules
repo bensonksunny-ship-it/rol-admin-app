@@ -66,6 +66,27 @@ service cloud.firestore {
         hasAnyPositionInDept(departmentId)
       );
     }
+    // Same three-tier check as canAccessDept, but against a LIST of departments in a
+    // single pass — for rules that need "any of these N departments". OR-ing several
+    // separate canAccessDept(X) calls together doesn't short-circuit until it hits a
+    // `true` term, so for a user whose only qualifying department is the LAST one
+    // checked, every earlier (false) call still runs to completion first. Stack up
+    // enough of those (this file has several 4-6-way canAccessDept chains, e.g.
+    // sunday_reports below) and it blows past Firestore's hard 1000-sub-expression-
+    // per-rule evaluation ceiling, hard-denying an otherwise-valid request with the
+    // generic "Missing or insufficient permissions" error — exactly what blocked a
+    // River Kids Director here whose account data was completely correct.
+    function canAccessAnyDept(departmentIds) {
+      return isSignedIn() && (
+        isFullAccess() ||
+        (userDepartment() in departmentIds) ||
+        userDepartments().hasAny(departmentIds) ||
+        userPositions().exists(p,
+          (p.get('department', '') in departmentIds) &&
+          (p.get('position', '') != '' || p.get('role', '') != '')
+        )
+      );
+    }
 
     match /users/{userId} {
       allow read, write: if isSignedIn() && (isFullAccess() || request.auth.uid == userId);
@@ -656,7 +677,7 @@ service cloud.firestore {
       // precedent — every attendance toggle in River Kids' Attendance tab calls
       // patchSundayReportRiverKids(), which was permission-denied for a River Kids
       // account, surfacing as a generic "Failed to save" alert with no detail.
-      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() || canAccessDept('D Light') || canAccessDept('River Kids'));
+      allow create, update, delete: if isCellDirector() || canAccessAnyDept(['Sunday Ministry', 'D Light', 'River Kids']);
     }
 
     // Per-person Sunday attendance (recordPersonSundayAttendance) — written alongside
@@ -670,7 +691,7 @@ service cloud.firestore {
     // to read it regardless of department.
     match /person_sunday_attendance/{docId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() || canAccessDept('D Light') || canAccessDept('River Kids'));
+      allow create, update: if isCellDirector() || canAccessAnyDept(['Sunday Ministry', 'D Light', 'River Kids']);
       allow delete: if isSignedIn() && isFullAccess();
     }
 
@@ -791,11 +812,9 @@ service cloud.firestore {
 
     // Department programme inputs (each dept's elements per Sunday)
     match /sunday_dept_inputs/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() ||
-        canAccessDept('Media') || canAccessDept('Worship') || canAccessDept('D Light') || canAccessDept('Administration'));
-      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() ||
-        canAccessDept('Media') || canAccessDept('Worship') || canAccessDept('D Light') || canAccessDept('Administration'));
-      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
+      allow read: if isCellDirector() || canAccessAnyDept(['Sunday Ministry', 'Media', 'Worship', 'D Light', 'Administration']);
+      allow create, update: if isCellDirector() || canAccessAnyDept(['Sunday Ministry', 'Media', 'Worship', 'D Light', 'Administration']);
+      allow delete: if canAccessAnyDept(['Sunday Ministry']);
     }
 
     // RFF (school program) — deliberately gated the same way any other

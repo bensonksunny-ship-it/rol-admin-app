@@ -2,6 +2,7 @@ import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNav
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Pencil, Download, CheckCircle2, Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
@@ -23,6 +24,7 @@ import {
   addDepartmentTeamMember,
   updateDepartmentTeamMember,
   deleteDepartmentTeamMember,
+  addSubDepartmentsToTeamMember,
   getFinanceBudgetItemsByDepartment,
   addFinanceBudgetItem,
   updateFinanceBudgetItem,
@@ -65,8 +67,8 @@ import {
   getDlightSubDepartments,
   addDlightSubDepartment,
   deleteDlightSubDepartment,
-  getDepartmentAssignments,
-  setDepartmentAssignments,
+  getDlightAssignmentsForDate,
+  setDlightAssignmentsForDate,
   getMediaScheduleByDate,
   setMediaScheduleByDate,
   getMediaSchedules,
@@ -202,6 +204,23 @@ async function mergeTasksEntriesTeam(canonicalName) {
   }
   const team = [...teamById.values()]
   return { tasks, entries, team }
+}
+
+const SUB_DEPT_PILL_COLORS = [
+  'bg-indigo-50 text-indigo-700 border-indigo-200',
+  'bg-violet-50 text-violet-700 border-violet-200',
+  'bg-blue-50 text-blue-700 border-blue-200',
+  'bg-amber-50 text-amber-700 border-amber-200',
+  'bg-rose-50 text-rose-700 border-rose-200',
+  'bg-emerald-50 text-emerald-700 border-emerald-200',
+  'bg-cyan-50 text-cyan-700 border-cyan-200',
+  'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200',
+]
+function subDeptPillColor(name) {
+  const str = String(name || '')
+  let hash = 0
+  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) | 0
+  return SUB_DEPT_PILL_COLORS[Math.abs(hash) % SUB_DEPT_PILL_COLORS.length]
 }
 
 const WEEKDAY_OPTIONS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -378,6 +397,93 @@ function subDeptMatchKey(name) {
     .replace(/s$/, '')
 }
 
+// D-Light Assign tab duty rows — one row per fixed duty (not a variable-count
+// role family like Worship's), each carrying its own left-border accent color
+// so the four sub-departments are visually distinguishable at a glance.
+const DLIGHT_ASSIGN_ROWS = [
+  { key: 'lightShinersPre', label: 'Light Shiners – Pre-service greeting', subDept: 'Light Shiners', accent: 'border-l-emerald-400' },
+  { key: 'lightShinersPost', label: 'Light Shiners – Post-service greeting', subDept: 'Light Shiners', accent: 'border-l-emerald-400' },
+  { key: 'lightBeaconsRoom', label: 'Light Beacons – Room addressing', subDept: 'Light Beacons', accent: 'border-l-blue-400' },
+  { key: 'lightBeaconsStair', label: 'Light Beacons – Stair guardian', subDept: 'Light Beacons', accent: 'border-l-blue-400' },
+  { key: 'lightBearersPostConnect', label: 'Light Bearers – Post connect', subDept: 'Light Bearers', accent: 'border-l-purple-400' },
+  { key: 'lightCraftersRoomPrep', label: 'Light Crafters – Room preparation and card distribution', subDept: 'Light Crafters', accent: 'border-l-orange-400' },
+]
+
+function blankDlightAssignments() {
+  return Object.fromEntries(DLIGHT_ASSIGN_ROWS.map((r) => [r.key, []]))
+}
+
+// Assigned-member chip colours for the Assign tab, one hue per sub-department —
+// mirrors Worship's ROLE_GROUP_THEMES pattern (DepartmentWorship.jsx) so the two
+// Assign tabs read as the same design language.
+const DLIGHT_ROLE_THEMES = {
+  'Light Shiners': { pill: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200', avatar: 'bg-emerald-500' },
+  'Light Beacons': { pill: 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200', avatar: 'bg-blue-500' },
+  'Light Bearers': { pill: 'bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-200', avatar: 'bg-purple-500' },
+  'Light Crafters': { pill: 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-200', avatar: 'bg-orange-500' },
+}
+function dlightRoleTheme(subDept) {
+  return DLIGHT_ROLE_THEMES[subDept] || { pill: 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200', avatar: 'bg-indigo-500' }
+}
+
+// Inline-hex twin of DLIGHT_ROLE_THEMES above, for the off-screen "Copy as Image"
+// render — that capture target is styled entirely in inline hex (see
+// handleDlightSharePlan / DepartmentWorship.jsx's identical SHARE_ROLE_ACCENT
+// convention), not Tailwind classes, so it can't reuse the `pill`/`avatar` strings.
+const DLIGHT_SHARE_ACCENT = {
+  'Light Shiners': { bg: '#ecfdf5', line: '#10b981' },
+  'Light Beacons': { bg: '#eff6ff', line: '#3b82f6' },
+  'Light Bearers': { bg: '#faf5ff', line: '#a855f7' },
+  'Light Crafters': { bg: '#fff7ed', line: '#f97316' },
+}
+function dlightShareAccent(subDept) {
+  return DLIGHT_SHARE_ACCENT[subDept] || { bg: '#eef2ff', line: '#6366f1' }
+}
+
+// Media's sub-departments are director-defined (not a fixed list like D-Light's),
+// so role accents are assigned by position rather than by name — one hue per row
+// index, cycling once there are more sub-departments than colors. Tailwind classes
+// for the on-screen table/cards; MEDIA_SHARE_ACCENT is the inline-hex twin for the
+// off-screen "Copy / Export JPEG" render (same convention as DLIGHT_SHARE_ACCENT).
+const MEDIA_ROLE_ACCENTS = [
+  { border: 'border-l-indigo-400', pill: 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200', avatar: 'bg-indigo-500', label: 'text-indigo-700' },
+  { border: 'border-l-emerald-400', pill: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200', avatar: 'bg-emerald-500', label: 'text-emerald-700' },
+  { border: 'border-l-amber-400', pill: 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200', avatar: 'bg-amber-500', label: 'text-amber-700' },
+  { border: 'border-l-rose-400', pill: 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200', avatar: 'bg-rose-500', label: 'text-rose-700' },
+  { border: 'border-l-sky-400', pill: 'bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200', avatar: 'bg-sky-500', label: 'text-sky-700' },
+  { border: 'border-l-violet-400', pill: 'bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200', avatar: 'bg-violet-500', label: 'text-violet-700' },
+]
+function mediaRoleAccent(index) {
+  return MEDIA_ROLE_ACCENTS[index % MEDIA_ROLE_ACCENTS.length]
+}
+const MEDIA_SHARE_ACCENT = [
+  { bg: '#eef2ff', line: '#6366f1' },
+  { bg: '#ecfdf5', line: '#10b981' },
+  { bg: '#fffbeb', line: '#f59e0b' },
+  { bg: '#fff1f2', line: '#f43f5e' },
+  { bg: '#f0f9ff', line: '#0ea5e9' },
+  { bg: '#f5f3ff', line: '#8b5cf6' },
+]
+function mediaShareAccent(index) {
+  return MEDIA_SHARE_ACCENT[index % MEDIA_SHARE_ACCENT.length]
+}
+
+// Next `count` upcoming Sunday dates ('yyyy-MM-dd'), today included if it's a Sunday —
+// same convention as upcomingSunday() below, extended to a run of dates for the
+// Assign tab's quick-select pills.
+function upcomingSundaysList(count = 5) {
+  const first = upcomingSunday()
+  const [y, m, d] = first.split('-').map(Number)
+  const start = new Date(y, m - 1, d)
+  const result = []
+  for (let i = 0; i < count; i++) {
+    const dt = new Date(start)
+    dt.setDate(start.getDate() + i * 7)
+    result.push(`${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`)
+  }
+  return result
+}
+
 // Multi-select pill toggle for a kid's Class/Group — a child can belong to more than
 // one (e.g. Sunday School + River Kids-1), so this toggles membership in the array
 // rather than picking a single value like a native <select> would.
@@ -441,6 +547,8 @@ export default function DepartmentHub() {
   const [loadingTeam, setLoadingTeam] = useState(false)
   const [teamError, setTeamError] = useState('')
   const [editingMember, setEditingMember] = useState(null)
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false)
+  const addMemberSectionRef = useRef(null)
   const [teamMemberSearch, setTeamMemberSearch] = useState('')
   const [teamMemberSearchOpen, setTeamMemberSearchOpen] = useState(false)
   const [teamVisitors, setTeamVisitors] = useState([])
@@ -543,6 +651,10 @@ export default function DepartmentHub() {
   const [teamMemberLinking, setTeamMemberLinking] = useState(null)
   // Media team table: which row's three-dots Actions menu is open (m.id), or null.
   const [teamActionMenuId, setTeamActionMenuId] = useState(null)
+  // Team tab roster split — Active Members / Former Members toggle, shared by every
+  // slug's Team tab (D-Light's spacious table and Media's "The Team" table both read
+  // this). false = active roster (default); true = the isolated former-members view.
+  const [teamShowFormerMembers, setTeamShowFormerMembers] = useState(false)
   const [cellMemberLinkedVisitor, setCellMemberLinkedVisitor] = useState(null)
   const [cellMemberLinkedVisitorForm, setCellMemberLinkedVisitorForm] = useState({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
   const [cellGroupModalOpen, setCellGroupModalOpen] = useState(false)
@@ -920,18 +1032,33 @@ export default function DepartmentHub() {
   const [loadingDlightSubDepts, setLoadingDlightSubDepts] = useState(false)
   const [dlightSubDeptModalOpen, setDlightSubDeptModalOpen] = useState(false)
   const [dlightSubDeptForm, setDlightSubDeptForm] = useState({ name: '', servingArea: '' })
-  // D Light – Assign tab (persisted assignments)
-  const [delightAssignments, setDelightAssignments] = useState({
-    lightShinersPre: '',
-    lightShinersPost: '',
-    lightBeaconsRoom: '',
-    lightBeaconsStair: '',
-    lightBearersPostConnect: '',
-    lightCraftersRoomPrep: '',
-  })
+  // D Light – Assign tab (persisted assignments). Each duty maps to an ARRAY of
+  // team member ids — a duty can have multiple assignees, not just one.
+  const [delightAssignments, setDelightAssignments] = useState(() => blankDlightAssignments())
+  // MemberPicker trigger-button DOM nodes for each duty, keyed by row key — lets
+  // the "+ Add {role}" text link under the role name open that row's picker (a
+  // real .click()) instead of duplicating the add-assignee logic.
+  const delightAssignTriggerRefs = useRef({})
   const [loadingDelightAssignments, setLoadingDelightAssignments] = useState(false)
   const [savingDelightAssignments, setSavingDelightAssignments] = useState(false)
   const [delightAssignmentsBefore, setDelightAssignmentsBefore] = useState(null)
+  // Which Sunday's duty roster the Assign tab is viewing/editing — assignments are
+  // stored one doc per service date (dlight_assignments/{serviceDate}), not a single
+  // undated doc, so switching dates loads/saves an entirely separate roster.
+  const [delightAssignDate, setDelightAssignDate] = useState(() => upcomingSunday())
+  const [delightAssignDateWarning, setDelightAssignDateWarning] = useState(false)
+  // D Light Assign tab: read-only by default (plain tag chips, no dropdowns/+Add/×)
+  // — same lifecycle as Worship's isEditing — flips true only via "Edit Plan", and
+  // back to false once "Save plan" (or "Cancel") is clicked. See the effect that
+  // loads delightAssignments for the reset-on-date-change half of this.
+  const [dlightAssignEditing, setDlightAssignEditing] = useState(false)
+  // "Copy as Image" — captures a dedicated off-screen branded render (built below
+  // the on-screen table, not the interactive table itself) and copies it to the
+  // clipboard, falling back to a JPEG download when Clipboard image writes aren't
+  // supported (most mobile browsers) — see handleDlightSharePlan.
+  const dlightAssignShareRef = useRef(null)
+  const [dlightSharingPlan, setDlightSharingPlan] = useState(false)
+  const [dlightShareToast, setDlightShareToast] = useState(null)
   // Media – Assign tab (per-Sunday crew, media_schedule collection)
   const [mediaAssignDate, setMediaAssignDate] = useState(() => {
     const today = new Date(); const day = today.getDay()
@@ -942,8 +1069,20 @@ export default function DepartmentHub() {
   const [loadingMediaSchedule, setLoadingMediaSchedule] = useState(false)
   const [mediaAssignEditing, setMediaAssignEditing] = useState(false)
   const [mediaAssignSaving, setMediaAssignSaving] = useState(false)
+  // Last-saved snapshot for this date, used only to restore the form when "Cancel"
+  // is clicked mid-edit — the card itself never collapses into a summary (matches
+  // D-Light/Worship: full roster stays visible and readable, view-only rows just
+  // hide the +Add/×/picker controls).
   const [mediaAssignStamp, setMediaAssignStamp] = useState(null)
-  const [mediaStampOpen, setMediaStampOpen] = useState(false)
+  // "Copy / Export JPEG" — same approach as handleDlightSharePlan: captures a
+  // dedicated off-screen branded render, copies it to the clipboard, and falls
+  // back to a JPEG download when Clipboard image writes aren't supported.
+  const mediaAssignShareRef = useRef(null)
+  const [mediaSharingPlan, setMediaSharingPlan] = useState(false)
+  const [mediaShareToast, setMediaShareToast] = useState(null)
+  // Lets the desktop table's "+ Add {role}" link under the role name open that
+  // row's MemberPicker (a real .click()) — same convention as delightAssignTriggerRefs.
+  const mediaAssignTriggerRefs = useRef({})
   // Media – Hub insights
   const [mediaSchedules, setMediaSchedules] = useState([])
   const [mediaExpenseEntries, setMediaExpenseEntries] = useState([])
@@ -973,6 +1112,8 @@ export default function DepartmentHub() {
   const [subDeptForm, setSubDeptForm] = useState({ name: '', servingArea: '' })
   const [editingSubDept, setEditingSubDept] = useState(null)
   const [genericSubDeptModalOpen, setGenericSubDeptModalOpen] = useState(false)
+  const [subDeptActionsMenuId, setSubDeptActionsMenuId] = useState(null)
+  const [seedingSubDepts, setSeedingSubDepts] = useState(false)
   // Media's "The Team" tab hosts sub-department management inline (collapsible).
   const [mediaSubDeptPanelOpen, setMediaSubDeptPanelOpen] = useState(true)
   const [dlightTeamSubOpts, setDlightTeamSubOpts] = useState([])
@@ -1013,6 +1154,8 @@ export default function DepartmentHub() {
     })
   }, [rkAttendanceGroup])
   const [rkReportKidsNames, setRkReportKidsNames] = useState([])
+  const [rkAttendanceSaving, setRkAttendanceSaving] = useState(false)
+  const [rkAttendanceToast, setRkAttendanceToast] = useState('')
   const [deptEvents, setDeptEvents] = useState([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [selectedEventId, setSelectedEventId] = useState(null)
@@ -1269,6 +1412,18 @@ export default function DepartmentHub() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, subDeptLoading])
+
+  // "The Team" tab's Add/Edit Member form is an inline section below the roster
+  // table (not a modal) — scroll it into view once it opens, whether via "+ Add
+  // member" or an "Edit" click. The timeout lets the slide-open motion.div mount
+  // (and the table above settle) before measuring its position.
+  useEffect(() => {
+    if (!showAddMemberModal && !editingMember) return
+    const t = setTimeout(() => {
+      addMemberSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
+    return () => clearTimeout(t)
+  }, [showAddMemberModal, editingMember])
 
   useEffect(() => {
     const wantsDlightTeam = slug === 'd-light' && (
@@ -1756,29 +1911,30 @@ export default function DepartmentHub() {
     setLoadingMediaSchedule(true)
     getMediaScheduleByDate(mediaAssignDate)
       .then((doc) => {
+        // Each Sunday's assignments are stored flat — one {subDeptId, role, memberId,
+        // memberName} entry per assigned person — so a role with several crew members
+        // just has several entries sharing the same subDeptId. Group them back into
+        // one row per sub-department with a `members` array for the UI.
         const saved = Array.isArray(doc?.assignments) ? doc.assignments : []
-        const byKey = {}
+        const bySubDept = {}
         saved.forEach((a) => {
-          if (a.subDeptId) byKey['id:' + a.subDeptId] = a
-          if (a.role) byKey['role:' + a.role] = a
+          if (!a.memberId) return
+          const key = a.subDeptId ? 'id:' + a.subDeptId : 'role:' + a.role
+          if (!bySubDept[key]) bySubDept[key] = []
+          bySubDept[key].push({ id: a.memberId, name: a.memberName || '' })
         })
-        const rows = subDepartments.map((sd) => {
-          const a = byKey['id:' + sd.id] || byKey['role:' + sd.name] || {}
-          return {
-            subDeptId: sd.id,
-            role: sd.name,
-            memberId: a.memberId || '',
-            memberName: a.memberName || '',
-          }
-        })
+        const rows = subDepartments.map((sd) => ({
+          subDeptId: sd.id,
+          role: sd.name,
+          members: bySubDept['id:' + sd.id] || bySubDept['role:' + sd.name] || [],
+        }))
         setMediaAssignRows(rows)
-        setMediaAssignStamp(rows.some((x) => x.memberId) ? { date: doc?.date || mediaAssignDate, rows } : null)
-        setMediaStampOpen(false)
+        setMediaAssignStamp(rows.some((x) => x.members.length) ? { date: doc?.date || mediaAssignDate, rows } : null)
         setMediaAssignEditing(false)
       })
       .catch((err) => {
         console.error('Failed to load media schedule', err)
-        setMediaAssignRows(subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, memberId: '', memberName: '' })))
+        setMediaAssignRows(subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, members: [] })))
         setMediaAssignStamp(null)
       })
       .finally(() => setLoadingMediaSchedule(false))
@@ -1802,23 +1958,27 @@ export default function DepartmentHub() {
   useEffect(() => {
     if (slug === 'd-light' && activeTab === 'assign') {
       setLoadingDelightAssignments(true)
-      getDepartmentAssignments('d-light')
+      setDlightAssignEditing(false)
+      getDlightAssignmentsForDate(delightAssignDate)
         .then((doc) => {
-          const assignments = doc?.assignments && typeof doc.assignments === 'object' ? doc.assignments : null
-          if (assignments) {
-            setDelightAssignments((prev) => {
-              const next = { ...prev, ...assignments }
-              setDelightAssignmentsBefore(next)
-              return next
-            })
-          } else {
-            setDelightAssignmentsBefore(null)
+          const rawAssignments = doc?.assignments && typeof doc.assignments === 'object' ? doc.assignments : null
+          // Normalize each duty to an array of ids — older saved docs (or a doc
+          // saved before multi-assignee support) may still hold a single id string.
+          const normalized = {}
+          if (rawAssignments) {
+            for (const [key, val] of Object.entries(rawAssignments)) {
+              normalized[key] = Array.isArray(val) ? val.filter(Boolean) : (val ? [val] : [])
+            }
           }
+          // Reset to blank first — otherwise switching to a date with no saved
+          // roster yet would keep showing the previous date's selections.
+          setDelightAssignments({ ...blankDlightAssignments(), ...normalized })
+          setDelightAssignmentsBefore(rawAssignments ? normalized : null)
         })
         .catch(() => setDelightAssignmentsBefore(null))
         .finally(() => setLoadingDelightAssignments(false))
     }
-  }, [slug, activeTab])
+  }, [slug, activeTab, delightAssignDate])
 
   useEffect(() => {
     const wantsDlightSubDept = slug === 'd-light' && (
@@ -2293,31 +2453,122 @@ export default function DepartmentHub() {
   async function saveMediaAssignPlan() {
     setMediaAssignSaving(true)
     try {
-      const assignments = mediaAssignRows
-        .filter((r) => r.memberId)
-        .map((r) => ({
+      // Flattened one entry per assigned person — a role with several crew members
+      // just contributes several entries sharing the same subDeptId/role, same
+      // convention the coverage/serving-load scan elsewhere already reads.
+      const assignments = mediaAssignRows.flatMap((r) =>
+        (r.members || []).map((m) => ({
           subDeptId: r.subDeptId || '',
           role: r.role,
-          memberId: r.memberId || '',
-          memberName: r.memberName || '',
+          memberId: m.id,
+          memberName: m.name || '',
         }))
+      )
       await setMediaScheduleByDate(
         mediaAssignDate,
         assignments,
         userProfile?.email || userProfile?.displayName || 'unknown',
       )
       setMediaAssignStamp(
-        mediaAssignRows.some((x) => x.memberId)
-          ? { date: mediaSnapToSunday(mediaAssignDate), rows: mediaAssignRows.map((r) => ({ ...r })) }
+        mediaAssignRows.some((x) => (x.members || []).length)
+          ? { date: mediaSnapToSunday(mediaAssignDate), rows: mediaAssignRows.map((r) => ({ ...r, members: [...(r.members || [])] })) }
           : null
       )
-      setMediaStampOpen(false)
       setMediaAssignEditing(false)
     } catch (e) {
       console.error(e)
       alert('Failed to save assignments.')
     } finally {
       setMediaAssignSaving(false)
+    }
+  }
+
+  // "Copy / Export JPEG" for the Media Assign tab — same approach as
+  // handleDlightSharePlan / Worship's handleSharePlan: captures the dedicated
+  // off-screen branded render (inline-hex styled, never Tailwind's oklch()) via
+  // html2canvas-pro, then tries a clipboard PNG write (paste straight into a
+  // WhatsApp chat). The Async Clipboard API's image support is desktop-Chrome/
+  // Edge-only in practice, so mobile falls back to downloading a JPEG instead.
+  async function handleMediaSharePlan() {
+    if (!mediaAssignShareRef.current) return
+    setMediaSharingPlan(true)
+    try {
+      const html2canvasMod = await import('html2canvas-pro')
+      const html2canvas = html2canvasMod.default || html2canvasMod
+      const canvas = await html2canvas(mediaAssignShareRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+      })
+      let copied = false
+      try {
+        const pngBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+        if (pngBlob && typeof window.ClipboardItem === 'function' && navigator.clipboard?.write) {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
+          copied = true
+        }
+      } catch { /* clipboard image writes aren't supported/permitted here — fall back to download */ }
+      if (!copied) {
+        const link = document.createElement('a')
+        link.href = canvas.toDataURL('image/jpeg', 0.95)
+        link.download = `media-crew-plan-${mediaAssignDate}.jpg`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+      }
+      setMediaShareToast(copied ? 'Plan copied as image! Paste directly into WhatsApp' : 'Plan downloaded as JPEG — attach it in WhatsApp')
+      setTimeout(() => setMediaShareToast(null), 3000)
+    } catch (e) {
+      console.error('Error exporting Media plan:', e)
+      const detail = e?.message ? ` (${String(e.message).slice(0, 140)})` : ''
+      alert(`Could not export the plan as an image. Try again.${detail}`)
+    } finally {
+      setMediaSharingPlan(false)
+    }
+  }
+
+  // "Copy as Image" for the D-Light Assign tab — same approach as Worship's
+  // handleSharePlan (DepartmentWorship.jsx): captures the dedicated off-screen
+  // branded render (inline-hex styled, never Tailwind's oklch()) via
+  // html2canvas-pro, then tries a clipboard PNG write (paste straight into a
+  // WhatsApp chat). The Async Clipboard API's image support is desktop-Chrome/
+  // Edge-only in practice, so mobile falls back to downloading a JPEG the
+  // director can attach from their gallery/downloads instead.
+  async function handleDlightSharePlan() {
+    if (!dlightAssignShareRef.current) return
+    setDlightSharingPlan(true)
+    try {
+      const html2canvasMod = await import('html2canvas-pro')
+      const html2canvas = html2canvasMod.default || html2canvasMod
+      const canvas = await html2canvas(dlightAssignShareRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+      })
+      let copied = false
+      try {
+        const pngBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+        if (pngBlob && typeof window.ClipboardItem === 'function' && navigator.clipboard?.write) {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
+          copied = true
+        }
+      } catch { /* clipboard image writes aren't supported/permitted here — fall back to download */ }
+      if (!copied) {
+        const link = document.createElement('a')
+        link.href = canvas.toDataURL('image/jpeg', 0.95)
+        link.download = `dlight-ministry-roster-${delightAssignDate}.jpg`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+      }
+      setDlightShareToast(copied ? 'Plan copied as image! Paste directly into WhatsApp' : 'Plan downloaded as JPEG — attach it in WhatsApp')
+      setTimeout(() => setDlightShareToast(null), 3000)
+    } catch (e) {
+      console.error('Error exporting D-Light plan:', e)
+      const detail = e?.message ? ` (${String(e.message).slice(0, 140)})` : ''
+      alert(`Could not export the plan as an image. Try again.${detail}`)
+    } finally {
+      setDlightSharingPlan(false)
     }
   }
 
@@ -4794,169 +5045,361 @@ export default function DepartmentHub() {
           )}
 
           {slug === 'd-light' && activeTab === 'assign' && (
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="font-semibold text-slate-800">Assign</h2>
-                <button
-                  type="button"
-                  disabled={savingDelightAssignments || loadingDelightAssignments}
-                  onClick={async () => {
-                    setSavingDelightAssignments(true)
-                    try {
-                      const before = delightAssignmentsBefore
-                      const after = delightAssignments
-                      await setDepartmentAssignments('d-light', {
-                        department: 'D Light',
-                        assignments: after,
-                        updatedAt: new Date(),
-                        updatedBy: userProfile?.email || userProfile?.displayName || 'unknown',
-                      })
-                      setDelightAssignmentsBefore({ ...after })
-                      await logAction({
-                        action: 'UPDATE_ASSIGNMENT',
-                        user,
-                        targetId: 'd-light',
-                        targetType: 'ASSIGNMENT',
-                        department: 'D Light',
-                        details: { before, after },
-                      })
-                    } catch (err) {
-                      console.error(err)
-                      alert('Failed to save assignments.')
-                    } finally {
-                      setSavingDelightAssignments(false)
-                    }
-                  }}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {savingDelightAssignments ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-              {loadingDelightAssignments && (
-                <p className="text-sm text-slate-500">Loading assignments…</p>
-              )}
-              {team.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  Add team members in the Team tab first (with designations like &quot;Light Shiner&quot;, &quot;Light Beacon&quot;, etc.). They will appear here in the dropdowns.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium w-1/2">Role / Duty</th>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium w-1/2">Assigned Person</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {[
-                        { key: 'lightShinersPre', label: 'Light Shiners – Pre-service greeting', subDept: 'Light Shiners' },
-                        { key: 'lightShinersPost', label: 'Light Shiners – Post-service greeting', subDept: 'Light Shiners' },
-                        { key: 'lightBeaconsRoom', label: 'Light Beacons – Room addressing', subDept: 'Light Beacons' },
-                        { key: 'lightBeaconsStair', label: 'Light Beacons – Stair guardian', subDept: 'Light Beacons' },
-                        { key: 'lightBearersPostConnect', label: 'Light Bearers – Post connect', subDept: 'Light Bearers' },
-                        { key: 'lightCraftersRoomPrep', label: 'Light Crafters – Room preparation and card distribution', subDept: 'Light Crafters' },
-                      ].map((row) => {
-                        const options = team.filter((m) => {
-                          if (m.isFormer) return false
-                          const memberSubDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
-                            ? m.subDepartments
-                            : (m.subDepartment ? [m.subDepartment] : [])
-                          if (row.subDept && memberSubDepts.length) {
-                            const targetKey = subDeptMatchKey(row.subDept)
-                            if (memberSubDepts.some((s) => subDeptMatchKey(s) === targetKey)) return true
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              {/* Branded top accent, matching Worship's Assign tab pattern. */}
+              <div className="h-1.5 bg-gradient-to-r from-orange-400 via-amber-400 to-yellow-400" />
+              <div className="px-5 py-4 border-b border-slate-200 space-y-3 bg-gradient-to-r from-orange-50 via-white to-amber-50">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="font-semibold text-slate-800">Assign</h2>
+                  {/* Read-only by default — plain tag chips, no dropdowns/+Add/× — until
+                      "Edit Plan" is clicked; same lifecycle as Worship's Assign tab. */}
+                  {dlightAssignEditing ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={savingDelightAssignments}
+                        onClick={() => {
+                          setDelightAssignments(delightAssignmentsBefore ? { ...blankDlightAssignments(), ...delightAssignmentsBefore } : blankDlightAssignments())
+                          setDlightAssignEditing(false)
+                        }}
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingDelightAssignments || loadingDelightAssignments}
+                        onClick={async () => {
+                          setSavingDelightAssignments(true)
+                          try {
+                            const before = delightAssignmentsBefore
+                            const after = delightAssignments
+                            await setDlightAssignmentsForDate(
+                              delightAssignDate,
+                              after,
+                              userProfile?.email || userProfile?.displayName || 'unknown'
+                            )
+                            setDelightAssignmentsBefore({ ...after })
+                            setDlightAssignEditing(false)
+                            await logAction({
+                              action: 'UPDATE_ASSIGNMENT',
+                              user,
+                              targetId: `d-light_${delightAssignDate}`,
+                              targetType: 'ASSIGNMENT',
+                              department: 'D Light',
+                              details: { serviceDate: delightAssignDate, before, after },
+                            })
+                          } catch (err) {
+                            console.error('Save error:', err)
+                            const reason = err?.code === 'permission-denied'
+                              ? 'You don’t have permission to save D-Light assignments.'
+                              : (err?.message || 'Please try again.')
+                            alert(`Failed to save assignments. ${reason}`)
+                          } finally {
+                            setSavingDelightAssignments(false)
                           }
-                          // Fallback: match by role text — covers members with no sub-department
-                          // set yet, and members whose custom-named sub-department doesn't line
-                          // up with this duty's name at all (rather than excluding them outright).
-                          const roleText = (m.role || m.rolePosition || '').toLowerCase()
-                          return roleText.includes((row.subDept || '').toLowerCase().split(' ')[1] || '')
-                        })
-                        return (
-                          <tr key={row.key} className="hover:bg-slate-50">
-                            <td className="px-4 py-2 text-slate-800">{row.label}</td>
-                            <td className="px-4 py-2">
-                              <select
-                                value={delightAssignments[row.key] || ''}
-                                onChange={(e) =>
-                                  setDelightAssignments((prev) => ({
-                                    ...prev,
-                                    [row.key]: e.target.value,
-                                  }))
-                                }
-                                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
-                              >
-                                <option value="">— Select —</option>
-                                {options.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.name} {m.role ? `(${m.role})` : ''}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                        }}
+                        className="px-4 py-1.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-60 shadow-sm"
+                      >
+                        {savingDelightAssignments ? 'Saving…' : 'Save plan'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleDlightSharePlan}
+                        disabled={dlightSharingPlan}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60 transition-colors"
+                      >
+                        <Download size={14} /> {dlightSharingPlan ? 'Exporting…' : 'Copy as Image'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDlightAssignEditing(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 text-sm font-semibold hover:bg-amber-100 transition-colors"
+                      >
+                        <Pencil size={14} /> Edit Plan
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-              <p className="text-xs text-slate-500">Assignments are saved to Firestore.</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Coming Sundays</span>
+                  {upcomingSundaysList(5).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => { setDelightAssignDate(d); setDelightAssignDateWarning(false) }}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        delightAssignDate === d
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-orange-500 shadow-sm'
+                          : 'bg-white text-slate-600 border-slate-300 hover:border-amber-400 hover:text-amber-700 hover:bg-amber-50'
+                      }`}
+                    >
+                      {format(new Date(d), 'd MMM')}
+                    </button>
+                  ))}
+                  <input
+                    type="date"
+                    value={delightAssignDate}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (!val) return
+                      const d = new Date(val + 'T00:00:00')
+                      if (d.getDay() === 0) {
+                        setDelightAssignDate(val)
+                        setDelightAssignDateWarning(false)
+                      } else {
+                        // Not a Sunday — snap to whichever Sunday (before or after) is
+                        // closer, since this date picks which dlight_assignments doc
+                        // gets read/written.
+                        const dow = d.getDay()
+                        const snapped = new Date(d)
+                        snapped.setDate(d.getDate() + (dow <= 3 ? -dow : 7 - dow))
+                        setDelightAssignDate(format(snapped, 'yyyy-MM-dd'))
+                        setDelightAssignDateWarning(true)
+                      }
+                    }}
+                    title="Pick a custom Sunday date"
+                    className="px-2 py-1 rounded-lg border border-slate-300 text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                  />
+                  <span className="text-xs text-slate-500">{formatDMY(delightAssignDate)}</span>
+                </div>
+                {delightAssignDateWarning && (
+                  <p className="text-xs text-amber-600 font-medium">
+                    ⚠ D-Light assignments only exist per-Sunday — snapped to the nearest Sunday ({formatDMY(delightAssignDate)}).
+                  </p>
+                )}
+              </div>
+              <div className="p-5 space-y-4">
+                {loadingDelightAssignments && (
+                  <p className="text-sm text-slate-500">Loading assignments…</p>
+                )}
+                {team.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    Add team members in the Team tab first (with designations like &quot;Light Shiner&quot;, &quot;Light Beacon&quot;, etc.). They will appear here in the dropdowns.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gradient-to-r from-slate-100 to-slate-50">
+                        <tr>
+                          <th className="text-left px-4 py-2 text-slate-600 font-medium w-1/3">Role / Duty</th>
+                          <th className="text-left px-4 py-2 text-slate-600 font-medium w-2/3">Assigned to</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {DLIGHT_ASSIGN_ROWS.map((row) => {
+                          const options = team.filter((m) => {
+                            if (m.isFormer) return false
+                            const memberSubDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
+                              ? m.subDepartments
+                              : (m.subDepartment ? [m.subDepartment] : [])
+                            if (row.subDept && memberSubDepts.length) {
+                              const targetKey = subDeptMatchKey(row.subDept)
+                              if (memberSubDepts.some((s) => subDeptMatchKey(s) === targetKey)) return true
+                            }
+                            // Fallback: match by role text — covers members with no sub-department
+                            // set yet, and members whose custom-named sub-department doesn't line
+                            // up with this duty's name at all (rather than excluding them outright).
+                            const roleText = (m.role || m.rolePosition || '').toLowerCase()
+                            return roleText.includes((row.subDept || '').toLowerCase().split(' ')[1] || '')
+                          })
+                          const assignedIds = Array.isArray(delightAssignments[row.key])
+                            ? delightAssignments[row.key]
+                            : (delightAssignments[row.key] ? [delightAssignments[row.key]] : [])
+                          const addablePeople = options.filter((m) => !assignedIds.includes(m.id))
+                          const removePerson = (id) => {
+                            setDelightAssignments((prev) => {
+                              const current = Array.isArray(prev[row.key]) ? prev[row.key] : []
+                              return { ...prev, [row.key]: current.filter((x) => x !== id) }
+                            })
+                          }
+                          const theme = dlightRoleTheme(row.subDept)
+                          const addPerson = (id) => {
+                            if (!id) return
+                            setDelightAssignments((prev) => {
+                              const current = Array.isArray(prev[row.key]) ? prev[row.key] : []
+                              if (current.includes(id)) return prev
+                              return { ...prev, [row.key]: [...current, id] }
+                            })
+                          }
+                          return (
+                            <tr key={row.key} className="hover:bg-slate-50">
+                              <td className={`px-4 py-3 text-sm align-top border-l-4 ${row.accent}`}>
+                                <div className="flex flex-col gap-1 items-start">
+                                  <span className="text-slate-800 font-medium">{row.label}</span>
+                                  {dlightAssignEditing && (
+                                    <button
+                                      type="button"
+                                      onClick={() => delightAssignTriggerRefs.current[row.key]?.click()}
+                                      disabled={addablePeople.length === 0}
+                                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap disabled:opacity-50 disabled:no-underline"
+                                    >
+                                      + Add {row.subDept}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2">
+                                <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                                  {assignedIds.length === 0 && !dlightAssignEditing ? (
+                                    <span className="inline-flex items-center rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-500 ring-1 ring-inset ring-rose-200">
+                                      -- Not assigned --
+                                    </span>
+                                  ) : (
+                                    assignedIds.map((id) => {
+                                      const m = team.find((x) => x.id === id)
+                                      return (
+                                        <span
+                                          key={id}
+                                          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${theme.pill}`}
+                                        >
+                                          {m?.name || 'Unknown member'}
+                                          {dlightAssignEditing && (
+                                            <button
+                                              type="button"
+                                              onClick={() => removePerson(id)}
+                                              className="font-bold leading-none text-sm opacity-60 hover:opacity-100 hover:text-red-600"
+                                              aria-label={`Remove ${m?.name || 'this person'}`}
+                                            >
+                                              ×
+                                            </button>
+                                          )}
+                                        </span>
+                                      )
+                                    })
+                                  )}
+                                  {/* The Worship-style pill+portal picker (MemberPicker) — same component
+                                      Worship/Media Assign use. value is always empty here since this is a
+                                      pure "add another" control; existing assignees render as chips above,
+                                      not inside this trigger. triggerRef lets the left "+ Add" link open it
+                                      too, so both entry points share one picker instead of two UIs. Only
+                                      mounted while editing — view-only mode is fixed tag chips only. */}
+                                  {dlightAssignEditing && (
+                                    <MemberPicker
+                                      triggerRef={(el) => { delightAssignTriggerRefs.current[row.key] = el }}
+                                      value=""
+                                      members={addablePeople}
+                                      tint={theme.avatar}
+                                      getDetail={(m) => m.role || ''}
+                                      hideClearOption
+                                      fitContent
+                                      emptyLabel={assignedIds.length === 0 ? '-- Not assigned --' : (addablePeople.length === 0 ? 'No more eligible members' : '+ Add person')}
+                                      onChange={(id) => addPerson(id)}
+                                    />
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="text-xs text-slate-500">Assignments are saved to Firestore.</p>
+
+                {/* Off-screen, purpose-built render for "Copy as Image" (handleDlightSharePlan
+                    captures this, not the interactive table above) — same technique as
+                    Worship's Assign tab (DepartmentWorship.jsx): a fixed single-column
+                    branded layout, positioned off-canvas via a large negative offset (not
+                    display:none, which html2canvas can't lay out or capture). */}
+                <div
+                  ref={dlightAssignShareRef}
+                  aria-hidden="true"
+                  style={{ position: 'fixed', top: 0, left: '-99999px', zIndex: -1, width: 480, background: '#ffffff' }}
+                >
+                  <div style={{ background: 'linear-gradient(135deg, #f97316 0%, #f59e0b 55%, #eab308 100%)', padding: '22px 26px' }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase' }}>
+                      River Of Life · D-Light
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', marginTop: 6, lineHeight: 1.25 }}>
+                      Ministry Roster
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.92)', marginTop: 4 }}>
+                      {format(new Date(delightAssignDate + 'T12:00:00'), 'EEEE, d MMMM yyyy')}
+                    </div>
+                  </div>
+                  <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {DLIGHT_ASSIGN_ROWS.map((row) => {
+                      const ids = Array.isArray(delightAssignments[row.key]) ? delightAssignments[row.key] : []
+                      const names = ids.map((id) => team.find((m) => m.id === id)?.name).filter(Boolean)
+                      const accent = dlightShareAccent(row.subDept)
+                      return (
+                        <div key={row.key} style={{
+                          display: 'flex', flexDirection: 'column', gap: 5,
+                          padding: '11px 14px', borderRadius: 10,
+                          background: accent.bg, borderLeft: `4px solid ${accent.line}`,
+                        }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: accent.line }}>
+                            {row.label}
+                          </span>
+                          {names.length === 0 ? (
+                            <span style={{ fontSize: 15, fontWeight: 700, color: '#94a3b8', fontStyle: 'italic' }}>Unassigned</span>
+                          ) : (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {names.map((name) => (
+                                <span key={name} style={{
+                                  fontSize: 13, fontWeight: 700, color: '#1e293b',
+                                  background: '#ffffff', borderRadius: 8, padding: '4px 10px',
+                                  border: `1px solid ${accent.line}55`,
+                                }}>
+                                  {name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div style={{ padding: '4px 22px 20px', textAlign: 'center', fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
+                    Generated from ROL Admin App
+                  </div>
+                </div>
+              </div>
             </div>
           )}
+
+          {/* "Plan copied/downloaded as image" confirmation for the D-Light Assign
+              tab's "Copy as Image" button above. */}
+          <AnimatePresence>
+            {slug === 'd-light' && activeTab === 'assign' && dlightShareToast && (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 16 }}
+                className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-slate-900 text-white text-sm font-medium shadow-lg"
+              >
+                <CheckCircle2 size={16} className="text-emerald-400" />
+                {dlightShareToast}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {slug === 'media' && activeTab === 'assign' && (() => {
             const activeMembers = team.filter((m) => !m.isFormer && m.status !== 'former')
             const memberDetail = (m) => (Array.isArray(m.subDepartments) && m.subDepartments.length ? m.subDepartments.join(' · ') : (m.role || ''))
             const memberSubDepts = (m) => (Array.isArray(m.subDepartments) ? m.subDepartments : (m.subDepartment ? [m.subDepartment] : []))
             const eligibleFor = (roleName) => activeMembers.filter((m) => memberSubDepts(m).includes(roleName))
-            const setRow = (subDeptId, patch) =>
-              setMediaAssignRows((prev) => prev.map((r) => (r.subDeptId === subDeptId ? { ...r, ...patch } : r)))
-            const showStamp = mediaAssignStamp && !mediaAssignEditing
-            let stampDate = mediaAssignStamp?.date
-            try { stampDate = format(new Date(mediaAssignStamp.date), 'EEE d MMM yyyy') } catch { /* keep raw */ }
-
+            const addablePeopleFor = (row) => eligibleFor(row.role).filter((m) => !(row.members || []).some((am) => am.id === m.id))
+            const addPersonToRow = (subDeptId, id, name) => {
+              if (!id) return
+              setMediaAssignRows((prev) => prev.map((r) => {
+                if (r.subDeptId !== subDeptId) return r
+                if ((r.members || []).some((m) => m.id === id)) return r
+                return { ...r, members: [...(r.members || []), { id, name }] }
+              }))
+            }
+            const removePersonFromRow = (subDeptId, id) => {
+              setMediaAssignRows((prev) => prev.map((r) =>
+                r.subDeptId === subDeptId ? { ...r, members: (r.members || []).filter((m) => m.id !== id) } : r
+              ))
+            }
             return (
               <div className="space-y-4">
-                {showStamp ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="text-emerald-500 text-lg leading-none">✓</span>
-                        <span className="font-semibold text-slate-800 text-sm">Media</span>
-                        <span className="text-slate-300 text-sm">|</span>
-                        <span className="text-slate-700 text-sm truncate">{stampDate}</span>
-                        <span className="hidden sm:inline text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-0.5">Saved</span>
-                      </div>
-                      <div className="flex items-center gap-3 flex-shrink-0">
-                        {canEdit && (
-                          <button type="button" onClick={() => setMediaAssignEditing(true)} className="text-xs text-slate-400 hover:text-indigo-600 underline">
-                            Edit plan
-                          </button>
-                        )}
-                        <button type="button" onClick={() => setMediaStampOpen((v) => !v)} className="text-slate-400 hover:text-slate-700">
-                          <svg width="14" height="14" viewBox="0 0 12 12" fill="none" className={`transition-transform ${mediaStampOpen ? 'rotate-180' : ''}`}>
-                            <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                    {mediaStampOpen && (
-                      <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        {mediaAssignRows.filter((r) => r.memberId).length === 0 ? (
-                          <p className="text-sm text-slate-400 italic">No crew assigned for this date.</p>
-                        ) : (
-                          mediaAssignRows.filter((r) => r.memberId).map((r) => (
-                            <div key={r.subDeptId || r.role} className="flex items-center gap-2 text-sm">
-                              <span className="text-slate-400 text-xs w-36 flex-shrink-0 truncate">{r.role}</span>
-                              <span className="font-medium text-slate-800 truncate">{r.memberName}</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ) : (
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
                     <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-emerald-500 to-amber-500" />
                     <div className="px-5 py-4 border-b border-slate-200 space-y-3 bg-gradient-to-r from-indigo-50 via-white to-amber-50">
@@ -4969,7 +5412,7 @@ export default function DepartmentHub() {
                               key={d}
                               type="button"
                               onClick={() => setMediaAssignDate(d)}
-                              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${mediaAssignDate === d ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-600 border-slate-300 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50'}`}
+                              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${mediaAssignDate === d ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-600 border-slate-300 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50'}`}
                             >
                               {format(new Date(d), 'd MMM')}
                             </button>
@@ -4990,8 +5433,8 @@ export default function DepartmentHub() {
                               onClick={() => {
                                 setMediaAssignRows(
                                   mediaAssignStamp?.rows
-                                    ? mediaAssignStamp.rows.map((r) => ({ ...r }))
-                                    : subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, memberId: '', memberName: '' }))
+                                    ? mediaAssignStamp.rows.map((r) => ({ ...r, members: [...(r.members || [])] }))
+                                    : subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, members: [] }))
                                 )
                                 setMediaAssignEditing(false)
                               }}
@@ -5009,13 +5452,23 @@ export default function DepartmentHub() {
                             </button>
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => setMediaAssignEditing(true)}
-                            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition-colors"
-                          >
-                            Edit Plan
-                          </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={handleMediaSharePlan}
+                              disabled={mediaSharingPlan}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60 transition-colors"
+                            >
+                              <Download size={14} /> {mediaSharingPlan ? 'Exporting…' : 'Copy / Export JPEG'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMediaAssignEditing(true)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition-colors"
+                            >
+                              <Pencil size={14} /> Edit Plan
+                            </button>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -5030,23 +5483,51 @@ export default function DepartmentHub() {
                       <>
                         {/* Mobile: one card per role */}
                         <div className="md:hidden grid grid-cols-1 gap-3 p-4">
-                          {mediaAssignRows.map((r) => (
-                              <div key={r.subDeptId} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm space-y-2">
-                                <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">{r.role}</span>
+                          {mediaAssignRows.map((r, i) => {
+                            const accent = mediaRoleAccent(i)
+                            const rowMembers = r.members || []
+                            return (
+                              <div key={r.subDeptId} className={`rounded-xl border border-slate-200 bg-white p-3 shadow-sm space-y-2 border-l-4 ${accent.border}`}>
+                                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{r.role}</span>
                                 {mediaAssignEditing ? (
-                                  <MemberPicker
-                                    tint="bg-indigo-500"
-                                    getDetail={memberDetail}
-                                    value={r.memberId}
-                                    members={eligibleFor(r.role)}
-                                    allMembers={activeMembers}
-                                    onChange={(id, name) => setRow(r.subDeptId, { memberId: id, memberName: name })}
-                                  />
+                                  <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                                    {rowMembers.map((m) => (
+                                      <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
+                                        {m.name}
+                                        <button
+                                          type="button"
+                                          onClick={() => removePersonFromRow(r.subDeptId, m.id)}
+                                          className="font-bold leading-none text-sm opacity-60 hover:opacity-100 hover:text-red-600"
+                                          aria-label={`Remove ${m.name}`}
+                                        >×</button>
+                                      </span>
+                                    ))}
+                                    <MemberPicker
+                                      value=""
+                                      members={addablePeopleFor(r)}
+                                      allMembers={activeMembers}
+                                      tint={accent.avatar}
+                                      getDetail={memberDetail}
+                                      hideClearOption
+                                      fitContent
+                                      emptyLabel={rowMembers.length === 0 ? '-- Not assigned --' : (addablePeopleFor(r).length === 0 ? 'No more eligible members' : `+ Add ${r.role}`)}
+                                      onChange={(id, name) => addPersonToRow(r.subDeptId, id, name)}
+                                    />
+                                  </div>
+                                ) : rowMembers.length ? (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {rowMembers.map((m) => (
+                                      <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{m.name}</span>
+                                    ))}
+                                  </div>
                                 ) : (
-                                  <p className="text-sm">{r.memberId ? <span className="font-semibold text-slate-800">{r.memberName}</span> : <span className="text-rose-500 font-medium">Not assigned</span>}</p>
+                                  <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> -- Not assigned --
+                                  </span>
                                 )}
                               </div>
-                          ))}
+                            )
+                          })}
                         </div>
 
                         {/* Desktop: table */}
@@ -5058,37 +5539,135 @@ export default function DepartmentHub() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200">
-                            {mediaAssignRows.map((r) => (
-                                <tr key={r.subDeptId} className="hover:bg-indigo-50/40">
+                            {mediaAssignRows.map((r, i) => {
+                              const accent = mediaRoleAccent(i)
+                              const rowMembers = r.members || []
+                              const addable = addablePeopleFor(r)
+                              return (
+                                <tr key={r.subDeptId} className={`hover:bg-indigo-50/40 border-l-4 ${accent.border}`}>
                                   <td className="px-5 py-4 align-top">
-                                    <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">{r.role}</span>
+                                    <div className="flex flex-col gap-1 items-start">
+                                      <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{r.role}</span>
+                                      {mediaAssignEditing && (
+                                        <button
+                                          type="button"
+                                          onClick={() => mediaAssignTriggerRefs.current[r.subDeptId]?.click()}
+                                          disabled={addable.length === 0}
+                                          className={`text-[11px] font-semibold whitespace-nowrap hover:underline disabled:opacity-50 disabled:no-underline ${accent.label}`}
+                                        >
+                                          + Add {r.role}
+                                        </button>
+                                      )}
+                                    </div>
                                   </td>
                                   <td className="px-5 py-4 align-top">
                                     {mediaAssignEditing ? (
-                                      <MemberPicker
-                                        tint="bg-indigo-500"
-                                        getDetail={memberDetail}
-                                        value={r.memberId}
-                                        members={eligibleFor(r.role)}
-                                        allMembers={activeMembers}
-                                        onChange={(id, name) => setRow(r.subDeptId, { memberId: id, memberName: name })}
-                                      />
-                                    ) : r.memberId ? (
-                                      <span className="font-semibold text-slate-800 text-sm">{r.memberName}</span>
+                                      <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                                        {rowMembers.map((m) => (
+                                          <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
+                                            {m.name}
+                                            <button
+                                              type="button"
+                                              onClick={() => removePersonFromRow(r.subDeptId, m.id)}
+                                              className="font-bold leading-none text-sm opacity-60 hover:opacity-100 hover:text-red-600"
+                                              aria-label={`Remove ${m.name}`}
+                                            >×</button>
+                                          </span>
+                                        ))}
+                                        <MemberPicker
+                                          triggerRef={(el) => { mediaAssignTriggerRefs.current[r.subDeptId] = el }}
+                                          value=""
+                                          members={addable}
+                                          allMembers={activeMembers}
+                                          tint={accent.avatar}
+                                          getDetail={memberDetail}
+                                          hideClearOption
+                                          fitContent
+                                          emptyLabel={rowMembers.length === 0 ? '-- Not assigned --' : (addable.length === 0 ? 'No more eligible members' : '+ Add person')}
+                                          onChange={(id, name) => addPersonToRow(r.subDeptId, id, name)}
+                                        />
+                                      </div>
+                                    ) : rowMembers.length ? (
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {rowMembers.map((m) => (
+                                          <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{m.name}</span>
+                                        ))}
+                                      </div>
                                     ) : (
                                       <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Not assigned
+                                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> -- Not assigned --
                                       </span>
                                     )}
                                   </td>
                                 </tr>
-                            ))}
+                              )
+                            })}
                           </tbody>
                         </table>
                       </>
                     )}
                   </div>
-                )}
+
+                {/* Off-screen, purpose-built render for "Copy / Export JPEG" (handleMediaSharePlan
+                    captures this, not the interactive content above) — same convention as
+                    Worship's assignTableRef / D-Light's dlightAssignShareRef: a fixed
+                    single-column layout in inline hex (html2canvas can't render Tailwind's
+                    oklch() colors), positioned off-canvas rather than display:none. */}
+                <div
+                  ref={mediaAssignShareRef}
+                  aria-hidden="true"
+                  style={{ position: 'fixed', top: 0, left: '-99999px', zIndex: -1, width: 480, background: '#ffffff' }}
+                >
+                  <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #10b981 55%, #f59e0b 100%)', padding: '22px 26px' }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase' }}>
+                      River Of Life · Media
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', marginTop: 6, lineHeight: 1.25 }}>
+                      Assign Media Crew
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.92)', marginTop: 4 }}>
+                      {(() => { try { return format(new Date(mediaAssignDate + 'T12:00:00'), 'EEEE, d MMMM yyyy') } catch { return mediaAssignDate } })()}
+                    </div>
+                  </div>
+                  <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {mediaAssignRows.map((r, i) => {
+                      const accent = mediaShareAccent(i)
+                      const rowMembers = r.members || []
+                      return (
+                        <div key={r.subDeptId} style={{
+                          display: 'flex', flexDirection: 'column', gap: 3,
+                          padding: '11px 14px', borderRadius: 10,
+                          background: accent.bg, borderLeft: `4px solid ${accent.line}`,
+                        }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: accent.line }}>
+                            {r.role}
+                          </span>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: rowMembers.length ? '#1e293b' : '#94a3b8', fontStyle: rowMembers.length ? 'normal' : 'italic' }}>
+                            {rowMembers.length ? rowMembers.map((m) => m.name).join(', ') : 'Unassigned'}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div style={{ padding: '4px 22px 20px', textAlign: 'center', fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
+                    Generated from ROL Admin App
+                  </div>
+                </div>
+
+                {/* "Plan copied/downloaded as image" confirmation for the "Copy / Export JPEG" button above. */}
+                <AnimatePresence>
+                  {mediaShareToast && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 16 }}
+                      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-slate-900 text-white text-sm font-medium shadow-lg"
+                    >
+                      <CheckCircle2 size={16} className="text-emerald-400" />
+                      {mediaShareToast}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )
           })()}
@@ -5174,12 +5753,22 @@ export default function DepartmentHub() {
           )}
 
           {genericSubDeptModalOpen && canEdit && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full">
-                <div className="p-5 border-b border-slate-200 dark:border-slate-800">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+            <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 max-w-md w-full z-50">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <h3 className="text-lg font-bold text-slate-800">
                     {editingSubDept ? 'Edit Sub Department' : 'Add Sub Department'}
                   </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGenericSubDeptModalOpen(false)
+                      setEditingSubDept(null)
+                      setSubDeptForm({ name: '', servingArea: '' })
+                    }}
+                    className="-mt-1 -mr-1 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex-shrink-0 transition-colors text-xl leading-none"
+                    aria-label="Close"
+                  >×</button>
                 </div>
                 <form
                   onSubmit={async (e) => {
@@ -5224,20 +5813,21 @@ export default function DepartmentHub() {
                       setSubDeptError('Failed to save sub department.')
                     }
                   }}
-                  className="p-5 space-y-4"
+                  className="space-y-4"
                 >
                   <div>
-                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Sub Department *</label>
+                    <label className="block text-sm font-medium text-slate-900 mb-1">Sub Department *</label>
                     <input
                       type="text"
                       value={subDeptForm.name}
                       onChange={(e) => setSubDeptForm((f) => ({ ...f, name: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      placeholder="e.g., Audio Engineering"
+                      className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors"
                       required
                     />
                   </div>
                   <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium shadow-sm transition-colors">
+                    <button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm transition-all">
                       Save
                     </button>
                     <button
@@ -5247,7 +5837,7 @@ export default function DepartmentHub() {
                         setEditingSubDept(null)
                         setSubDeptForm({ name: '', servingArea: '' })
                       }}
-                      className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
+                      className="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 font-medium text-sm transition-colors"
                     >
                       Cancel
                     </button>
@@ -7552,7 +8142,7 @@ export default function DepartmentHub() {
           })()}
 
           {(activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team' && slug !== 'media')) && (
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-6">
+            <div className={`bg-white rounded-xl border border-slate-200 shadow-sm space-y-6 ${slug === 'media' ? 'p-6' : 'p-5'} ${slug === 'd-light' ? 'max-w-7xl mx-auto w-full' : ''}`}>
               <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-slate-800">{slug === 'media' ? 'The Team' : 'Team'}</h2>
                 {canEdit && (
@@ -7560,6 +8150,7 @@ export default function DepartmentHub() {
                     type="button"
                     onClick={() => {
                       setEditingMember(null)
+                      setTeamMemberSearch('')
                       setMemberForm({
                         name: '',
                         role: '',
@@ -7574,6 +8165,7 @@ export default function DepartmentHub() {
                         source: '',
                         childId: '',
                       })
+                      setShowAddMemberModal(true)
                     }}
                     className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
                   >
@@ -7668,149 +8260,185 @@ export default function DepartmentHub() {
                 </div>
               )}
 
+              {(() => {
+                const isFormerMember = (m) => !!m.isFormer || m.status === 'former'
+                const activeTeamMembers = team.filter((m) => !isFormerMember(m))
+                const formerTeamMembers = team.filter(isFormerMember)
+                const rosterTeam = teamShowFormerMembers ? formerTeamMembers : activeTeamMembers
+                return (
+                <>
+                {/* Active Members / Former Members roster split — isolates the two
+                    tables below instead of mixing former volunteers into the main
+                    list; "Former" stays disabled when there's nobody to show there. */}
+                {team.length > 0 && (
+                  <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setTeamShowFormerMembers(false)}
+                      className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                        !teamShowFormerMembers ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Active Members ({activeTeamMembers.length})
+                    </button>
+                    <button
+                      type="button"
+                      disabled={formerTeamMembers.length === 0}
+                      onClick={() => setTeamShowFormerMembers(true)}
+                      className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                        teamShowFormerMembers ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Former Members ({formerTeamMembers.length})
+                    </button>
+                  </div>
+                )}
+
               {loadingTeam ? (
                 <div className="py-4 text-sm text-slate-500">Loading team...</div>
-              ) : team.length === 0 ? (
-                <div className="py-4 text-sm text-slate-500"></div>
+              ) : rosterTeam.length === 0 ? (
+                <div className="py-4 text-sm text-slate-500">
+                  {teamShowFormerMembers ? 'No former members.' : 'No active members yet.'}
+                </div>
               ) : slug === 'd-light' ? (
-                <>
-                  {/* Mobile: list rows */}
-                  <div className="sm:hidden divide-y divide-slate-100 -mx-5 border-t border-b border-slate-100">
-                    {team.map((m) => {
-                      const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
-                        ? m.subDepartments
-                        : (m.subDepartment ? [m.subDepartment] : [])
-                      const isActive = (m.status || 'active') === 'active' && !m.isFormer
-                      return (
-                        <div key={m.id} className="flex items-center gap-3 px-5 py-3">
-                          <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
-                            {(m.name || '?').charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-slate-800 truncate">{m.name}</p>
-                            <div className="flex flex-wrap items-center gap-1 mt-0.5">
-                              <span className={`text-[10px] font-semibold px-1.5 py-px rounded-full ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                                {m.isFormer ? 'Former' : 'Active'}
-                              </span>
-                              {subDepts.map((s) => (
-                                <span key={s} className="text-[10px] font-medium px-1.5 py-px rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
-                                  {s}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                          {canEdit && (
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingMember(m)
-                                  setMemberForm({
-                                    name: m.name || '', role: m.role || '',
-                                    subDepartment: m.subDepartment || '', subDepartments: subDepts,
-                                    phone: m.phone || '', status: m.status || 'active',
-                                    memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
-                                    isFormer: !!m.isFormer, notes: m.notes || '',
-                                    visitorId: m.visitorId || '', source: m.source || '', childId: m.childId || '',
-                                  })
-                                }}
-                                className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 active:bg-indigo-100"
-                              >Edit</button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!window.confirm('Remove this member from team?')) return
-                                  await deleteDepartmentTeamMember(m.id)
-                                  setTeam((prev) => prev.filter((x) => x.id !== m.id))
-                                }}
-                                className="px-3 py-1.5 text-xs font-medium text-red-500 border border-red-100 rounded-lg hover:bg-red-50 active:bg-red-100"
-                              >Remove</button>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                  {/* Desktop: card grid */}
-                  <div className="hidden sm:grid sm:grid-cols-3 md:grid-cols-4 gap-2">
-                    {team.map((m) => {
-                      const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
-                        ? m.subDepartments
-                        : (m.subDepartment ? [m.subDepartment] : [])
-                      const isActive = (m.status || 'active') === 'active' && !m.isFormer
-                      return (
-                        <div key={m.id} className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1.5 flex flex-col">
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
-                              {(m.name || '?').charAt(0).toUpperCase()}
-                            </div>
-                            <p className="text-[11px] font-semibold text-slate-800 leading-tight truncate">{m.name}</p>
-                          </div>
-                          {subDepts.length > 0 && (
-                            <div className="flex flex-wrap gap-0.5">
-                              {subDepts.map((s) => (
-                                <span key={s} className="text-[9px] font-medium px-1 py-px rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100 leading-tight">{s}</span>
-                              ))}
-                            </div>
-                          )}
-                          <div className="flex items-center gap-1 mt-auto">
-                            <span className={`text-[9px] font-semibold px-1 py-px rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                              {m.isFormer ? 'Former' : 'Active'}
-                            </span>
-                            {canEdit && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingMember(m)
-                                    setMemberForm({
-                                      name: m.name || '', role: m.role || '',
-                                      subDepartment: m.subDepartment || '', subDepartments: subDepts,
-                                      phone: m.phone || '', status: m.status || 'active',
-                                      memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
-                                      isFormer: !!m.isFormer, notes: m.notes || '',
-                                      visitorId: m.visitorId || '', source: m.source || '', childId: m.childId || '',
-                                    })
-                                  }}
-                                  className="ml-auto text-[9px] font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
-                                >Edit</button>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (!window.confirm('Remove this member from team?')) return
-                                    await deleteDepartmentTeamMember(m.id)
-                                    setTeam((prev) => prev.filter((x) => x.id !== m.id))
-                                  }}
-                                  className="text-[9px] font-medium text-red-300 hover:text-red-500 transition-colors"
-                                >✕</button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </>
-              ) : (
-                <>
-                <div className={`overflow-x-auto ${slug === 'media' ? 'rounded-xl border border-slate-200' : ''}`}>
-                  <table className="min-w-full text-sm">
+                // Spacious master-list table — same overall shape as the shared table
+                // below (used by Media/other slugs), but with the generous row padding
+                // and typography this roster's own spec calls for, rather than being
+                // forced to match Media's tighter table density.
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="min-w-full">
                     <thead className="bg-slate-50">
                       <tr>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium w-10">SL</th>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Name</th>
-                        {slug === 'media' && (
-                          <th className="text-left px-4 py-2 text-slate-600 font-medium">Sub-Department</th>
-                        )}
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Status</th>
-                        <th className="text-left px-4 py-2 text-slate-600 font-medium">Member since</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-16">S. No.</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-1/4">Name</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-2/5">Sub-Department</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-40">Member Since</th>
                         {canEdit && (
-                          <th className="text-left px-4 py-2 text-slate-600 font-medium">Actions</th>
+                          <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-16" aria-label="Actions" />
                         )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {team.map((m, idx) => {
+                      {rosterTeam.map((m, idx) => {
+                        const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
+                          ? m.subDepartments
+                          : (m.subDepartment ? [m.subDepartment] : [])
+                        const menuOpen = teamActionMenuId === m.id
+                        return (
+                          <tr key={m.id} className={`border-b border-slate-100 transition-colors ${teamShowFormerMembers ? 'bg-slate-50/60 opacity-75' : 'hover:bg-slate-50/70'}`}>
+                            <td className="py-4 px-6 text-sm text-slate-500">{idx + 1}</td>
+                            <td className="py-4 px-6">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${teamShowFormerMembers ? 'bg-slate-200 text-slate-500' : 'bg-indigo-100 text-indigo-700'}`}>
+                                  {(m.name || '?').charAt(0).toUpperCase()}
+                                </div>
+                                <span className="text-base font-semibold text-slate-800">{m.name}</span>
+                              </div>
+                            </td>
+                            <td className="py-4 px-6">
+                              {subDepts.length === 0 ? (
+                                <span className="text-sm font-medium text-slate-400">—</span>
+                              ) : (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {subDepts.map((s) => (
+                                    <span key={s} className={`text-sm font-medium px-3 py-1 rounded-full border ${teamShowFormerMembers ? 'bg-slate-100 text-slate-500 border-slate-200' : subDeptPillColor(s)}`}>{s}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-4 px-6 text-sm text-slate-600">{m.memberSince || '—'}</td>
+                            {canEdit && (
+                              <td className="py-4 px-6 text-sm whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                <div className="relative inline-block text-left">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setTeamActionMenuId(menuOpen ? null : m.id) }}
+                                    className="w-9 h-9 inline-flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                                    title="More options"
+                                  >
+                                    <svg width="16" height="16" viewBox="0 0 4 16" fill="currentColor">
+                                      <circle cx="2" cy="2" r="1.5" /><circle cx="2" cy="8" r="1.5" /><circle cx="2" cy="14" r="1.5" />
+                                    </svg>
+                                  </button>
+                                  {menuOpen && (
+                                    <>
+                                      <div className="fixed inset-0 z-10" onClick={() => setTeamActionMenuId(null)} />
+                                      <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[170px]">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setTeamActionMenuId(null)
+                                            setEditingMember(m)
+                                            setMemberForm({
+                                              name: m.name || '', role: m.role || '',
+                                              subDepartment: m.subDepartment || '', subDepartments: subDepts,
+                                              phone: m.phone || '', status: m.status || 'active',
+                                              memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
+                                              isFormer: !!m.isFormer, notes: m.notes || '',
+                                              visitorId: m.visitorId || '', source: m.source || '', childId: m.childId || '',
+                                            })
+                                          }}
+                                          className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 font-medium flex items-center gap-2"
+                                        >
+                                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                          Edit Member
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={async (e) => {
+                                            e.stopPropagation()
+                                            setTeamActionMenuId(null)
+                                            if (!window.confirm('Remove this member from team?')) return
+                                            await deleteDepartmentTeamMember(m.id)
+                                            setTeam((prev) => prev.filter((x) => x.id !== m.id))
+                                          }}
+                                          className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium flex items-center gap-2"
+                                        >
+                                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
+                                          Delete Member
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <>
+                <div className={`overflow-x-auto ${slug === 'media' ? 'rounded-xl border border-slate-200' : ''}`}>
+                  {(() => {
+                    // Media's "The Team" master table gets a more spacious, larger-type
+                    // treatment (bigger container, roomier rows) than the compact table
+                    // every other department's Team tab still uses.
+                    const isMedia = slug === 'media'
+                    const thCls = isMedia
+                      ? 'text-left py-4 px-5 text-sm font-semibold uppercase tracking-wider text-slate-500'
+                      : 'text-left px-4 py-2 text-slate-600 font-medium'
+                    const tdCls = isMedia ? 'py-4 px-5' : 'px-4 py-2'
+                    return (
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className={`${thCls} w-10`}>SL</th>
+                        <th className={`${thCls} ${isMedia ? 'w-1/4' : ''}`}>Name</th>
+                        {slug === 'media' && (
+                          <th className={`${thCls} w-2/5`}>Sub-Department</th>
+                        )}
+                        <th className={`${thCls} ${isMedia ? 'w-40' : ''}`}>Member since</th>
+                        {canEdit && (
+                          <th className={`${thCls} ${isMedia ? 'w-16' : ''}`}>{isMedia ? '' : 'Actions'}</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rosterTeam.map((m, idx) => {
                         const durationDays = m.memberSince
                           ? differenceInDays(new Date(), new Date(m.memberSince))
                           : null
@@ -7821,40 +8449,39 @@ export default function DepartmentHub() {
                         return (
                         <tr
                           key={m.id}
-                          className={slug === 'media' ? 'transition-colors cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50'}
+                          className={`transition-colors ${teamShowFormerMembers ? 'bg-slate-50/60 opacity-75' : ''} ${slug === 'media' ? 'cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50'}`}
                           onClick={slug === 'media' ? () => openMemberDetail(m, null, { mediaTeam: true }) : undefined}
                         >
-                          <td className="px-4 py-2 text-slate-600">{idx + 1}</td>
-                          <td className="px-4 py-2">
+                          <td className={`${tdCls} text-slate-600`}>{idx + 1}</td>
+                          <td className={tdCls}>
                             <div className="flex items-center gap-2 flex-wrap">
                               {slug === 'media' && (
-                                <span className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                <span className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${teamShowFormerMembers ? 'bg-slate-200 text-slate-500' : 'bg-indigo-100 text-indigo-700'}`}>
                                   {(m.name || '?').charAt(0).toUpperCase()}
                                 </span>
                               )}
-                              <span className="text-slate-800 font-medium">{m.name}</span>
+                              <span className={isMedia ? 'text-base font-semibold text-slate-800' : 'text-slate-800 font-medium'}>{m.name}</span>
                               {m.childId && (
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">River Kids</span>
+                                <span className={isMedia ? 'text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-700' : 'text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700'}>River Kids</span>
                               )}
                               {isFounder && ((m.visitorId || m.childId)
-                                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">🔗 Linked</span>
-                                : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">Unlinked</span>
+                                ? <span className={isMedia ? 'text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700' : 'text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700'}>🔗 Linked</span>
+                                : <span className={isMedia ? 'text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-400' : 'text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400'}>Unlinked</span>
                               )}
                             </div>
                           </td>
                           {slug === 'media' && (
-                            <td className="px-4 py-2">
-                              <div className="flex flex-wrap gap-1">
+                            <td className={tdCls}>
+                              <div className="flex flex-wrap gap-1.5">
                                 {memberSubDepts.length === 0 ? (
-                                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-400">Unassigned</span>
+                                  <span className="text-xs font-medium px-3 py-1 rounded-full bg-slate-100 text-slate-400">Unassigned</span>
                                 ) : memberSubDepts.map((sd) => (
-                                  <span key={sd} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">{sd}</span>
+                                  <span key={sd} className={`text-xs font-medium px-3 py-1 rounded-full border ${teamShowFormerMembers ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-indigo-50 text-indigo-600 border-indigo-100'}`}>{sd}</span>
                                 ))}
                               </div>
                             </td>
                           )}
-                          <td className="px-4 py-2 text-slate-600 capitalize">{m.status || 'active'}</td>
-                          <td className="px-4 py-2 text-slate-600">{m.memberSince || '—'}</td>
+                          <td className={`${tdCls} text-slate-600`}>{m.memberSince || '—'}</td>
                           {canEdit && (() => {
                             const openEdit = () => {
                               setEditingMember(m)
@@ -7884,15 +8511,15 @@ export default function DepartmentHub() {
                             if (slug === 'media') {
                               const menuOpen = teamActionMenuId === m.id
                               return (
-                                <td className="px-4 py-2 text-sm whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                <td className={`${tdCls} text-sm whitespace-nowrap`} onClick={(e) => e.stopPropagation()}>
                                   <div className="relative inline-block text-left">
                                     <button
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); setTeamActionMenuId(menuOpen ? null : m.id) }}
-                                      className="w-7 h-7 inline-flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                                      className="w-10 h-10 inline-flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                                       title="More options"
                                     >
-                                      <svg width="14" height="14" viewBox="0 0 4 16" fill="currentColor">
+                                      <svg width="18" height="18" viewBox="0 0 4 16" fill="currentColor">
                                         <circle cx="2" cy="2" r="1.5" /><circle cx="2" cy="8" r="1.5" /><circle cx="2" cy="14" r="1.5" />
                                       </svg>
                                     </button>
@@ -7906,7 +8533,7 @@ export default function DepartmentHub() {
                                             className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 font-medium flex items-center gap-2"
                                           >
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                                            Edit
+                                            Edit Member
                                           </button>
                                           {isFounder && (
                                             <button
@@ -7924,7 +8551,7 @@ export default function DepartmentHub() {
                                             className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium flex items-center gap-2"
                                           >
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
-                                            Delete
+                                            Delete Member
                                           </button>
                                         </div>
                                       </>
@@ -7945,11 +8572,25 @@ export default function DepartmentHub() {
                       )})}
                     </tbody>
                   </table>
+                    )
+                  })()}
                 </div>
                 </>
               )}
+                </>
+                )
+              })()}
 
-              {canEdit && (
+              <AnimatePresence>
+              {canEdit && (showAddMemberModal || editingMember) && (
+                <motion.div
+                  ref={addMemberSectionRef}
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.25, ease: 'easeOut' }}
+                  className="overflow-hidden"
+                >
                 <form
                   onSubmit={async (e) => {
                     e.preventDefault()
@@ -7964,19 +8605,44 @@ export default function DepartmentHub() {
                           prev.map((m) => (m.id === editingMember.id ? { ...m, ...memberForm } : m))
                         )
                       } else {
-                        const id = await addDepartmentTeamMember(
-                          department.name,
-                          memberForm,
-                          userProfile?.email || 'unknown'
-                        )
-                        setTeam((prev) => [
-                          ...prev,
-                          { id, department: department.name, ...memberForm },
-                        ])
+                        // A person can already be on this department's roster (e.g. from an
+                        // earlier sub-department assignment). Match on their linked directory
+                        // / River Kids id and merge into that record instead of inserting a
+                        // second `department_team_members` doc, which used to render as a
+                        // duplicate row for the same person.
+                        const identityKey = memberForm.visitorId || (memberForm.childId ? `child:${memberForm.childId}` : '')
+                        const existingMember = identityKey
+                          ? team.find((m) => (m.visitorId || (m.childId ? `child:${m.childId}` : '')) === identityKey)
+                          : null
+                        if (existingMember) {
+                          const mergedSubDepts = Array.from(new Set([
+                            ...(existingMember.subDepartments || []),
+                            ...(memberForm.subDepartments || []),
+                          ]))
+                          await addSubDepartmentsToTeamMember(existingMember.id, memberForm.subDepartments)
+                          setTeam((prev) =>
+                            prev.map((m) =>
+                              m.id === existingMember.id
+                                ? { ...m, subDepartments: mergedSubDepts, subDepartment: mergedSubDepts[0] || m.subDepartment }
+                                : m
+                            )
+                          )
+                        } else {
+                          const id = await addDepartmentTeamMember(
+                            department.name,
+                            memberForm,
+                            userProfile?.email || 'unknown'
+                          )
+                          setTeam((prev) => [
+                            ...prev,
+                            { id, department: department.name, ...memberForm },
+                          ])
+                        }
                       }
                       setTeamError('')
                       setEditingMember(null)
                       setTeamMemberSearch('')
+                      setShowAddMemberModal(false)
                       setMemberForm({
                         name: '',
                         role: '',
@@ -7996,30 +8662,34 @@ export default function DepartmentHub() {
                       setTeamError('Failed to save team member.')
                     }
                   }}
-                  className="mt-6"
+                  className="mt-6 rounded-2xl border border-slate-200/80 shadow-md bg-slate-50/60 p-6 space-y-6"
                 >
-                  {/* Form header */}
-                  <div className="flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-indigo-50 to-violet-50 border-t-2 border-indigo-200 rounded-t-xl">
-                    <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-indigo-900 leading-tight">
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-base font-bold text-slate-900 leading-tight">
                         {editingMember ? 'Edit Team Member' : 'Add New Team Member'}
                       </h3>
-                      <p className="text-xs text-indigo-500 mt-0.5">
+                      <p className="text-xs text-slate-400 mt-0.5">
                         {editingMember ? 'Update the details below' : 'Must be selected from People\'s Directory'}
                       </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => { setShowAddMemberModal(false); setEditingMember(null); setTeamMemberSearch('') }}
+                      className="-mt-1 -mr-1 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex-shrink-0 transition-colors text-xl leading-none"
+                      aria-label="Close"
+                    >×</button>
                   </div>
 
-                  <div className="px-5 py-5 space-y-5 bg-white border border-t-0 border-indigo-100 rounded-b-xl shadow-sm">
-                    {/* Name / Search */}
+                  {/* Two clean columns: Left = who they are, Right = status/dates/actions —
+                      replaces the old single stacked column. */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-5">
+                  {/* Name / Search */}
                     <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                        Name <span className="text-indigo-400 font-normal normal-case tracking-normal">(from People&apos;s Directory)</span>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                        Name <span className="text-indigo-400 font-normal">(from People&apos;s Directory)</span>
                       </label>
                       {editingMember ? (
                         <input
@@ -8027,7 +8697,7 @@ export default function DepartmentHub() {
                           required
                           value={memberForm.name}
                           onChange={(e) => setMemberForm((f) => ({ ...f, name: e.target.value }))}
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-colors"
+                          className="w-full py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-colors"
                         />
                       ) : memberForm.name ? (
                         <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border-2 border-emerald-200 bg-emerald-50">
@@ -8057,7 +8727,7 @@ export default function DepartmentHub() {
                             onChange={(e) => { setTeamMemberSearch(e.target.value); setTeamMemberSearchOpen(true) }}
                             onFocus={() => setTeamMemberSearchOpen(true)}
                             onBlur={() => setTimeout(() => setTeamMemberSearchOpen(false), 150)}
-                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 focus:bg-white transition-colors disabled:opacity-60"
+                            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-base text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 focus:bg-white transition-colors disabled:opacity-60"
                           />
                           {teamMemberSearchOpen && teamMemberSearch.trim().length > 0 && (() => {
                             const q = teamMemberSearch.trim().toLowerCase()
@@ -8114,7 +8784,7 @@ export default function DepartmentHub() {
                     {/* Sub Department (D-Light + Media) */}
                     {(slug === 'd-light' || slug === 'media') && (
                       <div>
-                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
                           Sub Department
                         </label>
                         {subDeptOptionList.length === 0 ? (
@@ -8153,11 +8823,14 @@ export default function DepartmentHub() {
                         )}
                       </div>
                     )}
+                  </div>
 
+                  {/* Right column: status, dates, and the submit/cancel actions */}
+                  <div className="space-y-5">
                     {/* Status + Member Since row */}
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
                           Status
                         </label>
                         <div className="flex gap-2">
@@ -8166,7 +8839,7 @@ export default function DepartmentHub() {
                               key={s}
                               type="button"
                               onClick={() => setMemberForm((f) => ({ ...f, status: s }))}
-                              className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                              className={`flex-1 py-2.5 rounded-lg text-sm font-semibold border transition-colors ${
                                 memberForm.status === s
                                   ? s === 'active'
                                     ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
@@ -8180,14 +8853,14 @@ export default function DepartmentHub() {
                         </div>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
                           Member Since
                         </label>
                         <input
                           type="date"
                           value={memberForm.memberSince}
                           onChange={(e) => setMemberForm((f) => ({ ...f, memberSince: e.target.value }))}
-                          className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-colors"
+                          className="w-full py-2.5 px-3 rounded-lg border border-slate-200 bg-slate-50 text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-colors"
                         />
                       </div>
                     </div>
@@ -8206,23 +8879,24 @@ export default function DepartmentHub() {
                       <button
                         type="submit"
                         disabled={!editingMember && !memberForm.name}
-                        className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm transition-colors"
+                        className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-base font-bold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm hover:shadow-md transition-all"
                       >
                         {editingMember ? 'Update Member' : 'Add Member'}
                       </button>
-                      {editingMember && (
-                        <button
-                          type="button"
-                          onClick={() => { setEditingMember(null); setTeamMemberSearch(''); setMemberForm({ name: '', role: '', subDepartment: '', subDepartments: [], phone: '', status: 'active', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, notes: '', visitorId: '', source: '', childId: '' }) }}
-                          className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => { setEditingMember(null); setTeamMemberSearch(''); setShowAddMemberModal(false); setMemberForm({ name: '', role: '', subDepartment: '', subDepartments: [], phone: '', status: 'active', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, notes: '', visitorId: '', source: '', childId: '' }) }}
+                        className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
                     </div>
                   </div>
+                  </div>
                 </form>
+                </motion.div>
               )}
+              </AnimatePresence>
             </div>
           )}
 
@@ -8614,49 +9288,92 @@ export default function DepartmentHub() {
               ? rkReportKidsNames.some(n => (n || '').trim().toLowerCase() === c.name.trim().toLowerCase())
               : !!rkPresent[c.id]
             const presentCount = groupKids.filter(isKidPresent).length
+            // Every toggle above already auto-saves as it happens (setDepartmentChildAttendance
+            // + patchSundayReportRiverKids) — this button re-asserts the CURRENT on-screen state
+            // for the active group back to Firestore in one explicit action, so staff get a
+            // definitive "it's saved" confirmation instead of trusting a silent per-tap write.
+            const saveRkAttendance = async () => {
+              if (!canEditRkAttendance || !department || rkAttendanceSaving) return
+              setRkAttendanceSaving(true)
+              try {
+                if (!isSundaySchool) {
+                  await setDepartmentChildAttendance(department.name, rkDate, rkAttendanceGroup, rkPresent, userProfile?.email || userProfile?.displayName || 'unknown')
+                }
+                // Shared across all three groups — this is the same field Sunday Ministry's
+                // dashboard reads for the live "River Kids" attendance total.
+                await patchSundayReportRiverKids(rkDate, rkReportKidsNames, userProfile?.email || userProfile?.displayName || 'unknown')
+                setRkAttendanceToast(`Saved — ${presentCount} present, ${groupKids.length - presentCount} absent of ${groupKids.length} total. Synced to Sunday Ministry.`)
+                setTimeout(() => setRkAttendanceToast(''), 3500)
+              } catch (error) {
+                console.error('Attendance Save Error (Save button):', error)
+                alert(rkPermissionErrorMessage(error))
+              } finally {
+                setRkAttendanceSaving(false)
+              }
+            }
             return (
               <div className="space-y-3">
                 {/* Date row */}
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-3">
                   <p className="font-bold text-slate-800">Attendance</p>
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <span className="text-xs font-medium text-slate-500">Date</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <span className="text-xs font-medium text-slate-500">Date</span>
+                      <button
+                        type="button"
+                        onClick={() => setRkDate(d => format(subWeeks(new Date(d + 'T00:00:00'), 1), 'yyyy-MM-dd'))}
+                        aria-label={`Previous ${isSundaySchool ? 'Sunday' : 'Saturday'}`}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                      >
+                        ‹
+                      </button>
+                      <input
+                        type="date"
+                        value={rkDate}
+                        // Chromium-based browsers disable calendar days that don't fall on `min +
+                        // n*step`; picking Jan 7/6 2024 (a Sunday/Saturday) as the anchor keeps
+                        // every selectable day on the correct weekday. onChange below is the
+                        // fallback for browsers that don't honor step in their date picker UI.
+                        min={isSundaySchool ? '2024-01-07' : '2024-01-06'}
+                        step={7}
+                        onChange={e => {
+                          const val = e.target.value
+                          if (!val) return
+                          const targetDow = isSundaySchool ? 0 : 6
+                          const d = new Date(val + 'T00:00:00')
+                          if (isNaN(d.getTime())) return
+                          const diff = (targetDow - d.getDay() + 7) % 7
+                          d.setDate(d.getDate() + diff)
+                          setRkDate(format(d, 'yyyy-MM-dd'))
+                        }}
+                        className="px-2 py-1.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setRkDate(d => format(addWeeks(new Date(d + 'T00:00:00'), 1), 'yyyy-MM-dd'))}
+                        aria-label={`Next ${isSundaySchool ? 'Sunday' : 'Saturday'}`}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                      >
+                        ›
+                      </button>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setRkDate(d => format(subWeeks(new Date(d + 'T00:00:00'), 1), 'yyyy-MM-dd'))}
-                      aria-label={`Previous ${isSundaySchool ? 'Sunday' : 'Saturday'}`}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                      disabled={!canEditRkAttendance || rkAttendanceSaving}
+                      onClick={saveRkAttendance}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold shadow-sm hover:bg-indigo-700 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      ‹
-                    </button>
-                    <input
-                      type="date"
-                      value={rkDate}
-                      // Chromium-based browsers disable calendar days that don't fall on `min +
-                      // n*step`; picking Jan 7/6 2024 (a Sunday/Saturday) as the anchor keeps
-                      // every selectable day on the correct weekday. onChange below is the
-                      // fallback for browsers that don't honor step in their date picker UI.
-                      min={isSundaySchool ? '2024-01-07' : '2024-01-06'}
-                      step={7}
-                      onChange={e => {
-                        const val = e.target.value
-                        if (!val) return
-                        const targetDow = isSundaySchool ? 0 : 6
-                        const d = new Date(val + 'T00:00:00')
-                        if (isNaN(d.getTime())) return
-                        const diff = (targetDow - d.getDay() + 7) % 7
-                        d.setDate(d.getDate() + diff)
-                        setRkDate(format(d, 'yyyy-MM-dd'))
-                      }}
-                      className="px-2 py-1.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setRkDate(d => format(addWeeks(new Date(d + 'T00:00:00'), 1), 'yyyy-MM-dd'))}
-                      aria-label={`Next ${isSundaySchool ? 'Sunday' : 'Saturday'}`}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
-                    >
-                      ›
+                      {rkAttendanceSaving ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Saving…
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 size={14} />
+                          Save Attendance
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -8766,6 +9483,21 @@ export default function DepartmentHub() {
                     </div>
                   </div>
                 )}
+
+                {/* "Attendance saved" confirmation for the Save Attendance button above. */}
+                <AnimatePresence>
+                  {rkAttendanceToast && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 16 }}
+                      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-slate-900 text-white text-sm font-medium shadow-lg"
+                    >
+                      <CheckCircle2 size={16} className="text-emerald-400" />
+                      {rkAttendanceToast}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )
           })()}

@@ -29,13 +29,34 @@ import DepartmentDock from '../workspace/DepartmentDock'
 // instead of each consumer re-subscribing independently.
 const WIDE_LAYOUT_ROUTES = ['/worklist']
 
+// Same idea as WIDE_LAYOUT_ROUTES, but for a single tab of a hub page rather than
+// a whole route (the tab lives in the ?tab= query string, so pathname alone can't
+// key it) — currently Media's "The Team" master table and D-Light's Team sub-tab
+// (nested under Operations as ?opsSub=team, hence the extra `opsSub` match), both
+// of which need more than 5xl to breathe. { pathname, tab } must match, and `opsSub`
+// too when set — `opsSubIsDefault` additionally matches the no-`opsSub`-param case,
+// since DepartmentHub.jsx itself falls back to 'team' when that param is absent.
+const WIDE_LAYOUT_TABS = [
+  { pathname: '/department/media', tab: 'team' },
+  { pathname: '/department/d-light', tab: 'operations', opsSub: 'team', opsSubIsDefault: true },
+]
+
 export default function MainLayout() {
   const { user, userProfile, isFounder } = useAuth()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const {
     notifications, handleNotifAction, dismissNotification, addNotificationToTodo,
   } = useActionNotifications(userProfile, isFounder, user?.uid)
+  const searchParams = new URLSearchParams(search)
+  const activeTab = searchParams.get('tab')
+  const activeOpsSub = searchParams.get('opsSub')
   const isWide = WIDE_LAYOUT_ROUTES.includes(pathname)
+  const isWideTab = WIDE_LAYOUT_TABS.some((w) => {
+    if (w.pathname !== pathname || w.tab !== activeTab) return false
+    if (w.opsSub === undefined) return true
+    if (activeOpsSub) return activeOpsSub === w.opsSub
+    return !!w.opsSubIsDefault
+  })
   const isAccountsFullWidth = pathname.startsWith('/department/accounts')
 
   return (
@@ -51,7 +72,7 @@ export default function MainLayout() {
         {/* pt- clears MobileHeader's fixed top bar, pb- clears DepartmentDock's floating
             button — both lg:hidden now, so both offsets zero out at lg: too. */}
         <div className="flex-1 pt-[calc(3rem_+_env(safe-area-inset-top,24px))] lg:pt-0 pb-[calc(7rem_+_env(safe-area-inset-bottom,0px))] lg:pb-0">
-          <div className={`px-4 sm:px-6 py-6 ${isAccountsFullWidth ? 'w-full' : `mx-auto ${isWide ? 'max-w-[1400px]' : 'max-w-5xl'}`}`}>
+          <div className={`px-4 sm:px-6 py-6 ${isAccountsFullWidth ? 'w-full' : `mx-auto ${isWide ? 'max-w-[1400px]' : isWideTab ? 'max-w-7xl' : 'max-w-5xl'}`}`}>
             <Outlet context={{ notifications, handleNotifAction, dismissNotification, addNotificationToTodo }} />
           </div>
         </div>

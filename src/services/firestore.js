@@ -18,6 +18,7 @@ import {
   onSnapshot,
   increment,
   getDocsFromServer,
+  arrayUnion,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, functions, httpsCallable } from '../lib/firebase'
@@ -615,6 +616,28 @@ function normalizeSubDepartments(data) {
   return []
 }
 
+// Some department rosters ended up with more than one `department_team_members`
+// doc for the same person (e.g. assigning a second sub-department re-added them
+// instead of updating their record). Collapse those into a single row per person
+// — keyed by their linked directory/River Kids id, falling back to name — so the
+// roster shows one row with every sub-department tag rather than duplicate rows.
+function dedupeTeamMembersList(list) {
+  const byId = Array.from(new Map(list.map((m) => [m.id, m])).values())
+  const byPerson = new Map()
+  for (const m of byId) {
+    const key = m.visitorId || (m.childId ? `child:${m.childId}` : '') || `name:${String(m.name || '').trim().toLowerCase()}`
+    const existing = byPerson.get(key)
+    if (!existing) {
+      byPerson.set(key, m)
+      continue
+    }
+    const mergedSubDepts = Array.from(new Set([...(existing.subDepartments || []), ...(m.subDepartments || [])]))
+    const primary = (existing.createdAt && m.createdAt && m.createdAt < existing.createdAt) ? m : existing
+    byPerson.set(key, { ...primary, subDepartments: mergedSubDepts, subDepartment: mergedSubDepts[0] || primary.subDepartment })
+  }
+  return Array.from(byPerson.values())
+}
+
 export async function getDepartmentTeamMembers(department) {
   if (!db) return []
   const q = query(
@@ -645,8 +668,9 @@ export async function getDepartmentTeamMembers(department) {
       createdAt: toDate(data.createdAt),
     }
   })
-  list.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
-  return list
+  const deduped = dedupeTeamMembersList(list)
+  deduped.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
+  return deduped
 }
 
 export function subscribeDepartmentTeamMembers(department, onChange) {
@@ -676,8 +700,9 @@ export function subscribeDepartmentTeamMembers(department, onChange) {
         createdAt: toDate(data.createdAt),
       }
     })
-    list.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
-    onChange(list)
+    const deduped = dedupeTeamMembersList(list)
+    deduped.sort((a, b) => (a.memberSince || '').localeCompare(b.memberSince || ''))
+    onChange(deduped)
   }, () => {})
 }
 
@@ -734,6 +759,18 @@ export async function updateDepartmentTeamMember(id, data) {
 export async function deleteDepartmentTeamMember(id) {
   if (!db) return
   await deleteDoc(doc(db, 'department_team_members', id))
+}
+
+// Assigns additional sub-department(s) to a person already on the roster —
+// merges into their existing record instead of the caller inserting a new
+// `department_team_members` doc (which used to render as a duplicate row).
+export async function addSubDepartmentsToTeamMember(id, subDepartments) {
+  if (!db) return
+  const subDepts = Array.isArray(subDepartments) ? subDepartments.filter(Boolean) : []
+  if (!subDepts.length) return
+  await updateDoc(doc(db, 'department_team_members', id), {
+    subDepartments: arrayUnion(...subDepts),
+  })
 }
 
 // Department sub-departments (all departments except Cell & Worship use this)

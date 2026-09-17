@@ -46,6 +46,13 @@ function Avatar({ name, tint, className }) {
  * @param {(m) => string} [getDetail] - secondary line under the name
  * @param {(m) => Array<{label, className}>} [getBadges] - pills after the name
  * @param {string} [emptyLabel]
+ * @param {(el: HTMLButtonElement | null) => void} [triggerRef] - callback ref to the
+ *   trigger button, for callers (e.g. an "+ Add" link elsewhere on the page) that need
+ *   to open this exact picker programmatically via `triggerRef.current?.click()`.
+ * @param {boolean} [hideClearOption] - omit the "Not assigned" row inside the panel;
+ *   for pure "add another" pickers (value is always empty) where clearing makes no sense.
+ * @param {boolean} [fitContent] - size the trigger to its content instead of `w-full`,
+ *   for a picker sitting inline among other chips rather than alone in a table cell.
  */
 export default function MemberPicker({
   value,
@@ -58,6 +65,9 @@ export default function MemberPicker({
   getDetail = () => '',
   getBadges = () => [],
   emptyLabel = 'Not assigned',
+  triggerRef,
+  hideClearOption = false,
+  fitContent = false,
 }) {
   const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
@@ -121,10 +131,10 @@ export default function MemberPicker({
   return (
     <>
       <button
-        ref={btnRef}
+        ref={(el) => { btnRef.current = el; if (typeof triggerRef === 'function') triggerRef(el) }}
         type="button"
         onClick={() => { if (open) setShowAll(false); setOpen((v) => !v) }}
-        className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-left transition-colors ${
+        className={`${fitContent ? 'inline-flex' : 'w-full flex'} items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-left transition-colors ${
           selected
             ? 'border border-slate-300 bg-white hover:border-indigo-400'
             : 'border border-dashed border-rose-300 bg-rose-50/60 hover:bg-rose-50'
@@ -153,15 +163,17 @@ export default function MemberPicker({
             onWheel={(e) => e.stopPropagation()}
             onScroll={(e) => e.stopPropagation()}
           >
-            <button
-              type="button"
-              onClick={() => pick(null)}
-              className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-left transition-colors hover:bg-rose-50 ${!value ? 'bg-rose-50 ring-1 ring-inset ring-rose-200' : ''}`}
-            >
-              <span className="inline-flex w-8 h-8 items-center justify-center rounded-full border border-dashed border-rose-300 text-rose-400 shrink-0">—</span>
-              <span className="flex-1 font-semibold text-rose-500">{emptyLabel}</span>
-              {!value && <CheckCircle2 size={15} className="shrink-0 text-rose-400" />}
-            </button>
+            {!hideClearOption && (
+              <button
+                type="button"
+                onClick={() => pick(null)}
+                className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-left transition-colors hover:bg-rose-50 ${!value ? 'bg-rose-50 ring-1 ring-inset ring-rose-200' : ''}`}
+              >
+                <span className="inline-flex w-8 h-8 items-center justify-center rounded-full border border-dashed border-rose-300 text-rose-400 shrink-0">—</span>
+                <span className="flex-1 font-semibold text-rose-500">{emptyLabel}</span>
+                {!value && <CheckCircle2 size={15} className="shrink-0 text-rose-400" />}
+              </button>
+            )}
 
             {list.map((m) => {
               const detail = getDetail(m)
