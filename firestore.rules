@@ -139,11 +139,22 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Department assignments (e.g. D Light Assign tab)
+    // Department assignments (e.g. other departments' Assign tabs — one shared,
+    // undated doc per department, keyed by `department` field on the doc itself).
     match /department_assignments/{docId} {
       allow read: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+    }
+
+    // D-Light Assign tab's own per-Sunday duty roster (one doc per service date,
+    // doc id = 'YYYY-MM-DD' — see DLIGHT_ASSIGNMENTS_COLLECTION in firestore.js).
+    // Unlike department_assignments above, these docs carry no `department` field
+    // to check against, so access is scoped to D Light directly by collection —
+    // this match was missing entirely, which is why every save fell through to
+    // Firestore's default deny and surfaced as "permission-denied".
+    match /dlight_assignments/{serviceDate} {
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('D Light'));
     }
 
     match /departments/{departmentId} {

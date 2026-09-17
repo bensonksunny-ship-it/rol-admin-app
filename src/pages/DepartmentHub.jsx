@@ -2,7 +2,7 @@ import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNav
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Pencil, Download, CheckCircle2, Loader2 } from 'lucide-react'
+import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
@@ -1125,6 +1125,9 @@ export default function DepartmentHub() {
   const dlightAssignShareRef = useRef(null)
   const [dlightSharingPlan, setDlightSharingPlan] = useState(false)
   const [dlightShareToast, setDlightShareToast] = useState(null)
+  // Save-plan error banner — replaces a bare window.alert() so a permission-denied
+  // (or any other) save failure reads as an in-page toast, not a browser popover.
+  const [dlightAssignError, setDlightAssignError] = useState(null)
   // Media – Assign tab (per-Sunday crew, media_schedule collection)
   const [mediaAssignDate, setMediaAssignDate] = useState(() => {
     const today = new Date(); const day = today.getDay()
@@ -5291,7 +5294,8 @@ export default function DepartmentHub() {
                             const reason = err?.code === 'permission-denied'
                               ? 'You don’t have permission to save D-Light assignments.'
                               : (err?.message || 'Please try again.')
-                            alert(`Failed to save assignments. ${reason}`)
+                            setDlightAssignError(`Failed to save assignments. ${reason}`)
+                            setTimeout(() => setDlightAssignError(null), 5000)
                           } finally {
                             setSavingDelightAssignments(false)
                           }
@@ -5576,6 +5580,30 @@ export default function DepartmentHub() {
               >
                 <CheckCircle2 size={16} className="text-emerald-400" />
                 {dlightShareToast}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Save-plan error banner — replaces window.alert() so a permission-denied
+              (or any other) save failure reads as a dismissible in-page toast. */}
+          <AnimatePresence>
+            {slug === 'd-light' && activeTab === 'assign' && dlightAssignError && (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 16 }}
+                className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 max-w-[calc(100vw-2rem)] px-4 py-2.5 rounded-full bg-rose-600 text-white text-sm font-medium shadow-lg"
+              >
+                <AlertTriangle size={16} className="text-rose-100 flex-shrink-0" />
+                <span className="truncate">{dlightAssignError}</span>
+                <button
+                  type="button"
+                  onClick={() => setDlightAssignError(null)}
+                  className="text-rose-100 hover:text-white flex-shrink-0"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
