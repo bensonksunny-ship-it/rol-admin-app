@@ -12,7 +12,11 @@ export function getDepartmentHubTabs(slug) {
     case 'worship':
       return ['summary', 'upcomingSunday', 'assign', 'theTeam', 'applications', 'practiceRehearsal', 'songsDirectory', 'archives', 'finance']
     case 'media':
-      return ['summary', 'assign', 'team', 'upcomingSunday', 'finance', 'operations']
+      // No Operations tab — Team + Sub-Departments already moved to the top-level
+      // "The Team" tab, which left Operations with only Planning as a sub-tab; that
+      // lone sub-tab was removed too, so the whole tab is gone rather than left
+      // pointing at an empty Operations page.
+      return ['summary', 'assign', 'team', 'upcomingSunday', 'finance']
     case 'd-light':
       return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'finance', 'operations']
     case 'event-m':

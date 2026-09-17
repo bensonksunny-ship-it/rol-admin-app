@@ -662,6 +662,7 @@ export async function getDepartmentTeamMembers(department) {
       memberSince: data.memberSince || '',
       notes: data.notes || '',
       isFormer: data.isFormer ?? false,
+      isDirector: data.isDirector ?? false,
       visitorId: data.visitorId || '',
       source: data.source || '',
       childId: data.childId || '',
@@ -694,6 +695,7 @@ export function subscribeDepartmentTeamMembers(department, onChange) {
         memberSince: data.memberSince || '',
         notes: data.notes || '',
         isFormer: data.isFormer ?? false,
+        isDirector: data.isDirector ?? false,
         visitorId: data.visitorId || '',
         source: data.source || '',
         childId: data.childId || '',
@@ -720,6 +722,7 @@ export async function addDepartmentTeamMember(department, data, addedBy) {
     memberSince: data.memberSince ? String(data.memberSince).slice(0, 10) : new Date().toISOString().slice(0, 10),
     notes: data.notes != null ? String(data.notes) : '',
     isFormer: data.isFormer ?? false,
+    isDirector: data.isDirector ?? false,
     // Link references — previously dropped on add, so a member picked from the
     // directory search saved unlinked and showed the "Unlinked" badge until an
     // edit + re-save. `source: 'river_kids'` + `childId` identify a River Kids
@@ -748,6 +751,7 @@ export async function updateDepartmentTeamMember(id, data) {
     memberSince: data.memberSince != null ? String(data.memberSince).slice(0, 10) : undefined,
     notes: data.notes != null ? String(data.notes) : undefined,
     isFormer: data.isFormer !== undefined ? !!data.isFormer : undefined,
+    isDirector: data.isDirector !== undefined ? !!data.isDirector : undefined,
     visitorId: data.visitorId !== undefined ? String(data.visitorId) : undefined,
     source: data.source !== undefined ? String(data.source) : undefined,
     childId: data.childId !== undefined ? String(data.childId) : undefined,
@@ -788,18 +792,23 @@ export async function getDepartmentSubDepartments(department) {
     department,
     name: d.data().name || '',
     servingArea: d.data().servingArea || '',
+    // River Kids groups its sub-departments under a fixed set of category keys
+    // (see RK_CLASS_GROUPS in DepartmentHub.jsx); every other department leaves
+    // this blank and keeps the flat list.
+    category: d.data().category || '',
     createdAt: toDate(d.data().createdAt),
   }))
   list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
   return list
 }
 
-export async function addDepartmentSubDepartment(department, name, addedBy, servingArea = '') {
+export async function addDepartmentSubDepartment(department, name, addedBy, servingArea = '', category = '') {
   if (!db || !department || !name) return null
   const ref = await addDoc(collection(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION), {
     department,
     name,
     servingArea: String(servingArea || '').trim(),
+    category: String(category || '').trim(),
     addedBy: addedBy || 'unknown',
     createdAt: Timestamp.now(),
   })
@@ -811,6 +820,7 @@ export async function updateDepartmentSubDepartment(id, data) {
   const payload = {
     name: data.name != null ? String(data.name) : undefined,
     servingArea: data.servingArea != null ? String(data.servingArea) : undefined,
+    category: data.category != null ? String(data.category) : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION, id), clean)

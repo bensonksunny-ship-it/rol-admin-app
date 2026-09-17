@@ -223,6 +223,45 @@ function subDeptPillColor(name) {
   return SUB_DEPT_PILL_COLORS[Math.abs(hash) % SUB_DEPT_PILL_COLORS.length]
 }
 
+// Team roster tables' "Member Since" column — the stored value is a plain
+// YYYY-MM-DD string (see memberSince's date input elsewhere in this file), but the
+// roster displays it DD/MM/YYYY.
+const formatDate = (dateStr) => {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('en-GB')
+}
+
+// "2 yrs 3 mos" / "6 mos" / "12 days" of service so far — sits under the Member
+// Since date in the roster tables so a director can spot milestones at a glance
+// without doing the math themselves.
+function formatMemberDuration(dateStr) {
+  if (!dateStr) return ''
+  const start = new Date(dateStr)
+  if (isNaN(start.getTime())) return ''
+  const now = new Date()
+  const years = differenceInYears(now, start)
+  const months = differenceInMonths(now, start) % 12
+  if (years === 0 && months === 0) {
+    const days = Math.max(differenceInDays(now, start), 0)
+    return days === 0 ? 'Joined today' : `${days} day${days === 1 ? '' : 's'}`
+  }
+  const parts = []
+  if (years > 0) parts.push(`${years} yr${years === 1 ? '' : 's'}`)
+  if (months > 0) parts.push(`${months} mo${months === 1 ? '' : 's'}`)
+  return parts.join(' ')
+}
+
+// True during the calendar month of a whole-year service anniversary (e.g. their
+// 3rd year) — flags the duration line below so it stands out as a milestone.
+function isMemberAnniversaryMonth(dateStr) {
+  if (!dateStr) return false
+  const start = new Date(dateStr)
+  if (isNaN(start.getTime())) return false
+  const now = new Date()
+  return differenceInYears(now, start) > 0 && start.getMonth() === now.getMonth()
+}
+
 const WEEKDAY_OPTIONS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 const VISITOR_START_YEAR = 2014
@@ -562,6 +601,7 @@ export default function DepartmentHub() {
     status: 'active',
     memberSince: new Date().toISOString().slice(0, 10),
     isFormer: false,
+    isDirector: false,
     notes: '',
     visitorId: '',
     source: '',
@@ -1109,11 +1149,10 @@ export default function DepartmentHub() {
   const [subDepartments, setSubDepartments] = useState([])
   const [subDeptLoading, setSubDeptLoading] = useState(false)
   const [subDeptError, setSubDeptError] = useState('')
-  const [subDeptForm, setSubDeptForm] = useState({ name: '', servingArea: '' })
+  const [subDeptForm, setSubDeptForm] = useState({ name: '', servingArea: '', category: '' })
   const [editingSubDept, setEditingSubDept] = useState(null)
   const [genericSubDeptModalOpen, setGenericSubDeptModalOpen] = useState(false)
   const [subDeptActionsMenuId, setSubDeptActionsMenuId] = useState(null)
-  const [seedingSubDepts, setSeedingSubDepts] = useState(false)
   // Media's "The Team" tab hosts sub-department management inline (collapsible).
   const [mediaSubDeptPanelOpen, setMediaSubDeptPanelOpen] = useState(true)
   const [dlightTeamSubOpts, setDlightTeamSubOpts] = useState([])
@@ -1222,6 +1261,11 @@ export default function DepartmentHub() {
       setActiveTab(tabFromUrl && allowed.includes(tabFromUrl) ? tabFromUrl : fallback)
     } else if (tabFromUrl && nextTabs.includes(tabFromUrl)) {
       setActiveTab(tabFromUrl)
+    } else if (slug === 'media' && tabFromUrl === 'operations') {
+      // Operations (and its only child, Planning) was removed from Media — a stale
+      // link/bookmark to ?tab=operations lands on Assign instead of falling all the
+      // way back to the Hub like a truly unrecognized tab would.
+      setActiveTab('assign')
     } else {
       setActiveTab('summary')
     }
@@ -1235,9 +1279,7 @@ export default function DepartmentHub() {
   const opsSubFromUrl = searchParams.get('opsSub')
   useEffect(() => {
     if (activeTab !== 'operations') return
-    // Media's Operations tab only has Planning (Team + Sub-Departments moved to
-    // the top-level "The Team" tab), so 'team' is never a valid fallback there.
-    setOpsSubTab(opsSubFromUrl || (slug === 'media' ? 'planning' : 'team'))
+    setOpsSubTab(opsSubFromUrl || 'team')
   }, [activeTab, opsSubFromUrl, slug])
 
   // Same idea, for Finance's Expense/Budget/Payout Request children (moved out of
@@ -1642,7 +1684,9 @@ export default function DepartmentHub() {
 
   useEffect(() => {
     const wantsPlanning = activeTab === 'planning' ||
-      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'media' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'planning')
+      // Media has no Operations tab (Planning was removed as its only child), so it's
+      // deliberately absent here — activeTab never reaches 'operations' for it.
+      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'planning')
     if (!department || !wantsPlanning) return
     setLoadingDepartmentUpdates(true)
     getDepartmentUpdates(department.name)
@@ -2230,6 +2274,63 @@ export default function DepartmentHub() {
   // department allowance so a Sunday Ministry Director/Coordinator running
   // Live Control isn't blocked from saving those groups' presence too.
   const canEditRkAttendance = canEdit || canManageDepartment('Sunday Ministry')
+
+  // One nested sub-department row (River Kids' categorized Sub Department tab) —
+  // shared by every category card and the "Other" bucket below so the three-dot
+  // Edit/Delete menu isn't quadruplicated across each section.
+  const renderSubDeptRow = (row) => (
+    <div key={row.id} className="relative flex items-center justify-between gap-2 pl-3 pr-1 py-2 rounded-lg hover:bg-slate-50 transition-colors">
+      <p className="text-sm font-medium text-slate-700 truncate">{row.name || '—'}</p>
+      {canEdit && (
+        <>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setSubDeptActionsMenuId((id) => (id === row.id ? null : row.id)) }}
+            className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
+            aria-label="Row actions"
+          >
+            ⋮
+          </button>
+          {subDeptActionsMenuId === row.id && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="absolute right-0 top-full mt-1 w-32 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden z-10 text-left"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setSubDeptActionsMenuId(null)
+                  setEditingSubDept(row)
+                  setSubDeptForm({ name: row.name || '', servingArea: row.servingArea || '', category: row.category || '' })
+                  setGenericSubDeptModalOpen(true)
+                }}
+                className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setSubDeptActionsMenuId(null)
+                  if (!window.confirm('Delete this sub department?')) return
+                  try {
+                    await deleteDepartmentSubDepartment(row.id)
+                    setSubDepartments((prev) => prev.filter((x) => x.id !== row.id))
+                  } catch (err) {
+                    console.error(err)
+                    alert('Failed to delete')
+                  }
+                }}
+                className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
 
   const planningDraftPeriod = useMemo(() => new Date().toISOString().slice(0, 7), [])
   const planningDraftStorageKey = useMemo(() => {
@@ -5110,16 +5211,20 @@ export default function DepartmentHub() {
                         type="button"
                         onClick={handleDlightSharePlan}
                         disabled={dlightSharingPlan}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60 transition-colors"
+                        title="Copy / Export JPEG"
+                        aria-label="Copy / Export JPEG"
+                        className="p-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors disabled:opacity-60"
                       >
-                        <Download size={14} /> {dlightSharingPlan ? 'Exporting…' : 'Copy as Image'}
+                        <Download className="w-5 h-5" />
                       </button>
                       <button
                         type="button"
                         onClick={() => setDlightAssignEditing(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 text-sm font-semibold hover:bg-amber-100 transition-colors"
+                        title="Edit Plan"
+                        aria-label="Edit Plan"
+                        className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors"
                       >
-                        <Pencil size={14} /> Edit Plan
+                        <Pencil className="w-5 h-5" />
                       </button>
                     </div>
                   )}
@@ -5403,7 +5508,35 @@ export default function DepartmentHub() {
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
                     <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-emerald-500 to-amber-500" />
                     <div className="px-5 py-4 border-b border-slate-200 space-y-3 bg-gradient-to-r from-indigo-50 via-white to-amber-50">
-                      <h2 className="font-semibold text-slate-800">Assign media crew</h2>
+                      <div className="flex items-center justify-between gap-3">
+                        <h2 className="font-semibold text-slate-800">Assign media crew</h2>
+                        {/* View-only action controls sit opposite the title, as compact
+                            icon buttons — editing's Cancel/Save Plan stay below, next to
+                            the Coming Sundays picker, since they're a different mode. */}
+                        {canEdit && !mediaAssignEditing && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={handleMediaSharePlan}
+                              disabled={mediaSharingPlan}
+                              title="Copy / Export JPEG"
+                              aria-label="Copy / Export JPEG"
+                              className="p-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors disabled:opacity-60"
+                            >
+                              <Download className="w-5 h-5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMediaAssignEditing(true)}
+                              title="Edit Plan"
+                              aria-label="Edit Plan"
+                              className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors"
+                            >
+                              <Pencil className="w-5 h-5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Coming Sundays</span>
@@ -5425,7 +5558,7 @@ export default function DepartmentHub() {
                             title="Pick a custom Sunday date"
                           />
                         </div>
-                        {canEdit && (mediaAssignEditing ? (
+                        {canEdit && mediaAssignEditing && (
                           <div className="flex items-center gap-2 shrink-0">
                             <button
                               type="button"
@@ -5451,25 +5584,7 @@ export default function DepartmentHub() {
                               {mediaAssignSaving ? 'Saving…' : 'Save plan'}
                             </button>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              type="button"
-                              onClick={handleMediaSharePlan}
-                              disabled={mediaSharingPlan}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60 transition-colors"
-                            >
-                              <Download size={14} /> {mediaSharingPlan ? 'Exporting…' : 'Copy / Export JPEG'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setMediaAssignEditing(true)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition-colors"
-                            >
-                              <Pencil size={14} /> Edit Plan
-                            </button>
-                          </div>
-                        ))}
+                        )}
                       </div>
                     </div>
 
@@ -5672,15 +5787,15 @@ export default function DepartmentHub() {
             )
           })()}
 
-          {usesGenericSubDepartmentCollection(slug) && slug !== 'media' && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
+          {usesGenericSubDepartmentCollection(slug) && slug !== 'media' && slug !== 'river-kids' && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-200 flex justify-end items-center">
+              <div className="px-5 py-4 border-b border-slate-200 flex justify-end items-center gap-2">
                 {canEdit && (
                   <button
                     type="button"
                     onClick={() => {
                       setEditingSubDept(null)
-                      setSubDeptForm({ name: '', servingArea: '' })
+                      setSubDeptForm({ name: '', servingArea: '', category: '' })
                       setGenericSubDeptModalOpen(true)
                     }}
                     className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
@@ -5697,7 +5812,7 @@ export default function DepartmentHub() {
                     <thead className="bg-slate-50">
                       <tr>
                         <th className="text-left px-4 py-3 font-medium text-slate-600">Sub Department</th>
-                        {canEdit && <th className="text-left px-4 py-3 font-medium text-slate-600 w-28">Actions</th>}
+                        {canEdit && <th className="text-right px-4 py-3 font-medium text-slate-600 w-16">Actions</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -5705,34 +5820,51 @@ export default function DepartmentHub() {
                         <tr key={row.id}>
                           <td className="px-4 py-3 text-slate-800 font-medium">{row.name || '—'}</td>
                           {canEdit && (
-                            <td className="px-4 py-3 space-x-2">
+                            <td className="px-4 py-3 text-right relative">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setEditingSubDept(row)
-                                  setSubDeptForm({ name: row.name || '', servingArea: row.servingArea || '' })
-                                  setGenericSubDeptModalOpen(true)
-                                }}
-                                className="text-blue-600 hover:underline text-sm"
+                                onClick={(e) => { e.stopPropagation(); setSubDeptActionsMenuId(id => id === row.id ? null : row.id) }}
+                                className="w-8 h-8 inline-flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                                aria-label="Row actions"
                               >
-                                Edit
+                                ⋮
                               </button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!window.confirm('Delete this sub department?')) return
-                                  try {
-                                    await deleteDepartmentSubDepartment(row.id)
-                                    setSubDepartments((prev) => prev.filter((x) => x.id !== row.id))
-                                  } catch (err) {
-                                    console.error(err)
-                                    alert('Failed to delete')
-                                  }
-                                }}
-                                className="text-red-600 hover:underline text-sm"
-                              >
-                                Delete
-                              </button>
+                              {subDeptActionsMenuId === row.id && (
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="absolute right-4 top-full mt-1 w-32 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden z-10 text-left"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSubDeptActionsMenuId(null)
+                                      setEditingSubDept(row)
+                                      setSubDeptForm({ name: row.name || '', servingArea: row.servingArea || '', category: '' })
+                                      setGenericSubDeptModalOpen(true)
+                                    }}
+                                    className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      setSubDeptActionsMenuId(null)
+                                      if (!window.confirm('Delete this sub department?')) return
+                                      try {
+                                        await deleteDepartmentSubDepartment(row.id)
+                                        setSubDepartments((prev) => prev.filter((x) => x.id !== row.id))
+                                      } catch (err) {
+                                        console.error(err)
+                                        alert('Failed to delete')
+                                      }
+                                    }}
+                                    className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           )}
                         </tr>
@@ -5752,19 +5884,88 @@ export default function DepartmentHub() {
             </div>
           )}
 
+          {/* River Kids: Sunday School / River Kids-1 / River Kids-2 are fixed category
+              cards (not stored rows) — each groups its own nested sub-department entries,
+              which is what actually carries the `category` field. */}
+          {slug === 'river-kids' && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
+            <div className="space-y-4">
+              {subDeptLoading ? (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-5 text-center text-slate-500">Loading…</div>
+              ) : (
+                <>
+                  {RK_CLASS_GROUPS.map((cat) => {
+                    const items = subDepartments.filter((sd) => sd.category === cat.key)
+                    return (
+                      <div key={cat.key} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-sm font-bold">
+                            {cat.label}
+                            <span className="text-[10px] font-semibold text-indigo-400">{items.length}</span>
+                          </span>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingSubDept(null)
+                                setSubDeptForm({ name: '', servingArea: '', category: cat.key })
+                                setGenericSubDeptModalOpen(true)
+                              }}
+                              className="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-600 text-xs font-semibold hover:bg-indigo-50 active:bg-indigo-100 transition-colors"
+                            >
+                              + Add Sub-Department
+                            </button>
+                          )}
+                        </div>
+                        {items.length === 0 ? (
+                          <p className="text-sm text-slate-400 pl-1">No sub-departments yet.</p>
+                        ) : (
+                          <div className="space-y-1 pl-3 border-l-2 border-slate-100">
+                            {items.map(renderSubDeptRow)}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {/* Anything predating the category field (or left uncategorized) still
+                      shows up here instead of silently disappearing from the list. */}
+                  {(() => {
+                    const knownKeys = new Set(RK_CLASS_GROUPS.map((c) => c.key))
+                    const other = subDepartments.filter((sd) => !knownKeys.has(sd.category))
+                    if (!other.length) return null
+                    return (
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-sm font-bold mb-4">
+                          Other
+                          <span className="text-[10px] font-semibold text-slate-400">{other.length}</span>
+                        </span>
+                        <div className="space-y-1 pl-3 border-l-2 border-slate-100">
+                          {other.map(renderSubDeptRow)}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </>
+              )}
+              {subDeptError && <p className="text-sm text-red-600">{subDeptError}</p>}
+            </div>
+          )}
+
           {genericSubDeptModalOpen && canEdit && (
             <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
               <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 max-w-md w-full z-50">
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <h3 className="text-lg font-bold text-slate-800">
                     {editingSubDept ? 'Edit Sub Department' : 'Add Sub Department'}
+                    {subDeptForm.category && (
+                      <span className="block text-xs font-medium text-indigo-500 mt-0.5">{rkClassGroupLabel(subDeptForm.category)}</span>
+                    )}
                   </h3>
                   <button
                     type="button"
                     onClick={() => {
                       setGenericSubDeptModalOpen(false)
                       setEditingSubDept(null)
-                      setSubDeptForm({ name: '', servingArea: '' })
+                      setSubDeptForm({ name: '', servingArea: '', category: '' })
                     }}
                     className="-mt-1 -mr-1 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex-shrink-0 transition-colors text-xl leading-none"
                     aria-label="Close"
@@ -5779,11 +5980,12 @@ export default function DepartmentHub() {
                         await updateDepartmentSubDepartment(editingSubDept.id, {
                           name: subDeptForm.name.trim(),
                           servingArea: (subDeptForm.servingArea || '').trim(),
+                          category: subDeptForm.category || '',
                         })
                         setSubDepartments((prev) =>
                           prev.map((sd) =>
                             sd.id === editingSubDept.id
-                              ? { ...sd, name: subDeptForm.name.trim(), servingArea: (subDeptForm.servingArea || '').trim() }
+                              ? { ...sd, name: subDeptForm.name.trim(), servingArea: (subDeptForm.servingArea || '').trim(), category: subDeptForm.category || '' }
                               : sd
                           )
                         )
@@ -5792,7 +5994,8 @@ export default function DepartmentHub() {
                           department.name,
                           subDeptForm.name.trim(),
                           userProfile?.email || 'unknown',
-                          (subDeptForm.servingArea || '').trim()
+                          (subDeptForm.servingArea || '').trim(),
+                          subDeptForm.category || ''
                         )
                         setSubDepartments((prev) => [
                           ...prev,
@@ -5801,12 +6004,13 @@ export default function DepartmentHub() {
                             department: department.name,
                             name: subDeptForm.name.trim(),
                             servingArea: (subDeptForm.servingArea || '').trim(),
+                            category: subDeptForm.category || '',
                           },
                         ])
                       }
                       setGenericSubDeptModalOpen(false)
                       setEditingSubDept(null)
-                      setSubDeptForm({ name: '', servingArea: '' })
+                      setSubDeptForm({ name: '', servingArea: '', category: '' })
                       setSubDeptError('')
                     } catch (err) {
                       console.error(err)
@@ -5835,7 +6039,7 @@ export default function DepartmentHub() {
                       onClick={() => {
                         setGenericSubDeptModalOpen(false)
                         setEditingSubDept(null)
-                        setSubDeptForm({ name: '', servingArea: '' })
+                        setSubDeptForm({ name: '', servingArea: '', category: '' })
                       }}
                       className="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 font-medium text-sm transition-colors"
                     >
@@ -8142,7 +8346,7 @@ export default function DepartmentHub() {
           })()}
 
           {(activeTab === 'team' || (activeTab === 'operations' && opsSubTab === 'team' && slug !== 'media')) && (
-            <div className={`bg-white rounded-xl border border-slate-200 shadow-sm space-y-6 ${slug === 'media' ? 'p-6' : 'p-5'} ${slug === 'd-light' ? 'max-w-7xl mx-auto w-full' : ''}`}>
+            <div className={`bg-white rounded-xl border border-slate-200 shadow-sm space-y-6 ${slug === 'media' ? 'p-6' : 'p-5'} ${slug === 'd-light' ? 'w-full' : ''}`}>
               <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-slate-800">{slug === 'media' ? 'The Team' : 'Team'}</h2>
                 {canEdit && (
@@ -8160,6 +8364,7 @@ export default function DepartmentHub() {
                         status: 'active',
                         memberSince: new Date().toISOString().slice(0, 10),
                         isFormer: false,
+                        isDirector: false,
                         notes: '',
                         visitorId: '',
                         source: '',
@@ -8262,7 +8467,12 @@ export default function DepartmentHub() {
 
               {(() => {
                 const isFormerMember = (m) => !!m.isFormer || m.status === 'former'
-                const activeTeamMembers = team.filter((m) => !isFormerMember(m))
+                // Director(s) pinned to the top of the active roster — a former
+                // director doesn't get pinned in the Former Members view, since
+                // that list is about history, not who's currently in charge.
+                const activeTeamMembers = team
+                  .filter((m) => !isFormerMember(m))
+                  .sort((a, b) => (b.isDirector ? 1 : 0) - (a.isDirector ? 1 : 0))
                 const formerTeamMembers = team.filter(isFormerMember)
                 const rosterTeam = teamShowFormerMembers ? formerTeamMembers : activeTeamMembers
                 return (
@@ -8310,11 +8520,11 @@ export default function DepartmentHub() {
                     <thead className="bg-slate-50">
                       <tr>
                         <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-16">S. No.</th>
-                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-1/4">Name</th>
-                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-2/5">Sub-Department</th>
-                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-40">Member Since</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-1/3">Name</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-1/3">Sub-Department</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-1/4">Member Since</th>
                         {canEdit && (
-                          <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-16" aria-label="Actions" />
+                          <th className="text-right py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-12" aria-label="Actions" />
                         )}
                       </tr>
                     </thead>
@@ -8329,10 +8539,15 @@ export default function DepartmentHub() {
                             <td className="py-4 px-6 text-sm text-slate-500">{idx + 1}</td>
                             <td className="py-4 px-6">
                               <div className="flex items-center gap-3">
-                                <div className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${teamShowFormerMembers ? 'bg-slate-200 text-slate-500' : 'bg-indigo-100 text-indigo-700'}`}>
+                                <div className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${m.isDirector && !teamShowFormerMembers ? 'bg-indigo-600 text-white' : teamShowFormerMembers ? 'bg-slate-200 text-slate-500' : 'bg-indigo-100 text-indigo-700'}`}>
                                   {(m.name || '?').charAt(0).toUpperCase()}
                                 </div>
                                 <span className="text-base font-semibold text-slate-800">{m.name}</span>
+                                {m.isDirector && !teamShowFormerMembers && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
+                                    ⭐ Director
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td className="py-4 px-6">
@@ -8346,9 +8561,16 @@ export default function DepartmentHub() {
                                 </div>
                               )}
                             </td>
-                            <td className="py-4 px-6 text-sm text-slate-600">{m.memberSince || '—'}</td>
+                            <td className="py-4 px-6 text-sm text-slate-600">
+                              <div>{formatDate(m.memberSince)}</div>
+                              {m.memberSince && (
+                                <div className={`text-xs mt-0.5 ${isMemberAnniversaryMonth(m.memberSince) ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                                  {formatMemberDuration(m.memberSince)}{isMemberAnniversaryMonth(m.memberSince) ? ' 🎉' : ''}
+                                </div>
+                              )}
+                            </td>
                             {canEdit && (
-                              <td className="py-4 px-6 text-sm whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <td className="py-4 px-6 text-sm text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                 <div className="relative inline-block text-left">
                                   <button
                                     type="button"
@@ -8375,7 +8597,7 @@ export default function DepartmentHub() {
                                               subDepartment: m.subDepartment || '', subDepartments: subDepts,
                                               phone: m.phone || '', status: m.status || 'active',
                                               memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
-                                              isFormer: !!m.isFormer, notes: m.notes || '',
+                                              isFormer: !!m.isFormer, isDirector: !!m.isDirector, notes: m.notes || '',
                                               visitorId: m.visitorId || '', source: m.source || '', childId: m.childId || '',
                                             })
                                           }}
@@ -8456,11 +8678,16 @@ export default function DepartmentHub() {
                           <td className={tdCls}>
                             <div className="flex items-center gap-2 flex-wrap">
                               {slug === 'media' && (
-                                <span className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${teamShowFormerMembers ? 'bg-slate-200 text-slate-500' : 'bg-indigo-100 text-indigo-700'}`}>
+                                <span className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${m.isDirector && !teamShowFormerMembers ? 'bg-indigo-600 text-white' : teamShowFormerMembers ? 'bg-slate-200 text-slate-500' : 'bg-indigo-100 text-indigo-700'}`}>
                                   {(m.name || '?').charAt(0).toUpperCase()}
                                 </span>
                               )}
                               <span className={isMedia ? 'text-base font-semibold text-slate-800' : 'text-slate-800 font-medium'}>{m.name}</span>
+                              {m.isDirector && !teamShowFormerMembers && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
+                                  ⭐ Director
+                                </span>
+                              )}
                               {m.childId && (
                                 <span className={isMedia ? 'text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-700' : 'text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700'}>River Kids</span>
                               )}
@@ -8481,7 +8708,14 @@ export default function DepartmentHub() {
                               </div>
                             </td>
                           )}
-                          <td className={`${tdCls} text-slate-600`}>{m.memberSince || '—'}</td>
+                          <td className={`${tdCls} text-slate-600`}>
+                            <div>{formatDate(m.memberSince)}</div>
+                            {m.memberSince && (
+                              <div className={`text-xs mt-0.5 ${isMemberAnniversaryMonth(m.memberSince) ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                                {formatMemberDuration(m.memberSince)}{isMemberAnniversaryMonth(m.memberSince) ? ' 🎉' : ''}
+                              </div>
+                            )}
+                          </td>
                           {canEdit && (() => {
                             const openEdit = () => {
                               setEditingMember(m)
@@ -8497,6 +8731,7 @@ export default function DepartmentHub() {
                                 status: m.status || 'active',
                                 memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
                                 isFormer: !!m.isFormer,
+                                isDirector: !!m.isDirector,
                                 notes: m.notes || '',
                                 visitorId: m.visitorId || '',
                                 source: m.source || '',
@@ -8652,6 +8887,7 @@ export default function DepartmentHub() {
                         status: 'active',
                         memberSince: new Date().toISOString().slice(0, 10),
                         isFormer: false,
+                        isDirector: false,
                         notes: '',
                         visitorId: '',
                         source: '',
@@ -8874,6 +9110,16 @@ export default function DepartmentHub() {
                       <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900">Mark as former member</span>
                     </label>
 
+                    {/* Team Director toggle — pins them to the top of the active
+                        roster table with a highlighted "Director" badge. */}
+                    <label className="flex items-center gap-3 cursor-pointer select-none group">
+                      <div className={`w-10 h-6 rounded-full transition-colors flex-shrink-0 ${memberForm.isDirector ? 'bg-indigo-500' : 'bg-slate-200'}`}
+                        onClick={() => setMemberForm((f) => ({ ...f, isDirector: !f.isDirector }))}>
+                        <div className={`w-5 h-5 bg-white rounded-full shadow-md mt-0.5 transition-transform ${memberForm.isDirector ? 'translate-x-4.5' : 'translate-x-0.5'}`} style={{ transform: memberForm.isDirector ? 'translateX(18px)' : 'translateX(2px)' }} />
+                      </div>
+                      <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900">Mark as team director</span>
+                    </label>
+
                     {/* Actions */}
                     <div className="flex gap-3 pt-1">
                       <button
@@ -8885,7 +9131,7 @@ export default function DepartmentHub() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setEditingMember(null); setTeamMemberSearch(''); setShowAddMemberModal(false); setMemberForm({ name: '', role: '', subDepartment: '', subDepartments: [], phone: '', status: 'active', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, notes: '', visitorId: '', source: '', childId: '' }) }}
+                        onClick={() => { setEditingMember(null); setTeamMemberSearch(''); setShowAddMemberModal(false); setMemberForm({ name: '', role: '', subDepartment: '', subDepartments: [], phone: '', status: 'active', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, isDirector: false, notes: '', visitorId: '', source: '', childId: '' }) }}
                         className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
                       >
                         Cancel

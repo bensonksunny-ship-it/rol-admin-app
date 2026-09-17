@@ -160,12 +160,10 @@ const DEFAULT_OPS_CHILDREN = [
 ]
 
 export function getOperationsChildren(slug) {
-  // Media manages Team + Sub-Departments exclusively from its top-level "The Team"
-  // tab (see 2026-08-28-media-the-team-tab-design.md), so Operations is left with
-  // just Planning.
-  if (slug === 'media') {
-    return DEFAULT_OPS_CHILDREN.filter((c) => c.key === 'planning')
-  }
+  // Media has no Operations tab at all (see getDepartmentHubTabs) — it manages
+  // Team + Sub-Departments from its top-level "The Team" tab, and Planning (its
+  // only other Operations child) was removed as redundant, so this is never
+  // called with slug 'media'.
   if (slug === 'd-light') {
     return DEFAULT_OPS_CHILDREN.map((c) => (c.key === 'subDepartment' ? { ...c, label: 'Sub Dept' } : c))
   }
