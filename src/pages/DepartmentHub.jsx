@@ -66,6 +66,7 @@ import {
   deleteDelightVisitor,
   getDlightSubDepartments,
   addDlightSubDepartment,
+  updateDlightSubDepartment,
   deleteDlightSubDepartment,
   getDlightAssignmentsForDate,
   setDlightAssignmentsForDate,
@@ -234,16 +235,19 @@ const formatDate = (dateStr) => {
 
 // "2 yrs 3 mos" / "6 mos" / "12 days" of service so far — sits under the Member
 // Since date in the roster tables so a director can spot milestones at a glance
-// without doing the math themselves.
-function formatMemberDuration(dateStr) {
+// without doing the math themselves. `endDateStr` caps the calculation at a fixed
+// point (a former member's departure date) instead of measuring against today —
+// see getMemberTenureEnd, which decides what that end date should be.
+function formatMemberDuration(dateStr, endDateStr) {
   if (!dateStr) return ''
   const start = new Date(dateStr)
   if (isNaN(start.getTime())) return ''
-  const now = new Date()
-  const years = differenceInYears(now, start)
-  const months = differenceInMonths(now, start) % 12
+  const end = endDateStr ? new Date(endDateStr) : new Date()
+  if (isNaN(end.getTime())) return ''
+  const years = differenceInYears(end, start)
+  const months = differenceInMonths(end, start) % 12
   if (years === 0 && months === 0) {
-    const days = Math.max(differenceInDays(now, start), 0)
+    const days = Math.max(differenceInDays(end, start), 0)
     return days === 0 ? 'Joined today' : `${days} day${days === 1 ? '' : 's'}`
   }
   const parts = []
@@ -253,13 +257,30 @@ function formatMemberDuration(dateStr) {
 }
 
 // True during the calendar month of a whole-year service anniversary (e.g. their
-// 3rd year) — flags the duration line below so it stands out as a milestone.
+// 3rd year) — flags the duration line below so it stands out as a milestone. Only
+// meaningful for active members; former members' tenure is frozen, not still
+// accruing anniversaries, so callers gate this on !isFormer themselves.
 function isMemberAnniversaryMonth(dateStr) {
   if (!dateStr) return false
   const start = new Date(dateStr)
   if (isNaN(start.getTime())) return false
   const now = new Date()
   return differenceInYears(now, start) > 0 && start.getMonth() === now.getMonth()
+}
+
+// Where a former member's tenure calculation should stop: their explicit
+// departure date if one was ever stamped, else the last time their record was
+// touched (best-effort guess for legacy former members marked before formerDate
+// existed), else `unknown: true` so the column can prompt for a real date instead
+// of silently guessing "today" and making their tenure look like zero.
+function getMemberTenureEnd(m) {
+  const isFormer = !!m?.isFormer || m?.status === 'former'
+  if (!isFormer) return { end: null, unknown: false }
+  if (m.formerDate) return { end: m.formerDate, unknown: false }
+  if (m.updatedAt instanceof Date && !isNaN(m.updatedAt.getTime())) {
+    return { end: format(m.updatedAt, 'yyyy-MM-dd'), unknown: false }
+  }
+  return { end: null, unknown: true }
 }
 
 const WEEKDAY_OPTIONS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -695,6 +716,11 @@ export default function DepartmentHub() {
   // slug's Team tab (D-Light's spacious table and Media's "The Team" table both read
   // this). false = active roster (default); true = the isolated former-members view.
   const [teamShowFormerMembers, setTeamShowFormerMembers] = useState(false)
+  // Inline "Set departure date" prompt for a former member whose tenure end date
+  // can't be determined any other way (see getMemberTenureEnd) — id of the row
+  // currently showing the prompt, plus its draft date value.
+  const [formerDatePromptId, setFormerDatePromptId] = useState(null)
+  const [formerDateDraft, setFormerDateDraft] = useState('')
   const [cellMemberLinkedVisitor, setCellMemberLinkedVisitor] = useState(null)
   const [cellMemberLinkedVisitorForm, setCellMemberLinkedVisitorForm] = useState({ email: '', nativity: '', currentPlace: '', serviceAttended: '', attendedDate: '', howKnown: '' })
   const [cellGroupModalOpen, setCellGroupModalOpen] = useState(false)
@@ -1156,6 +1182,16 @@ export default function DepartmentHub() {
   // Media's "The Team" tab hosts sub-department management inline (collapsible).
   const [mediaSubDeptPanelOpen, setMediaSubDeptPanelOpen] = useState(true)
   const [dlightTeamSubOpts, setDlightTeamSubOpts] = useState([])
+  // Team tab's own "+ Add Sub Department" header button (D-Light + Media) — a
+  // single create/edit/delete modal that writes straight to whichever sub-dept
+  // collection this slug uses (dlightTeamSubOpts for D-Light, subDepartments for
+  // Media), so the Add/Edit Member form's Sub-Department pills refresh immediately
+  // without navigating to a separate Sub Dept tab.
+  const [teamSubDeptModalOpen, setTeamSubDeptModalOpen] = useState(false)
+  const [teamSubDeptSaving, setTeamSubDeptSaving] = useState(false)
+  const [teamSubDeptNewDraft, setTeamSubDeptNewDraft] = useState({ name: '', servingArea: '' })
+  const [teamSubDeptEditingId, setTeamSubDeptEditingId] = useState(null)
+  const [teamSubDeptEditDraft, setTeamSubDeptEditDraft] = useState({ name: '', servingArea: '' })
   const [rkChildren, setRkChildren] = useState([])
   const [rkLoading, setRkLoading] = useState(false)
   const [rkDate, setRkDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
@@ -2331,6 +2367,66 @@ export default function DepartmentHub() {
       )}
     </div>
   )
+
+  // "Member Since" column cell for the D-Light/Media Team tables — the formatted
+  // date plus its duration sub-text, capped at a former member's departure date
+  // (getMemberTenureEnd) instead of still counting up against today. Shared by
+  // both tables so the fallback/prompt logic isn't duplicated across them.
+  const renderMemberSinceCell = (m) => {
+    if (!m.memberSince) return <div>{formatDate(m.memberSince)}</div>
+    const isFormer = !!m.isFormer || m.status === 'former'
+    const { end, unknown } = getMemberTenureEnd(m)
+    const showAnniversary = !isFormer && isMemberAnniversaryMonth(m.memberSince)
+    return (
+      <>
+        <div>{formatDate(m.memberSince)}</div>
+        {unknown ? (
+          formerDatePromptId === m.id ? (
+            <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+              <input
+                type="date"
+                value={formerDateDraft}
+                onChange={(e) => setFormerDateDraft(e.target.value)}
+                className="text-xs px-1.5 py-1 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!formerDateDraft) return
+                  try {
+                    await updateDepartmentTeamMember(m.id, { formerDate: formerDateDraft })
+                    setTeam((prev) => prev.map((x) => (x.id === m.id ? { ...x, formerDate: formerDateDraft } : x)))
+                  } catch {
+                    alert('Failed to save departure date')
+                  }
+                  setFormerDatePromptId(null)
+                }}
+                className="text-xs font-semibold text-indigo-600 hover:underline"
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setFormerDatePromptId(m.id)
+                setFormerDateDraft(format(new Date(), 'yyyy-MM-dd'))
+              }}
+              className="text-xs mt-0.5 text-amber-600 font-medium hover:underline"
+            >
+              Set departure date
+            </button>
+          )
+        ) : (
+          <div className={`text-xs mt-0.5 ${showAnniversary ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+            {formatMemberDuration(m.memberSince, end)}{showAnniversary ? ' 🎉' : ''}
+          </div>
+        )}
+      </>
+    )
+  }
 
   const planningDraftPeriod = useMemo(() => new Date().toISOString().slice(0, 7), [])
   const planningDraftStorageKey = useMemo(() => {
@@ -8350,34 +8446,208 @@ export default function DepartmentHub() {
               <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-slate-800">{slug === 'media' ? 'The Team' : 'Team'}</h2>
                 {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingMember(null)
-                      setTeamMemberSearch('')
-                      setMemberForm({
-                        name: '',
-                        role: '',
-                        subDepartment: '',
-                        subDepartments: [],
-                        phone: '',
-                        status: 'active',
-                        memberSince: new Date().toISOString().slice(0, 10),
-                        isFormer: false,
-                        isDirector: false,
-                        notes: '',
-                        visitorId: '',
-                        source: '',
-                        childId: '',
-                      })
-                      setShowAddMemberModal(true)
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
-                  >
-                    + Add member
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {(slug === 'd-light' || slug === 'media') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTeamSubDeptEditingId(null)
+                          setTeamSubDeptNewDraft({ name: '', servingArea: '' })
+                          setTeamSubDeptModalOpen(true)
+                        }}
+                        className="px-3 py-1.5 rounded-lg border border-indigo-600 text-indigo-600 text-xs font-medium hover:bg-indigo-50 active:bg-indigo-100 transition-colors"
+                      >
+                        + Add Sub Department
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingMember(null)
+                        setTeamMemberSearch('')
+                        setMemberForm({
+                          name: '',
+                          role: '',
+                          subDepartment: '',
+                          subDepartments: [],
+                          phone: '',
+                          status: 'active',
+                          memberSince: new Date().toISOString().slice(0, 10),
+                          isFormer: false,
+                          isDirector: false,
+                          notes: '',
+                          visitorId: '',
+                          source: '',
+                          childId: '',
+                        })
+                        setShowAddMemberModal(true)
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
+                    >
+                      + Add member
+                    </button>
+                  </div>
                 )}
               </div>
+
+              {/* Team tab's own Sub-Department create/edit/delete modal — triggered by
+                  the "+ Add Sub Department" header button above. Reads/writes whichever
+                  collection this slug actually uses (dlightTeamSubOpts + the D-Light-only
+                  Firestore functions, or the shared subDepartments state + generic
+                  functions for Media/others) so the Add/Edit Member form's Sub-Department
+                  pills (subDeptOptionList, derived from these same two state vars) update
+                  immediately — no separate Sub Dept tab needed. */}
+              {teamSubDeptModalOpen && (() => {
+                const isDlight = slug === 'd-light'
+                const rows = isDlight ? dlightTeamSubOpts : subDepartments
+                const startEdit = (row) => {
+                  setTeamSubDeptEditingId(row.id)
+                  setTeamSubDeptEditDraft({ name: row.name || '', servingArea: row.servingArea || '' })
+                }
+                const cancelEdit = () => { setTeamSubDeptEditingId(null); setTeamSubDeptEditDraft({ name: '', servingArea: '' }) }
+                const saveEdit = async () => {
+                  const name = teamSubDeptEditDraft.name.trim()
+                  if (!name) return
+                  setTeamSubDeptSaving(true)
+                  try {
+                    const servingArea = teamSubDeptEditDraft.servingArea.trim()
+                    if (isDlight) {
+                      await updateDlightSubDepartment(teamSubDeptEditingId, { name, servingArea })
+                      setDlightTeamSubOpts((prev) => prev.map((r) => (r.id === teamSubDeptEditingId ? { ...r, name, servingArea } : r)))
+                    } else {
+                      await updateDepartmentSubDepartment(teamSubDeptEditingId, { name, servingArea })
+                      setSubDepartments((prev) => prev.map((r) => (r.id === teamSubDeptEditingId ? { ...r, name, servingArea } : r)))
+                    }
+                    cancelEdit()
+                  } catch (err) {
+                    console.error(err)
+                    alert('Failed to save sub-department')
+                  } finally {
+                    setTeamSubDeptSaving(false)
+                  }
+                }
+                const removeRow = async (row) => {
+                  if (!window.confirm(`Delete "${row.name}"?`)) return
+                  try {
+                    if (isDlight) {
+                      await deleteDlightSubDepartment(row.id)
+                      setDlightTeamSubOpts((prev) => prev.filter((r) => r.id !== row.id))
+                    } else {
+                      await deleteDepartmentSubDepartment(row.id)
+                      setSubDepartments((prev) => prev.filter((r) => r.id !== row.id))
+                    }
+                  } catch (err) {
+                    console.error(err)
+                    alert('Failed to delete sub-department')
+                  }
+                }
+                const addNew = async () => {
+                  const name = teamSubDeptNewDraft.name.trim()
+                  if (!name || (!isDlight && !department?.name)) return
+                  setTeamSubDeptSaving(true)
+                  try {
+                    const servingArea = teamSubDeptNewDraft.servingArea.trim()
+                    if (isDlight) {
+                      const id = await addDlightSubDepartment({ name, servingArea }, userProfile?.email || userProfile?.displayName || 'unknown')
+                      setDlightTeamSubOpts((prev) => [...prev, { id, name, servingArea }])
+                    } else {
+                      const id = await addDepartmentSubDepartment(department.name, name, userProfile?.email || 'unknown', servingArea)
+                      setSubDepartments((prev) => [...prev, { id, department: department.name, name, servingArea, category: '' }])
+                    }
+                    setTeamSubDeptNewDraft({ name: '', servingArea: '' })
+                  } catch (err) {
+                    console.error(err)
+                    alert('Failed to add sub-department')
+                  } finally {
+                    setTeamSubDeptSaving(false)
+                  }
+                }
+                return (
+                  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setTeamSubDeptModalOpen(false)}>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                      <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                        <h3 className="font-semibold text-slate-800">Sub-Departments</h3>
+                        <button
+                          type="button"
+                          onClick={() => setTeamSubDeptModalOpen(false)}
+                          className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                          aria-label="Close"
+                        >×</button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+                        {rows.length === 0 && (
+                          <p className="px-5 py-6 text-center text-sm text-slate-400">No sub-departments yet — add one below.</p>
+                        )}
+                        {rows.map((row) => (
+                          <div key={row.id} className="px-5 py-3">
+                            {teamSubDeptEditingId === row.id ? (
+                              <div className="space-y-2">
+                                <input
+                                  type="text"
+                                  value={teamSubDeptEditDraft.name}
+                                  onChange={(e) => setTeamSubDeptEditDraft((f) => ({ ...f, name: e.target.value }))}
+                                  placeholder="Name"
+                                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                />
+                                <input
+                                  type="text"
+                                  value={teamSubDeptEditDraft.servingArea}
+                                  onChange={(e) => setTeamSubDeptEditDraft((f) => ({ ...f, servingArea: e.target.value }))}
+                                  placeholder="Serving area (optional)"
+                                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                />
+                                <div className="flex gap-2">
+                                  <button type="button" disabled={teamSubDeptSaving} onClick={saveEdit} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-60">
+                                    {teamSubDeptSaving ? 'Saving…' : 'Save'}
+                                  </button>
+                                  <button type="button" onClick={cancelEdit} className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50">
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm font-medium text-slate-800 truncate">
+                                  {row.name || '—'}
+                                  {row.servingArea && <span className="ml-1.5 text-xs font-normal text-slate-400">· {row.servingArea}</span>}
+                                </span>
+                                <span className="flex items-center gap-3 flex-shrink-0">
+                                  <button type="button" onClick={() => startEdit(row)} className="text-indigo-600 hover:underline text-xs font-medium">Edit</button>
+                                  <button type="button" onClick={() => removeRow(row)} className="text-red-600 hover:underline text-xs font-medium">Delete</button>
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="px-5 py-4 border-t border-slate-200 bg-slate-50/60 space-y-2">
+                        <input
+                          type="text"
+                          value={teamSubDeptNewDraft.name}
+                          onChange={(e) => setTeamSubDeptNewDraft((f) => ({ ...f, name: e.target.value }))}
+                          placeholder="New sub-department name"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        />
+                        <input
+                          type="text"
+                          value={teamSubDeptNewDraft.servingArea}
+                          onChange={(e) => setTeamSubDeptNewDraft((f) => ({ ...f, servingArea: e.target.value }))}
+                          placeholder="Serving area (optional)"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        />
+                        <button
+                          type="button"
+                          disabled={teamSubDeptSaving || !teamSubDeptNewDraft.name.trim()}
+                          onClick={addNew}
+                          className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                        >
+                          {teamSubDeptSaving ? 'Adding…' : '+ Add Sub Department'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* ── Sub-Departments (Media only) — managed exclusively here ── */}
               {slug === 'media' && (
@@ -8562,12 +8832,7 @@ export default function DepartmentHub() {
                               )}
                             </td>
                             <td className="py-4 px-6 text-sm text-slate-600">
-                              <div>{formatDate(m.memberSince)}</div>
-                              {m.memberSince && (
-                                <div className={`text-xs mt-0.5 ${isMemberAnniversaryMonth(m.memberSince) ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
-                                  {formatMemberDuration(m.memberSince)}{isMemberAnniversaryMonth(m.memberSince) ? ' 🎉' : ''}
-                                </div>
-                              )}
+                              {renderMemberSinceCell(m)}
                             </td>
                             {canEdit && (
                               <td className="py-4 px-6 text-sm text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -8709,12 +8974,7 @@ export default function DepartmentHub() {
                             </td>
                           )}
                           <td className={`${tdCls} text-slate-600`}>
-                            <div>{formatDate(m.memberSince)}</div>
-                            {m.memberSince && (
-                              <div className={`text-xs mt-0.5 ${isMemberAnniversaryMonth(m.memberSince) ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
-                                {formatMemberDuration(m.memberSince)}{isMemberAnniversaryMonth(m.memberSince) ? ' 🎉' : ''}
-                              </div>
-                            )}
+                            {renderMemberSinceCell(m)}
                           </td>
                           {canEdit && (() => {
                             const openEdit = () => {
@@ -8835,9 +9095,18 @@ export default function DepartmentHub() {
                     }
                     try {
                       if (editingMember) {
-                        await updateDepartmentTeamMember(editingMember.id, memberForm)
+                        // Stamp today's date the moment isFormer flips true (locking their
+                        // tenure calc there — see getMemberTenureEnd); leave an
+                        // already-former member's formerDate untouched (undefined = "don't
+                        // change" in updateDepartmentTeamMember); clear it on reactivation.
+                        const formerDate = memberForm.isFormer
+                          ? (editingMember.isFormer ? undefined : new Date().toISOString().slice(0, 10))
+                          : ''
+                        await updateDepartmentTeamMember(editingMember.id, { ...memberForm, formerDate })
                         setTeam((prev) =>
-                          prev.map((m) => (m.id === editingMember.id ? { ...m, ...memberForm } : m))
+                          prev.map((m) => (m.id === editingMember.id
+                            ? { ...m, ...memberForm, formerDate: formerDate === undefined ? m.formerDate : formerDate }
+                            : m))
                         )
                       } else {
                         // A person can already be on this department's roster (e.g. from an
@@ -9307,15 +9576,18 @@ export default function DepartmentHub() {
                           tabIndex={0}
                           aria-expanded={expanded}
                           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded() } }}
-                          className="px-4 py-3 flex items-center gap-2 cursor-pointer hover:bg-slate-50 transition-colors"
+                          className="px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-slate-50 transition-colors"
                         >
-                          <p className="font-semibold text-slate-800 text-sm flex-1 min-w-0 truncate">{c.name}</p>
+                          <p className="text-base font-semibold text-slate-800 flex-1 min-w-0 truncate">{c.name}</p>
                           {age !== null && (
                             <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full border border-indigo-100 shrink-0">{age}y</span>
                           )}
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-slate-400 transition-transform flex-shrink-0 ${expanded ? 'rotate-180' : ''}`}>
-                            <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
+                          {/* Chevron sits in a full touch-target box, not just the icon itself. */}
+                          <span className="w-8 h-8 flex items-center justify-center shrink-0">
+                            <svg width="14" height="14" viewBox="0 0 12 12" fill="none" className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}>
+                              <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </span>
                         </div>
                         <AnimatePresence initial={false}>
                           {expanded && (
@@ -9326,13 +9598,14 @@ export default function DepartmentHub() {
                               transition={{ duration: 0.2, ease: 'easeInOut' }}
                               className="overflow-hidden"
                             >
-                              <div className="relative px-4 pb-4 pt-1 border-t border-slate-100">
+                              <div className="relative p-5 border-t border-slate-100">
                                 {canEdit && (
-                                  <div className="absolute right-4 top-3">
+                                  <div className="absolute right-4 top-4">
                                     <button
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); setRkActionsMenuId(id => id === c.id ? null : c.id) }}
-                                      className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                                      className="w-9 h-9 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                                      aria-label="Row actions"
                                     >
                                       ⋮
                                     </button>
@@ -9366,17 +9639,39 @@ export default function DepartmentHub() {
                                     )}
                                   </div>
                                 )}
-                                <div className="pr-8 space-y-1.5">
-                                  {c.dob && <p className="text-xs text-slate-400">DOB: {c.dob}</p>}
-                                  {(c.fatherName || c.motherName) && (
-                                    <p className="text-xs text-slate-500">
-                                      {c.fatherName && <span>Father: <span className="font-medium">{c.fatherName}</span></span>}
-                                      {c.fatherName && c.motherName && <span className="mx-1">·</span>}
-                                      {c.motherName && <span>Mother: <span className="font-medium">{c.motherName}</span></span>}
-                                    </p>
+                                {/* Each fact lives in its own row so parents/tags/dates never run
+                                    together into one crammed line, with room reserved on the right
+                                    (pr-12) so none of it ever sits under the actions button. */}
+                                <div className="pr-12 space-y-3">
+                                  {c.dob && (
+                                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                                      <span className="font-medium text-slate-400">DOB</span>
+                                      <span>{c.dob}</span>
+                                    </div>
                                   )}
-                                  {c.currentPlace && <p className="text-xs text-slate-400">Current Location: {c.currentPlace}</p>}
-                                  <div className="flex flex-wrap items-center gap-1.5">
+                                  {(c.fatherName || c.motherName) && (
+                                    <div className="flex flex-wrap gap-x-6 gap-y-1.5">
+                                      {c.fatherName && (
+                                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                          <span className="font-medium text-slate-400">Father</span>
+                                          <span className="font-medium text-slate-700">{c.fatherName}</span>
+                                        </div>
+                                      )}
+                                      {c.motherName && (
+                                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                          <span className="font-medium text-slate-400">Mother</span>
+                                          <span className="font-medium text-slate-700">{c.motherName}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                  {c.currentPlace && (
+                                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                                      <span className="font-medium text-slate-400">Current Location</span>
+                                      <span>{c.currentPlace}</span>
+                                    </div>
+                                  )}
+                                  <div className="flex flex-wrap items-center gap-2">
                                     {(c.classGroups || []).map(g => (
                                       <span key={g} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-100">
                                         {rkClassGroupLabel(g)}

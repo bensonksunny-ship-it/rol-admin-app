@@ -31,14 +31,17 @@ const WIDE_LAYOUT_ROUTES = ['/worklist']
 
 // Same idea as WIDE_LAYOUT_ROUTES, but for a single tab of a hub page rather than
 // a whole route (the tab lives in the ?tab= query string, so pathname alone can't
-// key it) — currently Media's "The Team" master table and D-Light's Team sub-tab
-// (nested under Operations as ?opsSub=team, hence the extra `opsSub` match), both
-// of which need more than 5xl to breathe. { pathname, tab } must match, and `opsSub`
-// too when set — `opsSubIsDefault` additionally matches the no-`opsSub`-param case,
-// since DepartmentHub.jsx itself falls back to 'team' when that param is absent.
+// key it) — currently Media's "The Team" master table, D-Light's Team sub-tab
+// (nested under Operations as ?opsSub=team, hence the extra `opsSub` match), and
+// River Kids' Register tab (sub-category tabs, join-status toggles and Add Kid
+// form were cramped into the default 5xl column) — all of which need more than
+// 5xl to breathe. { pathname, tab } must match, and `opsSub` too when set —
+// `opsSubIsDefault` additionally matches the no-`opsSub`-param case, since
+// DepartmentHub.jsx itself falls back to 'team' when that param is absent.
 const WIDE_LAYOUT_TABS = [
   { pathname: '/department/media', tab: 'team' },
   { pathname: '/department/d-light', tab: 'operations', opsSub: 'team', opsSubIsDefault: true },
+  { pathname: '/department/river-kids', tab: 'register' },
 ]
 
 export default function MainLayout() {

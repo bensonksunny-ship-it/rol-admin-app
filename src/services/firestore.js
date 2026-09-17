@@ -662,6 +662,8 @@ export async function getDepartmentTeamMembers(department) {
       memberSince: data.memberSince || '',
       notes: data.notes || '',
       isFormer: data.isFormer ?? false,
+      formerDate: data.formerDate || '',
+      updatedAt: toDate(data.updatedAt),
       isDirector: data.isDirector ?? false,
       visitorId: data.visitorId || '',
       source: data.source || '',
@@ -695,6 +697,12 @@ export function subscribeDepartmentTeamMembers(department, onChange) {
         memberSince: data.memberSince || '',
         notes: data.notes || '',
         isFormer: data.isFormer ?? false,
+        // Tenure end date for former members — see updateDepartmentTeamMember for when
+        // this gets stamped, and formatMemberDuration/getMemberTenureEnd in
+        // DepartmentHub.jsx for how it caps the "member since" duration instead of
+        // letting a former member's tenure keep growing against today.
+        formerDate: data.formerDate || '',
+        updatedAt: toDate(data.updatedAt),
         isDirector: data.isDirector ?? false,
         visitorId: data.visitorId || '',
         source: data.source || '',
@@ -722,6 +730,12 @@ export async function addDepartmentTeamMember(department, data, addedBy) {
     memberSince: data.memberSince ? String(data.memberSince).slice(0, 10) : new Date().toISOString().slice(0, 10),
     notes: data.notes != null ? String(data.notes) : '',
     isFormer: data.isFormer ?? false,
+    // Only meaningful when isFormer is true — caller stamps this to "today" (or an
+    // explicit departure date) the moment a member is marked former, so their tenure
+    // duration locks there instead of continuing to count against today. See
+    // getMemberTenureEnd/formatMemberDuration in DepartmentHub.jsx.
+    formerDate: data.isFormer ? (data.formerDate ? String(data.formerDate).slice(0, 10) : new Date().toISOString().slice(0, 10)) : '',
+    updatedAt: Timestamp.now(),
     isDirector: data.isDirector ?? false,
     // Link references — previously dropped on add, so a member picked from the
     // directory search saved unlinked and showed the "Unlinked" badge until an
@@ -751,10 +765,19 @@ export async function updateDepartmentTeamMember(id, data) {
     memberSince: data.memberSince != null ? String(data.memberSince).slice(0, 10) : undefined,
     notes: data.notes != null ? String(data.notes) : undefined,
     isFormer: data.isFormer !== undefined ? !!data.isFormer : undefined,
+    // Caller-driven, not auto-derived here: DepartmentHub.jsx stamps today's date (or
+    // an explicit one) when isFormer flips to true, and clears it back to '' when a
+    // former member is reactivated — this function has no prior-doc read to detect
+    // that transition itself.
+    formerDate: data.formerDate !== undefined ? String(data.formerDate) : undefined,
     isDirector: data.isDirector !== undefined ? !!data.isDirector : undefined,
     visitorId: data.visitorId !== undefined ? String(data.visitorId) : undefined,
     source: data.source !== undefined ? String(data.source) : undefined,
     childId: data.childId !== undefined ? String(data.childId) : undefined,
+    // Legacy former records (marked former before formerDate existed) have no way to
+    // know their true departure date; this "last touched" timestamp is the fallback
+    // getMemberTenureEnd uses so their tenure stops growing even without one.
+    updatedAt: Timestamp.now(),
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, 'department_team_members', id), clean)
@@ -3323,6 +3346,14 @@ export async function addDlightSubDepartment({ name, servingArea }, createdBy) {
     createdBy: createdBy || 'unknown',
   })
   return ref.id
+}
+
+export async function updateDlightSubDepartment(id, { name, servingArea }) {
+  if (!db || !id) return
+  await updateDoc(doc(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION, id), {
+    name: String(name || '').trim(),
+    servingArea: String(servingArea || '').trim(),
+  })
 }
 
 export async function deleteDlightSubDepartment(id) {

@@ -4,7 +4,7 @@ import { addWorshipSong, updateWorshipSong, getWorshipTeamMembers } from '../../
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const SEGMENT_TYPES = [
-  'Intro', 'Verse 1', 'Verse 2', 'Verse 3',
+  'Intro', 'Verse 1', 'Verse 2', 'Verse 3', 'Pre-Chorus',
   'Chorus', 'Bridge', 'Break', 'Outro', 'Interlude',
 ]
 
@@ -48,6 +48,7 @@ const GUIDE_STEPS = [
 const SEGMENT_COLOR_MAP = {
   intro:     { pill: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',     active: 'bg-indigo-600 border-indigo-600 text-white',     header: 'bg-indigo-50 border-indigo-100',     label: 'text-indigo-700',     top: 'border-indigo-500' },
   verse:     { pill: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100', active: 'bg-emerald-600 border-emerald-600 text-white',   header: 'bg-emerald-50 border-emerald-100',   label: 'text-emerald-700',   top: 'border-emerald-500' },
+  'pre-chorus': { pill: 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100',           active: 'bg-teal-600 border-teal-600 text-white',         header: 'bg-teal-50 border-teal-100',         label: 'text-teal-700',       top: 'border-teal-500' },
   chorus:    { pill: 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100',     active: 'bg-violet-600 border-violet-600 text-white',     header: 'bg-violet-50 border-violet-100',     label: 'text-violet-700',     top: 'border-violet-500' },
   bridge:    { pill: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100',         active: 'bg-amber-600 border-amber-600 text-white',       header: 'bg-amber-50 border-amber-100',       label: 'text-amber-700',       top: 'border-amber-500' },
   break:     { pill: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100',                 active: 'bg-sky-600 border-sky-600 text-white',           header: 'bg-sky-50 border-sky-100',           label: 'text-sky-700',         top: 'border-sky-500' },
@@ -57,7 +58,11 @@ const SEGMENT_COLOR_MAP = {
 const DEFAULT_SEGMENT_COLOR = { pill: 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100', active: 'bg-slate-600 border-slate-600 text-white', header: 'bg-slate-50 border-slate-100', label: 'text-slate-600', top: 'border-slate-400' }
 
 function getSegmentColor(type) {
-  const key = (type || '').toLowerCase().replace(/\s*\d+$/, '').trim() // 'Verse 1' → 'verse'
+  const key = (type || '')
+    .replace(/\s*\(Repeat(?:\s+\d+)?\)\s*$/i, '') // 'Verse 1 (Repeat 2)' → 'Verse 1'
+    .toLowerCase()
+    .replace(/\s*\d+$/, '') // 'Verse 1' → 'verse'
+    .trim()
   return SEGMENT_COLOR_MAP[key] || DEFAULT_SEGMENT_COLOR
 }
 
@@ -923,6 +928,21 @@ function nextDuplicateNames(existingTypes, originalType) {
   return { renamedOriginal, cloneName: candidate }
 }
 
+// ── Repeat naming for "+ Add Segment" picking a type that's already on the layout —
+// unlike nextDuplicateNames (which folds "Verse 1"/"Verse 2"/"Verse 3" into one
+// numbered family), re-picking the exact same option here tags the new copy against
+// that exact label: "Verse 1" → "Verse 1 (Repeat)" → "Verse 1 (Repeat 2)", etc. The
+// original segment's name is left untouched.
+function nextRepeatName(existingTypes, originalType) {
+  let n = 1
+  let candidate = `${originalType} (Repeat)`
+  while (existingTypes.includes(candidate)) {
+    n++
+    candidate = `${originalType} (Repeat ${n})`
+  }
+  return candidate
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function SongDesigner({ canManageWorship, userProfile, onSaved, editingSong, onCancelEdit }) {
   const isEditing = !!editingSong
@@ -1094,7 +1114,34 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
     if (bpm >= 30 && bpm <= 300) setMeta(m => ({ ...m, tempo: String(bpm) }))
   }
 
+  // Picking a segment type that's already in the layout (e.g. "Chorus" again) is a
+  // repeat, not a second blank section — deep-clone the existing one's lyrics, chords,
+  // and lead into a new "(Repeat)"-tagged tab right after it, fully independent of the
+  // original (editing one never touches the other).
   const addSegment = type => {
+    const original = segments.find(s => s.type === type)
+    if (original) {
+      const repeatType = nextRepeatName(segments.map(s => s.type), type)
+      setSegments(prev => {
+        const i = prev.findIndex(s => s.id === original.id)
+        if (i === -1) return prev
+        const clone = {
+          ...prev[i],
+          id: Date.now() + Math.random(),
+          type: repeatType,
+          lines: prev[i].lines.map(line => ({
+            ...line,
+            chords: (line.chords || []).map(c => ({ ...c, annotations: { ...c.annotations } })),
+            words: (line.words || []).map(w => ({ ...w, annotations: { ...w.annotations } })),
+          })),
+        }
+        const next = [...prev]
+        next.splice(i + 1, 0, clone)
+        return next
+      })
+      setActiveIdx(segments.findIndex(s => s.id === original.id) + 1)
+      return
+    }
     setSegments(p => [...p, {
       id: Date.now() + Math.random(),
       type, lead: DEFAULT_LEAD, rawText: '', lines: [], parsed: false,
@@ -1386,11 +1433,11 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
           <Plus size={16} /> Add Segment
         </button>
         {showSegmentMenu && (
-          <div className="absolute z-10 mt-2 p-2 rounded-2xl border border-slate-200 bg-white shadow-lg flex flex-wrap gap-2 w-max max-w-xs">
+          <div className="absolute z-10 mt-2 p-2 rounded-2xl border border-slate-200 bg-white shadow-lg grid grid-cols-2 gap-2 w-max">
             {SEGMENT_TYPES.map(type => (
               <button key={type} type="button"
                 onClick={() => { addSegment(type); setShowSegmentMenu(false) }}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-xs font-medium bg-slate-50 hover:bg-slate-100 hover:text-slate-700 active:scale-95 transition-all">
+                className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-xs font-medium bg-slate-50 hover:bg-slate-100 hover:text-slate-700 active:scale-95 transition-all whitespace-nowrap">
                 + {type}
               </button>
             ))}
