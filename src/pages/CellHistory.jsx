@@ -16,7 +16,7 @@ import {
 } from '../services/firestore'
 import { isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { getDepartmentRole } from '../utils/access'
-import { formatDisplayDate, formatDMYTime, computeDurationMinutes, formatMeetingTimeRange } from '../utils/date'
+import { formatDisplayDate, formatDMYTime, computeDurationMinutes, formatMeetingTimeRange, formatTime12h, addMinutesToTime } from '../utils/date'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Download, Trash2 } from 'lucide-react'
 import EditReportSheet from './cell/EditReportSheet'
@@ -1157,6 +1157,21 @@ function HistoryDetail({ row }) {
   // (a separately-stored top-level field that's often stale or missing for live reports).
   const totalDuration  = formatDuration(sumSegmentMinutes(segmentTimings))
 
+  // Each segment's real clock-time window, derived from the meeting's recorded
+  // Start Time + the running total of every prior segment's duration — same
+  // derivation EditReportSheet's Timing tab uses. Null entries (no Start Time
+  // recorded, e.g. older reports) fall back to duration-only display below.
+  const segmentRanges = (() => {
+    if (!row.startTime) return segmentTimings.map(() => null)
+    let cursor = row.startTime
+    return segmentTimings.map((seg) => {
+      const startHHMM = cursor
+      const endHHMM = addMinutesToTime(cursor, parseInt(seg.durationMinutes, 10) || 0)
+      cursor = endHHMM
+      return endHHMM ? { startHHMM, endHHMM } : null
+    })
+  })()
+
   return (
     <div className="px-6 pb-6 space-y-4">
       {/* Divider */}
@@ -1177,20 +1192,32 @@ function HistoryDetail({ row }) {
           <EmptyNote>No segment data recorded.</EmptyNote>
         ) : (
           <div className="space-y-2">
-            {segmentTimings.map((seg, i) => (
-              <div key={i} className="flex items-center justify-between gap-4 px-4 py-3 bg-slate-50 rounded-2xl">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">{getSegmentIcon(seg.name)}</span>
-                  <span className="font-semibold text-slate-800 text-sm">{seg.name || '—'}</span>
+            {segmentTimings.map((seg, i) => {
+              const range = segmentRanges[i]
+              return (
+                <div key={i} className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 rounded-2xl">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className="text-base flex-shrink-0">{getSegmentIcon(seg.name)}</span>
+                    <span className="font-semibold text-slate-800 text-sm truncate">{seg.name || '—'}</span>
+                  </div>
+                  {range && (
+                    <span className="text-xs text-slate-500 font-medium text-right flex-shrink-0">
+                      {formatTime12h(range.startHHMM)} - {formatTime12h(range.endHHMM)}
+                    </span>
+                  )}
+                  <span className="text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-full px-2.5 py-1 flex-shrink-0">
+                    {seg.durationMinutes != null ? formatDuration(seg.durationMinutes) : '—'}
+                  </span>
                 </div>
-                <span className="text-sm text-slate-500 font-medium">
-                  {seg.durationMinutes != null ? formatDuration(seg.durationMinutes) : (seg.startTime ? seg.startTime : '—')}
-                </span>
-              </div>
-            ))}
-            <div className="flex items-center justify-between px-4 py-3 bg-indigo-50 rounded-2xl">
+              )
+            })}
+            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-indigo-50 rounded-2xl">
               <span className="font-semibold text-indigo-900 text-sm">Total</span>
-              <span className="font-bold text-indigo-900 text-sm">{totalDuration}</span>
+              <span className="font-bold text-indigo-900 text-sm text-right">
+                {row.startTime && row.endTime
+                  ? `${formatTime12h(row.startTime)} - ${formatTime12h(row.endTime)} | ${totalDuration}`
+                  : totalDuration}
+              </span>
             </div>
           </div>
         )}
