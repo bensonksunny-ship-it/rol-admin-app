@@ -98,6 +98,31 @@ export async function setDlightAssignmentsForDate(serviceDate, assignments, upda
   }, { merge: true })
 }
 
+/**
+ * Every saved D-Light duty roster, newest Sunday first — backs the Archives tab.
+ * Ordered by the `serviceDate` field rather than doc id so a doc written before
+ * that field existed still sorts correctly once backfilled.
+ */
+export async function getDlightAssignmentsArchive(maxWeeks = 104) {
+  if (!db) return []
+  const q = query(
+    collection(db, DLIGHT_ASSIGNMENTS_COLLECTION),
+    orderBy('serviceDate', 'desc'),
+    limit(maxWeeks)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return {
+      id: d.id,
+      serviceDate: data.serviceDate || d.id,
+      assignments: data.assignments && typeof data.assignments === 'object' ? data.assignments : {},
+      updatedAt: toDate(data.updatedAt),
+      updatedBy: data.updatedBy || '',
+    }
+  })
+}
+
 // Users – admin management helpers
 export async function getAllUsers() {
   if (!db) return []
@@ -665,6 +690,7 @@ export async function getDepartmentTeamMembers(department) {
       formerDate: data.formerDate || '',
       updatedAt: toDate(data.updatedAt),
       isDirector: data.isDirector ?? false,
+      memberType: data.memberType || 'core',
       visitorId: data.visitorId || '',
       source: data.source || '',
       childId: data.childId || '',
@@ -704,6 +730,7 @@ export function subscribeDepartmentTeamMembers(department, onChange) {
         formerDate: data.formerDate || '',
         updatedAt: toDate(data.updatedAt),
         isDirector: data.isDirector ?? false,
+        memberType: data.memberType || 'core',
         visitorId: data.visitorId || '',
         source: data.source || '',
         childId: data.childId || '',
@@ -737,6 +764,7 @@ export async function addDepartmentTeamMember(department, data, addedBy) {
     formerDate: data.isFormer ? (data.formerDate ? String(data.formerDate).slice(0, 10) : new Date().toISOString().slice(0, 10)) : '',
     updatedAt: Timestamp.now(),
     isDirector: data.isDirector ?? false,
+    memberType: data.memberType === 'guest' ? 'guest' : 'core',
     // Link references — previously dropped on add, so a member picked from the
     // directory search saved unlinked and showed the "Unlinked" badge until an
     // edit + re-save. `source: 'river_kids'` + `childId` identify a River Kids
@@ -771,6 +799,7 @@ export async function updateDepartmentTeamMember(id, data) {
     // that transition itself.
     formerDate: data.formerDate !== undefined ? String(data.formerDate) : undefined,
     isDirector: data.isDirector !== undefined ? !!data.isDirector : undefined,
+    memberType: data.memberType !== undefined ? (data.memberType === 'guest' ? 'guest' : 'core') : undefined,
     visitorId: data.visitorId !== undefined ? String(data.visitorId) : undefined,
     source: data.source !== undefined ? String(data.source) : undefined,
     childId: data.childId !== undefined ? String(data.childId) : undefined,

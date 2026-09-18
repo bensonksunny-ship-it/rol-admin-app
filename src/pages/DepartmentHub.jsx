@@ -70,6 +70,7 @@ import {
   deleteDlightSubDepartment,
   getDlightAssignmentsForDate,
   setDlightAssignmentsForDate,
+  getDlightAssignmentsArchive,
   getMediaScheduleByDate,
   setMediaScheduleByDate,
   getMediaSchedules,
@@ -144,7 +145,7 @@ import { ROLES } from '../constants/roles'
 import { SAVINGS_FUNDS } from '../constants/savingsFunds'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
-import { differenceInDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
+import { differenceInDays, differenceInCalendarDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate, formatTimestampFull, formatRelativeTime } from '../utils/date'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
@@ -623,6 +624,7 @@ export default function DepartmentHub() {
     memberSince: new Date().toISOString().slice(0, 10),
     isFormer: false,
     isDirector: false,
+    memberType: 'core',
     notes: '',
     visitorId: '',
     source: '',
@@ -1128,6 +1130,11 @@ export default function DepartmentHub() {
   // Save-plan error banner — replaces a bare window.alert() so a permission-denied
   // (or any other) save failure reads as an in-page toast, not a browser popover.
   const [dlightAssignError, setDlightAssignError] = useState(null)
+  // D Light – Archives tab: every past Sunday's saved duty roster (newest first),
+  // each expandable to show that week's assignments plus the visitors logged that day.
+  const [dlightArchives, setDlightArchives] = useState([])
+  const [loadingDlightArchives, setLoadingDlightArchives] = useState(false)
+  const [openDlightArchiveIds, setOpenDlightArchiveIds] = useState({})
   // Media – Assign tab (per-Sunday crew, media_schedule collection)
   const [mediaAssignDate, setMediaAssignDate] = useState(() => {
     const today = new Date(); const day = today.getDay()
@@ -1217,20 +1224,6 @@ export default function DepartmentHub() {
     return rkJoinDateSources.find((s) => s.name.trim().toLowerCase() === norm)?.joinDate || ''
   }
   const [rkAllUsers, setRkAllUsers] = useState([])
-  const [rkAttendanceGroup, setRkAttendanceGroup] = useState('sunday-school')
-  // Sunday School attendance is always taken on a Sunday; River Kids-1/2 on a Saturday.
-  // Whenever the sub-page switches (including on first mount), snap rkDate forward to
-  // the nearest matching weekday so the date picker never lands on the wrong day.
-  useEffect(() => {
-    const targetDow = rkAttendanceGroup === 'sunday-school' ? 0 : 6
-    setRkDate(d => {
-      const cur = new Date(d + 'T00:00:00')
-      if (isNaN(cur.getTime()) || cur.getDay() === targetDow) return d
-      const diff = (targetDow - cur.getDay() + 7) % 7
-      cur.setDate(cur.getDate() + diff)
-      return format(cur, 'yyyy-MM-dd')
-    })
-  }, [rkAttendanceGroup])
   const [rkReportKidsNames, setRkReportKidsNames] = useState([])
   const [rkAttendanceSaving, setRkAttendanceSaving] = useState(false)
   const [rkAttendanceToast, setRkAttendanceToast] = useState('')
@@ -1507,10 +1500,15 @@ export default function DepartmentHub() {
   }, [showAddMemberModal, editingMember])
 
   useEffect(() => {
+    // Assign and Archives both resolve team-member ids to names, so they need the
+    // roster loaded too — without it Assign renders its "add team members first"
+    // empty state even when the department has a full team.
     const wantsDlightTeam = slug === 'd-light' && (
       activeTab === 'team' ||
       (activeTab === 'operations' && opsSubTab === 'team') ||
-      activeTab === 'summary'
+      activeTab === 'summary' ||
+      activeTab === 'assign' ||
+      activeTab === 'archives'
     )
     if (!wantsDlightTeam) {
       setDlightTeamSubOpts([])
@@ -2062,6 +2060,18 @@ export default function DepartmentHub() {
         .finally(() => setLoadingDelightAssignments(false))
     }
   }, [slug, activeTab, delightAssignDate])
+
+  // Archives tab — every saved Sunday roster, newest first. Refetched on each visit
+  // (rather than subscribed) since it's a historical view that only changes when
+  // someone saves a plan over on the Assign tab.
+  useEffect(() => {
+    if (slug !== 'd-light' || activeTab !== 'archives') return
+    setLoadingDlightArchives(true)
+    getDlightAssignmentsArchive()
+      .then(setDlightArchives)
+      .catch(() => setDlightArchives([]))
+      .finally(() => setLoadingDlightArchives(false))
+  }, [slug, activeTab])
 
   useEffect(() => {
     const wantsDlightSubDept = slug === 'd-light' && (
@@ -5608,6 +5618,134 @@ export default function DepartmentHub() {
             )}
           </AnimatePresence>
 
+          {/* ── D-Light Archives tab — every past Sunday's saved duty roster ── */}
+          {slug === 'd-light' && activeTab === 'archives' && (
+            <div className="space-y-3 pb-20">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="h-1.5 bg-gradient-to-r from-orange-400 via-amber-400 to-yellow-400" />
+                <div className="px-5 py-4 bg-gradient-to-r from-orange-50 via-white to-amber-50 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-semibold text-slate-800">Archives</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Every Sunday&apos;s saved team assignments and the visitors logged that day.
+                    </p>
+                  </div>
+                  {dlightArchives.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allOpen = dlightArchives.every((a) => openDlightArchiveIds[a.id])
+                        const next = {}
+                        if (!allOpen) dlightArchives.forEach((a) => { next[a.id] = true })
+                        setOpenDlightArchiveIds(next)
+                      }}
+                      className="text-xs text-slate-500 hover:text-amber-600 underline"
+                    >
+                      {dlightArchives.every((a) => openDlightArchiveIds[a.id]) ? 'Collapse all' : 'Expand all'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {loadingDlightArchives ? (
+                <div className="py-10 text-center text-slate-400 text-sm">Loading archives…</div>
+              ) : dlightArchives.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-sm">
+                  No Sundays archived yet — save a plan in the Assign tab and it will appear here.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {dlightArchives.map((week) => {
+                    const isOpen = !!openDlightArchiveIds[week.id]
+                    const rows = DLIGHT_ASSIGN_ROWS.map((row) => {
+                      const raw = week.assignments?.[row.key]
+                      const ids = Array.isArray(raw) ? raw.filter(Boolean) : (raw ? [raw] : [])
+                      return { ...row, ids }
+                    })
+                    const assignedCount = rows.reduce((s, r) => s + r.ids.length, 0)
+                    const weekVisitors = delightVisitors.filter(
+                      (v) => String(v.attendedDate || '').slice(0, 10) === week.serviceDate
+                    )
+                    let dateLabel = week.serviceDate
+                    try { dateLabel = format(new Date(week.serviceDate + 'T00:00:00'), 'EEE, d MMM yyyy') } catch { /* keep raw */ }
+                    return (
+                      <div key={week.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setOpenDlightArchiveIds((prev) => ({ ...prev, [week.id]: !prev[week.id] }))}
+                          className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-amber-50/40 transition-colors"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-800 text-sm truncate">{dateLabel}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {assignedCount} assigned
+                              {weekVisitors.length > 0 && ` · ${weekVisitors.length} visitor${weekVisitors.length === 1 ? '' : 's'}`}
+                              {assignedCount === 0 && weekVisitors.length === 0 && ' · nothing recorded'}
+                            </p>
+                          </div>
+                          <span className={`text-slate-400 text-sm flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
+                        </button>
+
+                        {isOpen && (
+                          <div className="border-t border-slate-100 px-4 py-3 space-y-3">
+                            <div className="space-y-1.5">
+                              {rows.map((row) => (
+                                <div key={row.key} className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border-l-4 ${row.accent}`}>
+                                  <span className="text-xs text-slate-600 font-medium flex-1 min-w-[180px]">{row.label}</span>
+                                  {row.ids.length === 0 ? (
+                                    <span className="text-xs text-slate-400 italic">Not assigned</span>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {row.ids.map((id) => {
+                                        const m = team.find((x) => x.id === id)
+                                        return (
+                                          <span
+                                            key={id}
+                                            className={`px-2.5 py-1 rounded-full text-xs font-medium ${dlightRoleTheme(row.subDept).pill}`}
+                                          >
+                                            {m?.name || 'Unknown member'}
+                                          </span>
+                                        )
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            {weekVisitors.length > 0 && (
+                              <div>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                                  Visitors logged this Sunday
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {weekVisitors.map((v) => (
+                                    <span
+                                      key={v.id}
+                                      className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200"
+                                    >
+                                      {v.name}
+                                      {v.onlyVisit && <span className="ml-1 text-slate-400">· Only Visit</span>}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            <p className="text-[11px] text-slate-400">
+                              {week.updatedBy ? `Last saved by ${week.updatedBy}` : 'Last saved'}
+                              {week.updatedAt ? ` · ${formatTimestampFull(week.updatedAt)}` : ''}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {slug === 'media' && activeTab === 'assign' && (() => {
             const activeMembers = team.filter((m) => !m.isFormer && m.status !== 'former')
             const memberDetail = (m) => (Array.isArray(m.subDepartments) && m.subDepartments.length ? m.subDepartments.join(' · ') : (m.role || ''))
@@ -8503,6 +8641,7 @@ export default function DepartmentHub() {
                           memberSince: new Date().toISOString().slice(0, 10),
                           isFormer: false,
                           isDirector: false,
+                          memberType: 'core',
                           notes: '',
                           visitorId: '',
                           source: '',
@@ -8765,14 +8904,30 @@ export default function DepartmentHub() {
 
               {(() => {
                 const isFormerMember = (m) => !!m.isFormer || m.status === 'former'
-                // Director(s) pinned to the top of the active roster — a former
-                // director doesn't get pinned in the Former Members view, since
-                // that list is about history, not who's currently in charge.
+                // Director(s) pinned to the top of the active roster, then Core Members
+                // above Guest Volunteers — a former director/core member doesn't get
+                // pinned in the Former Members view, since that list is about history,
+                // not who's currently in charge or how they're classified.
                 const activeTeamMembers = team
                   .filter((m) => !isFormerMember(m))
-                  .sort((a, b) => (b.isDirector ? 1 : 0) - (a.isDirector ? 1 : 0))
+                  .sort((a, b) => {
+                    const dirDiff = (b.isDirector ? 1 : 0) - (a.isDirector ? 1 : 0)
+                    if (dirDiff !== 0) return dirDiff
+                    return (a.memberType === 'guest' ? 1 : 0) - (b.memberType === 'guest' ? 1 : 0)
+                  })
                 const formerTeamMembers = team.filter(isFormerMember)
                 const rosterTeam = teamShowFormerMembers ? formerTeamMembers : activeTeamMembers
+                // Row treatment for the pinned director: indigo tint plus a left accent
+                // bar, kept through hover so it doesn't wash out to the usual slate.
+                // Every other row carries a transparent bar of the same width so the
+                // accent never nudges their cells sideways. Side-specific `border-l-*`
+                // colors on purpose — plain `border-transparent` would also blank out
+                // the row's slate bottom border and the tbody's divide-y.
+                const rosterRowCls = (m, hoverCls) => {
+                  if (teamShowFormerMembers) return `border-l-4 border-l-transparent bg-slate-50/60 opacity-75 ${hoverCls}`
+                  if (m.isDirector) return 'border-l-4 border-l-indigo-600 bg-indigo-50/50 hover:bg-indigo-50'
+                  return `border-l-4 border-l-transparent ${hoverCls}`
+                }
                 return (
                 <>
                 {/* Active Members / Former Members roster split — isolates the two
@@ -8833,7 +8988,7 @@ export default function DepartmentHub() {
                           : (m.subDepartment ? [m.subDepartment] : [])
                         const menuOpen = teamActionMenuId === m.id
                         return (
-                          <tr key={m.id} className={`border-b border-slate-100 transition-colors ${teamShowFormerMembers ? 'bg-slate-50/60 opacity-75' : 'hover:bg-slate-50/70'}`}>
+                          <tr key={m.id} className={`border-b border-slate-100 transition-colors ${rosterRowCls(m, 'hover:bg-slate-50/70')}`}>
                             <td className="py-4 px-6 text-sm text-slate-500">{idx + 1}</td>
                             <td className="py-4 px-6">
                               <div className="flex items-center gap-3">
@@ -8841,6 +8996,9 @@ export default function DepartmentHub() {
                                   {(m.name || '?').charAt(0).toUpperCase()}
                                 </div>
                                 <span className="text-base font-semibold text-slate-800">{m.name}</span>
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${m.memberType === 'guest' ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
+                                  {m.memberType === 'guest' ? 'Guest Volunteer' : 'Core'}
+                                </span>
                                 {m.isDirector && !teamShowFormerMembers && (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
                                     ⭐ Director
@@ -8890,7 +9048,7 @@ export default function DepartmentHub() {
                                               subDepartment: m.subDepartment || '', subDepartments: subDepts,
                                               phone: m.phone || '', status: m.status || 'active',
                                               memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
-                                              isFormer: !!m.isFormer, isDirector: !!m.isDirector, notes: m.notes || '',
+                                              isFormer: !!m.isFormer, isDirector: !!m.isDirector, memberType: m.memberType === 'guest' ? 'guest' : 'core', notes: m.notes || '',
                                               visitorId: m.visitorId || '', source: m.source || '', childId: m.childId || '',
                                             })
                                           }}
@@ -8964,7 +9122,7 @@ export default function DepartmentHub() {
                         return (
                         <tr
                           key={m.id}
-                          className={`transition-colors ${teamShowFormerMembers ? 'bg-slate-50/60 opacity-75' : ''} ${slug === 'media' ? 'cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50'}`}
+                          className={`transition-colors ${slug === 'media' ? 'cursor-pointer' : ''} ${rosterRowCls(m, slug === 'media' ? 'hover:bg-slate-50/80' : 'hover:bg-slate-50')}`}
                           onClick={slug === 'media' ? () => openMemberDetail(m, null, { mediaTeam: true }) : undefined}
                         >
                           <td className={`${tdCls} text-slate-600`}>{idx + 1}</td>
@@ -8976,6 +9134,9 @@ export default function DepartmentHub() {
                                 </span>
                               )}
                               <span className={isMedia ? 'text-base font-semibold text-slate-800' : 'text-slate-800 font-medium'}>{m.name}</span>
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${m.memberType === 'guest' ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
+                                {m.memberType === 'guest' ? 'Guest Volunteer' : 'Core'}
+                              </span>
                               {m.isDirector && !teamShowFormerMembers && (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
                                   ⭐ Director
@@ -9020,6 +9181,7 @@ export default function DepartmentHub() {
                                 memberSince: m.memberSince || new Date().toISOString().slice(0, 10),
                                 isFormer: !!m.isFormer,
                                 isDirector: !!m.isDirector,
+                                memberType: m.memberType === 'guest' ? 'guest' : 'core',
                                 notes: m.notes || '',
                                 visitorId: m.visitorId || '',
                                 source: m.source || '',
@@ -9106,13 +9268,27 @@ export default function DepartmentHub() {
 
               <AnimatePresence>
               {canEdit && (showAddMemberModal || editingMember) && (
+                // Fixed-overlay drawer (bottom sheet on mobile, centered modal from sm: up)
+                // — was an inline expanding section with no backdrop, which on a short
+                // mobile viewport meant the form could render partly off-screen with no
+                // scroll and no way to dismiss except the small × button. max-h + overflow-y
+                // here fixes the clipping; the backdrop's own onClick gives tap-to-dismiss.
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 sm:p-4"
+                  onClick={() => { setShowAddMemberModal(false); setEditingMember(null); setTeamMemberSearch('') }}
+                >
                 <motion.div
                   ref={addMemberSectionRef}
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
+                  initial={{ y: 40, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 40, opacity: 0 }}
                   transition={{ duration: 0.25, ease: 'easeOut' }}
-                  className="overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-white w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[90vh] overflow-y-auto"
                 >
                 <form
                   onSubmit={async (e) => {
@@ -9185,6 +9361,7 @@ export default function DepartmentHub() {
                         memberSince: new Date().toISOString().slice(0, 10),
                         isFormer: false,
                         isDirector: false,
+                        memberType: 'core',
                         notes: '',
                         visitorId: '',
                         source: '',
@@ -9195,7 +9372,7 @@ export default function DepartmentHub() {
                       setTeamError('Failed to save team member.')
                     }
                   }}
-                  className="mt-6 rounded-2xl border border-slate-200/80 shadow-md bg-slate-50/60 p-6 space-y-6"
+                  className="p-5 sm:p-6 space-y-6"
                 >
                   {/* Header */}
                   <div className="flex items-start justify-between gap-3">
@@ -9398,6 +9575,36 @@ export default function DepartmentHub() {
                       </div>
                     </div>
 
+                    {/* Member Type — Core Member vs Guest Volunteer. Core members are
+                        pinned above Guest Volunteers in the roster table (after the
+                        Director-first sort), each with its own pill badge there. */}
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                        Member Type
+                      </label>
+                      <div className="flex gap-2">
+                        {[
+                          { key: 'core', label: 'Core Member' },
+                          { key: 'guest', label: 'Guest Volunteer' },
+                        ].map((opt) => (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() => setMemberForm((f) => ({ ...f, memberType: opt.key }))}
+                            className={`flex-1 py-2.5 rounded-lg text-sm font-semibold border transition-colors ${
+                              (memberForm.memberType || 'core') === opt.key
+                                ? opt.key === 'core'
+                                  ? 'bg-indigo-500 text-white border-indigo-500 shadow-sm'
+                                  : 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                                : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     {/* Former member toggle */}
                     <label className="flex items-center gap-3 cursor-pointer select-none group">
                       <div className={`w-10 h-6 rounded-full transition-colors flex-shrink-0 ${memberForm.isFormer ? 'bg-amber-400' : 'bg-slate-200'}`}
@@ -9417,19 +9624,20 @@ export default function DepartmentHub() {
                       <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900">Mark as team director</span>
                     </label>
 
-                    {/* Actions */}
-                    <div className="flex gap-3 pt-1">
+                    {/* Actions — stacked full-width on mobile so two buttons plus their
+                        padding never overflow a narrow viewport; side by side from sm: up. */}
+                    <div className="flex flex-col sm:flex-row gap-3 pt-1">
                       <button
                         type="submit"
                         disabled={!editingMember && !memberForm.name}
-                        className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-base font-bold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm hover:shadow-md transition-all"
+                        className="w-full sm:flex-1 py-3 rounded-xl bg-indigo-600 text-white text-base font-bold hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm hover:shadow-md transition-all"
                       >
                         {editingMember ? 'Update Member' : 'Add Member'}
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setEditingMember(null); setTeamMemberSearch(''); setShowAddMemberModal(false); setMemberForm({ name: '', role: '', subDepartment: '', subDepartments: [], phone: '', status: 'active', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, isDirector: false, notes: '', visitorId: '', source: '', childId: '' }) }}
-                        className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
+                        onClick={() => { setEditingMember(null); setTeamMemberSearch(''); setShowAddMemberModal(false); setMemberForm({ name: '', role: '', subDepartment: '', subDepartments: [], phone: '', status: 'active', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, isDirector: false, memberType: 'core', notes: '', visitorId: '', source: '', childId: '' }) }}
+                        className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors"
                       >
                         Cancel
                       </button>
@@ -9437,6 +9645,7 @@ export default function DepartmentHub() {
                   </div>
                   </div>
                 </form>
+                </motion.div>
                 </motion.div>
               )}
               </AnimatePresence>
@@ -9844,34 +10053,79 @@ export default function DepartmentHub() {
 
           {/* ── Attendance tab ── */}
           {slug === 'river-kids' && activeTab === 'attendance' && department && (() => {
-            const isSundaySchool = rkAttendanceGroup === 'sunday-school'
-            // A kid with no class/group assigned yet still shows up everywhere (same as
-            // before); a kid with classGroups now correctly appears under every tab
-            // they're assigned to, not just one — that's the point of multi-select.
-            const groupKids = rkChildren.filter(c => !(c.classGroups || []).length || c.classGroups.includes(rkAttendanceGroup))
-            // Scoped to the active tab's classGroup — a child in both Sunday School and
-            // River Kids-1 gets independent presence per group instead of one flat
-            // childId->bool map conflating their attendance across every group they're in.
-            const rkPresent = rkAttendanceByGroup[rkAttendanceGroup] || {}
-            const isKidPresent = (c) => isSundaySchool
-              ? rkReportKidsNames.some(n => (n || '').trim().toLowerCase() === c.name.trim().toLowerCase())
-              : !!rkPresent[c.id]
-            const presentCount = groupKids.filter(isKidPresent).length
+            // The date picker steps a whole week at a time, so it lands on future Sundays/
+            // Saturdays routinely. Nobody can be "absent" from a service that hasn't happened
+            // yet — on those dates the roster is read-only and each column's header badge
+            // becomes a countdown, rather than reporting every kid as a no-show ahead of time.
+            const daysUntilRkDate = differenceInCalendarDays(new Date(rkDate + 'T00:00:00'), new Date())
+            const isFutureRkDate = daysUntilRkDate > 0
+            const rkCountdownLabel = daysUntilRkDate === 1 ? 'Tomorrow' : `In ${daysUntilRkDate} days`
+            const rkFutureDateHint = 'Attendance marking opens on the event day'
+            // All three groups render side by side now instead of one at a time behind a
+            // tab switcher, so every group's derived data (roster, presence map, counts) is
+            // computed up front here rather than for a single "active" group.
+            const groupsData = RK_CLASS_GROUPS.map((g) => {
+              const isSundaySchool = g.key === 'sunday-school'
+              const groupKids = rkChildren.filter(c => !(c.classGroups || []).length || c.classGroups.includes(g.key))
+              const rkPresent = rkAttendanceByGroup[g.key] || {}
+              const isKidPresent = (c) => isSundaySchool
+                ? rkReportKidsNames.some(n => (n || '').trim().toLowerCase() === c.name.trim().toLowerCase())
+                : !!rkPresent[c.id]
+              return { ...g, isSundaySchool, groupKids, rkPresent, isKidPresent, presentCount: groupKids.filter(isKidPresent).length }
+            })
+            // A kid's presence toggle merges their name into/out of the Sunday Ministry
+            // report's "River Kids" list — that's the single total Sunday Ministry shows,
+            // so it must reflect every column, not just whichever one was tapped.
+            const toggleKidPresence = async (g, c, isPresent) => {
+              if (!canEditRkAttendance || !department || isFutureRkDate) return
+              const trimmedName = c.name.trim()
+              const norm = trimmedName.toLowerCase()
+              const newReportNames = isPresent
+                ? rkReportKidsNames.filter(n => (n || '').trim().toLowerCase() !== norm)
+                : rkReportKidsNames.some(n => (n || '').trim().toLowerCase() === norm)
+                  ? rkReportKidsNames
+                  : [...rkReportKidsNames, trimmedName]
+              try {
+                await patchSundayReportRiverKids(rkDate, newReportNames, userProfile?.email || userProfile?.displayName || 'unknown')
+              } catch (error) {
+                console.error('Attendance Save Error (Sunday report River Kids sync):', error)
+                alert(rkPermissionErrorMessage(error))
+              }
+              if (!g.isSundaySchool) {
+                const previous = g.rkPresent
+                const next = { ...g.rkPresent, [c.id]: !isPresent }
+                setRkAttendanceByGroup(prev => ({ ...prev, [g.key]: next }))
+                try {
+                  await setDepartmentChildAttendance(department.name, rkDate, g.key, next, userProfile?.email || userProfile?.displayName || 'unknown')
+                } catch (error) {
+                  console.error('Attendance Save Error:', error)
+                  // Roll the optimistic toggle back — otherwise a failed write (e.g.
+                  // permission-denied) leaves the badge showing the new state even
+                  // though nothing was actually saved.
+                  setRkAttendanceByGroup(prev => ({ ...prev, [g.key]: previous }))
+                  alert(rkPermissionErrorMessage(error))
+                }
+              }
+            }
             // Every toggle above already auto-saves as it happens (setDepartmentChildAttendance
             // + patchSundayReportRiverKids) — this button re-asserts the CURRENT on-screen state
-            // for the active group back to Firestore in one explicit action, so staff get a
+            // for every column back to Firestore in one explicit action, so staff get a
             // definitive "it's saved" confirmation instead of trusting a silent per-tap write.
             const saveRkAttendance = async () => {
-              if (!canEditRkAttendance || !department || rkAttendanceSaving) return
+              if (!canEditRkAttendance || !department || rkAttendanceSaving || isFutureRkDate) return
               setRkAttendanceSaving(true)
               try {
-                if (!isSundaySchool) {
-                  await setDepartmentChildAttendance(department.name, rkDate, rkAttendanceGroup, rkPresent, userProfile?.email || userProfile?.displayName || 'unknown')
+                for (const g of groupsData) {
+                  if (!g.isSundaySchool) {
+                    await setDepartmentChildAttendance(department.name, rkDate, g.key, g.rkPresent, userProfile?.email || userProfile?.displayName || 'unknown')
+                  }
                 }
                 // Shared across all three groups — this is the same field Sunday Ministry's
                 // dashboard reads for the live "River Kids" attendance total.
                 await patchSundayReportRiverKids(rkDate, rkReportKidsNames, userProfile?.email || userProfile?.displayName || 'unknown')
-                setRkAttendanceToast(`Saved — ${presentCount} present, ${groupKids.length - presentCount} absent of ${groupKids.length} total. Synced to Sunday Ministry.`)
+                const totalPresent = groupsData.reduce((sum, g) => sum + g.presentCount, 0)
+                const totalKids = groupsData.reduce((sum, g) => sum + g.groupKids.length, 0)
+                setRkAttendanceToast(`Saved — ${totalPresent} present of ${totalKids} total across all groups. Synced to Sunday Ministry.`)
                 setTimeout(() => setRkAttendanceToast(''), 3500)
               } catch (error) {
                 console.error('Attendance Save Error (Save button):', error)
@@ -9891,7 +10145,7 @@ export default function DepartmentHub() {
                       <button
                         type="button"
                         onClick={() => setRkDate(d => format(subWeeks(new Date(d + 'T00:00:00'), 1), 'yyyy-MM-dd'))}
-                        aria-label={`Previous ${isSundaySchool ? 'Sunday' : 'Saturday'}`}
+                        aria-label="Previous week"
                         className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
                       >
                         ‹
@@ -9899,28 +10153,15 @@ export default function DepartmentHub() {
                       <input
                         type="date"
                         value={rkDate}
-                        // Chromium-based browsers disable calendar days that don't fall on `min +
-                        // n*step`; picking Jan 7/6 2024 (a Sunday/Saturday) as the anchor keeps
-                        // every selectable day on the correct weekday. onChange below is the
-                        // fallback for browsers that don't honor step in their date picker UI.
-                        min={isSundaySchool ? '2024-01-07' : '2024-01-06'}
-                        step={7}
-                        onChange={e => {
-                          const val = e.target.value
-                          if (!val) return
-                          const targetDow = isSundaySchool ? 0 : 6
-                          const d = new Date(val + 'T00:00:00')
-                          if (isNaN(d.getTime())) return
-                          const diff = (targetDow - d.getDay() + 7) % 7
-                          d.setDate(d.getDate() + diff)
-                          setRkDate(format(d, 'yyyy-MM-dd'))
-                        }}
+                        // All three groups (Sunday + Saturday services) now share one date
+                        // picker, so it's a plain free-pick date — no weekday snapping.
+                        onChange={e => { if (e.target.value) setRkDate(e.target.value) }}
                         className="px-2 py-1.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                       />
                       <button
                         type="button"
                         onClick={() => setRkDate(d => format(addWeeks(new Date(d + 'T00:00:00'), 1), 'yyyy-MM-dd'))}
-                        aria-label={`Next ${isSundaySchool ? 'Sunday' : 'Saturday'}`}
+                        aria-label="Next week"
                         className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
                       >
                         ›
@@ -9928,8 +10169,9 @@ export default function DepartmentHub() {
                     </div>
                     <button
                       type="button"
-                      disabled={!canEditRkAttendance || rkAttendanceSaving}
+                      disabled={!canEditRkAttendance || rkAttendanceSaving || isFutureRkDate}
                       onClick={saveRkAttendance}
+                      title={isFutureRkDate ? rkFutureDateHint : undefined}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold shadow-sm hover:bg-indigo-700 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {rkAttendanceSaving ? (
@@ -9947,111 +10189,70 @@ export default function DepartmentHub() {
                   </div>
                 </div>
 
-                {/* Sub-page switcher */}
-                <div className="flex gap-2 bg-slate-100 rounded-2xl p-1">
-                  {RK_CLASS_GROUPS.map(g => (
-                    <button key={g.key} type="button" onClick={() => setRkAttendanceGroup(g.key)}
-                      className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${rkAttendanceGroup === g.key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                      {g.label}
-                    </button>
+                {/* Sunday School / River Kids-1 / River Kids-2 side by side — 3 columns on
+                    desktop (md:grid-cols-3), stacked on phones (grid-cols-1). */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {groupsData.map((g) => (
+                    <div key={g.key} className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+                      {/* Header badge — section name + live Present/Total (or countdown). */}
+                      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between gap-2">
+                        <span className="text-sm font-bold text-slate-800">{g.label}</span>
+                        {isFutureRkDate ? (
+                          <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-600 border border-amber-100 whitespace-nowrap">
+                            {rkCountdownLabel}
+                          </span>
+                        ) : (
+                          <span className="text-xs font-semibold px-2 py-1 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100 whitespace-nowrap">
+                            {g.presentCount} / {g.groupKids.length}
+                          </span>
+                        )}
+                      </div>
+                      {g.isSundaySchool && (
+                        <div className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-50/60 border-b border-indigo-100/60">
+                          <span className="text-indigo-400 text-xs">↔</span>
+                          <p className="text-[10px] text-indigo-500">Synced with Sunday Ministry Live Control</p>
+                        </div>
+                      )}
+                      {/* Scrollable kid list — tap a pill to mark present/absent. */}
+                      <div className="p-3 max-h-[420px] overflow-y-auto">
+                        {rkLoading ? (
+                          <p className="text-center text-slate-400 text-xs py-6">Loading…</p>
+                        ) : g.groupKids.length === 0 ? (
+                          <p className="text-center text-slate-400 text-xs py-6">No kids in this group yet.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {g.groupKids.map((c) => {
+                              const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
+                              const isPresent = g.isKidPresent(c)
+                              const parents = [c.fatherName, c.motherName].filter(Boolean).join(' · ')
+                              return (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  disabled={!canEditRkAttendance || isFutureRkDate}
+                                  title={isFutureRkDate ? rkFutureDateHint : (parents || undefined)}
+                                  onClick={() => toggleKidPresence(g, c, isPresent)}
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 ${
+                                    isPresent
+                                      ? 'bg-emerald-500 text-white border-emerald-600 shadow-sm'
+                                      : isFutureRkDate
+                                        // Not "absent" — just not taken yet. Dashed + faded reads as
+                                        // pending rather than as a no-show marked before the event.
+                                        ? 'bg-white text-slate-400 border-slate-200 border-dashed'
+                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                  } ${!canEditRkAttendance || isFutureRkDate ? 'cursor-not-allowed' : ''} ${!canEditRkAttendance ? 'opacity-50' : ''}`}
+                                >
+                                  {c.name}
+                                  {age !== null && <span className={`ml-1 ${isPresent ? 'text-emerald-100' : 'text-slate-400'}`}>· {age}y</span>}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   ))}
                 </div>
-
-                {/* Sunday School sync notice */}
-                {isSundaySchool && (
-                  <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2">
-                    <span className="text-indigo-500 text-sm">↔</span>
-                    <p className="text-xs text-indigo-600">Synced with Sunday Ministry Live Control</p>
-                  </div>
-                )}
-
-                {/* Stats row */}
-                {!rkLoading && groupKids.length > 0 && (
-                  <div className="flex gap-2">
-                    <div className="flex-1 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2 text-center">
-                      <p className="text-lg font-bold text-emerald-600">{presentCount}</p>
-                      <p className="text-[10px] text-emerald-500 font-medium">Present</p>
-                    </div>
-                    <div className="flex-1 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2 text-center">
-                      <p className="text-lg font-bold text-rose-500">{groupKids.length - presentCount}</p>
-                      <p className="text-[10px] text-rose-400 font-medium">Absent</p>
-                    </div>
-                    <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-center">
-                      <p className="text-lg font-bold text-slate-600">{groupKids.length}</p>
-                      <p className="text-[10px] text-slate-400 font-medium">Total</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Kids — tap a name to mark present/absent */}
-                {rkLoading ? (
-                  <p className="text-center text-slate-400 text-sm py-8">Loading…</p>
-                ) : groupKids.length === 0 ? (
-                  <p className="text-center text-slate-400 text-sm py-8">
-                    No kids in this group yet. Assign kids in the Kids Register tab.
-                  </p>
-                ) : (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3">
-                    <div className="flex flex-wrap gap-2">
-                      {groupKids.map((c) => {
-                        const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
-                        const isPresent = isKidPresent(c)
-                        const parents = [c.fatherName, c.motherName].filter(Boolean).join(' · ')
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            disabled={!canEditRkAttendance}
-                            title={parents || undefined}
-                            onClick={async () => {
-                              if (!canEditRkAttendance || !department) return
-                              // Every group's presence toggle merges the kid's name into/out of the
-                              // Sunday Ministry report's "River Kids" list — that's the single total
-                              // Sunday Ministry shows, so it must reflect all three groups, not just
-                              // whichever group happens to be selected here.
-                              const trimmedName = c.name.trim()
-                              const norm = trimmedName.toLowerCase()
-                              const newReportNames = isPresent
-                                ? rkReportKidsNames.filter(n => (n || '').trim().toLowerCase() !== norm)
-                                : rkReportKidsNames.some(n => (n || '').trim().toLowerCase() === norm)
-                                  ? rkReportKidsNames
-                                  : [...rkReportKidsNames, trimmedName]
-                              try {
-                                await patchSundayReportRiverKids(rkDate, newReportNames, userProfile?.email || userProfile?.displayName || 'unknown')
-                              } catch (error) {
-                                console.error('Attendance Save Error (Sunday report River Kids sync):', error)
-                                alert(rkPermissionErrorMessage(error))
-                              }
-                              if (!isSundaySchool) {
-                                const previous = rkPresent
-                                const next = { ...rkPresent, [c.id]: !isPresent }
-                                setRkAttendanceByGroup(prev => ({ ...prev, [rkAttendanceGroup]: next }))
-                                try {
-                                  await setDepartmentChildAttendance(department.name, rkDate, rkAttendanceGroup, next, userProfile?.email || userProfile?.displayName || 'unknown')
-                                } catch (error) {
-                                  console.error('Attendance Save Error:', error)
-                                  // Roll the optimistic toggle back — otherwise a failed write (e.g.
-                                  // permission-denied) leaves the badge showing the new state even
-                                  // though nothing was actually saved.
-                                  setRkAttendanceByGroup(prev => ({ ...prev, [rkAttendanceGroup]: previous }))
-                                  alert(rkPermissionErrorMessage(error))
-                                }
-                              }
-                            }}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 ${
-                              isPresent
-                                ? 'bg-emerald-500 text-white border-emerald-600 shadow-sm'
-                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                            } ${!canEditRkAttendance ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >
-                            {c.name}
-                            {age !== null && <span className={`ml-1 ${isPresent ? 'text-emerald-100' : 'text-slate-400'}`}>· {age}y</span>}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
 
                 {/* "Attendance saved" confirmation for the Save Attendance button above. */}
                 <AnimatePresence>

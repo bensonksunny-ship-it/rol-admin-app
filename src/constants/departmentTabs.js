@@ -18,7 +18,7 @@ export function getDepartmentHubTabs(slug) {
       // pointing at an empty Operations page.
       return ['summary', 'assign', 'team', 'upcomingSunday', 'finance']
     case 'd-light':
-      return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'finance', 'operations']
+      return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'archives', 'finance', 'operations']
     case 'event-m':
       return ['summary', 'events', 'liveControl', 'finance', 'operations']
     case 'river-kids':

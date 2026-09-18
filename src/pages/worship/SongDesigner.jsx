@@ -171,8 +171,12 @@ function isChordLine(line) {
 
 function isSectionHeader(line) {
   const t = line.trim()
+  // Bracketed form trusts whatever's inside — that's an unambiguous, deliberate marker.
+  // The bare-word form requires the line to be JUST the keyword (+ optional number/colon),
+  // not merely start with one — otherwise an actual lyric line like "Bridge over troubled
+  // water" or "Hook me up to your love" gets swallowed as a false-positive header.
   return /^\[.+\]$/.test(t) ||
-    /^(verse|chorus|bridge|intro|outro|pre[\s-]?chorus|tag|interlude|hook|vamp|refrain)\b.*:?$/i.test(t)
+    /^(verse|chorus|bridge|intro|outro|pre[\s-]?chorus|tag|interlude|hook|vamp|refrain)\s*\d*\s*:?$/i.test(t)
 }
 
 function parseChordPositions(line) {
@@ -290,6 +294,108 @@ function parseSegmentText(text) {
     i++
   }
   return lines
+}
+
+// ── Whole-song paste-and-parse — splits one pasted chord chart into per-segment
+// blocks so a user can paste an entire song once instead of adding each segment and
+// pasting into it individually.
+//
+// Primary path: split on section-header lines ("[Verse 1]", "Chorus:", bare "Bridge",
+// etc. — the same isSectionHeader() the single-segment parser already uses to skip
+// header lines). Any text before the first header becomes its own leading block.
+//
+// Fallback (no header lines anywhere): split on blank-line-separated stanzas instead,
+// since plenty of pasted lyrics have no section tags at all.
+function extractHeaderLabel(line) {
+  const t = line.trim()
+  const bracket = t.match(/^\[(.+)\]$/)
+  const raw = bracket ? bracket[1] : t.replace(/:\s*$/, '')
+  return raw.trim()
+}
+
+function normalizeSegmentLabel(raw) {
+  const cleaned = raw.replace(/\s+/g, ' ').trim()
+  const preChorus = cleaned.match(/^pre[\s-]?chorus\b(.*)$/i)
+  if (preChorus) return `Pre-Chorus${preChorus[1] ? ' ' + preChorus[1].trim() : ''}`.trim()
+  return cleaned
+    .split(' ')
+    .map(w => (/^\d+$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join(' ')
+}
+
+function splitFullSongIntoBlocks(text) {
+  const rawLines = text.split('\n')
+  const headerIdx = []
+  rawLines.forEach((line, i) => { if (isSectionHeader(line.trim())) headerIdx.push(i) })
+
+  const blocks = []
+  if (headerIdx.length === 0) {
+    let current = []
+    rawLines.forEach(line => {
+      if (line.trim() === '') {
+        if (current.length) { blocks.push({ label: null, lines: current }); current = [] }
+      } else {
+        current.push(line)
+      }
+    })
+    if (current.length) blocks.push({ label: null, lines: current })
+  } else {
+    if (headerIdx[0] > 0) {
+      const leading = rawLines.slice(0, headerIdx[0]).filter(l => l.trim() !== '')
+      if (leading.length) blocks.push({ label: null, lines: leading })
+    }
+    headerIdx.forEach((hIdx, i) => {
+      const end = i + 1 < headerIdx.length ? headerIdx[i + 1] : rawLines.length
+      blocks.push({ label: extractHeaderLabel(rawLines[hIdx]), lines: rawLines.slice(hIdx + 1, end) })
+    })
+  }
+  return blocks.filter(b => b.lines.some(l => l.trim() !== ''))
+}
+
+// Lyrics-only fingerprint for a block — strips pure chord lines and inline [G] tags —
+// used only for the no-header fallback, to notice a stanza repeating an earlier one
+// verbatim (almost always the chorus) and tag it as a repeat instead of a new verse.
+function blockLyricsKey(lines) {
+  return lines
+    .map(l => l.trim())
+    .filter(l => l && !isChordLine(l))
+    .map(l => parseInline(l).lyrics.trim())
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase()
+}
+
+function buildSegmentsFromBlocks(blocks) {
+  const usedTypes = []
+  const keyToLabel = new Map()
+  let verseCounter = 0
+
+  return blocks.map(block => {
+    let type
+    if (block.label) {
+      type = normalizeSegmentLabel(block.label)
+      if (usedTypes.includes(type)) type = nextRepeatName(usedTypes, type)
+    } else {
+      const key = blockLyricsKey(block.lines)
+      if (key && keyToLabel.has(key)) {
+        type = nextRepeatName(usedTypes, keyToLabel.get(key))
+      } else {
+        verseCounter++
+        type = `Verse ${verseCounter}`
+        if (key) keyToLabel.set(key, type)
+      }
+    }
+    usedTypes.push(type)
+    const rawText = block.lines.join('\n').trim()
+    return {
+      id: Date.now() + Math.random(),
+      type,
+      lead: DEFAULT_LEAD,
+      rawText,
+      lines: parseSegmentText(rawText),
+      parsed: true,
+    }
+  })
 }
 
 // ── "Designed by" combobox — searchable instead of a plain <select> that either
@@ -956,6 +1062,13 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
   const [detectedKeys, setDetectedKeys] = useState([])
   const [metaEditing, setMetaEditing] = useState(false)
   const [showSegmentMenu, setShowSegmentMenu] = useState(false)
+  // Focus mode (one section at a time) vs. full-sheet mode (every section stacked on
+  // one page) — full sheet is what you want when rehearsing or printing the whole song.
+  const [viewAll, setViewAll] = useState(false)
+  // Paste-whole-song import — open by default while the song has no segments yet
+  // (the fastest way to start), and re-openable via a small toggle once it does.
+  const [bulkText, setBulkText] = useState('')
+  const [showBulkPaste, setShowBulkPaste] = useState(false)
   const [metronomeOn, setMetronomeOn] = useState(false)
   const [timeSignature, setTimeSignature] = useState(DEFAULT_TIME_SIGNATURE)
   // In-app walkthrough for a first-time designer — open by default for a brand new
@@ -1149,6 +1262,20 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
     setActiveIdx(segments.length)
   }
 
+  // Paste-whole-song import — replaces the current layout with one segment per
+  // detected section, each already parsed (chords + lyrics), instead of requiring
+  // "+ Add Segment" once per section followed by a manual paste-and-parse in each.
+  const handleBulkParse = () => {
+    if (!bulkText.trim()) return
+    if (segments.length > 0 && !window.confirm('This replaces the current segments with the parsed song. Continue?')) return
+    const newSegments = buildSegmentsFromBlocks(splitFullSongIntoBlocks(bulkText))
+    if (!newSegments.length) return
+    setSegments(newSegments)
+    setActiveIdx(0)
+    setBulkText('')
+    setShowBulkPaste(false)
+  }
+
   const updateSegment = useCallback((id, patch) =>
     setSegments(p => p.map(s => s.id === id ? { ...s, ...patch } : s)), [])
 
@@ -1192,16 +1319,16 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
     })
   }
 
-  // Reorders the active section by swapping it with its left/right neighbor — order
-  // is just the segments array's own position (no separate index field), same as
+  // Reorders a section by swapping it with its left/right neighbor — order is just
+  // the segments array's own position (no separate index field), same as
   // duplicateSegment's splice-based positioning. activeIdx follows the moved section
   // so the same card stays focused after the swap.
-  const moveActiveSegment = direction => {
-    const j = direction === 'left' ? activeIdx - 1 : activeIdx + 1
+  const moveSegment = (idx, direction) => {
+    const j = direction === 'left' ? idx - 1 : idx + 1
     if (j < 0 || j >= segments.length) return
     setSegments(prev => {
       const next = [...prev]
-      ;[next[activeIdx], next[j]] = [next[j], next[activeIdx]]
+      ;[next[idx], next[j]] = [next[j], next[idx]]
       return next
     })
     setActiveIdx(j)
@@ -1421,27 +1548,71 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
         )}
       </div>
 
+      {/* Paste-whole-song import — the fastest way to start: paste an entire chord
+          chart at once and every section (with its chords) gets created and parsed
+          automatically, instead of adding and pasting into one segment at a time.
+          Open by default while the song has no segments yet; collapsible once it does,
+          re-openable via the "Paste whole song" link next to Add Segment below. */}
+      {(segments.length === 0 || showBulkPaste) && (
+        <div className="rounded-2xl border border-violet-100 bg-violet-50/50 p-4 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-violet-700">Paste your whole song</p>
+            {segments.length > 0 && (
+              <button type="button" onClick={() => { setShowBulkPaste(false); setBulkText('') }}
+                className="text-[11px] font-medium text-slate-400 hover:text-slate-600 transition-colors">
+                Cancel
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500 leading-snug">
+            Use section labels like <span className="font-mono">[Verse 1]</span> / <span className="font-mono">[Chorus]</span> (or bare <span className="font-mono">Bridge</span>/<span className="font-mono">Outro</span> lines), chords above the lyric line or <span className="font-mono">[G]inline</span> — we'll split it into sections and parse the chords for you. No labels at all also works: repeated stanzas (usually the chorus) are detected and tagged as repeats.
+          </p>
+          <textarea
+            value={bulkText}
+            onChange={e => setBulkText(e.target.value)}
+            placeholder={'[Verse 1]\nG              D\nAmazing grace, how sweet the sound\n\n[Chorus]\nEm            C\nMy chains are gone, I’ve been set free'}
+            rows={8}
+            className="w-full border border-violet-200 rounded-xl px-3 py-2.5 font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white text-slate-600 placeholder-slate-400"
+          />
+          <div className="flex justify-end">
+            <button type="button" disabled={!bulkText.trim()} onClick={handleBulkParse}
+              className="px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-semibold shadow-sm hover:bg-violet-700 disabled:opacity-40 disabled:shadow-none transition-all active:scale-95">
+              Parse Song
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Segment picker — button reveals a popover of segment types. Styled as a
           primary action (solid, icon) rather than a muted ghost link, since adding
           sections is core to building a song, not a secondary/incidental control. */}
-      <div className="relative" ref={segmentMenuRef}>
-        <button
-          type="button"
-          onClick={() => setShowSegmentMenu(v => !v)}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold shadow-sm hover:bg-violet-700 active:scale-95 transition-all"
-        >
-          <Plus size={16} /> Add Segment
-        </button>
-        {showSegmentMenu && (
-          <div className="absolute z-10 mt-2 p-2 rounded-2xl border border-slate-200 bg-white shadow-lg grid grid-cols-2 gap-2 w-max">
-            {SEGMENT_TYPES.map(type => (
-              <button key={type} type="button"
-                onClick={() => { addSegment(type); setShowSegmentMenu(false) }}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-xs font-medium bg-slate-50 hover:bg-slate-100 hover:text-slate-700 active:scale-95 transition-all whitespace-nowrap">
-                + {type}
-              </button>
-            ))}
-          </div>
+      <div className="flex items-center gap-3">
+        <div className="relative" ref={segmentMenuRef}>
+          <button
+            type="button"
+            onClick={() => setShowSegmentMenu(v => !v)}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold shadow-sm hover:bg-violet-700 active:scale-95 transition-all"
+          >
+            <Plus size={16} /> Add Segment
+          </button>
+          {showSegmentMenu && (
+            <div className="absolute z-10 mt-2 p-2 rounded-2xl border border-slate-200 bg-white shadow-lg grid grid-cols-2 gap-2 w-max">
+              {SEGMENT_TYPES.map(type => (
+                <button key={type} type="button"
+                  onClick={() => { addSegment(type); setShowSegmentMenu(false) }}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-xs font-medium bg-slate-50 hover:bg-slate-100 hover:text-slate-700 active:scale-95 transition-all whitespace-nowrap">
+                  + {type}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {segments.length > 0 && !showBulkPaste && (
+          <button type="button" onClick={() => setShowBulkPaste(true)}
+            className="text-xs font-medium text-slate-400 hover:text-slate-600 underline underline-offset-2 transition-colors">
+            Paste whole song instead
+          </button>
         )}
       </div>
 
@@ -1454,26 +1625,56 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
         </p>
       ) : (
         <div className="space-y-2">
-          {/* Section navigation tabs — color-coded per type; focus mode: only the active section renders below */}
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {segments.map((seg, idx) => {
-              const c = getSegmentColor(seg.type)
-              return (
-                <button
-                  key={seg.id}
-                  type="button"
-                  onClick={() => setActiveIdx(idx)}
-                  className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
-                    idx === activeIdx ? c.active : c.pill
-                  }`}
-                >
-                  {seg.type}
-                </button>
-              )
-            })}
+          {/* Section navigation tabs — color-coded per type. In focus mode a tab swaps
+              which section renders below; in full-sheet mode every section is already
+              on the page, so a tab scrolls to it instead. */}
+          <div className="flex items-start gap-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 flex-1">
+              {segments.map((seg, idx) => {
+                const c = getSegmentColor(seg.type)
+                return (
+                  <button
+                    key={seg.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveIdx(idx)
+                      if (viewAll) {
+                        document.getElementById(`song-segment-${seg.id}`)
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      }
+                    }}
+                    className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
+                      idx === activeIdx ? c.active : c.pill
+                    }`}
+                  >
+                    {seg.type}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* View mode — one section at a time, or the whole song on one page */}
+            <div className="shrink-0 flex items-center gap-0.5 p-0.5 rounded-xl border border-slate-200 bg-slate-50">
+              <button type="button" onClick={() => setViewAll(false)}
+                title="Focus on one section at a time"
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                  viewAll ? 'text-slate-500 hover:bg-white' : 'bg-white text-slate-700 shadow-sm'
+                }`}>
+                Focus
+              </button>
+              <button type="button" onClick={() => setViewAll(true)}
+                title="Show every section on one page"
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                  viewAll ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500 hover:bg-white'
+                }`}>
+                All Sections
+              </button>
+            </div>
           </div>
 
-          <div className={`bg-white rounded-xl border border-slate-100 border-t-4 ${activeSegColor.top} shadow-md overflow-hidden transition-colors`}>
+          <div className={`bg-white rounded-xl border border-slate-100 border-t-4 ${
+            viewAll ? DEFAULT_SEGMENT_COLOR.top : activeSegColor.top
+          } shadow-md overflow-hidden transition-colors`}>
             {(meta.artist || transposedKey || meta.key) && (
               <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50 flex items-baseline gap-3 opacity-90">
                 {meta.artist && <span className="text-xs text-slate-400">{meta.artist}</span>}
@@ -1485,37 +1686,58 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
               </div>
             )}
 
-            {segments[activeIdx] && (
-            <SegmentSection
-              key={segments[activeIdx]?.id}
-              seg={segments[activeIdx]}
-              onUpdate={updateSegment}
-              onDuplicate={duplicateSegment}
-              onRemove={removeSegment}
-              onMove={moveActiveSegment}
-              canMoveLeft={activeIdx > 0}
-              canMoveRight={activeIdx < segments.length - 1}
-              transpose={transpose}
-              useFlatKey={useFlatKey}
-              beatsPerBar={beatsPerBar}
-              isLast
-            />
+            {viewAll ? (
+              segments.map((seg, idx) => (
+                <div key={seg.id} id={`song-segment-${seg.id}`} className="scroll-mt-4">
+                  <SegmentSection
+                    seg={seg}
+                    onUpdate={updateSegment}
+                    onDuplicate={duplicateSegment}
+                    onRemove={removeSegment}
+                    onMove={direction => moveSegment(idx, direction)}
+                    canMoveLeft={idx > 0}
+                    canMoveRight={idx < segments.length - 1}
+                    transpose={transpose}
+                    useFlatKey={useFlatKey}
+                    beatsPerBar={beatsPerBar}
+                    isLast={idx === segments.length - 1}
+                  />
+                </div>
+              ))
+            ) : segments[activeIdx] && (
+              <SegmentSection
+                key={segments[activeIdx]?.id}
+                seg={segments[activeIdx]}
+                onUpdate={updateSegment}
+                onDuplicate={duplicateSegment}
+                onRemove={removeSegment}
+                onMove={direction => moveSegment(activeIdx, direction)}
+                canMoveLeft={activeIdx > 0}
+                canMoveRight={activeIdx < segments.length - 1}
+                transpose={transpose}
+                useFlatKey={useFlatKey}
+                beatsPerBar={beatsPerBar}
+                isLast
+              />
             )}
 
-            {/* Step-by-step flow */}
-            <div className="flex items-center justify-between px-4 py-2.5 border-t border-slate-100 bg-slate-50 opacity-80">
-              <button type="button" disabled={activeIdx === 0}
-                onClick={() => setActiveIdx(i => Math.max(i - 1, 0))}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95">
-                ← Previous Section
-              </button>
-              <span className="text-xs text-slate-400 font-medium">{activeIdx + 1} / {segments.length}</span>
-              <button type="button" disabled={activeIdx === segments.length - 1}
-                onClick={() => setActiveIdx(i => Math.min(i + 1, segments.length - 1))}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95">
-                Next Section →
-              </button>
-            </div>
+            {/* Step-by-step flow — only meaningful in focus mode; in full-sheet mode
+                every section is already on the page, so paging through them is noise. */}
+            {!viewAll && (
+              <div className="flex items-center justify-between px-4 py-2.5 border-t border-slate-100 bg-slate-50 opacity-80">
+                <button type="button" disabled={activeIdx === 0}
+                  onClick={() => setActiveIdx(i => Math.max(i - 1, 0))}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95">
+                  ← Previous Section
+                </button>
+                <span className="text-xs text-slate-400 font-medium">{activeIdx + 1} / {segments.length}</span>
+                <button type="button" disabled={activeIdx === segments.length - 1}
+                  onClick={() => setActiveIdx(i => Math.min(i + 1, segments.length - 1))}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95">
+                  Next Section →
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
