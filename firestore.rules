@@ -52,6 +52,14 @@ service cloud.firestore {
         {'department': departmentId, 'role': 'MEMBER'}
       ]);
     }
+    // Deliberately NOT folded into hasAnyPositionInDept/canAccessDept — Pre-Service
+    // Leader is scoped narrowly to the sunday_pre_service collection only (see below),
+    // not general Sunday Ministry department access.
+    function isPreServiceLeader() {
+      return isSignedIn() && userPositions().hasAny([
+        {'department': 'Sunday Ministry', 'position': 'Pre-Service Leader'}
+      ]);
+    }
     function canAccessDept(departmentId) {
       // `departments[]` is written back to the user doc by the client's own
       // AuthContext sync-on-login effect, so a role just assigned in
@@ -346,6 +354,23 @@ service cloud.firestore {
     }
 
     match /sunday_program/{docId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector());
+    }
+
+    // Pre-Service weekly entries (speakers/topics/leader per Sunday date) — was
+    // missing a rule entirely (default-deny), so getSundayPreServiceEntry/
+    // setSundayPreServiceEntry writes from the Pre-Service tab were silently
+    // failing. Write access also extends to isPreServiceLeader() — the person
+    // currently assigned Pre-Service Leader can manage this collection even
+    // without full Sunday Ministry department access.
+    match /sunday_pre_service/{docId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector() || isPreServiceLeader());
+    }
+
+    // Crew weekly entries + roster — same missing-rule gap as sunday_pre_service above.
+    match /sunday_crew_entries/{docId} {
       allow read: if isSignedIn();
       allow create, update, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry') || isCellDirector());
     }
@@ -657,6 +682,12 @@ service cloud.firestore {
     // department_assignments/media doc.
     match /media_schedule/{docId} {
       allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Media'));
+    }
+
+    // Sunday Ministry crew schedule (SundayCrew.jsx Assign tab) — same convention
+    // as media_schedule above.
+    match /sunday_crew_schedule/{docId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
     }
 
     // Auto-created/updated by saveAssignPlan (DepartmentWorship.jsx) right after the

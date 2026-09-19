@@ -4,7 +4,7 @@ import {
   getSundayProgramDesign,
   getProgramNotification,
   getSundayPreServiceEntry,
-  getSundayCrewEntry,
+  getSundayCrewScheduleByDate,
   getSundayReport,
 } from '../services/firestore'
 
@@ -37,10 +37,10 @@ export default function SundayPrepTracker() {
       getSundayProgramDesign(),
       getProgramNotification(sundayDate),
       getSundayPreServiceEntry(sundayDate),
-      getSundayCrewEntry(sundayDate),
+      getSundayCrewScheduleByDate(sundayDate),
       getSundayReport(sundayDate),
     ])
-      .then(([defaultDoc, designDoc, notif, preService, crewEntry, report]) => {
+      .then(([defaultDoc, designDoc, notif, preService, crewSchedule, report]) => {
         const designs = designDoc?.designs || {}
         const hasDesign = Object.values(designs).some((els) => Array.isArray(els) && els.length > 0)
         setChecks({
@@ -48,7 +48,7 @@ export default function SundayPrepTracker() {
           programDesigned: hasDesign,
           notifSent:       notif !== null,
           preService:      !!(preService && (preService.speakers?.length > 0 || preService.topics?.length > 0)),
-          crewAssigned:    !!(crewEntry && crewEntry.serving?.length > 0),
+          crewAssigned:    (crewSchedule?.assignments || []).some((a) => a.memberName),
           pushedToLive:    (report?.programList?.length || 0) > 0,
         })
       })

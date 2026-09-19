@@ -42,7 +42,13 @@ const SECTION_ACCENT = {
   [SUNDAY_PLAN_SECTIONS.RIVER_KIDS]: { border: 'border-l-teal-500', btn: 'bg-teal-500 hover:bg-teal-600' },
 }
 
-export function WorshipPlanSummary({ selectedDate }) {
+// altarCallMapping: opt-in, Sunday Plan modal only (see SundayPlanBubble.jsx) —
+// relabels the Lead Vocal-4 slot as "Altar Call Worship" everywhere else in the
+// app (the Worship department's own Assign tab, the standalone /sunday-planning
+// page) this is still shown as a generic Lead Vocal-4 slot; only the modal's
+// display remaps it. Data is untouched — same worship_schedule assignment, same
+// song/member fields, only the label shown for this one role changes.
+export function WorshipPlanSummary({ selectedDate, altarCallMapping = false }) {
   const [worshipPlan, setWorshipPlan] = useState(null)
   const [loading, setLoading] = useState(true)
   const [expandedRole, setExpandedRole] = useState(null)
@@ -102,7 +108,9 @@ export function WorshipPlanSummary({ selectedDate }) {
                   className="w-full flex items-center justify-between gap-2 px-2 py-1 text-left hover:bg-amber-50/80 transition-colors"
                 >
                   <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide flex-shrink-0">{role.replace('-', ' ')}</span>
+                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide flex-shrink-0">
+                      {altarCallMapping && role === 'Lead Vocal-4' ? 'ALTAR CALL WORSHIP' : role.replace('-', ' ')}
+                    </span>
                     <span className="text-xs font-semibold text-slate-800 truncate">{a.memberName}</span>
                     {a.songName && <span className="text-slate-300 text-xs">|</span>}
                     {a.songName && <span className="text-xs text-slate-700 truncate">{a.songName}</span>}
@@ -169,9 +177,14 @@ export function DLitePlanSummary({ selectedDate }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    setLoading(true)
     Promise.all([
       getDlightAssignmentsForDate(selectedDate || nextSundayISO()),
-      getDepartmentTeamMembers('d-light'),
+      // Must match department_team_members' stored `department` field exactly
+      // ('D Light', the proper department name) — the URL slug 'd-light' matches
+      // nothing, which silently emptied teamById and left every assignee showing
+      // as its raw Firestore doc id instead of a resolved name.
+      getDepartmentTeamMembers('D Light'),
     ])
       .then(([doc, members]) => {
         setAssignments(doc?.assignments || null)
@@ -207,8 +220,12 @@ export function DLitePlanSummary({ selectedDate }) {
         <div className="rounded-lg border border-slate-200 overflow-hidden">
           <div className="divide-y divide-slate-100">
             {assigned.map(({ key, label }) => {
+              // Never surface a raw Firestore doc id — an id with no match in
+              // teamById (e.g. a team member since removed) shows as "Unknown
+              // member" instead, same fallback DepartmentHub's own D-Light Assign
+              // tab uses.
               const displayName = assigneesFor(key)
-                .map((id) => teamById[id]?.name || id)
+                .map((id) => teamById[id]?.name || 'Unknown member')
                 .join(', ')
               return (
                 <div key={key} className="flex items-center gap-2 px-2 py-1">
@@ -341,20 +358,31 @@ const SECTION_DEPT_LABEL = {
   media: 'Media',
 }
 
-function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
-  const [items, setItems] = useState([])   // flat unified list: {key, label, kind, mediaData?}
+// Shared by SundayProgramBlock (full order-of-service timeline) and
+// SundayMinistryPlanSummary (the compact Sunday Ministry card) — resolves a
+// program item's label to whichever section notes / pre-service speakers own it,
+// so both views read the same assignment for the same item.
+function resolveProgramAssignment(label, plan, preServiceEntry) {
+  const sectionKey = PROGRAM_SECTION_MAP[label]
+  if (!sectionKey) return null
+  if (sectionKey === '__preservice__') {
+    const speakers = preServiceEntry?.speakers
+    if (speakers?.length) return { text: speakers.join(', '), dept: 'Pre-Service' }
+    return null
+  }
+  const notes = plan?.[sectionKey]?.notes?.trim()
+  if (!notes) return null
+  return { text: notes, dept: SECTION_DEPT_LABEL[sectionKey] || sectionKey }
+}
+
+// Shared by SundayProgramBlock and SundayMinistryPlanSummary — builds the ordered
+// list of program items (default seed + any saved custom items/order + Media
+// design items) for selectedDate, so both views reflect the same configured order
+// of service instead of each guessing at it independently.
+function useProgramItems(plan) {
+  const [items, setItems] = useState([])
   const [loadingItems, setLoadingItems] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [worshipPlan, setWorshipPlan] = useState(null)
 
-  useEffect(() => {
-    if (!selectedDate) return
-    getWorshipScheduleByDate('Worship', selectedDate)
-      .then(setWorshipPlan)
-      .catch(() => setWorshipPlan(null))
-  }, [selectedDate])
-
-  // Build the combined list whenever the plan or its programOrder changes
   useEffect(() => {
     setLoadingItems(true)
     getSundayProgramDefault()
@@ -392,6 +420,114 @@ function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
       .finally(() => setLoadingItems(false))
   }, [plan?.programOrder, plan?.mediaDesignProgram])
 
+  return { items, setItems, loadingItems }
+}
+
+// Departments that already get their own dedicated card in the Sunday Plan grid —
+// SundayMinistryPlanSummary shows everything else (Service Opening, Sermon,
+// Announcements, Closing Benediction, and any other custom item) instead of
+// duplicating what Worship/D-Lite/Media/River Kids already display.
+const PROGRAM_ITEM_HAS_OWN_CARD = new Set(['Worship', 'D-Lite', 'River Kids', 'Media'])
+
+// Friendlier display labels for the Sunday Ministry card only — the underlying
+// item/section keys (used for data lookups and the draft-mode editor) are unchanged.
+const SUNDAY_MINISTRY_ITEM_LABELS = {
+  'Pre Worship Talk': 'Service Opening',
+  'Sermon': 'Sermon / Message Title',
+  'Prayer & Benediction': 'Closing Benediction',
+}
+
+// showIntercessoryPrayer: opt-in, Sunday Plan modal only (see SundayPlanBubble.jsx)
+// — adds an "Intercessory Prayer" row sourced from the Worship schedule's Lead
+// Vocal-4 assignee (the same person doubles up on both duties in practice).
+// Elsewhere (the standalone /sunday-planning page) this card shows only the
+// regular order-of-service items, unaffected.
+function useIntercessoryPrayerName(selectedDate, enabled) {
+  const [name, setName] = useState('')
+  useEffect(() => {
+    if (!enabled) { setName(''); return }
+    let cancelled = false
+    getWorshipScheduleByDate('Worship', selectedDate)
+      .then((worshipPlan) => {
+        if (cancelled) return
+        const a = (worshipPlan?.assignments || []).find((x) => x.role === 'Lead Vocal-4')
+        setName(a?.memberName || '')
+      })
+      .catch(() => { if (!cancelled) setName('') })
+    return () => { cancelled = true }
+  }, [selectedDate, enabled])
+  return name
+}
+
+// Compact "Sunday Ministry / Church Programs" card — sits alongside Worship,
+// D-Lite, Media and River Kids in the Sunday Plan grid. Cross-references the same
+// order-of-service (useProgramItems) and per-item assignment notes
+// (resolveProgramAssignment) that the full Sunday Program timeline above it uses,
+// filtered down to the items no other department card already covers.
+export function SundayMinistryPlanSummary({ plan, preServiceEntry, selectedDate, showIntercessoryPrayer = false }) {
+  const { items, loadingItems } = useProgramItems(plan)
+  const intercessoryPrayerName = useIntercessoryPrayerName(selectedDate, showIntercessoryPrayer)
+  const rows = items
+    .filter((i) => i.kind === 'program' && !PROGRAM_ITEM_HAS_OWN_CARD.has(i.label))
+    .map((i) => ({
+      key: i.key,
+      label: SUNDAY_MINISTRY_ITEM_LABELS[i.label] || i.label,
+      assignment: resolveProgramAssignment(i.label, plan, preServiceEntry),
+    }))
+  if (showIntercessoryPrayer) {
+    const intercessoryRow = {
+      key: 'intercessoryPrayer',
+      label: 'Intercessory Prayer',
+      assignment: intercessoryPrayerName ? { text: intercessoryPrayerName, dept: 'Worship' } : null,
+    }
+    // Right after Service Opening when present, otherwise at the top.
+    const openingIdx = rows.findIndex((r) => r.key === 'Pre Worship Talk')
+    if (openingIdx >= 0) rows.splice(openingIdx + 1, 0, intercessoryRow)
+    else rows.unshift(intercessoryRow)
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-violet-200 border-l-4 border-l-violet-500 p-3 shadow-sm">
+      <div className="flex items-center justify-between mb-2.5">
+        <h3 className="font-semibold text-violet-900 text-sm">Sunday Ministry</h3>
+        <Link to={`/sunday-planning?date=${selectedDate}`} className="text-violet-600 hover:text-violet-700 text-xs font-semibold">
+          Edit in Sunday Ministry dept →
+        </Link>
+      </div>
+      {loadingItems ? (
+        <p className="text-slate-500 text-xs">Loading program…</p>
+      ) : !rows.length ? (
+        <p className="text-slate-400 text-xs italic">No program items configured.</p>
+      ) : (
+        <div className="rounded-lg border border-slate-200 overflow-hidden">
+          <div className="divide-y divide-slate-100">
+            {rows.map((r) => (
+              <div key={r.key} className="flex items-center gap-2 px-2 py-1">
+                <span className="text-xs text-slate-500 flex-1 min-w-0 truncate">{r.label}</span>
+                <span className={`text-xs flex-shrink-0 max-w-[55%] truncate ${r.assignment ? 'font-medium text-slate-800' : 'text-slate-300 italic'}`}>
+                  {r.assignment ? r.assignment.text : 'Not set'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
+  const { items, setItems, loadingItems } = useProgramItems(plan)
+  const [saving, setSaving] = useState(false)
+  const [worshipPlan, setWorshipPlan] = useState(null)
+
+  useEffect(() => {
+    if (!selectedDate) return
+    getWorshipScheduleByDate('Worship', selectedDate)
+      .then(setWorshipPlan)
+      .catch(() => setWorshipPlan(null))
+  }, [selectedDate])
+
   const moveItem = async (idx, dir) => {
     const next = [...items]
     const swapIdx = idx + dir
@@ -415,18 +551,7 @@ function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
     setSaving(false)
   }
 
-  const getProgramAssignment = (label) => {
-    const sectionKey = PROGRAM_SECTION_MAP[label]
-    if (!sectionKey) return null
-    if (sectionKey === '__preservice__') {
-      const speakers = preServiceEntry?.speakers
-      if (speakers?.length) return { text: speakers.join(', '), dept: 'Pre-Service' }
-      return null
-    }
-    const notes = plan?.[sectionKey]?.notes?.trim()
-    if (!notes) return null
-    return { text: notes, dept: SECTION_DEPT_LABEL[sectionKey] || sectionKey }
-  }
+  const getProgramAssignment = (label) => resolveProgramAssignment(label, plan, preServiceEntry)
 
   return (
     <div style={{ background: '#fff', border: '2px solid #e0e7ff', borderRadius: 14, padding: '14px 16px', marginBottom: 4 }}>
@@ -723,7 +848,10 @@ export default function SundayPlanning() {
 }
 
 // ── Digital Bulletin — polished read-only view shown once published ────────
-export function DigitalBulletin({ plan, preServiceEntry, selectedDate }) {
+// modalMappings: opt-in, forwarded from the Sunday Plan modal only (SundayPlanBubble.jsx)
+// — false by default, so the standalone /sunday-planning page (which also renders
+// this once a plan is published) keeps its normal Worship/Sunday Ministry display.
+export function DigitalBulletin({ plan, preServiceEntry, selectedDate, modalMappings = false }) {
   return (
     <div className="space-y-2">
       {/* Header */}
@@ -739,12 +867,22 @@ export function DigitalBulletin({ plan, preServiceEntry, selectedDate }) {
       {/* Sunday Program — same list as draft view, read-only */}
       <SundayProgramBlock plan={plan} preServiceEntry={preServiceEntry} canEdit={false} selectedDate={selectedDate} />
 
-      {/* Department rosters — Worship, D-Light, Media, River Kids (+ any other
-          section with notes) side by side instead of stacked, so the full plan
-          fits on one A4 page/screen without scrolling. */}
+      {/* Department rosters — Sunday Ministry, Worship, D-Light, Media, River Kids
+          (+ any other section with notes) side by side instead of stacked, so the
+          full plan fits on one A4 page/screen without scrolling. Sunday Ministry
+          consolidates the sundayMinistry/sundayLeader/announcements notes into one
+          card cross-referenced against the order of service above (Service Opening,
+          Sermon, Announcements, Closing Benediction), so those three sections don't
+          also repeat as separate generic notes cards below. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <WorshipPlanSummary selectedDate={selectedDate} />
-      {SECTION_ORDER.filter((k) => k !== SUNDAY_PLAN_SECTIONS.WORSHIP).map((key) => {
+      <SundayMinistryPlanSummary plan={plan} preServiceEntry={preServiceEntry} selectedDate={selectedDate} showIntercessoryPrayer={modalMappings} />
+      <WorshipPlanSummary selectedDate={selectedDate} altarCallMapping={modalMappings} />
+      {SECTION_ORDER.filter((k) => ![
+        SUNDAY_PLAN_SECTIONS.WORSHIP,
+        SUNDAY_PLAN_SECTIONS.SUNDAY_MINISTRY,
+        SUNDAY_PLAN_SECTIONS.SUNDAY_LEADER,
+        SUNDAY_PLAN_SECTIONS.ANNOUNCEMENTS,
+      ].includes(k)).map((key) => {
         if (key === SUNDAY_PLAN_SECTIONS.D_LITE) {
           return <DLitePlanSummary key={key} selectedDate={selectedDate} />
         }

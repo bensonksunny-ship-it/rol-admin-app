@@ -88,7 +88,7 @@ function getTabLabel(tab) {
     case 'events':            return 'Events'
     case 'liveControl':       return 'Live Control'
     case 'upcomingSunday':    return 'Upcoming Sunday'
-    case 'sundayCrew':        return 'Crew'
+    case 'sundayCrew':        return 'Assign'
     case 'applications':      return 'Applications'
     case 'directorBoard':     return 'Director Board'
     case 'sundayLeader':      return 'Sunday Leader'
@@ -160,13 +160,10 @@ const DEFAULT_OPS_CHILDREN = [
 ]
 
 export function getOperationsChildren(slug) {
-  // Media has no Operations tab at all (see getDepartmentHubTabs) — it manages
-  // Team + Sub-Departments from its top-level "The Team" tab, and Planning (its
-  // only other Operations child) was removed as redundant, so this is never
-  // called with slug 'media'.
-  if (slug === 'd-light') {
-    return DEFAULT_OPS_CHILDREN.map((c) => (c.key === 'subDepartment' ? { ...c, label: 'Sub Dept' } : c))
-  }
+  // Media and D-Light have no Operations tab at all (see getDepartmentHubTabs) —
+  // both manage Team + Sub-Departments from a top-level "Team" tab instead (Team
+  // holds its own "+ Add Sub Department" modal, DepartmentHub.jsx), so this is
+  // never called with slug 'media' or 'd-light'.
   if (slug === 'accounts') {
     return [...DEFAULT_OPS_CHILDREN, { key: 'addDepartments', label: 'Add Departments', Icon: Building2 }]
   }
@@ -192,7 +189,7 @@ function getTabPath(slug, tab) {
   if (tab === 'sundayReport')         return '/department/sunday-ministry/sunday-report'
   if (tab === 'sundayReportsHistory') return '/department/sunday-ministry/reports'
   if (tab === 'sundayProgram')        return '/department/sunday-ministry/sunday-program'
-  if (tab === 'sundayCrew')           return '/department/sunday-ministry/crew'
+  if (tab === 'sundayCrew')           return '/department/sunday-ministry/assign'
   if (tab === 'applications' && slug === 'worship') return '/department/worship/applications'
   return `/department/${slug}?tab=${encodeURIComponent(tab)}`
 }

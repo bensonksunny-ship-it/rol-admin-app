@@ -81,7 +81,7 @@ function App() {
               <Route path="department/sunday-ministry/sunday" element={<Sunday />} />
               <Route path="department/sunday-ministry/sunday-report" element={<SundayReport />} />
               <Route path="department/sunday-ministry/sunday-program" element={<SundayProgram />} />
-              <Route path="department/sunday-ministry/crew" element={<SundayCrew />} />
+              <Route path="department/sunday-ministry/assign" element={<SundayCrew />} />
               <Route path="department/sunday-ministry/reports" element={<SundayReportsHistory />} />
               <Route path="department/cell/cell-report" element={<Navigate to="/department/cell?tab=reports" replace />} />
               <Route path="department/cell/cell-history" element={<Navigate to="/department/cell?tab=reports" replace />} />

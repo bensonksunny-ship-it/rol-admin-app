@@ -31,16 +31,17 @@ const WIDE_LAYOUT_ROUTES = ['/worklist']
 
 // Same idea as WIDE_LAYOUT_ROUTES, but for a single tab of a hub page rather than
 // a whole route (the tab lives in the ?tab= query string, so pathname alone can't
-// key it) — currently Media's "The Team" master table, D-Light's Team sub-tab
-// (nested under Operations as ?opsSub=team, hence the extra `opsSub` match), and
-// River Kids' Register tab (sub-category tabs, join-status toggles and Add Kid
-// form were cramped into the default 5xl column) — all of which need more than
-// 5xl to breathe. { pathname, tab } must match, and `opsSub` too when set —
-// `opsSubIsDefault` additionally matches the no-`opsSub`-param case, since
-// DepartmentHub.jsx itself falls back to 'team' when that param is absent.
+// key it) — currently Media's and D-Light's "Team" master table (both top-level
+// tabs — D-Light's Operations wrapper was removed, Team promoted directly into
+// the main tab bar), and River Kids' Register tab (sub-category tabs, join-status
+// toggles and Add Kid form were cramped into the default 5xl column) — all of
+// which need more than 5xl to breathe. { pathname, tab } must match; `tabIsDefault`
+// additionally matches the no-`?tab=`-param case (a bare `/department/d-light`
+// link, as the department dock/list itself uses), since DepartmentHub.jsx falls
+// back to that tab when the param is absent.
 const WIDE_LAYOUT_TABS = [
   { pathname: '/department/media', tab: 'team' },
-  { pathname: '/department/d-light', tab: 'operations', opsSub: 'team', opsSubIsDefault: true },
+  { pathname: '/department/d-light', tab: 'team', tabIsDefault: true },
   { pathname: '/department/river-kids', tab: 'register' },
 ]
 
@@ -52,13 +53,11 @@ export default function MainLayout() {
   } = useActionNotifications(userProfile, isFounder, user?.uid)
   const searchParams = new URLSearchParams(search)
   const activeTab = searchParams.get('tab')
-  const activeOpsSub = searchParams.get('opsSub')
   const isWide = WIDE_LAYOUT_ROUTES.includes(pathname)
   const isWideTab = WIDE_LAYOUT_TABS.some((w) => {
-    if (w.pathname !== pathname || w.tab !== activeTab) return false
-    if (w.opsSub === undefined) return true
-    if (activeOpsSub) return activeOpsSub === w.opsSub
-    return !!w.opsSubIsDefault
+    if (w.pathname !== pathname) return false
+    if (activeTab) return activeTab === w.tab
+    return !!w.tabIsDefault
   })
   const isAccountsFullWidth = pathname.startsWith('/department/accounts')
 

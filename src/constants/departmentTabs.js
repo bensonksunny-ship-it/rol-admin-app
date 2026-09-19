@@ -18,7 +18,10 @@ export function getDepartmentHubTabs(slug) {
       // pointing at an empty Operations page.
       return ['summary', 'assign', 'team', 'upcomingSunday', 'finance']
     case 'd-light':
-      return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'archives', 'finance', 'operations']
+      // No Operations tab (2026-09) — its only remaining child, Team, is now a
+      // top-level tab of its own (same move Media made earlier), and is also the
+      // default landing tab (see DepartmentHub.jsx's tab-selection effect).
+      return ['summary', 'upcomingSunday', 'visitorEntry', 'assign', 'team', 'archives', 'finance']
     case 'event-m':
       return ['summary', 'events', 'liveControl', 'finance', 'operations']
     case 'river-kids':

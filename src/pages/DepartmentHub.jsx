@@ -2,7 +2,7 @@ import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNav
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react'
+import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
@@ -585,6 +585,16 @@ export default function DepartmentHub() {
   const fullAccess = userProfile?.globalRole === 'FOUNDER' || userProfile?.role === ROLES.FOUNDER
   const canViewAllCells = fullAccess || isCellDirector
 
+  // Must be defined BEFORE any effects that reference it (avoid TDZ crashes) — see
+  // canViewAllCells above for the same pattern. Optional chaining on department:
+  // this now runs before the "department not found" guard further down, so
+  // department can still be undefined here for an invalid slug.
+  const canEditDelightVisitors =
+    department?.name === 'D Light' &&
+    (userProfile?.role === ROLES.ADMIN ||
+      userProfile?.role === ROLES.MINISTRY_LEADER ||
+      isDepartmentHead('D Light'))
+
   const [tasks, setTasks] = useState([])
   const [entries, setEntries] = useState([])
   const [planningNotes, setPlanningNotes] = useState('')
@@ -718,6 +728,10 @@ export default function DepartmentHub() {
   // slug's Team tab (D-Light's spacious table and Media's "The Team" table both read
   // this). false = active roster (default); true = the isolated former-members view.
   const [teamShowFormerMembers, setTeamShowFormerMembers] = useState(false)
+  // Roster filter by serving area (e.g. "Offering 2 - Right side") — '' = no filter.
+  // Options are every distinct servingArea value on this slug's sub-department list
+  // (subDeptOptionList), so it stays in sync with whatever's actually configured.
+  const [teamServingAreaFilter, setTeamServingAreaFilter] = useState('')
   // Inline "Set departure date" prompt for a former member whose tenure end date
   // can't be determined any other way (see getMemberTenureEnd) — id of the row
   // currently showing the prompt, plus its draft date value.
@@ -1097,9 +1111,6 @@ export default function DepartmentHub() {
     onlyVisit: false,
   })
   const [dlightSubDepts, setDlightSubDepts] = useState([])
-  const [loadingDlightSubDepts, setLoadingDlightSubDepts] = useState(false)
-  const [dlightSubDeptModalOpen, setDlightSubDeptModalOpen] = useState(false)
-  const [dlightSubDeptForm, setDlightSubDeptForm] = useState({ name: '', servingArea: '' })
   // D Light – Assign tab (persisted assignments). Each duty maps to an ARRAY of
   // team member ids — a duty can have multiple assignees, not just one.
   const [delightAssignments, setDelightAssignments] = useState(() => blankDlightAssignments())
@@ -1189,6 +1200,10 @@ export default function DepartmentHub() {
   const [editingSubDept, setEditingSubDept] = useState(null)
   const [genericSubDeptModalOpen, setGenericSubDeptModalOpen] = useState(false)
   const [subDeptActionsMenuId, setSubDeptActionsMenuId] = useState(null)
+  // Which category the River Kids Sub Department tab's left nav pane has selected —
+  // only that one category's items render on the right, instead of every category
+  // (plus an "Other" bucket) all stacked on screen at once.
+  const [rkSubDeptCategoryTab, setRkSubDeptCategoryTab] = useState('sunday-school')
   // Media's "The Team" tab hosts sub-department management inline (collapsible).
   const [mediaSubDeptPanelOpen, setMediaSubDeptPanelOpen] = useState(true)
   const [dlightTeamSubOpts, setDlightTeamSubOpts] = useState([])
@@ -1213,6 +1228,12 @@ export default function DepartmentHub() {
   const [rkSavingEdit, setRkSavingEdit] = useState(false)
   const [rkExpandedChildIds, setRkExpandedChildIds] = useState(() => new Set())
   const [rkActionsMenuId, setRkActionsMenuId] = useState(null)
+  // Fixed-viewport coords for the portaled Edit/Delete menu below, computed from the
+  // ⋮ button's own rect at click time (same pattern as activeMenuMemberPos) — a
+  // portal isn't a DOM descendant of the accordion card, so it can't be clipped by
+  // the card's own `overflow-hidden` or the framer-motion height-animation wrapper's,
+  // the way an absolutely-positioned child dropdown was.
+  const [rkActionsMenuPos, setRkActionsMenuPos] = useState(null)
   const [rkSyncing, setRkSyncing] = useState(false)
   const [rkSyncMsg, setRkSyncMsg] = useState('')
   // Full people + D-Light visitor records (name -> join date), kept separately from rkAllUsers
@@ -1298,6 +1319,19 @@ export default function DepartmentHub() {
       // link/bookmark to ?tab=operations lands on Assign instead of falling all the
       // way back to the Hub like a truly unrecognized tab would.
       setActiveTab('assign')
+    } else if (slug === 'd-light' && (tabFromUrl === 'operations' || !tabFromUrl)) {
+      // Operations was removed from D-Light the same way — Team (its only
+      // remaining child) is now the default landing tab: a stale ?tab=operations
+      // link, and a bare `/department/d-light` (no ?tab= at all, how the
+      // department dock/list itself links in) both land there instead of Summary.
+      // A stale ?opsSub=subDepartment on that old link goes one step further and
+      // opens the Team tab's own Sub-Department modal directly, same as before.
+      if (searchParams.get('opsSub') === 'subDepartment') {
+        setTeamSubDeptEditingId(null)
+        setTeamSubDeptNewDraft({ name: '', servingArea: '' })
+        setTeamSubDeptModalOpen(true)
+      }
+      setActiveTab('team')
     } else {
       setActiveTab('summary')
     }
@@ -1307,12 +1341,15 @@ export default function DepartmentHub() {
   // SundayOperationsToggle, etc.) the user clicked; it's now a nested grid inside the
   // dock's folder modal (DepartmentFolderModal), so the same choice comes in via
   // ?opsSub= instead. Falls back to 'team' whenever the tab isn't Operations or the
-  // param is missing/stale.
+  // param is missing/stale. D-Light no longer has an Operations tab at all (see the
+  // tab-selection effect above, which redirects any ?tab=operations straight to the
+  // top-level Team tab instead), so activeTab can never actually be 'operations' for
+  // that slug any more — this effect is exclusively the other departments' now.
   const opsSubFromUrl = searchParams.get('opsSub')
   useEffect(() => {
     if (activeTab !== 'operations') return
     setOpsSubTab(opsSubFromUrl || 'team')
-  }, [activeTab, opsSubFromUrl, slug])
+  }, [activeTab, opsSubFromUrl])
 
   // Same idea, for Finance's Expense/Budget/Payout Request children (moved out of
   // Operations into their own tab) — driven by ?financeSub= instead.
@@ -1466,9 +1503,29 @@ export default function DepartmentHub() {
     if (!wantsSubOrTeam) return
     setSubDeptLoading(true)
     getDepartmentSubDepartments(department.name)
-      .then((list) => {
-        setSubDepartments(list)
+      .then(async (list) => {
         setSubDeptError('')
+        // River Kids' Sub Department tab dropped its "Other" catch-all bucket entirely
+        // — these are the flat rows seeded before the `category` field existed
+        // (literally named "Sunday School"/"River Kids-1"/"River Kids-2", duplicating
+        // the category headers themselves), now unreachable in that UI. Best-effort
+        // one-time cleanup via whichever admin session next loads this tab, using the
+        // same deleteDepartmentSubDepartment call the row-level Delete action already
+        // uses — a viewer without delete permission just leaves them (harmless, since
+        // there's no view left that would ever show them).
+        if (slug === 'river-kids') {
+          const knownKeys = new Set(RK_CLASS_GROUPS.map((c) => c.key))
+          const stray = list.filter((sd) => !knownKeys.has(sd.category))
+          if (stray.length) {
+            const deletedIds = new Set()
+            await Promise.all(stray.map((sd) =>
+              deleteDepartmentSubDepartment(sd.id).then(() => deletedIds.add(sd.id)).catch(() => {})
+            ))
+            setSubDepartments(list.filter((sd) => !deletedIds.has(sd.id)))
+            return
+          }
+        }
+        setSubDepartments(list)
       })
       .catch(() => {
         setSubDepartments([])
@@ -1721,9 +1778,10 @@ export default function DepartmentHub() {
 
   useEffect(() => {
     const wantsPlanning = activeTab === 'planning' ||
-      // Media has no Operations tab (Planning was removed as its only child), so it's
-      // deliberately absent here — activeTab never reaches 'operations' for it.
-      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring' || slug === 'd-light') && activeTab === 'operations' && opsSubTab === 'planning')
+      // Media and D-Light have no Planning child in Operations (removed as
+      // redundant/unused), so both are deliberately absent here — opsSubTab
+      // never reaches 'planning' for either via normal navigation.
+      ((slug === 'cell' || slug === 'sunday-ministry' || slug === 'river-kids' || slug === 'administration' || slug === 'accounts' || slug === 'caring') && activeTab === 'operations' && opsSubTab === 'planning')
     if (!department || !wantsPlanning) return
     setLoadingDepartmentUpdates(true)
     getDepartmentUpdates(department.name)
@@ -2073,19 +2131,15 @@ export default function DepartmentHub() {
       .finally(() => setLoadingDlightArchives(false))
   }, [slug, activeTab])
 
+  // Feeds DLightDirectorDashboard's subDepartments prop on the Summary tab — the
+  // standalone Sub Dept page this used to also load for is gone (see the opsSub
+  // effect + Team tab's own modal above), so Summary is the only trigger left.
   useEffect(() => {
-    const wantsDlightSubDept = slug === 'd-light' && (
-      activeTab === 'subDepartment' ||
-      (activeTab === 'operations' && opsSubTab === 'subDepartment') ||
-      (activeTab === 'summary' && canEditDelightVisitors)
-    )
-    if (!wantsDlightSubDept) return
-    setLoadingDlightSubDepts(true)
+    if (slug !== 'd-light' || activeTab !== 'summary' || !canEditDelightVisitors) return
     getDlightSubDepartments()
       .then(setDlightSubDepts)
       .catch(() => setDlightSubDepts([]))
-      .finally(() => setLoadingDlightSubDepts(false))
-  }, [slug, activeTab, opsSubTab])
+  }, [slug, activeTab, canEditDelightVisitors])
 
   useEffect(() => {
     if (slug === 'caring' && activeTab === 'members') {
@@ -2325,8 +2379,8 @@ export default function DepartmentHub() {
   const canEditRkAttendance = canEdit || canManageDepartment('Sunday Ministry')
 
   // One nested sub-department row (River Kids' categorized Sub Department tab) —
-  // shared by every category card and the "Other" bucket below so the three-dot
-  // Edit/Delete menu isn't quadruplicated across each section.
+  // shared by the right detail pane for whichever category is selected, so the
+  // three-dot Edit/Delete menu isn't duplicated per category.
   const renderSubDeptRow = (row) => (
     <div key={row.id} className="relative flex items-center justify-between gap-2 pl-3 pr-1 py-2 rounded-lg hover:bg-slate-50 transition-colors">
       <p className="text-sm font-medium text-slate-700 truncate">{row.name || '—'}</p>
@@ -2472,6 +2526,19 @@ export default function DepartmentHub() {
     () => (slug === 'd-light' ? dlightTeamSubOpts : subDepartments),
     [slug, dlightTeamSubOpts, subDepartments]
   )
+  // Name → serving area, for the roster table's dual sub-department/serving-area
+  // display (a team member only stores the sub-department NAME string, not its id,
+  // so this is how the table recovers "which serving area" to show alongside it).
+  const subDeptServingAreaByName = useMemo(
+    () => new Map(subDeptOptionList.filter((sd) => sd.servingArea).map((sd) => [sd.name, sd.servingArea])),
+    [subDeptOptionList]
+  )
+  // Every distinct serving area configured for this slug's sub-departments, for the
+  // roster's "filter by serving area" control.
+  const teamServingAreaOptions = useMemo(
+    () => Array.from(new Set(subDeptOptionList.map((sd) => sd.servingArea).filter(Boolean))).sort(),
+    [subDeptOptionList]
+  )
 
   if (!department) {
     return (
@@ -2526,12 +2593,6 @@ export default function DepartmentHub() {
       </div>
     )
   }
-
-  const canEditDelightVisitors =
-    department.name === 'D Light' &&
-    (userProfile?.role === ROLES.ADMIN ||
-      userProfile?.role === ROLES.MINISTRY_LEADER ||
-      isDepartmentHead('D Light'))
 
   const getVisitorYear = (v) => {
     if (v.year) return v.year
@@ -6146,71 +6207,81 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {/* River Kids: Sunday School / River Kids-1 / River Kids-2 are fixed category
-              cards (not stored rows) — each groups its own nested sub-department entries,
-              which is what actually carries the `category` field. */}
-          {slug === 'river-kids' && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
-            <div className="space-y-4">
-              {subDeptLoading ? (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-5 text-center text-slate-500">Loading…</div>
-              ) : (
-                <>
-                  {RK_CLASS_GROUPS.map((cat) => {
-                    const items = subDepartments.filter((sd) => sd.category === cat.key)
-                    return (
-                      <div key={cat.key} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-sm font-bold">
-                            {cat.label}
-                            <span className="text-[10px] font-semibold text-indigo-400">{items.length}</span>
-                          </span>
-                          {canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingSubDept(null)
-                                setSubDeptForm({ name: '', servingArea: '', category: cat.key })
-                                setGenericSubDeptModalOpen(true)
-                              }}
-                              className="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-600 text-xs font-semibold hover:bg-indigo-50 active:bg-indigo-100 transition-colors"
-                            >
-                              + Add Sub-Department
-                            </button>
-                          )}
-                        </div>
-                        {items.length === 0 ? (
-                          <p className="text-sm text-slate-400 pl-1">No sub-departments yet.</p>
-                        ) : (
-                          <div className="space-y-1 pl-3 border-l-2 border-slate-100">
-                            {items.map(renderSubDeptRow)}
-                          </div>
+          {/* River Kids Sub Department tab: two-pane split view — a left nav of the fixed
+              categories (Sunday School / River Kids-1 / River Kids-2, plus a catch-all
+              "Other" for anything without a recognized category) and a right pane showing
+              only the selected category's nested sub-departments. Replaces the earlier
+              design of stacking all three category cards (plus a 4th "Other" card)
+              on screen simultaneously, which duplicated the same three names as both
+              section headers and — for the flat rows seeded before the `category` field
+              existed — as items listed again under "Other". "Other" itself was later
+              dropped entirely (see the sub-department load effect, which now deletes
+              those legacy uncategorized rows instead of just hiding them). */}
+          {slug === 'river-kids' && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (() => {
+            const rkSubDeptCategories = RK_CLASS_GROUPS
+            const itemsForCategory = (key) => subDepartments.filter((sd) => sd.category === key)
+            const activeCategory = rkSubDeptCategories.find((c) => c.key === rkSubDeptCategoryTab) || rkSubDeptCategories[0]
+            const activeItems = itemsForCategory(activeCategory.key)
+            return (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                {subDeptLoading ? (
+                  <div className="px-5 py-5 text-center text-slate-500">Loading…</div>
+                ) : (
+                  <div className="flex flex-col md:flex-row">
+                    {/* Left nav pane */}
+                    <div className="md:w-56 shrink-0 border-b md:border-b-0 md:border-r border-slate-100 bg-slate-50/60 p-2 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
+                      {rkSubDeptCategories.map((cat) => {
+                        const count = itemsForCategory(cat.key).length
+                        const isActive = activeCategory.key === cat.key
+                        return (
+                          <button
+                            key={cat.key}
+                            type="button"
+                            onClick={() => setRkSubDeptCategoryTab(cat.key)}
+                            className={`shrink-0 md:shrink-0 flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left transition-colors ${
+                              isActive ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-800'
+                            }`}
+                          >
+                            <span>{cat.label}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${isActive ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                              {count}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {/* Right detail pane — exclusively the selected category's items */}
+                    <div className="flex-1 p-5 min-w-0">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <span className="text-sm font-bold text-slate-800">{activeCategory.label}</span>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingSubDept(null)
+                              setSubDeptForm({ name: '', servingArea: '', category: activeCategory.key })
+                              setGenericSubDeptModalOpen(true)
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
+                          >
+                            + Add Sub-Department
+                          </button>
                         )}
                       </div>
-                    )
-                  })}
-                  {/* Anything predating the category field (or left uncategorized) still
-                      shows up here instead of silently disappearing from the list. */}
-                  {(() => {
-                    const knownKeys = new Set(RK_CLASS_GROUPS.map((c) => c.key))
-                    const other = subDepartments.filter((sd) => !knownKeys.has(sd.category))
-                    if (!other.length) return null
-                    return (
-                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-sm font-bold mb-4">
-                          Other
-                          <span className="text-[10px] font-semibold text-slate-400">{other.length}</span>
-                        </span>
+                      {activeItems.length === 0 ? (
+                        <p className="text-sm text-slate-400">No sub-departments yet.</p>
+                      ) : (
                         <div className="space-y-1 pl-3 border-l-2 border-slate-100">
-                          {other.map(renderSubDeptRow)}
+                          {activeItems.map(renderSubDeptRow)}
                         </div>
-                      </div>
-                    )
-                  })()}
-                </>
-              )}
-              {subDeptError && <p className="text-sm text-red-600">{subDeptError}</p>}
-            </div>
-          )}
+                      )}
+                    </div>
+                  </div>
+                )}
+                {subDeptError && <p className="px-5 py-2 text-sm text-red-600">{subDeptError}</p>}
+              </div>
+            )
+          })()}
 
           {genericSubDeptModalOpen && canEdit && (
             <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
@@ -6313,144 +6384,12 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {slug === 'd-light' && (activeTab === 'subDepartment' || (activeTab === 'operations' && opsSubTab === 'subDepartment')) && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center">
-                <h2 className="font-semibold text-slate-800">Sub Department</h2>
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDlightSubDeptForm({ name: '', servingArea: '' })
-                      setDlightSubDeptModalOpen(true)
-                    }}
-                    className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors"
-                  >
-                    Add Sub Department
-                  </button>
-                )}
-              </div>
-              {loadingDlightSubDepts ? (
-                <div className="px-5 py-5 text-center text-slate-500">Loading…</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
-                        <th className="text-left px-4 py-3 font-medium text-slate-600">Serving Area</th>
-                        {canEdit && <th className="text-left px-4 py-3 font-medium text-slate-600 w-24">Actions</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {dlightSubDepts.map((row) => (
-                        <tr key={row.id}>
-                          <td className="px-4 py-3 text-slate-800 font-medium">{row.name || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{row.servingArea || '—'}</td>
-                          {canEdit && (
-                            <td className="px-4 py-3">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!window.confirm('Delete this sub department?')) return
-                                  try {
-                                    await deleteDlightSubDepartment(row.id)
-                                    setDlightSubDepts((prev) => prev.filter((x) => x.id !== row.id))
-                                  } catch (err) {
-                                    console.error(err)
-                                    alert('Failed to delete')
-                                  }
-                                }}
-                                className="text-red-600 hover:underline text-sm"
-                              >
-                                Delete
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                      {dlightSubDepts.length === 0 && (
-                        <tr>
-                          <td colSpan={canEdit ? 3 : 2} className="px-4 py-8 text-center text-slate-500">
-                            No sub departments yet.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {dlightSubDeptModalOpen && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full">
-                <div className="p-5 border-b border-slate-200 dark:border-slate-800">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Add Sub Department</h3>
-                </div>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault()
-                    if (!canEdit) return
-                    const name = (dlightSubDeptForm.name || '').trim()
-                    if (!name) {
-                      alert('Name is required')
-                      return
-                    }
-                    try {
-                      const id = await addDlightSubDepartment(
-                        { name, servingArea: (dlightSubDeptForm.servingArea || '').trim() },
-                        userProfile?.email || userProfile?.displayName || 'unknown'
-                      )
-                      setDlightSubDepts((prev) => [
-                        { id, name, servingArea: (dlightSubDeptForm.servingArea || '').trim(), createdAt: new Date() },
-                        ...prev,
-                      ])
-                      setDlightSubDeptModalOpen(false)
-                      setDlightSubDeptForm({ name: '', servingArea: '' })
-                    } catch (err) {
-                      console.error(err)
-                      alert('Failed to save')
-                    }
-                  }}
-                  className="p-5 space-y-4"
-                >
-                  <div>
-                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Name *</label>
-                    <input
-                      type="text"
-                      value={dlightSubDeptForm.name}
-                      onChange={(e) => setDlightSubDeptForm((f) => ({ ...f, name: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Serving Area</label>
-                    <input
-                      type="text"
-                      value={dlightSubDeptForm.servingArea}
-                      onChange={(e) => setDlightSubDeptForm((f) => ({ ...f, servingArea: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                    />
-                  </div>
-                  <div className="flex gap-2 pt-2">
-                    <button type="submit" className="px-4 min-h-[44px] py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium shadow-sm transition-colors">
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDlightSubDeptModalOpen(false)}
-                      className="px-4 min-h-[44px] py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
+          {/* The standalone D-Light "Sub Department" page (and its own Add modal) that
+              used to render here was removed 2026-09 — sub-department management now
+              lives solely in the Team tab's "+ Add Sub Department" modal below, which
+              already covers create/edit/delete against this same dlightTeamSubOpts /
+              getDlightSubDepartments() data. See the opsSub effect above for the
+              redirect that replaces this page for any stale ?opsSub=subDepartment link. */}
 
           {activeTab === 'pcs' && slug === 'caring' && (() => {
             const pcsYears = [...new Set(pcsEntries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a)
@@ -8730,10 +8669,10 @@ export default function DepartmentHub() {
                   }
                 }
                 return (
-                  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setTeamSubDeptModalOpen(false)}>
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                      <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-                        <h3 className="font-semibold text-slate-800">Sub-Departments</h3>
+                  <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setTeamSubDeptModalOpen(false)}>
+                    <div className="rol-solid bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                      <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
+                        <h3 className="font-semibold text-slate-900 dark:text-white">Sub-Departments</h3>
                         <button
                           type="button"
                           onClick={() => setTeamSubDeptModalOpen(false)}
@@ -8741,9 +8680,9 @@ export default function DepartmentHub() {
                           aria-label="Close"
                         >×</button>
                       </div>
-                      <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+                      <div className="flex-1 min-h-0 max-h-[60vh] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                         {rows.length === 0 && (
-                          <p className="px-5 py-6 text-center text-sm text-slate-400">No sub-departments yet — add one below.</p>
+                          <p className="px-5 py-6 text-center text-sm text-slate-500">No sub-departments yet — add one below.</p>
                         )}
                         {rows.map((row) => (
                           <div key={row.id} className="px-5 py-3">
@@ -8754,14 +8693,14 @@ export default function DepartmentHub() {
                                   value={teamSubDeptEditDraft.name}
                                   onChange={(e) => setTeamSubDeptEditDraft((f) => ({ ...f, name: e.target.value }))}
                                   placeholder="Name"
-                                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                                 />
                                 <input
                                   type="text"
                                   value={teamSubDeptEditDraft.servingArea}
                                   onChange={(e) => setTeamSubDeptEditDraft((f) => ({ ...f, servingArea: e.target.value }))}
                                   placeholder="Serving area (optional)"
-                                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                                 />
                                 <div className="flex gap-2">
                                   <button type="button" disabled={teamSubDeptSaving} onClick={saveEdit} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-60">
@@ -8774,9 +8713,9 @@ export default function DepartmentHub() {
                               </div>
                             ) : (
                               <div className="flex items-center justify-between gap-3">
-                                <span className="text-sm font-medium text-slate-800 truncate">
+                                <span className="text-sm font-medium text-slate-900 dark:text-white truncate">
                                   {row.name || '—'}
-                                  {row.servingArea && <span className="ml-1.5 text-xs font-normal text-slate-400">· {row.servingArea}</span>}
+                                  {row.servingArea && <span className="ml-1.5 text-xs font-normal text-slate-500">· {row.servingArea}</span>}
                                 </span>
                                 <span className="flex items-center gap-3 flex-shrink-0">
                                   <button type="button" onClick={() => startEdit(row)} className="text-indigo-600 hover:underline text-xs font-medium">Edit</button>
@@ -8787,20 +8726,20 @@ export default function DepartmentHub() {
                           </div>
                         ))}
                       </div>
-                      <div className="px-5 py-4 border-t border-slate-200 bg-slate-50/60 space-y-2">
+                      <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 space-y-2 flex-shrink-0">
                         <input
                           type="text"
                           value={teamSubDeptNewDraft.name}
                           onChange={(e) => setTeamSubDeptNewDraft((f) => ({ ...f, name: e.target.value }))}
                           placeholder="New sub-department name"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          className="rol-solid w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                         />
                         <input
                           type="text"
                           value={teamSubDeptNewDraft.servingArea}
                           onChange={(e) => setTeamSubDeptNewDraft((f) => ({ ...f, servingArea: e.target.value }))}
                           placeholder="Serving area (optional)"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          className="rol-solid w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                         />
                         <button
                           type="button"
@@ -8917,6 +8856,14 @@ export default function DepartmentHub() {
                   })
                 const formerTeamMembers = team.filter(isFormerMember)
                 const rosterTeam = teamShowFormerMembers ? formerTeamMembers : activeTeamMembers
+                // Serving-area filter — a member matches if any of their sub-department
+                // names resolves (via subDeptServingAreaByName) to the selected area.
+                const memberSubDeptNames = (m) => Array.isArray(m.subDepartments) && m.subDepartments.length
+                  ? m.subDepartments
+                  : (m.subDepartment ? [m.subDepartment] : [])
+                const filteredRosterTeam = teamServingAreaFilter
+                  ? rosterTeam.filter((m) => memberSubDeptNames(m).some((n) => subDeptServingAreaByName.get(n) === teamServingAreaFilter))
+                  : rosterTeam
                 // Row treatment for the pinned director: indigo tint plus a left accent
                 // bar, kept through hover so it doesn't wash out to the usual slate.
                 // Every other row carries a transparent bar of the same width so the
@@ -8957,71 +8904,122 @@ export default function DepartmentHub() {
                   </div>
                 )}
 
+                {/* Serving-area filter — narrows the roster to members whose
+                    sub-department resolves to this specific serving area (e.g. two
+                    "Offering" sub-depts with different serving areas both show up in
+                    the pills above, but only one group matches here at a time). */}
+                {teamServingAreaOptions.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Serving Area</span>
+                    <select
+                      value={teamServingAreaFilter}
+                      onChange={(e) => setTeamServingAreaFilter(e.target.value)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    >
+                      <option value="">All Serving Areas</option>
+                      {teamServingAreaOptions.map((area) => (
+                        <option key={area} value={area}>{area}</option>
+                      ))}
+                    </select>
+                    {teamServingAreaFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setTeamServingAreaFilter('')}
+                        className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                )}
+
               {loadingTeam ? (
                 <div className="py-4 text-sm text-slate-500">Loading team...</div>
-              ) : rosterTeam.length === 0 ? (
+              ) : filteredRosterTeam.length === 0 ? (
                 <div className="py-4 text-sm text-slate-500">
-                  {teamShowFormerMembers ? 'No former members.' : 'No active members yet.'}
+                  {teamServingAreaFilter
+                    ? 'No members match this serving area.'
+                    : (teamShowFormerMembers ? 'No former members.' : 'No active members yet.')}
                 </div>
               ) : slug === 'd-light' ? (
                 // Spacious master-list table — same overall shape as the shared table
                 // below (used by Media/other slugs), but with the generous row padding
                 // and typography this roster's own spec calls for, rather than being
                 // forced to match Media's tighter table density.
+                //
+                // table-fixed + single-line truncation on every cell keeps every row a
+                // uniform height regardless of name length or how many sub-departments
+                // someone has — a member with 3+ sub-departments used to stretch their
+                // row across multiple lines, throwing off alignment with every other
+                // row. Only the first sub-department shows now, plus a "+N more" badge;
+                // the full untruncated list lives in the Member Details drawer (click
+                // anywhere on the row to open it).
                 <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="min-w-full">
+                  <table className="min-w-full table-fixed">
                     <thead className="bg-slate-50">
                       <tr>
                         <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-16">S. No.</th>
-                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-1/3">Name</th>
-                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-1/3">Sub-Department</th>
-                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-1/4">Member Since</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-[32%]">Name</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-[30%]">Sub-Department</th>
+                        <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-[22%]">Member Since</th>
                         {canEdit && (
-                          <th className="text-right py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-12" aria-label="Actions" />
+                          <th className="text-right py-4 px-6 text-xs font-semibold uppercase tracking-wider text-slate-400 w-14" aria-label="Actions" />
                         )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {rosterTeam.map((m, idx) => {
+                      {filteredRosterTeam.map((m, idx) => {
                         const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
                           ? m.subDepartments
                           : (m.subDepartment ? [m.subDepartment] : [])
                         const menuOpen = teamActionMenuId === m.id
+                        const firstSubDept = subDepts[0]
+                        const firstSubDeptArea = firstSubDept ? subDeptServingAreaByName.get(firstSubDept) : null
                         return (
-                          <tr key={m.id} className={`border-b border-slate-100 transition-colors ${rosterRowCls(m, 'hover:bg-slate-50/70')}`}>
-                            <td className="py-4 px-6 text-sm text-slate-500">{idx + 1}</td>
-                            <td className="py-4 px-6">
-                              <div className="flex items-center gap-3">
+                          <tr
+                            key={m.id}
+                            className={`h-16 border-b border-slate-100 transition-colors cursor-pointer ${rosterRowCls(m, 'hover:bg-slate-50/70')}`}
+                            onClick={() => openMemberDetail(m, null, { dlightTeam: true })}
+                          >
+                            <td className="py-4 px-6 text-sm text-slate-500 align-middle">{idx + 1}</td>
+                            <td className="py-4 px-6 align-middle overflow-hidden">
+                              <div className="flex items-center gap-2 flex-nowrap">
                                 <div className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${m.isDirector && !teamShowFormerMembers ? 'bg-indigo-600 text-white' : teamShowFormerMembers ? 'bg-slate-200 text-slate-500' : 'bg-indigo-100 text-indigo-700'}`}>
                                   {(m.name || '?').charAt(0).toUpperCase()}
                                 </div>
-                                <span className="text-base font-semibold text-slate-800">{m.name}</span>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${m.memberType === 'guest' ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
+                                <span className="text-base font-semibold text-slate-800 truncate max-w-[180px]">{m.name}</span>
+                                <span className={`flex-shrink-0 whitespace-nowrap inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${m.memberType === 'guest' ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
                                   {m.memberType === 'guest' ? 'Guest Volunteer' : 'Core'}
                                 </span>
                                 {m.isDirector && !teamShowFormerMembers && (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
+                                  <span className="flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
                                     ⭐ Director
                                   </span>
                                 )}
                               </div>
                             </td>
-                            <td className="py-4 px-6">
+                            <td className="py-4 px-6 align-middle overflow-hidden">
                               {subDepts.length === 0 ? (
                                 <span className="text-sm font-medium text-slate-400">—</span>
                               ) : (
-                                <div className="flex flex-wrap gap-1.5">
-                                  {subDepts.map((s) => (
-                                    <span key={s} className={`text-sm font-medium px-3 py-1 rounded-full border ${teamShowFormerMembers ? 'bg-slate-100 text-slate-500 border-slate-200' : subDeptPillColor(s)}`}>{s}</span>
-                                  ))}
+                                <div className="flex items-center gap-1.5 flex-nowrap">
+                                  <div className={`inline-flex flex-col min-w-0 px-3 py-1 rounded-lg border leading-tight ${teamShowFormerMembers ? 'bg-slate-100 text-slate-500 border-slate-200' : subDeptPillColor(firstSubDept)}`}>
+                                    <span className="text-sm font-semibold truncate max-w-[140px]">{firstSubDept}</span>
+                                    {firstSubDeptArea && <span className="text-xs font-normal text-slate-500 truncate max-w-[140px]">{firstSubDeptArea}</span>}
+                                  </div>
+                                  {subDepts.length > 1 && (
+                                    <span className="flex-shrink-0 whitespace-nowrap text-xs font-semibold text-slate-500 bg-slate-100 rounded-full px-2 py-1">
+                                      +{subDepts.length - 1} more
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </td>
-                            <td className="py-4 px-6 text-sm text-slate-600">
+                            <td className="py-4 px-6 text-sm text-slate-600 align-middle overflow-hidden">
                               {renderMemberSinceCell(m)}
                             </td>
                             {canEdit && (
-                              <td className="py-4 px-6 text-sm text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <td className="py-4 px-6 text-sm text-right whitespace-nowrap align-middle" onClick={(e) => e.stopPropagation()}>
                                 <div className="relative inline-block text-left">
                                   <button
                                     type="button"
@@ -9091,6 +9089,11 @@ export default function DepartmentHub() {
                     // treatment (bigger container, roomier rows) than the compact table
                     // every other department's Team tab still uses.
                     const isMedia = slug === 'media'
+                    // Sub-Department column — Media originally, now also Sunday Ministry
+                    // and River Kids (see the matching picker in the Add/Edit Member
+                    // modal below), so an assigned sub-department shows as a tag next
+                    // to the member's name on these rosters too.
+                    const showSubDeptCol = slug === 'media' || slug === 'sunday-ministry' || slug === 'river-kids'
                     const thCls = isMedia
                       ? 'text-left py-4 px-5 text-sm font-semibold uppercase tracking-wider text-slate-500'
                       : 'text-left px-4 py-2 text-slate-600 font-medium'
@@ -9101,7 +9104,7 @@ export default function DepartmentHub() {
                       <tr>
                         <th className={`${thCls} w-10`}>SL</th>
                         <th className={`${thCls} ${isMedia ? 'w-1/4' : ''}`}>Name</th>
-                        {slug === 'media' && (
+                        {showSubDeptCol && (
                           <th className={`${thCls} w-2/5`}>Sub-Department</th>
                         )}
                         <th className={`${thCls} ${isMedia ? 'w-40' : ''}`}>Member since</th>
@@ -9111,7 +9114,7 @@ export default function DepartmentHub() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {rosterTeam.map((m, idx) => {
+                      {filteredRosterTeam.map((m, idx) => {
                         const durationDays = m.memberSince
                           ? differenceInDays(new Date(), new Date(m.memberSince))
                           : null
@@ -9151,14 +9154,20 @@ export default function DepartmentHub() {
                               )}
                             </div>
                           </td>
-                          {slug === 'media' && (
+                          {showSubDeptCol && (
                             <td className={tdCls}>
                               <div className="flex flex-wrap gap-1.5">
                                 {memberSubDepts.length === 0 ? (
                                   <span className="text-xs font-medium px-3 py-1 rounded-full bg-slate-100 text-slate-400">Unassigned</span>
-                                ) : memberSubDepts.map((sd) => (
-                                  <span key={sd} className={`text-xs font-medium px-3 py-1 rounded-full border ${teamShowFormerMembers ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-indigo-50 text-indigo-600 border-indigo-100'}`}>{sd}</span>
-                                ))}
+                                ) : memberSubDepts.map((sd) => {
+                                  const area = subDeptServingAreaByName.get(sd)
+                                  return (
+                                    <div key={sd} className={`inline-flex flex-col px-3 py-1 rounded-lg border leading-tight ${teamShowFormerMembers ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-indigo-50 text-indigo-600 border-indigo-100'}`}>
+                                      <span className="text-xs font-semibold">{sd}</span>
+                                      {area && <span className="text-[11px] font-normal text-slate-500">{area}</span>}
+                                    </div>
+                                  )
+                                })}
                               </div>
                             </td>
                           )}
@@ -9491,8 +9500,8 @@ export default function DepartmentHub() {
                       )}
                     </div>
 
-                    {/* Sub Department (D-Light + Media) */}
-                    {(slug === 'd-light' || slug === 'media') && (
+                    {/* Sub Department (D-Light, Media, Sunday Ministry, River Kids) */}
+                    {(slug === 'd-light' || slug === 'media' || slug === 'sunday-ministry' || slug === 'river-kids') && (
                       <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-2">
                           Sub Department
@@ -9501,7 +9510,9 @@ export default function DepartmentHub() {
                           <p className="text-xs text-slate-400 italic">
                             {slug === 'media'
                               ? 'No sub-departments yet — add them in the Sub-Departments panel above.'
-                              : 'No sub-departments yet — add them in Sub Dept tab.'}
+                              : slug === 'd-light'
+                              ? 'No sub-departments yet — use "+ Add Sub Department" on the Team tab.'
+                              : 'No sub-departments yet — add them from the Sub Department tab under Operations.'}
                           </p>
                         ) : (
                           <div className="flex flex-wrap gap-2">
@@ -9517,15 +9528,21 @@ export default function DepartmentHub() {
                                       : [...memberForm.subDepartments, sd.name]
                                     setMemberForm((f) => ({ ...f, subDepartments: next, subDepartment: next[0] || '' }))
                                   }}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
-                                  style={selected
-                                    ? { background: '#4f46e5', color: '#fff', borderColor: '#4f46e5' }
-                                    : { background: '#f8fafc', color: '#64748b', borderColor: '#e2e8f0' }
-                                  }
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-left transition-all ${
+                                    selected ? 'bg-indigo-600 border-indigo-600' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                                  }`}
                                 >
-                                  {selected && <span style={{ fontSize: 10 }}>✓</span>}
-                                  {sd.name}
-                                  {sd.servingArea && <span style={{ opacity: 0.7, fontWeight: 400 }}>· {sd.servingArea}</span>}
+                                  {selected && <span className="text-[10px] text-white">✓</span>}
+                                  {/* Name and serving area get visually distinct weight/color —
+                                      the serving area reads as a lighter sub-label, never mistaken
+                                      for the sub-department name itself (see requirement's "Offering
+                                      1 - Left side" vs "Offering 2 - Right side" example). */}
+                                  <span className="flex flex-col leading-tight">
+                                    <span className={`text-xs font-semibold ${selected ? 'text-white' : 'text-slate-700'}`}>{sd.name}</span>
+                                    {sd.servingArea && (
+                                      <span className={`text-[11px] font-normal ${selected ? 'text-indigo-200' : 'text-slate-400'}`}>{sd.servingArea}</span>
+                                    )}
+                                  </span>
                                 </button>
                               )
                             })}
@@ -9800,11 +9817,16 @@ export default function DepartmentHub() {
                   {rkChildren.map((c) => {
                     const age = c.dob ? differenceInYears(new Date(), new Date(c.dob)) : null
                     const expanded = rkExpandedChildIds.has(c.id)
-                    const toggleExpanded = () => setRkExpandedChildIds(prev => {
-                      const next = new Set(prev)
-                      if (next.has(c.id)) next.delete(c.id); else next.add(c.id)
-                      return next
-                    })
+                    const toggleExpanded = () => {
+                      // Collapsing while this card's own actions menu is open would leave the
+                      // portaled menu floating detached from its (now-gone) trigger button.
+                      if (rkActionsMenuId === c.id) setRkActionsMenuId(null)
+                      setRkExpandedChildIds(prev => {
+                        const next = new Set(prev)
+                        if (next.has(c.id)) next.delete(c.id); else next.add(c.id)
+                        return next
+                      })
+                    }
                     return (
                       <div key={c.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div
@@ -9840,39 +9862,59 @@ export default function DepartmentHub() {
                                   <div className="absolute right-4 top-4">
                                     <button
                                       type="button"
-                                      onClick={(e) => { e.stopPropagation(); setRkActionsMenuId(id => id === c.id ? null : c.id) }}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (rkActionsMenuId === c.id) { setRkActionsMenuId(null); return }
+                                        const rect = e.currentTarget.getBoundingClientRect()
+                                        setRkActionsMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                                        setRkActionsMenuId(c.id)
+                                      }}
                                       className="w-9 h-9 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
                                       aria-label="Row actions"
                                     >
                                       ⋮
                                     </button>
-                                    {rkActionsMenuId === c.id && (
-                                      <div
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="absolute right-0 top-full mt-1 w-32 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden z-10"
-                                      >
-                                        <button
-                                          type="button"
-                                          onClick={() => { setRkActionsMenuId(null); setRkEditChild({ ...c }) }}
-                                          className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                    {/* Portaled to document.body with `fixed` coords instead of an
+                                        absolutely-positioned child — the accordion card and its
+                                        framer-motion height-animation wrapper both have
+                                        `overflow-hidden`, which was clipping Edit/Delete before they
+                                        could render (a portal isn't a descendant of either, so it
+                                        can't be clipped by them). The invisible full-screen overlay
+                                        underneath closes the menu on any outside click. */}
+                                    {rkActionsMenuId === c.id && rkActionsMenuPos && createPortal(
+                                      <>
+                                        <div className="fixed inset-0 z-[90]" onClick={(e) => { e.stopPropagation(); setRkActionsMenuId(null) }} />
+                                        <div
+                                          style={{ position: 'fixed', top: rkActionsMenuPos.top, right: rkActionsMenuPos.right }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="z-[100] w-36 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden"
                                         >
-                                          Edit
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={async () => {
-                                            setRkActionsMenuId(null)
-                                            if (!window.confirm(`Remove ${c.name} from the register?`)) return
-                                            try {
-                                              await deleteDepartmentChild(c.id)
-                                              setRkChildren(prev => prev.filter(x => x.id !== c.id))
-                                            } catch { alert('Failed to remove kid') }
-                                          }}
-                                          className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors"
-                                        >
-                                          Delete
-                                        </button>
-                                      </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => { setRkActionsMenuId(null); setRkEditChild({ ...c }) }}
+                                            className="w-full flex items-center gap-2 text-left px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                                          >
+                                            <Pencil size={14} className="text-slate-400 flex-shrink-0" />
+                                            Edit
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              setRkActionsMenuId(null)
+                                              if (!window.confirm(`Remove ${c.name} from the register?`)) return
+                                              try {
+                                                await deleteDepartmentChild(c.id)
+                                                setRkChildren(prev => prev.filter(x => x.id !== c.id))
+                                              } catch { alert('Failed to remove kid') }
+                                            }}
+                                            className="w-full flex items-center gap-2 text-left px-3 py-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors border-t border-slate-100"
+                                          >
+                                            <Trash2 size={14} className="text-red-400 flex-shrink-0" />
+                                            Delete
+                                          </button>
+                                        </div>
+                                      </>,
+                                      document.body
                                     )}
                                   </div>
                                 )}
@@ -12012,6 +12054,88 @@ export default function DepartmentHub() {
                         )
                       })()}
 
+                      {detailMemberContext?.dlightTeam && (() => {
+                        const subDepts = Array.isArray(detailMember.subDepartments) && detailMember.subDepartments.length
+                          ? detailMember.subDepartments
+                          : (detailMember.subDepartment ? [detailMember.subDepartment] : [])
+                        const isActive = (detailMember.status || 'active') === 'active'
+                        const { end } = getMemberTenureEnd(detailMember)
+                        const tenureText = detailMember.memberSince ? formatMemberDuration(detailMember.memberSince, end) : ''
+                        return (
+                          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                            <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                              <div className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0" />
+                              <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">D-Light Team</p>
+                            </div>
+                            <div className="px-3 py-3 space-y-3">
+                              <div className="flex flex-wrap gap-1.5">
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${detailMember.memberType === 'guest' ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
+                                  {detailMember.memberType === 'guest' ? 'Guest Volunteer' : 'Core'}
+                                </span>
+                                {detailMember.isDirector && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
+                                    ⭐ Director
+                                  </span>
+                                )}
+                              </div>
+
+                              <div>
+                                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">Sub-Departments</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {subDepts.length === 0
+                                    ? <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-400">None assigned</span>
+                                    : subDepts.map((sd) => {
+                                      const area = subDeptServingAreaByName.get(sd)
+                                      return (
+                                        <span key={sd} className={`inline-flex flex-col px-2.5 py-1 rounded-lg border leading-tight ${subDeptPillColor(sd)}`}>
+                                          <span className="text-[11px] font-semibold">{sd}</span>
+                                          {area && <span className="text-[10px] font-normal text-slate-500">{area}</span>}
+                                        </span>
+                                      )
+                                    })}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Member since</p>
+                                  <p className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">
+                                    {detailMember.memberSince ? formatDMY(detailMember.memberSince) : '—'}
+                                    {tenureText && <span className="font-normal text-slate-400"> · {tenureText}</span>}
+                                  </p>
+                                </div>
+                                {canEdit && (
+                                  <button
+                                    type="button"
+                                    disabled={detailStatusSaving}
+                                    onClick={async () => {
+                                      const next = isActive ? 'inactive' : 'active'
+                                      setDetailStatusSaving(true)
+                                      try {
+                                        await updateDepartmentTeamMember(detailMember.id, { status: next })
+                                        setTeam((prev) => prev.map((x) => (x.id === detailMember.id ? { ...x, status: next } : x)))
+                                        setDetailMember((d) => ({ ...d, status: next }))
+                                      } catch (err) {
+                                        console.error('Failed to update member status', err)
+                                        alert('Could not update status.')
+                                      } finally {
+                                        setDetailStatusSaving(false)
+                                      }
+                                    }}
+                                    className={`flex items-center gap-2 text-[11px] font-semibold ${detailStatusSaving ? 'opacity-50' : ''}`}
+                                  >
+                                    <span className={`w-9 h-5 rounded-full transition-colors flex-shrink-0 ${isActive ? 'bg-emerald-400' : 'bg-slate-300'}`}>
+                                      <span className="block w-4 h-4 bg-white rounded-full shadow mt-0.5 transition-transform" style={{ transform: isActive ? 'translateX(18px)' : 'translateX(2px)' }} />
+                                    </span>
+                                    <span className={isActive ? 'text-emerald-600' : 'text-slate-400'}>{isActive ? 'Active' : 'Inactive'}</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })()}
+
                       {detailMemberVisitor?.attendedDate && (
                         <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg px-3 py-2.5 flex items-center justify-between">
                           <div>
@@ -12114,7 +12238,7 @@ export default function DepartmentHub() {
                         </div>
                       )}
 
-                      {!detailMemberContext?.mediaTeam && !detailMemberVisitor && detailMemberMinistries.length === 0 && detailMemberCellAttendance.length === 0 && detailMemberSundayAttendance.length === 0 && (
+                      {!detailMemberContext?.mediaTeam && !detailMemberContext?.dlightTeam && !detailMemberVisitor && detailMemberMinistries.length === 0 && detailMemberCellAttendance.length === 0 && detailMemberSundayAttendance.length === 0 && (
                         <p className="text-sm text-slate-400 text-center py-6">No additional details on file.</p>
                       )}
                     </>

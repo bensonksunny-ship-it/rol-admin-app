@@ -240,6 +240,22 @@ body {
   box-shadow: 0 4px 20px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.9) !important;
 }
 
+/* ─── Opt out of the glass effect above ──────────────────────────────────── */
+/* A modal card (or an input inside one) floating over a dark backdrop reads as
+   washed-out with the 68%-opacity glass treatment — there's real content (the
+   dimmed page + backdrop) showing through it, not just a subtle page-background
+   tint. Add .rol-solid alongside bg-white + the rounded-* class to force a fully
+   opaque card back on for that one element; needs to out-specificity the rule
+   above (same !important tier), not just add a plain low-specificity class. */
+:root:not(.dark) .bg-white.rounded-xl.rol-solid,
+:root:not(.dark) .bg-white.rounded-2xl.rol-solid,
+:root:not(.dark) .bg-white.rounded-lg.rol-solid {
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: rgb(226 232 240) !important; /* slate-200 */
+}
+
 /* ─── Light mode: soften shadow-sm ───────────────────────────────────────── */
 :root:not(.dark) .shadow-sm {
   box-shadow: 0 2px 12px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.8) !important;

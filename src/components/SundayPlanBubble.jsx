@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CalendarCheck } from 'lucide-react'
 import { getSundayPlan, getSundayPreServiceEntry, getWorshipScheduleByDate, getDlightAssignmentsForDate, getMediaScheduleByDate } from '../services/firestore'
-import { DigitalBulletin, WorshipPlanSummary, DLitePlanSummary, MediaPlanSummary } from '../pages/SundayPlanning'
+import { DigitalBulletin, WorshipPlanSummary, DLitePlanSummary, MediaPlanSummary, SundayMinistryPlanSummary } from '../pages/SundayPlanning'
 import { formatDMY, nextSundayISO } from '../utils/date'
 
 const ROSTER_DEPARTMENTS = [
+  { key: 'sundayMinistry', label: 'Sunday Ministry' },
   { key: 'worship', label: 'Worship' },
   { key: 'dLite', label: 'D-Light' },
   { key: 'media', label: 'Media' },
@@ -41,7 +42,17 @@ function useSundayRosterStatus(dateISO, plan) {
   }, [dateISO])
 
   const riverKidsAssigned = !!(plan?.riverKids?.notes || '').trim()
-  const statusByKey = { ...live, riverKids: riverKidsAssigned }
+  // "Assigned" once either someone has typed notes for these sections, or Sunday
+  // Ministry has pushed the order of service to Live Control (SundayProgram.jsx's
+  // "Push to Live Control" button) — that push is itself Sunday Ministry's concrete
+  // action for the date, same signal as Worship/D-Light/Media saving assignments.
+  const sundayMinistryAssigned = !!(
+    (plan?.sundayMinistry?.notes || '').trim() ||
+    (plan?.sundayLeader?.notes || '').trim() ||
+    (plan?.announcements?.notes || '').trim() ||
+    plan?.sundayMinistry?.pushedToLiveControl
+  )
+  const statusByKey = { ...live, riverKids: riverKidsAssigned, sundayMinistry: sundayMinistryAssigned }
   const departments = ROSTER_DEPARTMENTS.map((d) => ({ ...d, assigned: !!statusByKey[d.key] }))
   const anyAssigned = departments.some((d) => d.assigned)
   return { loading: live.loading, departments, anyAssigned }
@@ -123,7 +134,7 @@ function SundayPlanPopover({ isDay, dateISO, loading, isPublished, roster, posSt
 // Read-only preview of what's been saved so far, shown when the plan hasn't been
 // formally published but at least one department already has real data — replaces
 // the dead-end "Not published yet" card for that in-between state.
-function LiveRosterPreview({ selectedDate, plan }) {
+function LiveRosterPreview({ selectedDate, plan, preServiceEntry }) {
   const riverKidsNotes = (plan?.riverKids?.notes || '').trim()
   return (
     <div className="space-y-2">
@@ -132,7 +143,13 @@ function LiveRosterPreview({ selectedDate, plan }) {
       </div>
       {/* Side by side instead of stacked — the full roster fits one A4 page/screen. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <WorshipPlanSummary selectedDate={selectedDate} />
+        {/* Modal-only display mappings (see WorshipPlanSummary/SundayMinistryPlanSummary
+            in SundayPlanning.jsx): Lead Vocal-4 shows as "Altar Call Worship" here, and
+            its assignee also appears as the Intercessory Prayer leader. Scoped to this
+            modal only via the opt-in props — the standalone /sunday-planning page and
+            Worship's own Assign tab are unaffected. */}
+        <SundayMinistryPlanSummary plan={plan} preServiceEntry={preServiceEntry} selectedDate={selectedDate} showIntercessoryPrayer />
+        <WorshipPlanSummary selectedDate={selectedDate} altarCallMapping />
         <DLitePlanSummary selectedDate={selectedDate} />
         <MediaPlanSummary selectedDate={selectedDate} />
         <div className="bg-white rounded-xl border border-teal-200 border-l-4 border-l-teal-500 p-2.5 shadow-sm">
@@ -247,9 +264,9 @@ export default function SundayPlanBubble({ isDay = true }) {
             </div>
             <div className="overflow-y-auto p-4 flex-1 print:overflow-visible print:p-[10mm]">
               {isPublished ? (
-                <DigitalBulletin plan={plan} preServiceEntry={preServiceEntry} selectedDate={dateISO} />
+                <DigitalBulletin plan={plan} preServiceEntry={preServiceEntry} selectedDate={dateISO} modalMappings />
               ) : roster.anyAssigned ? (
-                <LiveRosterPreview selectedDate={dateISO} plan={plan} />
+                <LiveRosterPreview selectedDate={dateISO} plan={plan} preServiceEntry={preServiceEntry} />
               ) : (
                 <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-6 text-center text-slate-400">
                   <p className="text-3xl mb-2">📋</p>

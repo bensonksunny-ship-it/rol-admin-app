@@ -20,6 +20,7 @@ export const POSITION_OPTIONS = [
   { value: 'Weekly Expense Manager', label: 'Weekly Expense Manager' },
   { value: 'Worship Leader', label: 'Worship Leader' },
   { value: 'Worship Member', label: 'Worship Member' },
+  { value: 'Pre-Service Leader', label: 'Pre-Service Leader' },
 ]
 
 /** Strips a display-formatted " - {Department}" suffix off a position value

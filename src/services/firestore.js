@@ -1270,6 +1270,41 @@ export async function setMediaScheduleByDate(date, assignments, updatedBy) {
   return ref.id
 }
 
+// ── Sunday Ministry crew schedule ────────────────────────────────────────────
+// Per-Sunday crew assignments for Sunday Ministry's Assign tab (SundayCrew.jsx) —
+// same shape and convention as media_schedule above, since sub-departments are
+// director-defined (not a fixed list) here too. One doc per service date:
+// { department: 'Sunday Ministry', date, assignments: [{ subDeptId, role,
+// memberId, memberName }], updatedBy, updatedAt }.
+export async function getSundayCrewScheduleByDate(date) {
+  if (!db) return { date, assignments: [] }
+  const q = query(collection(db, 'sunday_crew_schedule'), where('department', '==', 'Sunday Ministry'))
+  const snap = await getDocs(q)
+  const d = snap.docs.find((doc) => doc.data().date === date)
+  return d ? { id: d.id, ...d.data() } : { date, assignments: [] }
+}
+
+export async function setSundayCrewScheduleByDate(date, assignments, updatedBy) {
+  if (!db) return null
+  const normalizedDate = normalizeToSunday(date)
+  const q = query(collection(db, 'sunday_crew_schedule'), where('department', '==', 'Sunday Ministry'))
+  const snap = await getDocs(q)
+  const existing = snap.docs.find((doc) => doc.data().date === normalizedDate)
+  const payload = stripUndefinedDeep({
+    department: 'Sunday Ministry',
+    date: normalizedDate,
+    assignments: Array.isArray(assignments) ? assignments : [],
+    updatedBy: updatedBy || '',
+    updatedAt: Timestamp.now(),
+  })
+  if (existing) {
+    await updateDoc(doc(db, 'sunday_crew_schedule', existing.id), payload)
+    return existing.id
+  }
+  const ref = await addDoc(collection(db, 'sunday_crew_schedule'), payload)
+  return ref.id
+}
+
 // Worship Ministry applications — a review queue, not a direct write into the
 // People's Directory/PCS. The Worship Director hands the device to the applicant to
 // fill out; submissions land here for the Director to read afterward and manually
@@ -3548,25 +3583,11 @@ export async function setDeptProgramInput(date, deptSlug, { programElements, pro
   })
 }
 
-// Sunday Ministry – pre-service team config (sunday_program / pre_service doc)
-const SUNDAY_PRE_SERVICE_DOC_ID = 'pre_service'
+// Sunday Ministry – pre-service monthly schedule (sunday_pre_service/{date} docs).
+// Leader + Speaker options are drawn live from the Sunday Ministry team roster's
+// Pre-Service sub-department (see PreServiceTab, SundayCrew.jsx) rather than a
+// separately-managed name list.
 const SUNDAY_PRE_SERVICE_COLLECTION = 'sunday_pre_service'
-
-export async function getSundayPreServiceTeam() {
-  if (!db) return []
-  const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PRE_SERVICE_DOC_ID)
-  const snap = await getDoc(ref)
-  if (!snap.exists()) return []
-  const data = snap.data()
-  return Array.isArray(data.team) ? data.team.map((n) => String(n).trim()).filter(Boolean) : []
-}
-
-export async function setSundayPreServiceTeam(team, updatedBy) {
-  if (!db) return
-  const ref = doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PRE_SERVICE_DOC_ID)
-  const clean = (Array.isArray(team) ? team : []).map((n) => String(n).trim()).filter(Boolean)
-  await setDoc(ref, { team: clean, updatedBy: String(updatedBy || ''), updatedAt: Timestamp.now() }, { merge: true })
-}
 
 export async function getSundayPreServiceEntry(dateStr) {
   if (!db || !dateStr) return null
@@ -3578,23 +3599,109 @@ export async function getSundayPreServiceEntry(dateStr) {
     date: id,
     speakers: Array.isArray(data.speakers) ? data.speakers.map((n) => String(n).trim()).filter(Boolean) : [],
     topics: Array.isArray(data.topics) ? data.topics.map((t) => String(t).trim()).filter(Boolean) : [],
+    // Sunday Ministry team roster (department_team_members) doc id for the
+    // assigned Pre-Service Leader — see PreServiceTab, SundayCrew.jsx.
+    leaderMemberId: data.leaderMemberId || '',
+    leaderName: data.leaderName || '',
   }
 }
 
-export async function setSundayPreServiceEntry(dateStr, { speakers, topics }, updatedBy) {
+export async function setSundayPreServiceEntry(dateStr, { speakers, topics, leaderMemberId, leaderName }, updatedBy) {
   if (!db || !dateStr) return
   const id = String(dateStr).slice(0, 10)
   await setDoc(
     doc(db, SUNDAY_PRE_SERVICE_COLLECTION, id),
     {
       date: id,
-      speakers: (Array.isArray(speakers) ? speakers : []).map((n) => String(n).trim()).filter(Boolean),
+      // Up to 5 speakers per Sunday (see PreServiceTab, SundayCrew.jsx).
+      speakers: (Array.isArray(speakers) ? speakers : []).map((n) => String(n).trim()).filter(Boolean).slice(0, 5),
       topics: (Array.isArray(topics) ? topics : []).map((t) => String(t).trim()).filter(Boolean),
+      leaderMemberId: leaderMemberId || '',
+      leaderName: leaderName || '',
       updatedBy: String(updatedBy || ''),
       updatedAt: Timestamp.now(),
     },
     { merge: true }
   )
+}
+
+// Batch-writes every Sunday's Pre-Service entry for a month in one commit — backs
+// the monthly "Save Month Schedule" table (mirrors setSecCoreSundayLeaderMonth).
+// Only ever writes `speakers` — the table this backs has no Leader or Topics
+// column (Pre-Service Leader is a standing position assigned via Admin User
+// Management, not a per-Sunday pick here; see isPreServiceLeaderInPositions).
+// Deliberately omits leaderMemberId/leaderName/topics from the payload rather
+// than writing them blank, so merge:true leaves any pre-existing values on
+// these docs untouched instead of silently wiping them on every save.
+export async function setSundayPreServiceMonth(entries, updatedBy) {
+  if (!db || !entries?.length) return
+  const batch = writeBatch(db)
+  entries.forEach(({ date, speakers }) => {
+    const id = String(date).slice(0, 10)
+    batch.set(doc(db, SUNDAY_PRE_SERVICE_COLLECTION, id), {
+      date: id,
+      speakers: (Array.isArray(speakers) ? speakers : []).map((n) => String(n).trim()).filter(Boolean).slice(0, 5),
+      updatedBy: String(updatedBy || ''),
+      updatedAt: Timestamp.now(),
+    }, { merge: true })
+  })
+  await batch.commit()
+}
+
+// Pre-Service Leader is a standing position (see isPreServiceLeaderInPositions,
+// sundayMinistryAccess.js) — single-slot: assigning someone new revokes the
+// previous holder's position first, so app access always reflects whoever is
+// currently assigned rather than accumulating past leaders. This pointer doc
+// tracks who currently holds it, so a reassignment can find and revoke them
+// without scanning every user. Writing to another user's `positions[]` requires
+// Founder-level access under firestore.rules (users/{userId} is self-or-Founder
+// only) — callers must only invoke this as a Founder; see PreServiceTab.
+const PRE_SERVICE_LEADER_DOC_ID = 'pre_service_leader'
+
+export async function getCurrentPreServiceLeader() {
+  if (!db) return null
+  const snap = await getDoc(doc(db, SUNDAY_PROGRAM_COLLECTION, PRE_SERVICE_LEADER_DOC_ID))
+  return snap.exists() ? snap.data() : null
+}
+
+const PRE_SERVICE_LEADER_POSITION = { department: 'Sunday Ministry', position: 'Pre-Service Leader' }
+
+function isPreServiceLeaderPosition(p) {
+  return p?.department === PRE_SERVICE_LEADER_POSITION.department && p?.position === PRE_SERVICE_LEADER_POSITION.position
+}
+
+// newLeader: { uid, name, email } or null to clear the role entirely.
+export async function setPreServiceLeader(newLeader, updatedBy) {
+  if (!db) return
+  const current = await getCurrentPreServiceLeader()
+
+  if (current?.uid && current.uid !== newLeader?.uid) {
+    const prevRef = doc(db, 'users', current.uid)
+    const prevSnap = await getDoc(prevRef)
+    if (prevSnap.exists()) {
+      const positions = Array.isArray(prevSnap.data().positions) ? prevSnap.data().positions : []
+      await updateDoc(prevRef, { positions: positions.filter((p) => !isPreServiceLeaderPosition(p)) })
+    }
+  }
+
+  if (newLeader?.uid && newLeader.uid !== current?.uid) {
+    const nextRef = doc(db, 'users', newLeader.uid)
+    const nextSnap = await getDoc(nextRef)
+    if (nextSnap.exists()) {
+      const positions = Array.isArray(nextSnap.data().positions) ? nextSnap.data().positions : []
+      if (!positions.some(isPreServiceLeaderPosition)) {
+        await updateDoc(nextRef, { positions: [...positions, PRE_SERVICE_LEADER_POSITION] })
+      }
+    }
+  }
+
+  await setDoc(doc(db, SUNDAY_PROGRAM_COLLECTION, PRE_SERVICE_LEADER_DOC_ID), {
+    uid: newLeader?.uid || null,
+    name: newLeader?.name || '',
+    email: newLeader?.email || '',
+    updatedBy: String(updatedBy || ''),
+    updatedAt: Timestamp.now(),
+  })
 }
 
 // Sunday Ministry – crew roster + weekly entries

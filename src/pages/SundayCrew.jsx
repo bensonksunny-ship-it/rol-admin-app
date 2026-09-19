@@ -1,16 +1,16 @@
-import { useEffect, useState } from 'react'
-import { format, addWeeks, subWeeks } from 'date-fns'
+import { useEffect, useMemo, useState } from 'react'
+import { format, addWeeks } from 'date-fns'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { isPreServiceLeaderInPositions } from '../utils/sundayMinistryAccess'
+import MemberPicker from '../components/MemberPicker'
 import {
-  getSundayPreServiceTeam,
   getSundayPreServiceEntry,
-  setSundayPreServiceEntry,
-  getSundayCrewRoster,
-  setSundayCrewRoster,
-  getSundayCrewEntry,
-  setSundayCrewEntry,
+  setSundayPreServiceMonth,
   getDepartmentTeamMembers,
+  getDepartmentSubDepartments,
+  getSundayCrewScheduleByDate,
+  setSundayCrewScheduleByDate,
 } from '../services/firestore'
 
 function nextSunday() {
@@ -21,11 +21,15 @@ function nextSunday() {
   return format(d, 'yyyy-MM-dd')
 }
 
-function SubTabBar({ active, onChange }) {
-  const tabs = [
-    { id: 'preService', label: 'Pre-Service' },
-    { id: 'crew', label: 'Crew' },
-  ]
+// Normalizes a sub-department name for comparison (case/whitespace/hyphen
+// insensitive) — mirrors DepartmentHub.jsx's subDeptMatchKey convention so
+// "Pre-Service", "pre service", "Pre Services" etc. all match the same way.
+function subDeptKey(name) {
+  return String(name || '').trim().toLowerCase().replace(/[\s-]+/g, ' ').replace(/s$/, '')
+}
+const PRE_SERVICE_SUBDEPT_KEY = subDeptKey('Pre-Service')
+
+function SubTabBar({ active, onChange, tabs }) {
   return (
     <div className="flex gap-1 border-b border-slate-200 mb-6">
       {tabs.map((t) => (
@@ -46,477 +50,598 @@ function SubTabBar({ active, onChange }) {
   )
 }
 
+// Every Sunday (yyyy-MM-dd) in a given month — same convention as SEC Core's
+// Sunday Leader schedule (monthSundays, SecCoreSummary.jsx), which this table
+// is deliberately aligned with.
+function monthSundays(year, month) {
+  const dates = []
+  const d = new Date(year, month, 1)
+  while (d.getMonth() === month) {
+    if (d.getDay() === 0) dates.push(format(d, 'yyyy-MM-dd'))
+    d.setDate(d.getDate() + 1)
+  }
+  return dates
+}
+
+const EMPTY_PRE_SERVICE_FORM = { speakers: [] }
+const MAX_PRE_SERVICE_SPEAKERS = 5
+
+// Controlled table row — value/onChange come from the parent so "Save Month
+// Schedule" can batch-write every row in one call instead of each row saving
+// itself (same pattern as SEC Core's SundayLeaderRow). Read-only typography by
+// default; inputs only swap in while the parent's edit toggle is active.
+// Date + Speakers only — no Leader/Topics/Status/Actions columns. Pre-Service
+// Leader is a standing position assigned via Admin User Management (see
+// isPreServiceLeaderInPositions), not a per-Sunday pick in this table; the
+// leader who holds that position is the one using this table to assign speakers.
+function PreServiceRow({ date, value, onChange, team, loading, canEdit }) {
+  const d = new Date(date + 'T00:00:00')
+
+  const addSpeaker = (name) => {
+    if (!name || value.speakers.includes(name) || value.speakers.length >= MAX_PRE_SERVICE_SPEAKERS) return
+    onChange({ ...value, speakers: [...value.speakers, name] })
+  }
+  const removeSpeaker = (name) => onChange({ ...value, speakers: value.speakers.filter((s) => s !== name) })
+
+  return (
+    <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition-colors">
+      <td className="px-4 py-3 align-top whitespace-nowrap">
+        <p className="text-sm font-semibold text-slate-800">{format(d, 'dd MMM yyyy')}</p>
+        <p className="text-xs text-slate-400">{format(d, 'EEEE')}</p>
+      </td>
+
+      {/* Speakers — dynamic multi-select, 1 to 5 per Sunday */}
+      <td className="px-4 py-3 align-top min-w-[200px]">
+        {loading ? (
+          <span className="text-sm text-slate-300">—</span>
+        ) : (
+          <div className="space-y-1.5">
+            {value.speakers.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {value.speakers.map((name) => (
+                  <span key={name} className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                    {name}
+                    {canEdit && (
+                      <button type="button" onClick={() => removeSpeaker(name)} className="text-indigo-400 hover:text-red-500 leading-none" aria-label={`Remove ${name}`}>×</button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            ) : !canEdit ? (
+              <span className="text-sm text-slate-400">—</span>
+            ) : null}
+            {canEdit && value.speakers.length < MAX_PRE_SERVICE_SPEAKERS && (
+              <select
+                value=""
+                onChange={(e) => addSpeaker(e.target.value)}
+                className="w-full min-w-[160px] px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs bg-white"
+              >
+                <option value="">+ Add speaker ({value.speakers.length}/{MAX_PRE_SERVICE_SPEAKERS})</option>
+                {team.filter((m) => !value.speakers.includes(m.name)).map((m) => (
+                  <option key={m.id} value={m.name}>{m.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+// Monthly schedule table, aligned with SEC Core's Sunday Leader view (same
+// month-nav + batch-edit-then-save shape) — minus the Psalm column SEC Core
+// has, plus a 1–5 dynamic multi-select for Speakers in place of a single pick.
+// Date + Speakers only. The Pre-Service Leader is a standing position (assigned
+// via Admin User Management → positions, see isPreServiceLeaderInPositions) —
+// that person is who's using this table each week to assign Speakers, not
+// something chosen per-Sunday here.
 function PreServiceTab({ canEdit, userProfile }) {
-  const [team, setTeam] = useState([])
-  const [teamLoading, setTeamLoading] = useState(true)
+  const [monthCursor, setMonthCursor] = useState(() => {
+    const d = new Date()
+    return new Date(d.getFullYear(), d.getMonth(), 1)
+  })
 
-  const [selectedDate, setSelectedDate] = useState(nextSunday)
-  const [entryLoading, setEntryLoading] = useState(false)
-  const [entrySaving, setEntrySaving] = useState(false)
-  const [speakers, setSpeakers] = useState([])
-  const [topics, setTopics] = useState([])
-  const [newTopic, setNewTopic] = useState('')
-  const [editingTopicIdx, setEditingTopicIdx] = useState(null)
-  const [editingTopicVal, setEditingTopicVal] = useState('')
+  // Speaker options come from the Sunday Ministry team roster (Operations >
+  // Team), filtered to active members whose sub-department is "Pre-Service" —
+  // not the general church directory.
+  const [preServiceTeam, setPreServiceTeam] = useState([])
+  const [preServiceTeamLoading, setPreServiceTeamLoading] = useState(true)
 
-  const prevSunday = () => setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
-  const nextSundayNav = () => setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
+  const [entries, setEntries] = useState({})       // date -> { speakers[] } (editable)
+  const [savedEntries, setSavedEntries] = useState({})  // date -> same shape | undefined (last-persisted)
+  const [entriesLoading, setEntriesLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState('')
+  // Read-only by default — the whole month's rows only become interactive
+  // (and Save/Cancel appear) once Edit Schedule is tapped, matching SEC Core's
+  // batch-save design (one "Save Month Schedule" for every row).
+  const [editMode, setEditMode] = useState(false)
+
+  const prevMonth = () => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))
+  const nextMonth = () => setMonthCursor((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))
+
+  const sundaysInMonth = useMemo(
+    () => monthSundays(monthCursor.getFullYear(), monthCursor.getMonth()),
+    [monthCursor]
+  )
 
   useEffect(() => {
-    setTeamLoading(true)
-    getSundayPreServiceTeam()
-      .then(setTeam)
-      .catch(() => setTeam([]))
-      .finally(() => setTeamLoading(false))
+    setPreServiceTeamLoading(true)
+    getDepartmentTeamMembers('Sunday Ministry')
+      .then((members) => {
+        const preService = (members || [])
+          .filter((m) => !m.isFormer && m.status !== 'inactive')
+          .filter((m) => (m.subDepartments || []).some((sd) => subDeptKey(sd) === PRE_SERVICE_SUBDEPT_KEY))
+          .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        setPreServiceTeam(preService)
+      })
+      .catch(() => setPreServiceTeam([]))
+      .finally(() => setPreServiceTeamLoading(false))
   }, [])
 
   useEffect(() => {
-    if (!selectedDate) return
-    setEntryLoading(true)
-    getSundayPreServiceEntry(selectedDate)
-      .then((entry) => {
-        setSpeakers(entry?.speakers || [])
-        setTopics(entry?.topics || [])
+    let cancelled = false
+    setEntriesLoading(true)
+    setSaveMessage('')
+    Promise.all(sundaysInMonth.map((date) => getSundayPreServiceEntry(date)))
+      .then((results) => {
+        if (cancelled) return
+        const nextEntries = {}
+        const nextSaved = {}
+        sundaysInMonth.forEach((date, i) => {
+          const e = results[i]
+          const val = { speakers: e?.speakers || [] }
+          nextEntries[date] = val
+          nextSaved[date] = e ? { ...val } : undefined
+        })
+        setEntries(nextEntries)
+        setSavedEntries(nextSaved)
       })
-      .catch(() => { setSpeakers([]); setTopics([]) })
-      .finally(() => setEntryLoading(false))
-  }, [selectedDate])
+      .finally(() => { if (!cancelled) setEntriesLoading(false) })
+    return () => { cancelled = true }
+  }, [sundaysInMonth])
 
-  const assignSpeaker = (name) => {
-    setSpeakers((prev) => {
-      if (prev.includes(name)) return prev
-      if (prev.length >= 2) return prev
-      return [...prev, name]
+  const updateEntry = (date, value) => setEntries((prev) => ({ ...prev, [date]: value }))
+
+  /** Discards any in-progress edits (reverting every row to its last-saved
+   * state, or blank if never saved) and drops back to read-only view. */
+  const handleCancelEdit = () => {
+    const reverted = {}
+    sundaysInMonth.forEach((date) => {
+      reverted[date] = savedEntries[date] ? { ...savedEntries[date] } : { ...EMPTY_PRE_SERVICE_FORM }
     })
+    setEntries(reverted)
+    setSaveMessage('')
+    setEditMode(false)
   }
 
-  const removeSpeaker = (name) => setSpeakers((prev) => prev.filter((s) => s !== name))
-
-  const addTopic = () => {
-    const t = newTopic.trim()
-    if (!t) return
-    setTopics((prev) => [...prev, t])
-    setNewTopic('')
-  }
-
-  const saveEntry = async () => {
-    setEntrySaving(true)
+  const handleSaveMonth = async () => {
+    setSaving(true)
+    setSaveMessage('')
+    const updatedBy = userProfile?.email || 'unknown'
     try {
-      await setSundayPreServiceEntry(selectedDate, { speakers, topics }, userProfile?.email || 'unknown')
-    } catch (e) { console.error(e); alert('Failed to save') }
-    setEntrySaving(false)
+      const payload = sundaysInMonth.map((date) => ({
+        date,
+        speakers: entries[date]?.speakers || [],
+      }))
+      await setSundayPreServiceMonth(payload, updatedBy)
+
+      const nextSaved = {}
+      payload.forEach((p) => { nextSaved[p.date] = { speakers: p.speakers } })
+      setSavedEntries(nextSaved)
+      setSaveMessage(`${format(monthCursor, 'MMMM yyyy')} schedule saved`)
+      setEditMode(false)
+    } catch (e) {
+      console.error(e)
+      alert('Failed to save')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
+    <div className="space-y-4">
+      {/* Page header */}
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="font-semibold text-slate-800">Weekly Assignment</h2>
+          <h2 className="text-lg font-bold text-slate-800">Pre-Service</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Monthly Pre-Service schedule</p>
         </div>
-
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={prevSunday} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">← Prev</button>
-          <span className="text-sm font-semibold text-slate-800">
-            {format(new Date(selectedDate), 'EEE, dd MMM yyyy')}
-          </span>
-          <button type="button" onClick={nextSundayNav} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next →</button>
-        </div>
-
-        {entryLoading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
-        ) : (
-          <>
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-700">
-                Pre-Service Talk Speaker
-                <span className="text-xs font-normal text-slate-400 ml-1">(up to 2)</span>
-              </p>
-
-              {team.length === 0 ? (
-                <p className="text-xs text-slate-400">Add team members in the Pre-Service Team section above first.</p>
-              ) : (
-                <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
-                  {team.map((name) => {
-                    const assigned = speakers.includes(name)
-                    const limitReached = !assigned && speakers.length >= 2
-                    return (
-                      <li key={name} className="flex items-center gap-3 px-3 py-2.5">
-                        <span className={`flex-1 text-sm font-medium ${assigned ? 'text-indigo-700' : 'text-slate-800'}`}>
-                          {name}
-                        </span>
-                        {assigned
-                          ? <span className="text-xs text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full">Assigned</span>
-                          : null
-                        }
-                        {canEdit && (
-                          assigned ? (
-                            <button type="button" onClick={() => removeSpeaker(name)} className="text-xs text-red-500 hover:underline">Remove</button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={limitReached}
-                              onClick={() => assignSpeaker(name)}
-                              className="text-xs text-indigo-600 hover:underline disabled:text-slate-300 disabled:cursor-not-allowed"
-                            >
-                              Assign
-                            </button>
-                          )
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-700">Major Topics</p>
-              {topics.length > 0 && (
-                <ul className="space-y-1.5">
-                  {topics.map((topic, idx) => (
-                    <li key={idx} className="flex items-center gap-2">
-                      {editingTopicIdx === idx ? (
-                        <>
-                          <input
-                            type="text"
-                            value={editingTopicVal}
-                            onChange={(e) => setEditingTopicVal(e.target.value)}
-                            className="flex-1 px-2 py-1 rounded border border-slate-300 text-sm"
-                            autoFocus
-                          />
-                          <button type="button" onClick={() => { const v = editingTopicVal.trim(); if (v) setTopics((prev) => prev.map((t, i) => i === idx ? v : t)); setEditingTopicIdx(null) }} className="text-indigo-600 text-xs hover:underline">Save</button>
-                          <button type="button" onClick={() => setEditingTopicIdx(null)} className="text-slate-400 text-xs hover:underline">Cancel</button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="flex-1 text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-1.5 border border-slate-100">{topic}</span>
-                          {canEdit && (
-                            <>
-                              <button type="button" onClick={() => { setEditingTopicIdx(idx); setEditingTopicVal(topic) }} className="text-blue-600 text-xs hover:underline">Edit</button>
-                              <button type="button" onClick={() => setTopics((prev) => prev.filter((_, i) => i !== idx))} className="text-red-600 text-xs hover:underline">Remove</button>
-                            </>
-                          )}
-                        </>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {canEdit && (
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newTopic}
-                    onChange={(e) => setNewTopic(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && addTopic()}
-                    placeholder="Enter a topic"
-                    className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                  />
-                  <button type="button" onClick={addTopic} className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800">Add</button>
-                </div>
-              )}
-            </div>
-
-            {canEdit && (
-              <button
-                type="button"
-                onClick={saveEntry}
-                disabled={entrySaving}
-                className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {entrySaving ? 'Saving…' : 'Save Assignment'}
-              </button>
-            )}
-          </>
+        {canEdit && !editMode && (
+          <button
+            type="button"
+            onClick={() => setEditMode(true)}
+            className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            Edit Schedule
+          </button>
         )}
+      </div>
+
+      {/* Month navigation + Save Month Schedule */}
+      <div className="flex items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={prevMonth} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">‹ Prev Month</button>
+          <span className="font-semibold text-slate-800 text-sm">{format(monthCursor, 'MMMM yyyy')}</span>
+          <button type="button" onClick={nextMonth} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next Month ›</button>
+        </div>
+        {canEdit && editMode && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              disabled={saving}
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-40 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveMonth}
+              disabled={saving || entriesLoading}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-40 transition-colors shadow-sm"
+            >
+              {saving ? 'Saving…' : 'Save Month Schedule'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {saveMessage && (
+        <p className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">{saveMessage}</p>
+      )}
+
+      {canEdit && editMode && !preServiceTeamLoading && preServiceTeam.length === 0 && (
+        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          No active Pre-Service team members found. Add members to the Pre-Service sub-department in Operations → Team first.
+        </p>
+      )}
+
+      {/* Monthly Sunday schedule — single consolidated card table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Date</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Speakers</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sundaysInMonth.map((date) => (
+                <PreServiceRow
+                  key={date}
+                  date={date}
+                  value={entries[date] || EMPTY_PRE_SERVICE_FORM}
+                  onChange={(value) => updateEntry(date, value)}
+                  team={preServiceTeam}
+                  loading={entriesLoading || preServiceTeamLoading}
+                  canEdit={canEdit && editMode}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )
 }
 
-const COMMON_ROLES = ['Sound', 'Projection', 'Worship', 'Usher', 'River Kids', 'Photography']
+// Role-slot accent cycle — Sunday Ministry's crew sub-departments are
+// director-defined (Operations > Sub Department), not a fixed list, so accents
+// are assigned by row position rather than by name. Same convention as Media's
+// Assign tab (MEDIA_ROLE_ACCENTS, DepartmentHub.jsx).
+const CREW_ROLE_ACCENTS = [
+  { border: 'border-l-indigo-400', pill: 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200', avatar: 'bg-indigo-500', label: 'text-indigo-700' },
+  { border: 'border-l-emerald-400', pill: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200', avatar: 'bg-emerald-500', label: 'text-emerald-700' },
+  { border: 'border-l-amber-400', pill: 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200', avatar: 'bg-amber-500', label: 'text-amber-700' },
+  { border: 'border-l-rose-400', pill: 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200', avatar: 'bg-rose-500', label: 'text-rose-700' },
+  { border: 'border-l-sky-400', pill: 'bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200', avatar: 'bg-sky-500', label: 'text-sky-700' },
+  { border: 'border-l-violet-400', pill: 'bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200', avatar: 'bg-violet-500', label: 'text-violet-700' },
+]
+function crewRoleAccent(index) {
+  return CREW_ROLE_ACCENTS[index % CREW_ROLE_ACCENTS.length]
+}
 
+function upcomingSundaysList(count = 5) {
+  const out = []
+  let d = new Date(nextSunday() + 'T12:00:00')
+  for (let i = 0; i < count; i++) {
+    out.push(format(d, 'yyyy-MM-dd'))
+    d = addWeeks(d, 1)
+  }
+  return out
+}
+
+// Snaps a free-typed date to its nearest Sunday, same convention as
+// normalizeToSunday (firestore.js) / mediaSnapToSunday (DepartmentHub.jsx).
+function snapToSunday(dateStr) {
+  const d = new Date(String(dateStr).slice(0, 10) + 'T12:00:00')
+  if (isNaN(d.getTime())) return dateStr
+  d.setDate(d.getDate() + ((7 - d.getDay()) % 7))
+  return format(d, 'yyyy-MM-dd')
+}
+
+// Weekly Crew — aligned to the D-Light/Media Assign tab pattern: predefined
+// role slots (one per Sunday Ministry sub-department, from Operations > Team),
+// each a MemberPicker scoped to active team members explicitly assigned to
+// that sub-department, editable behind an Edit/Cancel/Save lifecycle rather
+// than always-on freeform inputs.
 function CrewTab({ canEdit, userProfile }) {
-  const [roster, setRoster] = useState([])
-  const [rosterLoading, setRosterLoading] = useState(true)
-  const [rosterSaving, setRosterSaving] = useState(false)
-  const [showRoster, setShowRoster] = useState(false)
-  const [selectedMemberId, setSelectedMemberId] = useState('')
-  const [newRole, setNewRole] = useState('')
-  const [teamMembers, setTeamMembers] = useState([])
+  const [team, setTeam] = useState([])
   const [teamLoading, setTeamLoading] = useState(true)
+  const [subDepartments, setSubDepartments] = useState([])
+  const [subDeptLoading, setSubDeptLoading] = useState(true)
 
-  const [selectedDate, setSelectedDate] = useState(nextSunday)
-  const [entryLoading, setEntryLoading] = useState(false)
-  const [entrySaving, setEntrySaving] = useState(false)
-  const [serving, setServing] = useState([])
-  const [notes, setNotes] = useState('')
-
-  const prevSunday = () => setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
-  const nextSundayNav = () => setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))
-
-  useEffect(() => {
-    setRosterLoading(true)
-    getSundayCrewRoster()
-      .then(setRoster)
-      .catch(() => setRoster([]))
-      .finally(() => setRosterLoading(false))
-  }, [])
+  const [assignDate, setAssignDate] = useState(nextSunday)
+  const [rows, setRows] = useState([])
+  const [savedStamp, setSavedStamp] = useState(null)
+  const [loadingSchedule, setLoadingSchedule] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     setTeamLoading(true)
     getDepartmentTeamMembers('Sunday Ministry')
-      .then((members) => setTeamMembers((members || []).filter((m) => !m.isFormer && m.status !== 'inactive')))
-      .catch(() => setTeamMembers([]))
+      .then((members) => setTeam((members || []).filter((m) => !m.isFormer && m.status !== 'inactive')))
+      .catch(() => setTeam([]))
       .finally(() => setTeamLoading(false))
   }, [])
 
   useEffect(() => {
-    if (!selectedDate) return
-    setEntryLoading(true)
-    getSundayCrewEntry(selectedDate)
-      .then((entry) => {
-        setServing(entry?.serving || [])
-        setNotes(entry?.notes || '')
+    setSubDeptLoading(true)
+    getDepartmentSubDepartments('Sunday Ministry')
+      .then(setSubDepartments)
+      .catch(() => setSubDepartments([]))
+      .finally(() => setSubDeptLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (subDeptLoading) return
+    setLoadingSchedule(true)
+    setEditing(false)
+    getSundayCrewScheduleByDate(assignDate)
+      .then((doc) => {
+        const saved = Array.isArray(doc?.assignments) ? doc.assignments : []
+        const byRow = {}
+        saved.forEach((a) => {
+          if (!a.memberId) return
+          const key = a.subDeptId || `role:${a.role}`
+          if (!byRow[key]) byRow[key] = []
+          byRow[key].push({ id: a.memberId, name: a.memberName || '' })
+        })
+        const nextRows = subDepartments.map((sd) => ({
+          subDeptId: sd.id,
+          role: sd.name,
+          members: byRow[sd.id] || byRow[`role:${sd.name}`] || [],
+        }))
+        setRows(nextRows)
+        setSavedStamp(nextRows.some((r) => r.members.length) ? nextRows.map((r) => ({ ...r, members: [...r.members] })) : null)
       })
-      .catch(() => { setServing([]); setNotes('') })
-      .finally(() => setEntryLoading(false))
-  }, [selectedDate])
+      .catch(() => {
+        setRows(subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, members: [] })))
+        setSavedStamp(null)
+      })
+      .finally(() => setLoadingSchedule(false))
+  }, [assignDate, subDepartments, subDeptLoading])
 
-  const handleMemberSelect = (e) => {
-    const val = e.target.value
-    setSelectedMemberId(val)
-    if (val) {
-      const member = teamMembers.find((m) => m.id === val)
-      const autoRole = (member?.subDepartments?.[0] || member?.rolePosition || '').trim()
-      setNewRole(autoRole)
-    } else {
-      setNewRole('')
-    }
+  const memberSubDepts = (m) => (Array.isArray(m.subDepartments) ? m.subDepartments : (m.subDepartment ? [m.subDepartment] : []))
+  const memberDetail = (m) => (memberSubDepts(m).length ? memberSubDepts(m).join(' · ') : (m.role || ''))
+  const eligibleFor = (roleName) => {
+    const key = subDeptKey(roleName)
+    return team.filter((m) => memberSubDepts(m).some((sd) => subDeptKey(sd) === key))
+  }
+  const addablePeopleFor = (row) => eligibleFor(row.role).filter((m) => !(row.members || []).some((am) => am.id === m.id))
+
+  const addPersonToRow = (subDeptId, id, name) => {
+    if (!id) return
+    setRows((prev) => prev.map((r) => {
+      if (r.subDeptId !== subDeptId) return r
+      if ((r.members || []).some((m) => m.id === id)) return r
+      return { ...r, members: [...(r.members || []), { id, name }] }
+    }))
+  }
+  const removePersonFromRow = (subDeptId, id) => {
+    setRows((prev) => prev.map((r) => (r.subDeptId === subDeptId ? { ...r, members: (r.members || []).filter((m) => m.id !== id) } : r)))
   }
 
-  const addMember = () => {
-    const member = teamMembers.find((m) => m.id === selectedMemberId)
-    const name = member?.name?.trim()
-    if (!name) return
-    if (roster.some((r) => r.name === name)) return
-    setRoster((prev) => [...prev, { name, role: newRole.trim() }])
-    setSelectedMemberId('')
-    setNewRole('')
+  const cancelEdit = () => {
+    setRows(
+      savedStamp
+        ? savedStamp.map((r) => ({ ...r, members: [...(r.members || [])] }))
+        : subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, members: [] }))
+    )
+    setEditing(false)
   }
 
-  const removeMember = (idx) => setRoster((prev) => prev.filter((_, i) => i !== idx))
-
-  const saveRoster = async () => {
-    setRosterSaving(true)
+  const saveRows = async () => {
+    setSaving(true)
     try {
-      await setSundayCrewRoster(roster, userProfile?.email || 'unknown')
-    } catch (e) { console.error(e); alert('Failed to save roster') }
-    setRosterSaving(false)
+      const assignments = rows.flatMap((r) =>
+        (r.members || []).map((m) => ({ subDeptId: r.subDeptId || '', role: r.role, memberId: m.id, memberName: m.name || '' }))
+      )
+      await setSundayCrewScheduleByDate(assignDate, assignments, userProfile?.email || 'unknown')
+      setSavedStamp(rows.some((r) => (r.members || []).length) ? rows.map((r) => ({ ...r, members: [...(r.members || [])] })) : null)
+      setEditing(false)
+    } catch (e) { console.error(e); alert('Failed to save crew assignments') }
+    setSaving(false)
   }
 
-  const toggleServing = (name) => {
-    setServing((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name])
-  }
-
-  const saveEntry = async () => {
-    setEntrySaving(true)
-    try {
-      await setSundayCrewEntry(selectedDate, { serving, notes }, userProfile?.email || 'unknown')
-    } catch (e) { console.error(e); alert('Failed to save') }
-    setEntrySaving(false)
-  }
-
-  const byRole = roster.reduce((acc, m) => {
-    const key = m.role || 'Other'
-    if (!acc[key]) acc[key] = []
-    acc[key].push(m)
-    return acc
-  }, {})
-  const roleOrder = [...new Set(roster.map((m) => m.role || 'Other'))]
-
-  const rosterNames = new Set(roster.map((m) => m.name))
-  const availableMembers = teamMembers.filter((m) => !rosterNames.has(m.name?.trim()))
+  const loading = teamLoading || subDeptLoading || loadingSchedule
 
   return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
-        <h2 className="font-semibold text-slate-800">Weekly Crew</h2>
-
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={prevSunday} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">← Prev</button>
-          <span className="text-sm font-semibold text-slate-800">
-            {format(new Date(selectedDate), 'EEE, dd MMM yyyy')}
-          </span>
-          <button type="button" onClick={nextSundayNav} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next →</button>
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-4 border-b border-slate-200 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-slate-800">Weekly Crew</h2>
+          {canEdit && !editing && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors text-sm font-medium"
+            >
+              Edit Plan
+            </button>
+          )}
         </div>
 
-        {entryLoading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
-        ) : rosterLoading ? (
-          <p className="text-sm text-slate-400">Loading roster…</p>
-        ) : roster.length === 0 ? (
-          <p className="text-sm text-slate-400">No crew members yet. Add members in the Crew Roster below.</p>
-        ) : (
-          <>
-            <div className="space-y-3">
-              {roleOrder.map((role) => (
-                <div key={role}>
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{role}</p>
-                  <div className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
-                    {(byRole[role] || []).map((m) => {
-                      const isServing = serving.includes(m.name)
-                      return (
-                        <div key={m.name} className="flex items-center gap-3 px-3 py-2.5">
-                          <span className={`flex-1 text-sm font-medium ${isServing ? 'text-indigo-700' : 'text-slate-800'}`}>
-                            {m.name}
-                          </span>
-                          {isServing && (
-                            <span className="text-xs text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full">Serving</span>
-                          )}
-                          {canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => toggleServing(m.name)}
-                              className={`text-xs hover:underline ${isServing ? 'text-red-500' : 'text-indigo-600'}`}
-                            >
-                              {isServing ? 'Remove' : 'Assign'}
-                            </button>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-slate-700">Notes</p>
-              {canEdit ? (
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={2}
-                  placeholder="Any notes for this week…"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none"
-                />
-              ) : (
-                notes ? <p className="text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-2">{notes}</p> : <p className="text-sm text-slate-400">—</p>
-              )}
-            </div>
-
-            {canEdit && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">Coming Sundays</span>
+            {upcomingSundaysList(5).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setAssignDate(d)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                  assignDate === d
+                    ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white border-indigo-600 shadow-sm'
+                    : 'bg-white text-slate-600 border-slate-300 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50'
+                }`}
+              >
+                {format(new Date(d), 'd MMM')}
+              </button>
+            ))}
+            <input
+              type="date"
+              value={assignDate}
+              onChange={(e) => { if (e.target.value) setAssignDate(snapToSunday(e.target.value)) }}
+              className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
+              title="Pick a custom Sunday date"
+            />
+          </div>
+          {canEdit && editing && (
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={saveEntry}
-                disabled={entrySaving}
-                className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                disabled={saving}
+                onClick={cancelEdit}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
               >
-                {entrySaving ? 'Saving…' : 'Save Crew'}
+                Cancel
               </button>
-            )}
-          </>
-        )}
-      </div>
-
-      {canEdit && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setShowRoster((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
-          >
-            <span>Manage Crew Roster</span>
-            <span className="text-slate-400">{showRoster ? '▲' : '▼'}</span>
-          </button>
-
-          {showRoster && (
-            <div className="px-4 pb-4 space-y-4 border-t border-slate-100">
-              {rosterLoading ? (
-                <p className="text-sm text-slate-400 pt-3">Loading…</p>
-              ) : (
-                <>
-                  {roster.length > 0 && (
-                    <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg mt-3">
-                      {roster.map((m, idx) => (
-                        <li key={idx} className="flex items-center gap-3 px-3 py-2.5 text-sm">
-                          <span className="flex-1 font-medium text-slate-800">{m.name}</span>
-                          {m.role && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{m.role}</span>}
-                          <button type="button" onClick={() => removeMember(idx)} className="text-red-500 hover:underline text-xs">Remove</button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                  <div className="flex flex-wrap gap-2 items-end pt-1">
-                    <div className="flex-1 min-w-[180px]">
-                      <label className="block text-xs text-slate-500 mb-1">Member</label>
-                      {teamLoading ? (
-                        <p className="text-xs text-slate-400 py-2">Loading members…</p>
-                      ) : (
-                        <select
-                          value={selectedMemberId}
-                          onChange={handleMemberSelect}
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
-                        >
-                          <option value="">— Select a member —</option>
-                          {availableMembers.length === 0 && roster.length > 0 && (
-                            <option disabled>All team members added</option>
-                          )}
-                          {availableMembers.map((m) => {
-                            const subDepts = (m.subDepartments || []).filter(Boolean)
-                            const label = subDepts.length
-                              ? `${m.name}  (${subDepts.join(', ')})`
-                              : m.name
-                            return (
-                              <option key={m.id} value={m.id}>{label}</option>
-                            )
-                          })}
-                        </select>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-[120px]">
-                      <label className="block text-xs text-slate-500 mb-1">Crew Role</label>
-                      <input
-                        type="text"
-                        value={newRole}
-                        onChange={(e) => setNewRole(e.target.value)}
-                        list="crew-roles"
-                        placeholder="e.g. Sound"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                      />
-                      <datalist id="crew-roles">
-                        {COMMON_ROLES.map((r) => <option key={r} value={r} />)}
-                      </datalist>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addMember}
-                      disabled={!selectedMemberId}
-                      className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-40"
-                    >
-                      Add
-                    </button>
-                  </div>
-
-                  {teamMembers.length === 0 && !teamLoading && (
-                    <p className="text-xs text-slate-400">No Sunday Ministry team members found. Add members in the Sunday Ministry team page first.</p>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={saveRoster}
-                    disabled={rosterSaving}
-                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {rosterSaving ? 'Saving…' : 'Save Roster'}
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                disabled={saving}
+                onClick={saveRows}
+                className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 shadow-sm"
+              >
+                {saving ? 'Saving…' : 'Save plan'}
+              </button>
             </div>
           )}
         </div>
+      </div>
+
+      {loading ? (
+        <div className="p-5 text-center text-slate-500 text-sm">Loading…</div>
+      ) : subDepartments.length === 0 ? (
+        <div className="p-5 text-center text-slate-500 text-sm">
+          No crew sub-departments found. Add role slots (e.g. Sound, Ushering) in Operations → Sub Department, then assign active members to them in Operations → Team.
+        </div>
+      ) : (
+        <>
+          {/* Mobile: one card per role */}
+          <div className="md:hidden grid grid-cols-1 gap-3 p-4">
+            {rows.map((r, i) => {
+              const accent = crewRoleAccent(i)
+              const rowMembers = r.members || []
+              return (
+                <div key={r.subDeptId} className={`rounded-xl border border-slate-200 bg-white p-3 shadow-sm space-y-2 border-l-4 ${accent.border}`}>
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{r.role}</span>
+                  {editing ? (
+                    <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                      {rowMembers.map((m) => (
+                        <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
+                          {m.name}
+                          <button type="button" onClick={() => removePersonFromRow(r.subDeptId, m.id)} className="font-bold leading-none text-sm opacity-60 hover:opacity-100 hover:text-red-600" aria-label={`Remove ${m.name}`}>×</button>
+                        </span>
+                      ))}
+                      <MemberPicker
+                        value=""
+                        members={addablePeopleFor(r)}
+                        allMembers={team}
+                        tint={accent.avatar}
+                        getDetail={memberDetail}
+                        hideClearOption
+                        fitContent
+                        emptyLabel={rowMembers.length === 0 ? '-- Not assigned --' : (addablePeopleFor(r).length === 0 ? 'No more eligible members' : `+ Add ${r.role}`)}
+                        onChange={(id, name) => addPersonToRow(r.subDeptId, id, name)}
+                      />
+                    </div>
+                  ) : rowMembers.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {rowMembers.map((m) => (
+                        <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{m.name}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> -- Not assigned --
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Desktop: table */}
+          <table className="hidden md:table w-full">
+            <thead className="bg-gradient-to-r from-slate-100 to-slate-50">
+              <tr>
+                <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[240px]">Role / Slot</th>
+                <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Assigned To</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {rows.map((r, i) => {
+                const accent = crewRoleAccent(i)
+                const rowMembers = r.members || []
+                return (
+                  <tr key={r.subDeptId} className={`hover:bg-indigo-50/40 border-l-4 ${accent.border}`}>
+                    <td className="px-5 py-4 align-top">
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{r.role}</span>
+                    </td>
+                    <td className="px-5 py-4 align-top">
+                      {editing ? (
+                        <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                          {rowMembers.map((m) => (
+                            <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
+                              {m.name}
+                              <button type="button" onClick={() => removePersonFromRow(r.subDeptId, m.id)} className="font-bold leading-none text-sm opacity-60 hover:opacity-100 hover:text-red-600" aria-label={`Remove ${m.name}`}>×</button>
+                            </span>
+                          ))}
+                          <MemberPicker
+                            value=""
+                            members={addablePeopleFor(r)}
+                            allMembers={team}
+                            tint={accent.avatar}
+                            getDetail={memberDetail}
+                            hideClearOption
+                            fitContent
+                            emptyLabel={rowMembers.length === 0 ? '-- Not assigned --' : (addablePeopleFor(r).length === 0 ? 'No more eligible members' : '+ Add person')}
+                            onChange={(id, name) => addPersonToRow(r.subDeptId, id, name)}
+                          />
+                        </div>
+                      ) : rowMembers.length ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {rowMembers.map((m) => (
+                            <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{m.name}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> -- Not assigned --
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   )
@@ -524,10 +649,15 @@ function CrewTab({ canEdit, userProfile }) {
 
 export default function SundayCrew() {
   const { isSundayMinistryDirector, userProfile } = useAuth()
-  const canEdit = isSundayMinistryDirector
+  // Pre-Service Leader is a narrow position — it only unlocks the Pre-Service
+  // section below, not Crew/the rest of Sunday Ministry (see
+  // isPreServiceLeaderInPositions, sundayMinistryAccess.js).
+  const isPreServiceLeader = isPreServiceLeaderInPositions(userProfile)
+  const canAccessCrew = isSundayMinistryDirector
+  const canAccessPreService = isSundayMinistryDirector || isPreServiceLeader
   const [subTab, setSubTab] = useState('preService')
 
-  if (!isSundayMinistryDirector) {
+  if (!canAccessCrew && !canAccessPreService) {
     return (
       <div className="p-8 text-slate-600">
         <Link to="/department/sunday-ministry" className="text-blue-600 hover:underline">← Sunday Ministry</Link>
@@ -536,13 +666,22 @@ export default function SundayCrew() {
     )
   }
 
+  // A leader-only user (no Crew access) never sees the Crew tab or lands on it.
+  const activeTab = canAccessCrew ? subTab : 'preService'
+  const tabs = [
+    { id: 'preService', label: 'Pre-Service' },
+    ...(canAccessCrew ? [{ id: 'crew', label: 'Assign' }] : []),
+  ]
+
   return (
     <div>
       <div className="space-y-2 p-4 max-w-3xl">
-        <h1 className="text-xl font-semibold text-slate-800">Crew</h1>
-        <SubTabBar active={subTab} onChange={setSubTab} />
-        {subTab === 'preService' && <PreServiceTab canEdit={canEdit} userProfile={userProfile} />}
-        {subTab === 'crew' && <CrewTab canEdit={canEdit} userProfile={userProfile} />}
+        <h1 className="text-xl font-semibold text-slate-800">Assign</h1>
+        {tabs.length > 1 && <SubTabBar active={activeTab} onChange={setSubTab} tabs={tabs} />}
+        {activeTab === 'preService' && (
+          <PreServiceTab canEdit={canAccessPreService} userProfile={userProfile} />
+        )}
+        {activeTab === 'crew' && <CrewTab canEdit={canAccessCrew} userProfile={userProfile} />}
       </div>
     </div>
   )

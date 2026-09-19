@@ -12,6 +12,8 @@ import {
   getProgramNotification,
   getDeptProgramInput,
   setDeptProgramInput,
+  getSundayPlan,
+  setSundayPlanSection,
 } from '../services/firestore'
 
 function nextSunday() {
@@ -124,11 +126,22 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     setLoading(true)
     Promise.all([getSundayProgramDefault(), getSundayProgramDesign()])
       .then(([defaultDoc, designDoc]) => {
-        const list = defaultDoc.items?.length ? defaultDoc.items : [...DEFAULT_SEED]
+        const rawList = defaultDoc.items?.length ? defaultDoc.items : [...DEFAULT_SEED]
+        // Guard against duplicate programName rows already saved in Firestore
+        // (e.g. the same block appended more than once by an earlier bug) —
+        // keep only the first occurrence of each name, case/whitespace-insensitive.
+        const seenNames = new Set()
+        const list = rawList.filter((x) => {
+          const key = String(x.programName || '').trim().toLowerCase()
+          if (!key || seenNames.has(key)) return false
+          seenNames.add(key)
+          return true
+        })
+        const hadDuplicates = list.length < rawList.length
         const svcStart = defaultDoc.serviceStartTime || ''
         // Populate startTime: use saved value, or cascade-calculate from service start
         let cascadeMins = svcStart ? timeToMins(svcStart) : 0
-        setItems(list.map((x, i) => {
+        const nextItems = list.map((x, i) => {
           const dur = typeof x.duration === 'number' ? x.duration : 0
           const st = x.startTime || (svcStart ? minsToTime(cascadeMins) : '')
           cascadeMins += dur
@@ -138,7 +151,8 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
             startTime: st,
             localId: `lp-${i}-${String(x.programName || '').slice(0, 20)}`,
           }
-        }))
+        })
+        setItems(nextItems)
         setServiceStartTime(svcStart)
         setParallelPrograms(defaultDoc.parallelPrograms || {})
         const seed = DEFAULT_SEED.map((s) => s.programName)
@@ -148,6 +162,17 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
         // Any program from Design Program (seed or newly added) is selectable here,
         // whether or not it has design elements assigned yet.
         setDesignedPrograms(all)
+        // Silently persist the de-duplicated schedule once, so a template that
+        // already has duplicate blocks saved in Firestore gets cleaned up for
+        // good instead of re-showing the same duplicates on every reload.
+        if (hadDuplicates && canEdit) {
+          setSundayProgramDefault(
+            nextItems.map((x, i) => ({ programName: x.programName, order: i, duration: x.duration || 0, startTime: x.startTime || '', programNumber: x.programNumber || '' })),
+            userProfile?.email || 'unknown',
+            svcStart,
+            defaultDoc.parallelPrograms || {}
+          ).catch((e) => console.error('Failed to auto-clean duplicate programme rows', e))
+        }
       })
       .catch(() => {
         setItems(DEFAULT_SEED.map((x, i) => ({ ...x, duration: 0, localId: `seed-${i}` })))
@@ -941,6 +966,27 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                     .map((x, i) => ({ programName: String(x.programName || '').trim(), order: i }))
                     .filter((x) => x.programName)
                   await pushProgramToSundayReport(pushDate, payload)
+                  // Mark Sunday Ministry as "Assigned" (not just Pending) on the shared
+                  // sunday_plans doc that drives the Sunday Plan popover/modal's status
+                  // pills — pushing the order of service live is Sunday Ministry's
+                  // concrete action for this date, same signal as Worship/D-Light/Media
+                  // saving their own assignments. Merge onto the existing sundayMinistry
+                  // section (fetch-then-write) rather than overwriting it outright, so a
+                  // director's freeform notes for this section aren't wiped out —
+                  // setSundayPlanSection replaces the whole section field.
+                  try {
+                    const currentPlan = await getSundayPlan(pushDate)
+                    await setSundayPlanSection(pushDate, 'sundayMinistry', {
+                      ...(currentPlan?.sundayMinistry || {}),
+                      pushedToLiveControl: true,
+                      pushedToLiveControlAt: new Date().toISOString(),
+                      pushedToLiveControlBy: userProfile?.email || userProfile?.displayName || 'unknown',
+                    })
+                  } catch (e) {
+                    // Live Control push itself already succeeded — don't block
+                    // navigation on this secondary status sync failing.
+                    console.error('Failed to sync Sunday Ministry status', e)
+                  }
                   navigate(`/department/sunday-ministry/sunday?subtab=livecontrol&date=${pushDate}`)
                 } catch (e) { console.error(e); alert('Failed to push program') }
                 setPushing(false)
@@ -1079,16 +1125,51 @@ function DesignProgramTab({ canEdit, userProfile }) {
     setLoading(true)
     Promise.all([getSundayProgramDefault(), getSundayProgramDesign()])
       .then(([defaultDoc, designDoc]) => {
-        const items = defaultDoc?.items?.length
+        const rawItems = defaultDoc?.items?.length
           ? defaultDoc.items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
           : [...DEFAULT_SEED]
+        // Guard against duplicate programName rows already saved on the schedule.
+        const seenNames = new Set()
+        const items = rawItems.filter((i) => {
+          const key = String(i.programName || '').trim().toLowerCase()
+          if (!key || seenNames.has(key)) return false
+          seenNames.add(key)
+          return true
+        })
         setPrograms(items.map((i) => i.programName))
         setDesigns(designDoc?.designs || {})
         setCustomElements(designDoc?.customElements || [])
-        setCustomPrograms(designDoc?.customPrograms || [])
+        // A custom program whose duration got promoted onto the Default Program
+        // schedule (see save() below) can otherwise linger in the design doc's
+        // own customPrograms list forever, rendering the same program twice in
+        // this grid on every load — drop anything already on the schedule, and
+        // any duplicate within customPrograms itself.
+        const rawCustom = designDoc?.customPrograms || []
+        const dedupedCustom = []
+        rawCustom.forEach((p) => {
+          const key = String(p || '').trim().toLowerCase()
+          if (!key || seenNames.has(key)) return
+          seenNames.add(key)
+          dedupedCustom.push(p)
+        })
+        setCustomPrograms(dedupedCustom)
         const durMap = {}
         items.forEach((i) => { durMap[i.programName] = i.duration || 0 })
         setDurations(durMap)
+        // Persist the cleanup once so it doesn't need to be silently
+        // recomputed — and can't reappear — on every future load.
+        if (canEdit && (items.length < rawItems.length || dedupedCustom.length < rawCustom.length)) {
+          setSundayProgramDefault(
+            items.map((x, i) => ({ programName: x.programName, order: i, duration: x.duration || 0, startTime: x.startTime || '', programNumber: x.programNumber || '' })),
+            userProfile?.email || 'unknown',
+            defaultDoc?.serviceStartTime || '',
+            defaultDoc?.parallelPrograms || {}
+          ).catch((e) => console.error('Failed to auto-clean duplicate schedule rows', e))
+          setSundayProgramDesign(
+            { designs: designDoc?.designs || {}, customElements: designDoc?.customElements || [], customPrograms: dedupedCustom },
+            userProfile?.email || 'unknown'
+          ).catch((e) => console.error('Failed to auto-clean duplicate custom programs', e))
+        }
       })
       .catch(() => setPrograms(DEFAULT_SEED.map((i) => i.programName)))
       .finally(() => setLoading(false))
@@ -1216,7 +1297,6 @@ function DesignProgramTab({ canEdit, userProfile }) {
     setSaving(true)
     setSavedOk(false)
     try {
-      await setSundayProgramDesign({ designs, customElements, customPrograms }, userProfile?.email || 'unknown')
       // Read-fresh-merge-write onto the Default Program doc so a duration edited here
       // lands in the same items[] Default Program's own timeline reads/writes,
       // without clobbering whatever order/startTime/serviceStartTime it has set
@@ -1238,13 +1318,23 @@ function DesignProgramTab({ canEdit, userProfile }) {
         durations[i.programName] !== undefined ? { ...i, duration: durations[i.programName] } : i
       )
       let nextOrder = updatedItems.length
+      // Custom programs promoted onto the schedule here (below) — tracked so they
+      // can be dropped from customPrograms in the same save, instead of lingering
+      // there forever and rendering as a second, duplicate card on every future load.
+      const promotedNames = new Set()
       Object.entries(durations).forEach(([name, mins]) => {
-        if (!existingNames.has(name.trim().toLowerCase()) && mins > 0) {
+        const key = name.trim().toLowerCase()
+        if (!existingNames.has(key) && mins > 0) {
           updatedItems.push({ programName: name, order: nextOrder++, duration: mins, startTime: '' })
-          existingNames.add(name.trim().toLowerCase())
+          existingNames.add(key)
+          promotedNames.add(key)
         }
       })
+      const prunedCustomPrograms = customPrograms.filter((p) => !promotedNames.has(p.trim().toLowerCase()))
+      await setSundayProgramDesign({ designs, customElements, customPrograms: prunedCustomPrograms }, userProfile?.email || 'unknown')
       await setSundayProgramDefault(updatedItems, userProfile?.email || 'unknown', fresh.serviceStartTime, fresh.parallelPrograms)
+      setCustomPrograms(prunedCustomPrograms)
+      setPrograms(updatedItems.map((i) => i.programName))
       setRenameMap({})
       setSavedOk(true)
       setTimeout(() => setSavedOk(false), 2500)
@@ -1257,7 +1347,12 @@ function DesignProgramTab({ canEdit, userProfile }) {
 
   if (loading) return <p className="text-slate-500">Loading…</p>
 
-  const allPrograms = [...programs, ...customPrograms]
+  // Strict duplicate guard on template population: even if `programs` (from the
+  // schedule) and `customPrograms` (from the design doc) briefly overlap, only
+  // ever render one card per name, case/whitespace-insensitive, first-seen wins.
+  const allPrograms = Array.from(
+    new Map([...programs, ...customPrograms].map((n) => [String(n).trim().toLowerCase(), n])).values()
+  )
 
   return (
     <div className="space-y-3">
