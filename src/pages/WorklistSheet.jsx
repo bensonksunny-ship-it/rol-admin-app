@@ -128,6 +128,13 @@ function formatDaysLabel(days) {
   return `${Math.floor(days / 365)}y`
 }
 
+// Date column's locked display — the stored value is a plain YYYY-MM-DD string
+// (from the native date input), shown DD/MM/YYYY once the row is locked.
+function formatDate(dateStr) {
+  if (!dateStr) return ''
+  return new Date(dateStr).toLocaleDateString('en-GB')
+}
+
 function daysBetween(startDateStr, endDateStr) {
   if (!startDateStr || !endDateStr) return null
   const start = new Date(`${startDateStr}T00:00:00`)
@@ -370,7 +377,7 @@ function WorklistTable({ sheetId, sheet }) {
                     {idle ? (
                       <IdleCell onStart={() => startComposing(rowIndex)} />
                     ) : locked ? (
-                      <LockedCell>{row.date || '—'}</LockedCell>
+                      <LockedCell>{formatDate(row.date) || '—'}</LockedCell>
                     ) : (
                       <EditableCell
                         type="date"

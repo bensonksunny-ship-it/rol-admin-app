@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   getMergedPeopleDirectory,
   addPerson,
@@ -467,11 +468,15 @@ const FILTERS = [
 export default function PeopleDirectory() {
   const { userProfile, isFounder, isSeniorPastor, isAdmin, isCellDirector } = useAuth()
   const { isSeniorPastorName, title: seniorPastorTitle, fullTitle: seniorPastorFullTitle } = useSeniorPastor()
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [people, setPeople] = useState([])
   const [cellGroups, setCellGroups] = useState([])
   const [sourceCounts, setSourceCounts] = useState(null)
-  const [search, setSearch] = useState('')
+  // Deep-link support: other pages (e.g. the Worship song directory's "Designed by"
+  // credit) link here with ?q=<name> to jump straight to a person instead of leaving
+  // the visitor to type the search themselves.
+  const [search, setSearch] = useState(() => searchParams.get('q') || '')
   const [filter, setFilter] = useState('all')
   const [expandedId, setExpandedId] = useState(null)
   const [editingPerson, setEditingPerson] = useState(null)
@@ -533,7 +538,18 @@ export default function PeopleDirectory() {
       setPeople(merged)
       setCellGroups(cellGroups)
       setLoading(false)
+
+      // A ?q= deep link jumps straight to the matching profile card, not just a
+      // prefilled search box — prefer an exact name match over the first substring hit.
+      const q = searchParams.get('q')
+      if (q) {
+        const qLower = q.trim().toLowerCase()
+        const match = merged.find(p => p.name?.trim().toLowerCase() === qLower)
+          || merged.find(p => p.name?.toLowerCase().includes(qLower))
+        if (match) setExpandedId(match._key)
+      }
     }).catch((err) => { console.error('PeopleDirectory load error:', err); setLoading(false) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const personYear = (p) => {

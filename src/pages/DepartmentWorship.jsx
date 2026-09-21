@@ -36,6 +36,7 @@ import { format, subMonths, subDays, addDays, differenceInDays, differenceInYear
 import { formatDMY } from '../utils/date'
 import { isWorshipLeader, hasWorshipRoleAccess, getAllowedWorshipTabs } from '../utils/worshipAccess'
 import { getDepartmentRole } from '../utils/access'
+import useSeniorPastor from '../hooks/useSeniorPastor'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
@@ -1472,6 +1473,7 @@ async function getApprovedRosterVisitors() {
 
 export default function DepartmentWorship() {
   const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
+  const { name: seniorPastorName } = useSeniorPastor()
   if (!hasAccess(userProfile, DEPARTMENT) && !hasWorshipRoleAccess(userProfile)) {
     return (
       <div className="p-6 text-slate-600">
@@ -3926,7 +3928,15 @@ export default function DepartmentWorship() {
                     if (filtered.length === 0) return <p className="col-span-full text-center text-slate-400 text-sm py-6">No songs match your search.</p>
                     return filtered.map((song, i) => {
                       const theme = SONG_CARD_THEMES[i % SONG_CARD_THEMES.length]
-                      const designer = song.designedBy || song.createdBy
+                      const rawDesigner = song.designedBy || song.createdBy
+                      // Legacy songs saved under the Founder's account before the Founder's real
+                      // name was set on `users/{uid}` were credited with the literal role string
+                      // "Founder" (from userProfile.name falling back to ROLES.FOUNDER) instead of
+                      // a real name — resolve that to the live Senior Pastor name/profile so the
+                      // card reads the same as every other designer credit.
+                      const isFounderCredit = String(rawDesigner || '').trim().toLowerCase() === 'founder'
+                      const designerDisplay = isFounderCredit ? `Pastor ${seniorPastorName}` : rawDesigner
+                      const designerLinkName = isFounderCredit ? seniorPastorName : rawDesigner
                       return (
                         <div
                           key={song.id}
@@ -3936,9 +3946,16 @@ export default function DepartmentWorship() {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className={`font-bold text-base truncate ${theme.title}`}>{song.title}</p>
-                              {designer && (
+                              {designerDisplay && (
                                 <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-                                  Designed by <span className="font-medium text-slate-500">{designer}</span>
+                                  Designed by{' '}
+                                  <Link
+                                    to={`/people?q=${encodeURIComponent(designerLinkName)}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="font-medium text-slate-500 hover:text-indigo-600 hover:underline"
+                                  >
+                                    {designerDisplay}
+                                  </Link>
                                 </p>
                               )}
                               {song.key && (
