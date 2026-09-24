@@ -10,6 +10,8 @@ import { formatDisplayDate } from '../utils/date'
 import { isDepartmentDirectorInPositions } from '../utils/access'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 
+const CONSULT_RESPONSE_ID_PREFIX = 'consult_response:'
+
 // Shared by the bell's "tap to act" navigation and by "+ Add to To-Do" (which stamps
 // the resolved URL onto the created task's `deepLink` field) so both paths — acting on
 // the live notification and acting later from the To-Do List card — land on the exact
@@ -127,7 +129,9 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     const canSeeDLight = isFounder || isDepartmentDirectorInPositions(userProfile, 'D Light')
     if (!canSeeDLight) return
     return subscribeCellDlightConsultTasks((consults) => {
-      setDlightConsultNotifications(consults.map((t) => ({
+      // Once D-Light has responded the consult is no longer pending on their side —
+      // it lives on as the Cell-side consult_response below instead.
+      setDlightConsultNotifications(consults.filter((t) => t.status !== 'Responded').map((t) => ({
         id: t.id,
         type: 'dlight_consult',
         department: 'D Light',
@@ -155,7 +159,13 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         consults
           .filter((t) => t.status === 'Responded')
           .map((t) => ({
-            id: t.id,
+            // Namespaced: the dlight_consult notification above is synthesized from
+            // this same task doc, and sharing its id meant ignoring the pending
+            // consult also silently hid the recommendation that arrived later (and
+            // gave both cards the same React key for anyone seeing both feeds).
+            id: `${CONSULT_RESPONSE_ID_PREFIX}${t.id}`,
+            legacyId: t.id,
+            consultTaskId: t.id,
             type: 'consult_response',
             department: 'Cell',
             title: 'D-Light Recommendation',
@@ -243,9 +253,15 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     }
   }
 
+  // legacyId: consult_response dismissals written before its id was namespaced are
+  // still stored under the raw task id — keep honoring them so nothing already
+  // ignored reappears.
+  const isHidden = (n) =>
+    dismissedIds.has(n.id) || optimisticHiddenIds.has(n.id) || (n.legacyId && dismissedIds.has(n.legacyId))
+
   const notifications = useMemo(
     () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
-      .filter((n) => !dismissedIds.has(n.id) && !optimisticHiddenIds.has(n.id))
+      .filter((n) => !isHidden(n))
       .filter(canSeeNotification)
       .map((n) => ({ ...n, addedToTodo: addedToTodoIds.has(n.id) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -307,7 +323,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         // close out the original D-Light consult task once acted on.
         ...(n.type === 'consult_response' ? {
           cellAssignRecommendation: true,
-          sourceConsultTaskId: n.id,
+          sourceConsultTaskId: n.consultTaskId,
           consultPersonName: n.consultPersonName || '',
           consultPersonPhone: n.consultPersonPhone || '',
           consultPersonVisitorId: n.consultPersonVisitorId || '',
@@ -326,8 +342,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
 
   return {
     notifications,
-    dlightConsultCount: dlightConsultNotifications.filter((n) => !dismissedIds.has(n.id) && !optimisticHiddenIds.has(n.id)).length,
-    consultResponseCount: consultResponseNotifications.filter((n) => !dismissedIds.has(n.id) && !optimisticHiddenIds.has(n.id)).length,
+    dlightConsultCount: dlightConsultNotifications.filter((n) => !isHidden(n)).length,
+    consultResponseCount: consultResponseNotifications.filter((n) => !isHidden(n)).length,
     handleNotifAction,
     dismissNotification,
     addNotificationToTodo,

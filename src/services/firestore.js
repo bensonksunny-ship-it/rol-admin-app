@@ -5138,9 +5138,13 @@ export function subscribeToSpOfficePrograms(onChange, onError) {
 }
 
 export async function setSpOfficeProgramList(list, updatedBy) {
-  if (!db) return
+  if (!db) throw new Error('Firestore is not initialised')
+  // Plain trimmed strings only — Firestore rejects `undefined` inside arrays.
+  const clean = (Array.isArray(list) ? list : [])
+    .map((n) => (typeof n === 'string' ? n.trim() : ''))
+    .filter(Boolean)
   await setDoc(doc(db, ...SP_OFFICE_PROGRAMS_DOC), {
-    list,
+    list: clean,
     updatedBy: updatedBy || 'unknown',
     updatedAt: Timestamp.now(),
   }, { merge: true })
