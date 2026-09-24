@@ -92,6 +92,7 @@ function getTabLabel(tab) {
     case 'applications':      return 'Applications'
     case 'directorBoard':     return 'Director Board'
     case 'sundayLeader':      return 'Sunday Leader'
+    case 'dailySchedule':     return 'Daily Schedule'
     default:                  return tab
   }
 }
@@ -140,6 +141,7 @@ function getTabIcon(tab) {
     case 'applications':       return ClipboardList
     case 'directorBoard':      return Users
     case 'sundayLeader':       return Sun
+    case 'dailySchedule':      return CalendarClock
     default:                   return Sparkles
   }
 }

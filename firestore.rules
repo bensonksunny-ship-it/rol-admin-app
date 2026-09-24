@@ -839,6 +839,16 @@ service cloud.firestore {
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
     }
 
+    // SP Office Daily Schedule — one doc per agenda item, keyed by `date` (yyyy-MM-dd).
+    match /sp_office_schedule/{docId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('SP Office'));
+    }
+
+    // SP Office settings (e.g. `programs` — remembered custom Daily Schedule program names).
+    match /sp_office_settings/{docId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('SP Office'));
+    }
+
     // Sunday Plan checklists — weekly instances
     match /sunday_checklist_weekly/{docId} {
       allow read: if isSignedIn();

@@ -5084,6 +5084,69 @@ export async function deleteCellReportFull(row) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SP OFFICE — Daily Schedule (one doc per agenda item, filtered by `date`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SP_OFFICE_SCHEDULE = 'sp_office_schedule'
+
+export function subscribeToSpOfficeSchedule(dateStr, onChange, onError) {
+  if (!db || !dateStr) { onError?.(); return () => {} }
+  return onSnapshot(
+    query(collection(db, SP_OFFICE_SCHEDULE), where('date', '==', dateStr)),
+    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    (err) => { console.error('subscribeToSpOfficeSchedule:', err); onError?.(err) }
+  )
+}
+
+export async function addSpOfficeScheduleItem(data, createdBy) {
+  if (!db) return null
+  const ref = await addDoc(collection(db, SP_OFFICE_SCHEDULE), {
+    ...data,
+    done: false,
+    createdBy: createdBy || 'unknown',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+export async function updateSpOfficeScheduleItem(id, data, updatedBy) {
+  if (!db || !id) return
+  await updateDoc(doc(db, SP_OFFICE_SCHEDULE, id), {
+    ...data,
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  })
+}
+
+export async function deleteSpOfficeScheduleItem(id) {
+  if (!db || !id) return
+  await deleteDoc(doc(db, SP_OFFICE_SCHEDULE, id))
+}
+
+// Regular programs offered in the Daily Schedule combobox. `list` is the full,
+// user-managed list; until it's first saved the client falls back to its built-in
+// defaults (plus any legacy `names` remembered before the list was manageable).
+const SP_OFFICE_PROGRAMS_DOC = ['sp_office_settings', 'programs']
+
+export function subscribeToSpOfficePrograms(onChange, onError) {
+  if (!db) { onError?.(); return () => {} }
+  return onSnapshot(
+    doc(db, ...SP_OFFICE_PROGRAMS_DOC),
+    (snap) => onChange(snap.exists() ? snap.data() : {}),
+    (err) => { console.error('subscribeToSpOfficePrograms:', err); onError?.(err) }
+  )
+}
+
+export async function setSpOfficeProgramList(list, updatedBy) {
+  if (!db) return
+  await setDoc(doc(db, ...SP_OFFICE_PROGRAMS_DOC), {
+    list,
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: Timestamp.now(),
+  }, { merge: true })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SEC-CORE — Director Board & Sunday Leader
 // ─────────────────────────────────────────────────────────────────────────────
 

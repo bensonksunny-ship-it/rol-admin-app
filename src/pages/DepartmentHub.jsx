@@ -167,6 +167,7 @@ import FinanceTabBar from '../components/finance/FinanceTabBar'
 import OperationsTabBar from '../components/OperationsTabBar'
 import { getOperationsChildren } from '../utils/departmentSubpages'
 import SecCoreFinance from './seccore/SecCoreFinance'
+import DailySchedule from './spoffice/DailySchedule'
 import ExpensePage from './accounts/ExpensePage'
 import IncomePage from './accounts/IncomePage'
 import TallyPage from './accounts/TallyPage'
@@ -3616,6 +3617,10 @@ export default function DepartmentHub() {
 
           {activeTab === 'sundayLeader' && slug === 'sec-core' && (
             <SundayLeaderTab canEdit={canEdit} userProfile={userProfile} />
+          )}
+
+          {activeTab === 'dailySchedule' && slug === 'sp-office' && (
+            <DailySchedule canEdit={canEdit} userProfile={userProfile} />
           )}
 
           {activeTab === 'members' && slug === 'caring' && (

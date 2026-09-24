@@ -69,6 +69,44 @@ function normalizeExcelDate(val) {
   return ''
 }
 
+// Reverse of nextSlNo: recovers the opening date and running number from an SL
+// No. The day is un-padded, so try both 1- and 2-digit splits and keep the one
+// that yields a real date. Returns null for hand-typed / legacy SL numbers.
+function parseSlNo(slNo) {
+  const s = String(slNo || '').trim()
+  if (!/^\d{9,}$/.test(s)) return null
+  for (const dayLen of [1, 2]) {
+    const day = Number(s.slice(0, dayLen))
+    const month = Number(s.slice(dayLen, dayLen + 2))
+    const year = Number(s.slice(dayLen + 2, dayLen + 6))
+    const running = s.slice(dayLen + 6)
+    if (running.length < 3 || day < 1 || day > 31 || month < 1 || month > 12 || year < 1990 || year > 2100) continue
+    const date = new Date(year, month - 1, day)
+    if (date.getMonth() !== month - 1) continue
+    return { date, running: Number(running) }
+  }
+  return null
+}
+
+function createdAtDate(f) {
+  const d = f.createdAt?.toDate?.()
+  return d && !Number.isNaN(d.getTime()) ? d : null
+}
+
+// Opening date for "oldest" ordering. SL No wins over createdAt because Excel
+// imports all land with the same createdAt, while their SL numbers still carry
+// the original ledger dates.
+function openedOn(f) {
+  return parseSlNo(f.slNo)?.date || createdAtDate(f)
+}
+
+function compareOldestFirst(a, b) {
+  const da = openedOn(a)?.getTime() ?? Infinity
+  const db = openedOn(b)?.getTime() ?? Infinity
+  if (da !== db) return da - db
+  return (parseSlNo(a.slNo)?.running ?? Infinity) - (parseSlNo(b.slNo)?.running ?? Infinity)
+}
+
 function normalizeRemarks(val) {
   const s = String(val || '').trim().toLowerCase()
   const match = REMARKS_OPTIONS.find((r) => r.toLowerCase() === s)
@@ -130,6 +168,19 @@ export default function FileManager() {
       return true
     })
   }, [files, search, remarksFilter])
+
+  // Summary cards count the whole registry, not the search/filter view below.
+  // Missing remarks render as "Active" in the table, so count them that way too.
+  const summary = useMemo(() => {
+    const status = (f) => f.remarks || 'Active'
+    const active = files.filter((f) => status(f) === 'Active')
+    return {
+      total: files.length,
+      completed: files.filter((f) => status(f) === 'Project Completed').length,
+      pending: active.length,
+      oldestOpen: [...active].sort(compareOldestFirst)[0] || null,
+    }
+  }, [files])
 
   function openCreate() {
     setFileModal({ slNo: nextSlNo(files), fileName: '', remarks: 'Active', closingDate: '' })
@@ -233,6 +284,49 @@ export default function FileManager() {
         <div className="flex items-center justify-between gap-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
           <span>{pageError}</span>
           <button type="button" onClick={() => setPageError('')} className="text-red-400 hover:text-red-600 font-semibold">✕</button>
+        </div>
+      )}
+
+      {!loading && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Total Projects', value: summary.total, filter: 'all', accent: 'text-slate-800', ring: 'ring-slate-300' },
+            { label: 'Completed', value: summary.completed, filter: 'Project Completed', accent: 'text-emerald-600', ring: 'ring-emerald-300' },
+            { label: 'Pending / Active', value: summary.pending, filter: 'Active', accent: 'text-indigo-600', ring: 'ring-indigo-300' },
+          ].map((c) => (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() => setRemarksFilter(c.filter)}
+              className={`text-left bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 hover:bg-slate-50 transition-colors ${remarksFilter === c.filter ? `ring-2 ${c.ring}` : ''}`}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{c.label}</p>
+              <p className={`text-2xl font-black ${c.accent}`}>{c.value}</p>
+            </button>
+          ))}
+          <button
+            type="button"
+            disabled={!summary.oldestOpen}
+            onClick={() => summary.oldestOpen && setDetailFileId(summary.oldestOpen.id)}
+            className="col-span-2 lg:col-span-1 text-left bg-white rounded-xl border border-amber-200 shadow-sm px-4 py-3 hover:bg-amber-50/40 disabled:hover:bg-white transition-colors min-w-0"
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Oldest Unclosed File</p>
+            {summary.oldestOpen ? (
+              <>
+                <p className="text-sm font-bold text-slate-800 truncate" title={summary.oldestOpen.fileName}>
+                  {summary.oldestOpen.fileName || '—'}
+                </p>
+                <p className="text-xs text-slate-500 truncate">
+                  {openedOn(summary.oldestOpen)
+                    ? `Opened ${formatDisplayDate(openedOn(summary.oldestOpen))}`
+                    : 'Opening date unknown'}
+                  {summary.oldestOpen.slNo && <> · <span className="font-mono">SL {summary.oldestOpen.slNo}</span></>}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-slate-400 mt-1">No open files</p>
+            )}
+          </button>
         </div>
       )}
 
