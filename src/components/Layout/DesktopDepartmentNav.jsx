@@ -1,8 +1,8 @@
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { Home, PenLine } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { getDepartmentByName, getDepartmentPath, getDepartmentIcon, displayDeptName } from '../../constants/departments'
-import { getDepartmentSubpages, myDepartmentNames } from '../../utils/departmentSubpages'
+import { getDepartmentByName, getDepartmentIcon, displayDeptName } from '../../constants/departments'
+import { getDepartmentSubpages, myDepartmentNames, getDepartmentNavPath } from '../../utils/departmentSubpages'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
 import { TILE_STYLES } from '../../constants/tileStyles'
 
@@ -24,7 +24,7 @@ export default function DesktopDepartmentNav() {
     return {
       key: name,
       label: displayDeptName(name),
-      to: getDepartmentPath(name),
+      to: getDepartmentNavPath(name, userProfile),
       Icon: getDepartmentIcon(name),
       subpages: dept ? getDepartmentSubpages(dept.slug, userProfile) : [],
     }

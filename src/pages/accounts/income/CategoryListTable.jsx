@@ -1,8 +1,8 @@
-import { Check, ClipboardPaste, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Check, Pencil, Plus, Trash2 } from 'lucide-react'
 import { ACCENT_STYLES, fmtDate, sumAmount, toDate } from './incomeCategorize'
 import InlineEntryForm from './InlineEntryForm'
 import RowActionsMenu from './RowActionsMenu'
-import SectionSaveBar from './SectionSaveBar'
+import SectionSaveBar, { SectionHeaderSave } from './SectionSaveBar'
 
 const cellInputClass = 'w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 shadow-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 disabled:opacity-50'
 
@@ -15,7 +15,7 @@ export default function CategoryListTable({
   editMode,
   onToggleEdit,
   onAddNew,
-  onPasteClick,
+  onPaste,
   isAdding,
   editingId,
   categoryOptions,
@@ -38,6 +38,7 @@ export default function CategoryListTable({
   onDraftChange,
   dirtyCount = 0,
   sectionSaving = false,
+  justSaved = false,
   onSaveSection,
   onCancelSection,
 }) {
@@ -54,11 +55,22 @@ export default function CategoryListTable({
         <span className={`w-2 h-2 rounded-full ${styles.dot} shrink-0`} />
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-700 truncate">{title}</h3>
-          <p className="text-xs text-slate-400">{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</p>
+          <p className="text-xs text-slate-400">
+            {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+            <span className="hidden group-focus-within/paste:inline text-[10px] font-medium text-indigo-500 ml-1.5">Ctrl+V to paste from Excel</span>
+          </p>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
         <p className={`text-sm font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</p>
+        <SectionHeaderSave
+          title={title}
+          editMode={bulkEdit}
+          dirtyCount={dirtyCount}
+          saving={sectionSaving}
+          justSaved={justSaved}
+          onSave={onSaveSection}
+        />
         <button
           type="button"
           onClick={onAddNew}
@@ -66,15 +78,6 @@ export default function CategoryListTable({
           className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors"
         >
           <Plus size={14} />
-        </button>
-        <button
-          type="button"
-          onClick={onPasteClick}
-          aria-label="Paste from Excel"
-          title="Paste from Excel"
-          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-700 transition-colors"
-        >
-          <ClipboardPaste size={14} />
         </button>
         <button
           type="button"
@@ -277,9 +280,13 @@ export default function CategoryListTable({
 
   return (
     <>
+      {/* Focusable so a click anywhere in the card followed by Ctrl+V pastes Excel rows into it. */}
       <div
+        tabIndex={-1}
+        onPaste={onPaste}
         onClick={onToggleExpand}
-        className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col cursor-pointer`}
+        title="Click the table and press Ctrl+V to paste rows from Excel"
+        className={`group/paste bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col cursor-pointer outline-none ${dirtyCount > 0 ? 'ring-2 ring-amber-300' : 'focus-within:ring-2 focus-within:ring-indigo-300'}`}
       >
         {header}
         {renderBody(5)}
@@ -291,7 +298,9 @@ export default function CategoryListTable({
           onClick={onToggleExpand}
         >
           <div
-            className={`bg-white rounded-2xl border-t-4 ${styles.accentBorder} shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden`}
+            tabIndex={-1}
+            onPaste={onPaste}
+            className={`group/paste bg-white rounded-2xl border-t-4 ${styles.accentBorder} shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden outline-none`}
             onClick={e => e.stopPropagation()}
           >
             {header}

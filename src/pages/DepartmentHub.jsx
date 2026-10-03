@@ -146,6 +146,7 @@ import { ROLES } from '../constants/roles'
 import { SAVINGS_FUNDS } from '../constants/savingsFunds'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
+import { isPreServiceLeaderInPositions } from '../utils/sundayMinistryAccess'
 import { differenceInDays, differenceInCalendarDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate, formatTimestampFull, formatRelativeTime } from '../utils/date'
 import useSeniorPastor from '../hooks/useSeniorPastor'
@@ -2585,6 +2586,9 @@ export default function DepartmentHub() {
   const isAccountsEntryPassthrough = slug === 'accounts' && canAccessAccountsEntry(userProfile, hasPermission, isFounder)
   // Sunday Ministry: only the director (Founder / Senior Pastor included as super admins)
   if (slug === 'sunday-ministry' && !isSundayMinistryDirector) {
+    // Pre-Service Leaders (bookmark, old link, Departments list) land on the
+    // one Sunday Ministry page they can use instead of a dead end.
+    if (isPreServiceLeaderInPositions(userProfile)) return <Navigate to="/department/sunday-ministry/assign" replace />
     return (
       <div className="p-6 text-slate-600">
         <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>

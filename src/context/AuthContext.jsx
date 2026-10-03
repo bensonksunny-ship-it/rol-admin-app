@@ -1,10 +1,10 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
 } from 'firebase/auth'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore'
 import { auth, db, functions, httpsCallable } from '../lib/firebase'
 import { ROLES, ROLE_PERMISSIONS, deriveRoleFromPositions, deriveDepartmentsFromPositions } from '../constants/roles'
 import { getDepartmentBySlug } from '../constants/departments'
@@ -13,9 +13,51 @@ import { upsertUserDirectoryEntry, syncAllUsersToDirectory } from '../services/f
 
 const AuthContext = createContext(null)
 
+// users/{uid} doc → the enriched profile the app reads. Shared by the login-time
+// read and the live profile listener so both derive departments/role identically.
+function mergeUserProfile(data, tokenGlobalRole) {
+  // A `positions` field that exists (even as `[]`, e.g. an admin removed someone's
+  // last remaining position) means this account is managed through the positions
+  // system, and positions[] is the single source of truth for departments[] —
+  // AdminUserManagement's deriveDepartmentsFromPositions already treats it that way
+  // on every admin edit. Only a genuinely legacy account with no positions field at
+  // all falls back to whatever's already stored in departments[]/department, since
+  // there's nothing to reconcile against there.
+  const hasPositionsField = Array.isArray(data.positions)
+  const derivedFromPositions = deriveDepartmentsFromPositions(hasPositionsField ? data.positions : [])
+
+  // Reconciled both ways — newly granted departments AND revoked ones dropped.
+  // Previously this only ever unioned in new departments and never removed one a
+  // position was taken off of (or all positions removed), so a department a user
+  // was reassigned away from kept leaking its tasks/notifications into their To-Do
+  // list indefinitely (see ToDoListCard.jsx's department-scoped task subscription).
+  const legacyDepartments = Array.isArray(data.departments) && data.departments.length
+    ? data.departments
+    : (data.department ? [data.department] : [])
+  const reconciledDepartments = hasPositionsField ? derivedFromPositions : legacyDepartments
+
+  const merged = {
+    ...data,
+    departments: reconciledDepartments,
+    department: hasPositionsField ? (reconciledDepartments[0] || '') : data.department,
+    // If claim says Founder but Firestore isn't updated yet, treat as Founder in UI immediately.
+    globalRole: tokenGlobalRole === 'FOUNDER' ? 'FOUNDER' : (data.globalRole || null),
+  }
+
+  // Ensure `role` exists for permission checks (some legacy users may lack it).
+  // Derive permissions from positions[] when missing/empty.
+  if (!merged.role) {
+    merged.role = deriveRoleFromPositions(Array.isArray(merged.positions) ? merged.positions : [])
+  }
+  return merged
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [userProfile, setUserProfile] = useState(null)
+  // Last custom-claim globalRole read at login — reused by the live profile
+  // listener so a profile update doesn't drop a claim-only Founder.
+  const tokenGlobalRoleRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [bootstrappedFounder, setBootstrappedFounder] = useState(false)
   const [syncedDepartments, setSyncedDepartments] = useState(false)
@@ -48,30 +90,8 @@ export function AuthProvider({ children }) {
           // there's nothing to reconcile against there.
           const hasPositionsField = Array.isArray(data.positions)
           const derivedFromPositions = deriveDepartmentsFromPositions(hasPositionsField ? data.positions : [])
-
-          // Reconciled both ways — newly granted departments AND revoked ones dropped.
-          // Previously this only ever unioned in new departments and never removed one a
-          // position was taken off of (or all positions removed), so a department a user
-          // was reassigned away from kept leaking its tasks/notifications into their To-Do
-          // list indefinitely (see ToDoListCard.jsx's department-scoped task subscription).
-          const legacyDepartments = Array.isArray(data.departments) && data.departments.length
-            ? data.departments
-            : (data.department ? [data.department] : [])
-          const reconciledDepartments = hasPositionsField ? derivedFromPositions : legacyDepartments
-
-          const merged = {
-            ...data,
-            departments: reconciledDepartments,
-            department: hasPositionsField ? (reconciledDepartments[0] || '') : data.department,
-            // If claim says Founder but Firestore isn't updated yet, treat as Founder in UI immediately.
-            globalRole: tokenGlobalRole === 'FOUNDER' ? 'FOUNDER' : (data.globalRole || null),
-          }
-
-          // Ensure `role` exists for permission checks (some legacy users may lack it).
-          // Derive permissions from positions[] when missing/empty.
-          if (!merged.role) {
-            merged.role = deriveRoleFromPositions(Array.isArray(merged.positions) ? merged.positions : [])
-          }
+          tokenGlobalRoleRef.current = tokenGlobalRole
+          const merged = mergeUserProfile(data, tokenGlobalRole)
           setUserProfile(merged)
 
           // Best-effort: reconcile the stored departments[]/department with positions[] —
@@ -133,6 +153,7 @@ export function AuthProvider({ children }) {
             try {
               const setGlobalRole = httpsCallable(functions, 'setGlobalRole')
               await setGlobalRole({ uid: firebaseUser.uid, globalRole: 'FOUNDER' })
+              tokenGlobalRoleRef.current = 'FOUNDER'
               // Refresh token + profile to reflect claim/Firestore changes
               await firebaseUser.getIdToken(true)
               const snap2 = await getDoc(profileRef)
@@ -160,6 +181,24 @@ export function AuthProvider({ children }) {
     })
     return () => unsub()
   }, [bootstrappedFounder, syncedDepartments, syncedDirectory, syncedFullDirectory])
+
+  // Live profile: positions/departments an admin changes mid-session (e.g. a new
+  // Pre-Service Leader position) re-hydrate userProfile — and with it the nav,
+  // access checks and tabs — without the user having to sign out or reload.
+  // The login-time read above stays the source for the one-off sync side effects.
+  const uid = user?.uid
+  useEffect(() => {
+    if (!uid) return
+    const unsub = onSnapshot(
+      doc(db, 'users', uid),
+      (snap) => {
+        if (!snap.exists()) return
+        setUserProfile(mergeUserProfile({ id: snap.id, ...snap.data() }, tokenGlobalRoleRef.current))
+      },
+      (e) => console.warn('Live profile listener failed:', e)
+    )
+    return unsub
+  }, [uid])
 
   const signIn = (email, password) =>
     signInWithEmailAndPassword(auth, email, password)

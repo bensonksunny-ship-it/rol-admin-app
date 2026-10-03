@@ -52,10 +52,24 @@ function parseExcelSerial(raw) {
   return format(d, 'yyyy-MM-dd')
 }
 
+// Strict: a bare number is only ever an Excel serial, never fed to the generic
+// parser (which would happily read an amount like "12500" as the year 12500), and
+// anything outside 1990–2100 is rejected as a misread.
 export function parsePastedDate(raw) {
   const t = String(raw || '').trim()
   if (!t) return ''
-  return parseExcelSerial(t) || parseFlexibleDate(t)
+  if (/^\d+(\.\d+)?$/.test(t)) return parseExcelSerial(t)
+  const iso = parseFlexibleDate(t)
+  if (!iso) return ''
+  const y = Number(iso.slice(0, 4))
+  return y >= 1990 && y <= 2100 ? iso : ''
+}
+
+// A cell that is unambiguously a date (not a bare number that might be a serial
+// or an amount) — used to tell "rows with their own dates" from "a column of amounts".
+function looksLikeDate(cell) {
+  const t = String(cell || '').trim()
+  return !!t && !/^\d+(\.\d+)?$/.test(t) && !!parsePastedDate(t)
 }
 
 // Returns { amount, error } — blank cells are amount 0 with no error; text that
@@ -89,16 +103,23 @@ function entryKey(iso, category, amount, name) {
  *   category: string — category applied to every row of a list table
  *   activeMonth: Date — the month being viewed
  *   existing: entries already loaded for this month (for duplicate detection)
+ *   anchor: (offering only) { dates: [iso…], date: iso, colIdx } — the date row and
+ *     column the paste landed on. Used only when the pasted rows carry no dates of
+ *     their own (e.g. a column of amounts copied from Excel): line N then fills the
+ *     Nth date row from there, starting at that column — like the Expense grid.
  * @returns {{ rows: Array, headerDetected: boolean }}
  *   Each row: { key, line, iso, rawDate, name, towards, category, amount, status, message }
  *   status: 'ok' | 'outOfMonth' | 'duplicate' | 'invalid'
  */
-export function parseIncomePaste(text, { kind, towards = false, category, activeMonth, existing = [] }) {
+export function parseIncomePaste(text, { kind, towards = false, category, activeMonth, existing = [], anchor = null }) {
   const lines = splitLines(text)
   if (!lines.length) return { rows: [], headerDetected: false }
 
   const header = detectHeader(splitPastedRow(lines[0]))
   const bodyLines = header ? lines.slice(1) : lines
+  const anchorStart = anchor ? anchor.dates.indexOf(anchor.date) : -1
+  const anchored = kind === 'offering' && !header && anchorStart !== -1
+    && !bodyLines.some(l => splitPastedRow(l).some(looksLikeDate))
 
   const existingKeys = new Set(existing.map(e => {
     const d = toDate(e.date)
@@ -113,13 +134,21 @@ export function parseIncomePaste(text, { kind, towards = false, category, active
 
     if (kind === 'offering') {
       let rawDate, values
-      if (header) {
+      if (anchored) {
+        rawDate = anchor.dates[anchorStart + lineIdx] ?? ''
+        values = OFFERING_PASTE_COLUMNS.map((_, i) => (i >= anchor.colIdx ? cells[i - anchor.colIdx] ?? '' : ''))
+        if (!rawDate) {
+          rows.push(buildRow({ key: `${lineIdx}-x`, line: lineNo, iso: '', rawDate: '', name: '', towards: '', category: '', amount: 0, amountError: '' , noDateMsg: 'No more date rows in this month' }))
+          return
+        }
+      } else if (header) {
         rawDate = cells[header.date] ?? ''
         values = OFFERING_PASTE_COLUMNS.map(c => (header[c.field] != null ? cells[header[c.field]] ?? '' : ''))
       } else {
         // Positional: Date, English, Tamil, Online (blanks kept — a blank Tamil
         // cell means "no Tamil offering", not "shift Online left").
-        const dateIdx = cells.findIndex(c => parsePastedDate(c))
+        const firstFilled = cells.findIndex(c => c !== '')
+        const dateIdx = firstFilled !== -1 && parsePastedDate(cells[firstFilled]) ? firstFilled : cells.findIndex(looksLikeDate)
         const start = dateIdx === -1 ? 0 : dateIdx
         rawDate = cells[start] ?? ''
         values = OFFERING_PASTE_COLUMNS.map((_, i) => cells[start + 1 + i] ?? '')
@@ -178,11 +207,11 @@ export function parseIncomePaste(text, { kind, towards = false, category, active
     }))
   })
 
-  function buildRow({ key, line, iso, rawDate, name, towards: tw, category: cat, amount, amountError }) {
+  function buildRow({ key, line, iso, rawDate, name, towards: tw, category: cat, amount, amountError, noDateMsg }) {
     const row = { key, line, iso, rawDate, name: String(name || '').trim(), towards: String(tw || '').trim(), category: cat, amount, status: 'ok', message: '' }
     if (!iso) {
       row.status = 'invalid'
-      row.message = rawDate ? `Can't read date "${rawDate}"` : 'Missing date'
+      row.message = noDateMsg || (rawDate ? `Can't read date "${rawDate}"` : 'Missing date')
       return row
     }
     if (amountError) {
@@ -208,5 +237,5 @@ export function parseIncomePaste(text, { kind, towards = false, category, active
     return row
   }
 
-  return { rows, headerDetected: !!header }
+  return { rows, headerDetected: !!header, anchored }
 }

@@ -5,7 +5,7 @@ const labelClass = 'text-[10px] font-semibold uppercase tracking-wider text-slat
 
 export default function InlineEntryForm({ categoryOptions, showTowards, form, onChange, onSave, onCancel, saving, formError }) {
   return (
-    <div className="p-4 bg-gradient-to-br from-indigo-50/70 to-white border-b border-indigo-100">
+    <div data-native-undo className="p-4 bg-gradient-to-br from-indigo-50/70 to-white border-b border-indigo-100">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="flex flex-col gap-1">
           <label className={labelClass}>Date</label>

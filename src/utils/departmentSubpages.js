@@ -6,10 +6,31 @@ import {
   CreditCard, Banknote, Building2, Landmark, Calculator,
 } from 'lucide-react'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
-import { DEPARTMENT_LIST } from '../constants/departments'
+import { DEPARTMENT_LIST, getDepartmentPath } from '../constants/departments'
 import { visibleCellTabs } from './cellTabVisibility'
 import { getAllowedWorshipTabs, shouldBypassWorshipGrid, hasFullWorshipAccess } from './worshipAccess'
 import { hasAccess } from './access'
+import { isPreServiceLeaderInPositions } from './sundayMinistryAccess'
+
+const SUNDAY_MINISTRY_PRE_SERVICE_PATH = '/department/sunday-ministry/assign'
+
+function isSundayMinistryName(name) {
+  return String(name || '').trim().toLowerCase().replace(/-/g, ' ') === 'sunday ministry'
+}
+
+/** Pre-Service Leader with no head-tier Sunday Ministry position: their only
+ *  Sunday Ministry destination is the Pre-Service page (SundayCrew.jsx), since
+ *  the hub at /department/sunday-ministry is Director-only. */
+export function isSundayMinistryPreServiceOnly(userProfile) {
+  return isPreServiceLeaderInPositions(userProfile) && !hasAccess(userProfile, 'Sunday Ministry')
+}
+
+/** Where a department's nav tile links — getDepartmentPath, except Sunday
+ *  Ministry for a Pre-Service-only user, which goes straight to Pre-Service. */
+export function getDepartmentNavPath(name, userProfile) {
+  if (isSundayMinistryName(name) && isSundayMinistryPreServiceOnly(userProfile)) return SUNDAY_MINISTRY_PRE_SERVICE_PATH
+  return getDepartmentPath(name)
+}
 
 /**
  * Single source of truth for "what are this department's subpages, and where do they
@@ -45,6 +66,10 @@ export function myDepartmentNames(userProfile, isFounder) {
     // holds Director - Worship (or a Global/System Admin), not the generic Director-
     // or-Coordinator tier `hasAccess` grants every other department below.
     if (String(n).trim().toLowerCase() === 'worship') return hasFullWorshipAccess(userProfile)
+    // Pre-Service Leader isn't a Director/Coordinator-tier position, so hasAccess
+    // alone hid Sunday Ministry from them entirely — even though Pre-Service is
+    // theirs to run (tile links straight there; see getDepartmentNavPath).
+    if (isSundayMinistryName(n) && isPreServiceLeaderInPositions(userProfile)) return true
     return hasAccess(userProfile, n)
   })
 }
@@ -208,6 +233,9 @@ export function getDepartmentSubpages(slug, userProfile) {
   // generic tabbed hub — no subpages grid, so the dock/desktop nav tile navigates
   // straight there (same "no drill-down" treatment Worship Leader/Member get below).
   if (slug === 'first-lady') return []
+  // Pre-Service-only users: the Sunday Ministry tile goes straight to Pre-Service
+  // (getDepartmentNavPath) — every other Sunday Ministry tab is Director-only.
+  if (slug === 'sunday-ministry' && isSundayMinistryPreServiceOnly(userProfile)) return []
   const allTabs = getDepartmentHubTabs(slug)
   const tabs = slug === 'cell'
     ? visibleCellTabs(userProfile).filter((t) => allTabs.includes(t))

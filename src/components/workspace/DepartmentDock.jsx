@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { PenLine, LayoutGrid } from 'lucide-react'
+import { PenLine, LayoutGrid, Home } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { getDepartmentByName, getDepartmentPath, getDepartmentIcon } from '../../constants/departments'
+import { getDepartmentByName, getDepartmentIcon } from '../../constants/departments'
 import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
-import { getDepartmentSubpages, myDepartmentNames } from '../../utils/departmentSubpages'
+import { getDepartmentSubpages, myDepartmentNames, getDepartmentNavPath } from '../../utils/departmentSubpages'
 import DepartmentFolderModal from '../DepartmentFolderModal'
 
 function displayDeptName(deptName) {
@@ -43,7 +43,7 @@ export default function DepartmentDock() {
     return {
       key: name,
       label: displayDeptName(name),
-      to: getDepartmentPath(name),
+      to: getDepartmentNavPath(name, userProfile),
       Icon: getDepartmentIcon(name),
       subpages: dept ? getDepartmentSubpages(dept.slug, userProfile) : [],
     }
@@ -53,12 +53,15 @@ export default function DepartmentDock() {
     tiles.push({ key: 'weekly-entry', label: 'Weekly Entry', to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, Icon: PenLine, subpages: [] })
   }
 
-  if (tiles.length === 0) return null
+  // My Workspace leads the menu, same as DesktopDepartmentNav's first tile — so the
+  // launcher renders for every signed-in user (not only those with department
+  // tiles) and mobile/desktop nav carry the same entries regardless of role.
+  const workspaceTile = { key: 'workspace', label: 'My Workspace', to: '/', Icon: Home, subpages: [] }
 
   // A tile with no subpages of its own (e.g. Weekly Entry) still gets its own section
   // in the flat menu, synthesized down to a single tile that navigates straight there
   // — so every accessible destination is reachable from this one overlay.
-  const menuDepartments = tiles.map((t) =>
+  const menuDepartments = [workspaceTile, ...tiles].map((t) =>
     t.subpages.length > 0 ? t : { ...t, subpages: [{ key: t.key, label: t.label, to: t.to, Icon: t.Icon }] }
   )
 

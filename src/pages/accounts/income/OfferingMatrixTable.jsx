@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react'
-import { Check, ClipboardPaste, Pencil, Trash2 } from 'lucide-react'
+import { Check, Pencil, Trash2 } from 'lucide-react'
 import { ACCENT_STYLES, fmtDate, matchesCategory, sumAmount, toDate } from './incomeCategorize'
-import SectionSaveBar from './SectionSaveBar'
+import SectionSaveBar, { SectionHeaderSave } from './SectionSaveBar'
 
 const styles = ACCENT_STYLES.emerald
 
@@ -39,6 +39,7 @@ function CellAmountInput({ value, onChange, onCommit, onCancel, saving }) {
         min="0"
         step="any"
         autoFocus
+        data-native-undo
         disabled={saving}
         value={value}
         placeholder="0"
@@ -83,7 +84,7 @@ export default function OfferingMatrixTable({
   activeMonth,
   editMode,
   onToggleEdit,
-  onPasteClick,
+  onPaste,
   addingCell,
   onAddCell,
   editingId,
@@ -102,6 +103,7 @@ export default function OfferingMatrixTable({
   onDraftChange,
   dirtyCount = 0,
   sectionSaving = false,
+  justSaved = false,
   onSaveSection,
   onCancelSection,
 }) {
@@ -240,23 +242,41 @@ export default function OfferingMatrixTable({
     )
   }
 
+  // Click anywhere in the card (or focus a cell) and Ctrl+V — the container is
+  // focusable so it receives the paste. The nearest cell's date row + column are
+  // passed along so an amounts-only paste fills the rows from that cell down.
+  function handlePaste(e) {
+    if (!onPaste) return
+    const cell = e.target.closest?.('[data-paste-date]')
+    onPaste(e, {
+      dates,
+      date: cell?.dataset.pasteDate ?? dates[0],
+      colIdx: cell ? Number(cell.dataset.pasteCol) : 0,
+    })
+  }
+
   return (
-    <div className={`bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm overflow-hidden`}>
+    <div
+      tabIndex={-1}
+      onPaste={handlePaste}
+      title="Click the table and press Ctrl+V to paste rows from Excel"
+      className={`group/paste bg-white rounded-2xl border border-slate-200 border-t-4 ${styles.accentBorder} shadow-sm overflow-hidden outline-none ${dirtyCount > 0 ? 'ring-2 ring-amber-300' : 'focus-within:ring-2 focus-within:ring-indigo-300'}`}
+    >
       <div className={`px-5 py-3 border-b border-slate-100 ${styles.header} flex items-center justify-between gap-2`}>
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${styles.dot} shrink-0`} />
           <h3 className="text-sm font-semibold text-slate-700">Offering</h3>
+          <span className="hidden group-focus-within/paste:inline text-[10px] font-medium text-indigo-500 ">Ctrl+V to paste from Excel</span>
         </div>
-        <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onPasteClick}
-          aria-label="Paste from Excel"
-          title="Paste from Excel"
-          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-700 transition-colors"
-        >
-          <ClipboardPaste size={14} />
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+        <SectionHeaderSave
+          title="Offering"
+          editMode={bulkEdit}
+          dirtyCount={dirtyCount}
+          saving={sectionSaving}
+          justSaved={justSaved}
+          onSave={onSaveSection}
+        />
         <button
           type="button"
           onClick={onToggleEdit}
@@ -293,7 +313,7 @@ export default function OfferingMatrixTable({
                     {COLUMNS.map(col => {
                       const colEntries = dayEntries.filter(e => matchesCategory(e, col.key))
                       return (
-                        <td key={col.key} className="px-5 py-3 text-right">
+                        <td key={col.key} data-paste-date={iso} data-paste-col={COLUMNS.indexOf(col)} className="px-5 py-3 text-right">
                           {renderCell(iso, colEntries, col.key, col.label)}
                         </td>
                       )

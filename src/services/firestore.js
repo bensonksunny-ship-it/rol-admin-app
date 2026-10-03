@@ -1563,6 +1563,16 @@ export async function deleteFinanceIncome(id) {
   await deleteDoc(doc(db, 'finance_income', id))
 }
 
+/** Removes exactly the given income entries (used to undo an Income-tab paste). */
+export async function deleteFinanceIncomeMany(ids) {
+  if (!db || !Array.isArray(ids) || !ids.length) return
+  for (let i = 0; i < ids.length; i += 450) {
+    const batch = writeBatch(db)
+    ids.slice(i, i + 450).forEach((id) => batch.delete(doc(db, 'finance_income', id)))
+    await batch.commit()
+  }
+}
+
 /** One Income card's "Save": writes only the changed fields of the changed
  *  entries in that card, atomically. updates = [{ id, data: { date?, amount?,
  *  giverName?, towards?, category? } }] — omitted fields are left untouched. */
