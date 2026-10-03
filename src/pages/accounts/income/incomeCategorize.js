@@ -91,6 +91,19 @@ export function categorizeEntries(entries) {
   }
 }
 
+// Amount input text → number. A cleared field ('' / spaces) means 0, not
+// "invalid" — so emptying a cell saves 0 instead of being rejected or reverted.
+// Anything non-numeric (e.g. a lone '-') stays NaN for validation to catch.
+export function parseAmountInput(value) {
+  const s = String(value ?? '').trim()
+  return s === '' ? 0 : Number(s)
+}
+
+export function isValidAmountInput(value) {
+  const n = parseAmountInput(value)
+  return Number.isFinite(n) && n >= 0
+}
+
 export function sumAmount(entries) {
   return entries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 }

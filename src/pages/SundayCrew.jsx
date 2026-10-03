@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { format, addWeeks } from 'date-fns'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { isPreServiceLeaderInPositions } from '../utils/sundayMinistryAccess'
 import MemberPicker from '../components/MemberPicker'
+import { ImageDown } from 'lucide-react'
+import { shareNodeAsImage } from '../utils/shareImage'
 import {
   getSundayPreServiceEntry,
   setSundayPreServiceMonth,
@@ -54,6 +56,120 @@ function saveErrorMessage(e, what) {
 
 function Spinner() {
   return <span className="inline-block w-3.5 h-3.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+}
+
+// ── Copy-as-image (WhatsApp sharing) ─────────────────────────────────────────
+// Off-screen, purpose-built branded render captured by shareNodeAsImage — not
+// the interactive table, so the image has no edit chrome and every colour is
+// inline hex (html2canvas never sees Tailwind classes). Same layout language as
+// D-Light's "Ministry Roster" share card (DepartmentHub.jsx).
+const SHARE_ACCENTS = [
+  { bg: '#eef2ff', line: '#6366f1' },
+  { bg: '#ecfdf5', line: '#10b981' },
+  { bg: '#fffbeb', line: '#f59e0b' },
+  { bg: '#fff1f2', line: '#f43f5e' },
+  { bg: '#f0f9ff', line: '#0ea5e9' },
+  { bg: '#f5f3ff', line: '#8b5cf6' },
+]
+
+// rows: [{ key, label, names: string[], highlight?: boolean }]
+function ScheduleShareCard({ shareRef, title, subtitle, rows, emptyLabel = 'Not assigned' }) {
+  return (
+    <div
+      ref={shareRef}
+      aria-hidden="true"
+      style={{
+        position: 'fixed', top: 0, left: '-99999px', zIndex: -1, width: 520,
+        background: '#ffffff', fontFamily: 'Inter, "Segoe UI", Roboto, Arial, sans-serif',
+      }}
+    >
+      <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 55%, #8b5cf6 100%)', padding: '22px 26px', display: 'flex', alignItems: 'center', gap: 14 }}>
+        <img src="/icons/pwa-192.png" alt="" width={44} height={44} style={{ width: 44, height: 44, borderRadius: 12, background: '#ffffff', flexShrink: 0 }} />
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase' }}>
+            River Of Life · Sunday Ministry
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', marginTop: 4, lineHeight: 1.25 }}>{title}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.92)', marginTop: 3 }}>{subtitle}</div>
+        </div>
+      </div>
+      <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {rows.map((row, i) => {
+          const accent = SHARE_ACCENTS[i % SHARE_ACCENTS.length]
+          return (
+            <div
+              key={row.key}
+              style={{
+                display: 'flex', flexDirection: 'column', gap: 6, padding: '11px 14px', borderRadius: 10,
+                background: accent.bg, borderLeft: `4px solid ${accent.line}`,
+                boxShadow: row.highlight ? `0 0 0 2px ${accent.line}` : 'none',
+              }}
+            >
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: accent.line }}>
+                {row.label}{row.highlight ? '  ·  This Sunday' : ''}
+              </span>
+              {row.names.length === 0 ? (
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#94a3b8', fontStyle: 'italic' }}>{emptyLabel}</span>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {row.names.map((name) => (
+                    <span
+                      key={name}
+                      style={{
+                        fontSize: 13.5, fontWeight: 700, color: '#1e293b', background: '#ffffff',
+                        borderRadius: 8, padding: '4px 10px', border: `1px solid ${accent.line}55`,
+                      }}
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ padding: '2px 22px 18px', textAlign: 'center', fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
+        Generated from ROL Admin App
+      </div>
+    </div>
+  )
+}
+
+// Header icon button: captures `shareRef` and copies it to the clipboard
+// (PNG, paste straight into WhatsApp), else downloads a JPEG.
+function CopyImageButton({ shareRef, filename, showToast, disabled }) {
+  const [busy, setBusy] = useState(false)
+  const handleClick = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const result = await shareNodeAsImage(shareRef.current, filename)
+      showToast(result === 'copied'
+        ? 'Schedule copied as image — paste it into WhatsApp (Ctrl+V)'
+        : 'Schedule downloaded as JPEG — attach it in WhatsApp')
+    } catch (e) {
+      console.error('Failed to export schedule image', e)
+      showToast('Could not create the schedule image. Try again.', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={busy || disabled}
+      title="Copy Schedule Image (or download JPEG)"
+      aria-label="Copy schedule image"
+      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors disabled:opacity-50"
+    >
+      {busy
+        ? <span className="inline-block w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+        : <ImageDown className="w-4 h-4" />}
+      <span className="hidden sm:inline">{busy ? 'Copying…' : 'Copy Image'}</span>
+    </button>
+  )
 }
 
 function SubTabBar({ active, onChange, tabs }) {
@@ -186,6 +302,7 @@ function PreServiceTab({ canEdit, userProfile }) {
     return new Date(d.getFullYear(), d.getMonth(), 1)
   })
   const [toastEl, showToast] = useToast()
+  const preServiceShareRef = useRef(null)
 
   // Speaker options come from the Sunday Ministry team roster (Operations >
   // Team), filtered to active members whose sub-department is "Pre-Service" —
@@ -295,16 +412,39 @@ function PreServiceTab({ canEdit, userProfile }) {
           <h2 className="text-xl font-bold text-slate-800">Pre-Service</h2>
           <p className="text-sm text-slate-500 mt-0.5">Monthly Pre-Service schedule</p>
         </div>
-        {canEdit && !editMode && (
-          <button
-            type="button"
-            onClick={() => setEditMode(true)}
-            className="px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors text-sm font-semibold"
-          >
-            Edit Schedule
-          </button>
+        {!editMode && (
+          <div className="flex items-center gap-2">
+            <CopyImageButton
+              shareRef={preServiceShareRef}
+              filename={`pre-service-schedule-${format(monthCursor, 'yyyy-MM')}`}
+              showToast={showToast}
+              disabled={entriesLoading}
+            />
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setEditMode(true)}
+                className="px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors text-sm font-semibold"
+              >
+                Edit Schedule
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      <ScheduleShareCard
+        shareRef={preServiceShareRef}
+        title="Pre-Service Schedule"
+        subtitle={format(monthCursor, 'MMMM yyyy')}
+        emptyLabel="Speakers not assigned"
+        rows={sundaysInMonth.map((date) => ({
+          key: date,
+          label: format(new Date(date + 'T12:00:00'), 'EEEE, d MMMM'),
+          names: savedEntries[date]?.speakers || [],
+          highlight: date === upcomingSunday,
+        }))}
+      />
 
       {/* Month navigation + Save Month Schedule */}
       <div className="flex items-center justify-between gap-3 bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/80 shadow-sm p-4 flex-wrap">
@@ -448,6 +588,7 @@ function CrewTab({ canEdit, userProfile }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [toastEl, showToast] = useToast()
+  const crewShareRef = useRef(null)
 
   useEffect(() => {
     setTeamLoading(true)
@@ -567,16 +708,33 @@ function CrewTab({ canEdit, userProfile }) {
       <div className="px-4 py-4 border-b border-slate-200 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-semibold text-slate-800">Weekly Crew</h2>
-          {canEdit && !editing && (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors text-sm font-medium"
-            >
-              Edit Plan
-            </button>
+          {!editing && (
+            <div className="flex items-center gap-2">
+              <CopyImageButton
+                shareRef={crewShareRef}
+                filename={`sunday-crew-${assignDate}`}
+                showToast={showToast}
+                disabled={loading || subDepartments.length === 0}
+              />
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors text-sm font-medium"
+                >
+                  Edit Plan
+                </button>
+              )}
+            </div>
           )}
         </div>
+
+        <ScheduleShareCard
+          shareRef={crewShareRef}
+          title="Weekly Crew"
+          subtitle={format(new Date(assignDate + 'T12:00:00'), 'EEEE, d MMMM yyyy')}
+          rows={rows.map((r) => ({ key: r.subDeptId, label: r.role, names: (r.members || []).map((m) => m.name).filter(Boolean) }))}
+        />
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">

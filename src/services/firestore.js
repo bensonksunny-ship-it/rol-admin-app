@@ -1594,6 +1594,52 @@ export async function batchUpdateFinanceIncome(updates) {
   await batch.commit()
 }
 
+/** Income tab spreadsheet grids: one cell edit, paste, row delete or undo,
+ *  written as a single atomic batch (per 450-write chunk).
+ *  ops = { creates: [{ date: 'yyyy-MM-dd', category, amount, giverName, towards }],
+ *          updates: [{ id, data }] (same shape as batchUpdateFinanceIncome),
+ *          deletes: [id] }. Returns the new ids in `creates` order. */
+export async function applyFinanceIncomeOps({ creates = [], updates = [], deletes = [] }) {
+  if (!db) return []
+  const writes = [
+    ...creates.map((data) => ({ kind: 'create', data })),
+    ...updates.map((u) => ({ kind: 'update', ...u })),
+    ...deletes.map((id) => ({ kind: 'delete', id })),
+  ]
+  const ids = []
+  for (let i = 0; i < writes.length; i += 450) {
+    const batch = writeBatch(db)
+    writes.slice(i, i + 450).forEach((w) => {
+      if (w.kind === 'create') {
+        const [y, m, d] = String(w.data.date).split('-').map(Number)
+        const ref = doc(collection(db, 'finance_income'))
+        ids.push(ref.id)
+        batch.set(ref, {
+          ...w.data,
+          date: Timestamp.fromDate(new Date(y, m - 1, d)),
+          amount: Number(w.data.amount) || 0,
+          createdAt: Timestamp.now(),
+        })
+      } else if (w.kind === 'update') {
+        const payload = { updatedAt: Timestamp.now() }
+        if (w.data.date != null) {
+          const [y, m, d] = String(w.data.date).split('-').map(Number)
+          payload.date = Timestamp.fromDate(new Date(y, m - 1, d))
+        }
+        if (w.data.amount != null) payload.amount = Number(w.data.amount) || 0
+        ;['giverName', 'towards', 'category'].forEach((k) => {
+          if (w.data[k] != null) payload[k] = String(w.data[k]).trim()
+        })
+        batch.update(doc(db, 'finance_income', w.id), payload)
+      } else {
+        batch.delete(doc(db, 'finance_income', w.id))
+      }
+    })
+    await batch.commit()
+  }
+  return ids
+}
+
 export async function deleteAllFinanceIncomeForMonth(year, month) {
   if (!db) return
   const start = new Date(year, month, 1)
