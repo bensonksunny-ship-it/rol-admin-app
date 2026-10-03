@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react'
-import { Check, Pencil, Trash2 } from 'lucide-react'
+import { Check, ClipboardPaste, Pencil, Trash2 } from 'lucide-react'
 import { ACCENT_STYLES, fmtDate, matchesCategory, sumAmount, toDate } from './incomeCategorize'
+import SectionSaveBar from './SectionSaveBar'
 
 const styles = ACCENT_STYLES.emerald
 
@@ -54,11 +55,35 @@ function CellAmountInput({ value, onChange, onCommit, onCancel, saving }) {
   )
 }
 
+// Bulk-edit amount field: plain controlled input (no commit-on-blur) — the
+// change is only persisted by the card's Save button.
+function DraftAmountInput({ value, onChange, disabled, dirty }) {
+  return (
+    <div className="relative inline-block w-24">
+      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">₹</span>
+      <input
+        type="number"
+        min="0"
+        step="any"
+        disabled={disabled}
+        value={value}
+        placeholder="0"
+        onChange={e => onChange(e.target.value)}
+        onFocus={e => e.target.select()}
+        className={`w-full rounded-md border bg-white pl-5 pr-2 py-1.5 text-right text-sm font-medium tabular-nums shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+          dirty ? 'border-amber-400 bg-amber-50/60' : 'border-slate-200'
+        }`}
+      />
+    </div>
+  )
+}
+
 export default function OfferingMatrixTable({
   entries,
   activeMonth,
   editMode,
   onToggleEdit,
+  onPasteClick,
   addingCell,
   onAddCell,
   editingId,
@@ -71,8 +96,48 @@ export default function OfferingMatrixTable({
   setDeletingId,
   onEdit,
   onDelete,
+  // Per-card bulk edit (IncomePage.sectionProps): in edit mode each existing
+  // amount is an input bound to its draft; the footer Save writes only Offering's changes.
+  draftFor,
+  onDraftChange,
+  dirtyCount = 0,
+  sectionSaving = false,
+  onSaveSection,
+  onCancelSection,
 }) {
   const [expandedCell, setExpandedCell] = useState(null) // { date, category } | null — multi-entry breakdown only
+  const bulkEdit = editMode && !!draftFor
+
+  function renderDraftAmount(entry) {
+    const draft = draftFor(entry)
+    const dirty = Number(draft.amount) !== Number(entry.amount)
+    return (
+      <span className="inline-flex items-center justify-end gap-1.5">
+        <DraftAmountInput
+          value={draft.amount}
+          dirty={dirty}
+          disabled={sectionSaving}
+          onChange={v => onDraftChange(entry.id, 'amount', v)}
+        />
+        {deletingId === entry.id ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap">
+            <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-semibold hover:underline">Yes</button>
+            <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setDeletingId(entry.id)}
+            disabled={sectionSaving}
+            aria-label="Delete entry"
+            className="text-slate-300 hover:text-red-500 disabled:opacity-50 transition-colors"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+      </span>
+    )
+  }
 
   const byDate = new Map()
   for (const entry of entries) {
@@ -116,6 +181,7 @@ export default function OfferingMatrixTable({
 
     if (colEntries.length === 1) {
       const entry = colEntries[0]
+      if (bulkEdit && editingId !== entry.id) return renderDraftAmount(entry)
       if (editingId === entry.id) {
         return (
           <div className="flex items-center justify-end gap-1.5">
@@ -181,6 +247,16 @@ export default function OfferingMatrixTable({
           <span className={`w-2 h-2 rounded-full ${styles.dot} shrink-0`} />
           <h3 className="text-sm font-semibold text-slate-700">Offering</h3>
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onPasteClick}
+          aria-label="Paste from Excel"
+          title="Paste from Excel"
+          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-700 transition-colors"
+        >
+          <ClipboardPaste size={14} />
+        </button>
         <button
           type="button"
           onClick={onToggleEdit}
@@ -193,6 +269,7 @@ export default function OfferingMatrixTable({
         >
           {editMode ? <Check size={14} /> : <Pencil size={14} />}
         </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -233,7 +310,9 @@ export default function OfferingMatrixTable({
                           {dayEntries.filter(e => matchesCategory(e, expandedCol.key)).map(entry => (
                             <div key={entry.id} className="flex items-center justify-between gap-3 text-xs bg-white rounded-xl border border-slate-100 px-3.5 py-2.5 shadow-sm">
                               <span className="text-slate-600 flex-1 truncate">{entry.giverName || '—'}</span>
-                              {editingId === entry.id ? (
+                              {bulkEdit && editingId !== entry.id ? (
+                                renderDraftAmount(entry)
+                              ) : editingId === entry.id ? (
                                 <CellAmountInput
                                   value={form.amount}
                                   onChange={v => onFormChange('amount', v)}
@@ -288,6 +367,16 @@ export default function OfferingMatrixTable({
           </tfoot>
         </table>
       </div>
+
+      {bulkEdit && entries.length > 0 && (
+        <SectionSaveBar
+          title="Offering"
+          dirtyCount={dirtyCount}
+          saving={sectionSaving}
+          onSave={onSaveSection}
+          onCancel={onCancelSection}
+        />
+      )}
     </div>
   )
 }

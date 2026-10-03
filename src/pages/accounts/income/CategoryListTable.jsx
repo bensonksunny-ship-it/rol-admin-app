@@ -1,7 +1,10 @@
-import { Check, Pencil, Plus } from 'lucide-react'
+import { Check, ClipboardPaste, Pencil, Plus, Trash2 } from 'lucide-react'
 import { ACCENT_STYLES, fmtDate, sumAmount, toDate } from './incomeCategorize'
 import InlineEntryForm from './InlineEntryForm'
 import RowActionsMenu from './RowActionsMenu'
+import SectionSaveBar from './SectionSaveBar'
+
+const cellInputClass = 'w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 shadow-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 disabled:opacity-50'
 
 export default function CategoryListTable({
   title,
@@ -12,6 +15,7 @@ export default function CategoryListTable({
   editMode,
   onToggleEdit,
   onAddNew,
+  onPasteClick,
   isAdding,
   editingId,
   categoryOptions,
@@ -28,10 +32,20 @@ export default function CategoryListTable({
   onEdit,
   onDelete,
   towardsColumn = false,
+  // Per-card bulk edit (IncomePage.sectionProps): in edit mode every row is an
+  // input bound to its draft; the footer Save writes only this card's changes.
+  draftFor,
+  onDraftChange,
+  dirtyCount = 0,
+  sectionSaving = false,
+  onSaveSection,
+  onCancelSection,
 }) {
   const total = sumAmount(entries)
   const sorted = [...entries].sort((a, b) => toDate(b.date) - toDate(a.date))
-  const columnCount = 3 + (towardsColumn ? 1 : 0) + (editMode ? 1 : 0)
+  const bulkEdit = editMode && !!draftFor
+  const categoryColumn = bulkEdit && categoryOptions.length > 1
+  const columnCount = 3 + (towardsColumn ? 1 : 0) + (categoryColumn ? 1 : 0) + (editMode ? 1 : 0)
   const styles = ACCENT_STYLES[accent]
 
   const header = (
@@ -52,6 +66,15 @@ export default function CategoryListTable({
           className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors"
         >
           <Plus size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={onPasteClick}
+          aria-label="Paste from Excel"
+          title="Paste from Excel"
+          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-700 transition-colors"
+        >
+          <ClipboardPaste size={14} />
         </button>
         <button
           type="button"
@@ -97,11 +120,12 @@ export default function CategoryListTable({
             </div>
           )
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" onClick={bulkEdit ? e => e.stopPropagation() : undefined}>
             <table className="w-full text-xs bg-white">
               <thead>
                 <tr className="text-left text-slate-500 border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider">
                   <th className="px-4 py-2.5">Date</th>
+                  {categoryColumn && <th className="px-4 py-2.5">Category</th>}
                   <th className="px-4 py-2.5">Name</th>
                   {towardsColumn && <th className="px-4 py-2.5">Towards</th>}
                   <th className="px-4 py-2.5 text-right">Amount</th>
@@ -125,6 +149,67 @@ export default function CategoryListTable({
                         />
                       </td>
                     </tr>
+                  ) : bulkEdit ? (
+                    (() => {
+                      const draft = draftFor(entry)
+                      const set = (field) => (e) => onDraftChange(entry.id, field, e.target.value)
+                      // Legacy/unlisted categories (e.g. old Other Income values) stay selectable.
+                      const options = categoryOptions.includes(draft.category) || !draft.category
+                        ? categoryOptions
+                        : [draft.category, ...categoryOptions]
+                      return (
+                        <tr key={entry.id} className="bg-white">
+                          <td className="px-2 py-1.5">
+                            <input type="date" value={draft.date} onChange={set('date')} disabled={sectionSaving} className={`${cellInputClass} min-w-[7.5rem]`} />
+                          </td>
+                          {categoryColumn && (
+                            <td className="px-2 py-1.5">
+                              <select value={draft.category} onChange={set('category')} disabled={sectionSaving} className={cellInputClass}>
+                                {options.map(c => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                            </td>
+                          )}
+                          <td className="px-2 py-1.5">
+                            <input type="text" value={draft.giverName} onChange={set('giverName')} placeholder="Name" disabled={sectionSaving} className={`${cellInputClass} min-w-[6rem]`} />
+                          </td>
+                          {towardsColumn && (
+                            <td className="px-2 py-1.5">
+                              <input type="text" value={draft.towards} onChange={set('towards')} placeholder="Towards" disabled={sectionSaving} className={`${cellInputClass} min-w-[6rem]`} />
+                            </td>
+                          )}
+                          <td className="px-2 py-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={draft.amount}
+                              onChange={set('amount')}
+                              placeholder="0"
+                              disabled={sectionSaving}
+                              className={`${cellInputClass} min-w-[5rem] text-right font-medium tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 text-right">
+                            {deletingId === entry.id ? (
+                              <span className="flex items-center justify-end gap-1.5 text-[11px] text-slate-600 whitespace-nowrap">
+                                <button type="button" onClick={() => onDelete(entry.id)} className="text-red-600 font-medium hover:underline">Yes</button>
+                                <button type="button" onClick={() => setDeletingId(null)} className="text-slate-500 hover:underline">No</button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setDeletingId(entry.id)}
+                                disabled={sectionSaving}
+                                aria-label="Delete entry"
+                                className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })()
                   ) : (
                     <tr key={entry.id} className="bg-white hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-2.5 text-slate-700">{fmtDate(entry.date)}</td>
@@ -158,6 +243,7 @@ export default function CategoryListTable({
                     className={allowClickToAdd ? 'cursor-pointer hover:bg-slate-50/80 transition-colors' : undefined}
                   >
                     <td className="px-4 py-2.5 text-slate-300">&nbsp;</td>
+                    {categoryColumn && <td className="px-4 py-2.5"></td>}
                     <td className="px-4 py-2.5"></td>
                     {towardsColumn && <td className="px-4 py-2.5"></td>}
                     <td className="px-4 py-2.5"></td>
@@ -167,13 +253,23 @@ export default function CategoryListTable({
               </tbody>
               <tfoot>
                 <tr className={`border-t-2 border-slate-200 ${styles.header}`}>
-                  <td className="px-4 py-2.5 font-semibold text-slate-600" colSpan={towardsColumn ? 3 : 2}>Total</td>
+                  <td className="px-4 py-2.5 font-semibold text-slate-600" colSpan={2 + (towardsColumn ? 1 : 0) + (categoryColumn ? 1 : 0)}>Total</td>
                   <td className={`px-4 py-2.5 text-right font-bold tabular-nums ${styles.text}`}>₹{total.toLocaleString('en-IN')}</td>
                   {editMode && <td></td>}
                 </tr>
               </tfoot>
             </table>
           </div>
+        )}
+
+        {bulkEdit && sorted.length > 0 && (
+          <SectionSaveBar
+            title={title}
+            dirtyCount={dirtyCount}
+            saving={sectionSaving}
+            onSave={onSaveSection}
+            onCancel={onCancelSection}
+          />
         )}
       </>
     )

@@ -101,55 +101,72 @@ const MAX_PRE_SERVICE_SPEAKERS = 5
 // Leader is a standing position assigned via Admin User Management (see
 // isPreServiceLeaderInPositions), not a per-Sunday pick in this table; the
 // leader who holds that position is the one using this table to assign speakers.
-function PreServiceRow({ date, value, onChange, team, loading, canEdit }) {
+// Styled to match the Weekly Crew table: a cycling left-accent bar per row,
+// accent-tinted speaker pills, and the shared MemberPicker popover in place of
+// a native <select>. Speakers are still stored by name (not member id).
+function PreServiceRow({ date, value, onChange, team, loading, canEdit, accent, isNext }) {
   const d = new Date(date + 'T00:00:00')
+  const count = value.speakers.length
+  const addable = team.filter((m) => !value.speakers.includes(m.name))
 
   const addSpeaker = (name) => {
-    if (!name || value.speakers.includes(name) || value.speakers.length >= MAX_PRE_SERVICE_SPEAKERS) return
+    if (!name || value.speakers.includes(name) || count >= MAX_PRE_SERVICE_SPEAKERS) return
     onChange({ ...value, speakers: [...value.speakers, name] })
   }
   const removeSpeaker = (name) => onChange({ ...value, speakers: value.speakers.filter((s) => s !== name) })
 
   return (
-    <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition-colors">
-      <td className="px-4 py-3 align-top whitespace-nowrap">
-        <p className="text-sm font-semibold text-slate-800">{format(d, 'dd MMM yyyy')}</p>
-        <p className="text-xs text-slate-400">{format(d, 'EEEE')}</p>
+    <tr className={`border-l-4 ${accent.border} hover:bg-indigo-50/40 transition-colors`}>
+      <td className="px-5 py-4 align-top whitespace-nowrap">
+        <p className="text-base font-bold text-slate-800">{format(d, 'dd MMM yyyy')}</p>
+        <div className="mt-1 flex items-center gap-1.5">
+          <span className="text-sm text-slate-500">{format(d, 'EEEE')}</span>
+          {isNext && (
+            <span className="inline-flex items-center rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm">
+              Next
+            </span>
+          )}
+        </div>
       </td>
 
       {/* Speakers — dynamic multi-select, 1 to 5 per Sunday */}
-      <td className="px-4 py-3 align-top min-w-[200px]">
+      <td className="px-5 py-4 align-top min-w-[220px]">
         {loading ? (
-          <span className="text-sm text-slate-300">—</span>
-        ) : (
-          <div className="space-y-1.5">
-            {value.speakers.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {value.speakers.map((name) => (
-                  <span key={name} className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
-                    {name}
-                    {canEdit && (
-                      <button type="button" onClick={() => removeSpeaker(name)} className="text-indigo-400 hover:text-red-500 leading-none" aria-label={`Remove ${name}`}>×</button>
-                    )}
-                  </span>
-                ))}
-              </div>
-            ) : !canEdit ? (
-              <span className="text-sm text-slate-400">—</span>
-            ) : null}
-            {canEdit && value.speakers.length < MAX_PRE_SERVICE_SPEAKERS && (
-              <select
+          <span className="inline-block h-8 w-40 rounded-lg bg-slate-100 animate-pulse" />
+        ) : canEdit ? (
+          <div className="flex flex-wrap gap-2 items-center min-h-[46px] p-2 bg-slate-50/80 border border-slate-200 rounded-xl">
+            {value.speakers.map((name) => (
+              <span key={name} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold ${accent.pill}`}>
+                {name}
+                <button type="button" onClick={() => removeSpeaker(name)} className="font-bold leading-none text-base opacity-60 hover:opacity-100 hover:text-red-600" aria-label={`Remove ${name}`}>×</button>
+              </span>
+            ))}
+            {count < MAX_PRE_SERVICE_SPEAKERS ? (
+              <MemberPicker
                 value=""
-                onChange={(e) => addSpeaker(e.target.value)}
-                className="w-full min-w-[160px] px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs bg-white"
-              >
-                <option value="">+ Add speaker ({value.speakers.length}/{MAX_PRE_SERVICE_SPEAKERS})</option>
-                {team.filter((m) => !value.speakers.includes(m.name)).map((m) => (
-                  <option key={m.id} value={m.name}>{m.name}</option>
-                ))}
-              </select>
+                members={addable}
+                tint={accent.avatar}
+                hideClearOption
+                fitContent
+                emptyLabel={addable.length === 0 ? 'No more Pre-Service members' : `+ Add speaker (${count}/${MAX_PRE_SERVICE_SPEAKERS})`}
+                onChange={(_id, name) => addSpeaker(name)}
+              />
+            ) : (
+              <span className="inline-flex items-center rounded-full bg-slate-200/70 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                {MAX_PRE_SERVICE_SPEAKERS}/{MAX_PRE_SERVICE_SPEAKERS} speakers
+              </span>
             )}
           </div>
+        ) : count ? (
+          <div className="flex flex-wrap gap-1.5">
+            {value.speakers.map((name) => (
+              <span key={name} className={`inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-semibold ${accent.pill}`}>{name}</span>
+            ))}
+          </div>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> -- Not assigned --
+          </span>
         )}
       </td>
     </tr>
@@ -193,6 +210,7 @@ function PreServiceTab({ canEdit, userProfile }) {
     () => monthSundays(monthCursor.getFullYear(), monthCursor.getMonth()),
     [monthCursor]
   )
+  const upcomingSunday = useMemo(() => nextSunday(), [])
 
   useEffect(() => {
     setPreServiceTeamLoading(true)
@@ -274,14 +292,14 @@ function PreServiceTab({ canEdit, userProfile }) {
       {/* Page header */}
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">Pre-Service</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Monthly Pre-Service schedule</p>
+          <h2 className="text-xl font-bold text-slate-800">Pre-Service</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Monthly Pre-Service schedule</p>
         </div>
         {canEdit && !editMode && (
           <button
             type="button"
             onClick={() => setEditMode(true)}
-            className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+            className="px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors text-sm font-semibold"
           >
             Edit Schedule
           </button>
@@ -289,11 +307,25 @@ function PreServiceTab({ canEdit, userProfile }) {
       </div>
 
       {/* Month navigation + Save Month Schedule */}
-      <div className="flex items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={prevMonth} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">‹ Prev Month</button>
-          <span className="font-semibold text-slate-800 text-sm">{format(monthCursor, 'MMMM yyyy')}</span>
-          <button type="button" onClick={nextMonth} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next Month ›</button>
+      <div className="flex items-center justify-between gap-3 bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/80 shadow-sm p-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={prevMonth}
+            className="px-3.5 py-1.5 rounded-full border border-slate-300 bg-white text-sm font-semibold text-slate-600 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
+          >
+            ‹ Prev Month
+          </button>
+          <span className="px-4 py-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-bold shadow-sm">
+            {format(monthCursor, 'MMMM yyyy')}
+          </span>
+          <button
+            type="button"
+            onClick={nextMonth}
+            className="px-3.5 py-1.5 rounded-full border border-slate-300 bg-white text-sm font-semibold text-slate-600 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
+          >
+            Next Month ›
+          </button>
         </div>
         {canEdit && editMode && (
           <div className="flex items-center gap-2">
@@ -301,7 +333,7 @@ function PreServiceTab({ canEdit, userProfile }) {
               type="button"
               onClick={handleCancelEdit}
               disabled={saving}
-              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-40 transition-colors"
+              className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-40 transition-colors"
             >
               Cancel
             </button>
@@ -309,8 +341,9 @@ function PreServiceTab({ canEdit, userProfile }) {
               type="button"
               onClick={handleSaveMonth}
               disabled={saving || entriesLoading}
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-40 transition-colors shadow-sm"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-bold hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-sm"
             >
+              {saving && <Spinner />}
               {saving ? 'Saving…' : 'Save Month Schedule'}
             </button>
           </div>
@@ -318,27 +351,27 @@ function PreServiceTab({ canEdit, userProfile }) {
       </div>
 
       {saveMessage && (
-        <p className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">{saveMessage}</p>
+        <p className="text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">{saveMessage}</p>
       )}
 
       {canEdit && editMode && !preServiceTeamLoading && preServiceTeam.length === 0 && (
-        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
           No active Pre-Service team members found. Add members to the Pre-Service sub-department in Operations → Team first.
         </p>
       )}
 
       {/* Monthly Sunday schedule — single consolidated card table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/80 shadow-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Date</th>
-                <th className="text-left px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Speakers</th>
+          <table className="w-full">
+            <thead className="bg-gradient-to-r from-slate-100 to-slate-50">
+              <tr>
+                <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[200px]">Date</th>
+                <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Speakers</th>
               </tr>
             </thead>
-            <tbody>
-              {sundaysInMonth.map((date) => (
+            <tbody className="divide-y divide-slate-200">
+              {sundaysInMonth.map((date, i) => (
                 <PreServiceRow
                   key={date}
                   date={date}
@@ -347,6 +380,8 @@ function PreServiceTab({ canEdit, userProfile }) {
                   team={preServiceTeam}
                   loading={entriesLoading || preServiceTeamLoading}
                   canEdit={canEdit && editMode}
+                  accent={crewRoleAccent(i)}
+                  isNext={date === upcomingSunday}
                 />
               ))}
             </tbody>

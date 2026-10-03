@@ -9,11 +9,25 @@ import {
   createFinanceIncome,
   updateFinanceIncome,
   deleteFinanceIncome,
+  batchUpdateFinanceIncome,
 } from '../../services/firestore'
-import { categorizeEntries, OTHER_INCOME_CATEGORY_OPTIONS, RSM_CATEGORY_OPTIONS } from './income/incomeCategorize'
+import { categorizeEntries, OTHER_INCOME_CATEGORY_OPTIONS, RSM_CATEGORY_OPTIONS, toDate } from './income/incomeCategorize'
 import IncomeSummaryTable from './income/IncomeSummaryTable'
 import OfferingMatrixTable from './income/OfferingMatrixTable'
 import CategoryListTable from './income/CategoryListTable'
+import PasteIncomeModal from './income/PasteIncomeModal'
+
+// "Paste from Excel" config per card: which columns the paste expects and which
+// categories its rows can be filed under.
+const PASTE_CONFIG = {
+  offering: { title: 'Offering', kind: 'offering' },
+  titheEnglish: { title: 'Tithe - English', kind: 'list', categoryOptions: ['Tithe - English'] },
+  titheTamil: { title: 'Tithe - Tamil', kind: 'list', categoryOptions: ['Tithe - Tamil'] },
+  contribution: { title: 'Contribution', kind: 'list', towards: true, categoryOptions: ['Contribution'] },
+  supportFromROLCC: { title: 'Support from ROLCC', kind: 'list', categoryOptions: ['Support from ROLCC'] },
+  otherIncome: { title: 'Other Income', kind: 'list', towards: true, categoryOptions: OTHER_INCOME_CATEGORY_OPTIONS },
+  rsm: { title: 'RSM', kind: 'list', categoryOptions: RSM_CATEGORY_OPTIONS },
+}
 
 const EMPTY_FORM = {
   date: format(new Date(), 'yyyy-MM-dd'),
@@ -21,6 +35,37 @@ const EMPTY_FORM = {
   amount: '',
   giverName: '',
   towards: '',
+}
+
+// Card titles, used in the per-section Save toasts.
+const SECTION_TITLES = {
+  offering: 'Offering',
+  titheEnglish: 'Tithe - English',
+  titheTamil: 'Tithe - Tamil',
+  contribution: 'Contribution',
+  supportFromROLCC: 'Support from ROLCC',
+  otherIncome: 'Other Income',
+  rsm: 'RSM',
+}
+
+const DRAFT_FIELDS = ['date', 'category', 'giverName', 'towards', 'amount']
+
+// An entry's editable fields as form strings — the baseline a card's draft is
+// compared against to decide what actually changed.
+function entryToDraft(entry) {
+  return {
+    date: format(toDate(entry.date), 'yyyy-MM-dd'),
+    category: entry.category || '',
+    giverName: entry.giverName || '',
+    towards: entry.towards || '',
+    amount: String(entry.amount ?? ''),
+  }
+}
+
+function draftFieldChanged(field, original, next) {
+  if (field === 'amount') return Number(original) !== Number(next)
+  if (field === 'date') return original !== next
+  return String(original).trim() !== String(next).trim()
 }
 
 export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
@@ -41,11 +86,20 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   const [expandedCard, setExpandedCard] = useState(null)
   const [openMenuId, setOpenMenuId] = useState(null)
   const [loadError, setLoadError] = useState('')
+  // Per-card bulk edit: { [section]: { [entryId]: { field: value } } } — only
+  // touched fields are stored; untouched rows read straight from `entries`.
+  const [drafts, setDrafts] = useState({})
+  const [savingSections, setSavingSections] = useState({})
+  const [toast, setToast] = useState(null)
+  const [pasteSection, setPasteSection] = useState(null)
 
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
   useEffect(() => {
     if (!canAccess) return
+    // Drafts belong to the month they were typed in.
+    setDrafts({})
+    setEditSections({})
     load()
   }, [activeMonth, canAccess])
 
@@ -90,8 +144,122 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
     formError,
   }
 
+  const sectionEntries = { offering: offeringEntries, ...categorized }
+
+  function showToast(msg, type = 'success') {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3500)
+  }
+
+  function draftFor(section, entry) {
+    return { ...entryToDraft(entry), ...(drafts[section]?.[entry.id] || {}) }
+  }
+
+  function setDraftField(section, id, field, value) {
+    setDrafts(prev => ({
+      ...prev,
+      [section]: { ...(prev[section] || {}), [id]: { ...(prev[section]?.[id] || {}), [field]: value } },
+    }))
+  }
+
+  // [{ id, data }] where data holds only the fields that differ from the saved entry.
+  function sectionChanges(section) {
+    const patches = drafts[section] || {}
+    return (sectionEntries[section] || []).flatMap(entry => {
+      const patch = patches[entry.id]
+      if (!patch) return []
+      const original = entryToDraft(entry)
+      const data = {}
+      DRAFT_FIELDS.forEach(f => {
+        if (f in patch && draftFieldChanged(f, original[f], patch[f])) data[f] = patch[f]
+      })
+      return Object.keys(data).length ? [{ id: entry.id, data }] : []
+    })
+  }
+
+  function sectionProps(section) {
+    return {
+      draftFor: entry => draftFor(section, entry),
+      onDraftChange: (id, field, value) => setDraftField(section, id, field, value),
+      dirtyCount: sectionChanges(section).length,
+      sectionSaving: !!savingSections[section],
+      onSaveSection: () => handleSaveSection(section),
+      onCancelSection: () => closeSection(section),
+    }
+  }
+
+  // Pasted rows are already persisted by PasteIncomeModal's batch write; merge the
+  // ones dated in the month being viewed straight into state so the tables update
+  // without a reload. Rows saved under another month show up when that month is opened.
+  function handlePasteSaved(created) {
+    const section = pasteSection
+    setPasteSection(null)
+    const y = activeMonth.getFullYear(), m = activeMonth.getMonth()
+    const inMonth = created.filter(e => e.date.getFullYear() === y && e.date.getMonth() === m)
+    setEntries(prev => [...prev, ...inMonth])
+    const elsewhere = created.length - inMonth.length
+    showToast(`${SECTION_TITLES[section] || 'Income'}: ${created.length} ${created.length === 1 ? 'entry' : 'entries'} saved${elsewhere ? ` (${elsewhere} in other months)` : ''}`)
+  }
+
+  function closeSection(section) {
+    setDrafts(prev => ({ ...prev, [section]: {} }))
+    setEditSections(prev => ({ ...prev, [section]: false }))
+    setOpenMenuId(null)
+    setDeletingId(null)
+  }
+
+  async function handleSaveSection(section) {
+    if (savingSections[section]) return
+    const title = SECTION_TITLES[section] || 'Section'
+    const changes = sectionChanges(section)
+    if (!changes.length) { closeSection(section); return }
+    const invalid = changes.find(({ data }) =>
+      ('date' in data && !data.date) ||
+      ('amount' in data && (data.amount === '' || isNaN(Number(data.amount)) || Number(data.amount) < 0))
+    )
+    if (invalid) {
+      showToast(`${title}: every row needs a date and an amount of 0 or more.`, 'error')
+      return
+    }
+    setSavingSections(prev => ({ ...prev, [section]: true }))
+    try {
+      await batchUpdateFinanceIncome(changes)
+      const byId = Object.fromEntries(changes.map(c => [c.id, c.data]))
+      setEntries(prev => prev.map(e => {
+        const data = byId[e.id]
+        if (!data) return e
+        const next = { ...e, ...data }
+        if ('amount' in data) next.amount = Number(data.amount) || 0
+        if ('date' in data) {
+          const [y, m, d] = data.date.split('-').map(Number)
+          next.date = new Date(y, m - 1, d)
+        }
+        ;['giverName', 'towards', 'category'].forEach(k => { if (k in data) next[k] = String(data[k]).trim() })
+        return next
+      }))
+      closeSection(section)
+      showToast(`${title} saved (${changes.length} ${changes.length === 1 ? 'change' : 'changes'})`)
+    } catch (err) {
+      console.error(`Failed to save ${title} income:`, err)
+      showToast(
+        err?.code === 'permission-denied'
+          ? `You don't have permission to save ${title}.`
+          : `Failed to save ${title}. Your edits are kept — try again.`,
+        'error'
+      )
+    } finally {
+      setSavingSections(prev => ({ ...prev, [section]: false }))
+    }
+  }
+
   function toggleSection(key) {
-    setEditSections(prev => ({ ...prev, [key]: !prev[key] }))
+    if (editSections[key]) {
+      // "Done" with unsaved edits in this card — confirm before discarding them.
+      if (sectionChanges(key).length && !window.confirm(`Discard unsaved changes in ${SECTION_TITLES[key] || 'this section'}?`)) return
+      closeSection(key)
+      return
+    }
+    setEditSections(prev => ({ ...prev, [key]: true }))
     setOpenMenuId(null)
     setDeletingId(null)
   }
@@ -188,6 +356,10 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
       await deleteFinanceIncome(id)
       setDeletingId(null)
       setEntries(prev => prev.filter(e => e.id !== id))
+      setDrafts(prev => Object.fromEntries(Object.entries(prev).map(([section, patches]) => {
+        const { [id]: _removed, ...rest } = patches || {}
+        return [section, rest]
+      })))
     } catch {
       setSaveError('Failed to delete. Please try again.')
       setTimeout(() => setSaveError(''), 4000)
@@ -196,6 +368,18 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
 
   return (
     <div className="max-w-[250mm] mx-auto space-y-5 pb-12">
+
+      {/* Per-section Save feedback (names the card that was saved). */}
+      {toast && (
+        <div
+          role="status"
+          className={`fixed top-4 right-4 z-[60] px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
+            toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
+          }`}
+        >
+          {toast.msg}
+        </div>
+      )}
 
       {/* Month picker — hidden when a parent owns the picker (controlledMonth with no
           onMonthChange, e.g. EntryPage); shown when the parent syncs month via onMonthChange
@@ -239,6 +423,17 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
         </div>
       )}
 
+      {pasteSection && (
+        <PasteIncomeModal
+          key={pasteSection}
+          {...PASTE_CONFIG[pasteSection]}
+          activeMonth={activeMonth}
+          existing={entries}
+          onClose={() => setPasteSection(null)}
+          onSaved={handlePasteSaved}
+        />
+      )}
+
       <h2 className="text-sm font-semibold text-slate-600">Income Breakdown</h2>
 
       {loading && (
@@ -252,6 +447,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
         activeMonth={activeMonth}
         editMode={!!editSections.offering}
         onToggleEdit={() => toggleSection('offering')}
+        {...sectionProps('offering')}
+
+        onPasteClick={() => setPasteSection('offering')}
         addingCell={addingCell}
         onAddCell={handleAddOfferingCell}
         {...inlineFormProps}
@@ -267,6 +465,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           onToggleExpand={() => toggleExpandCard('titheEnglish')}
           editMode={!!editSections.titheEnglish}
           onToggleEdit={() => toggleSection('titheEnglish')}
+          {...sectionProps('titheEnglish')}
+
+          onPasteClick={() => setPasteSection('titheEnglish')}
           isAdding={addingSection === 'titheEnglish'}
           onAddNew={() => handleAddForCategory('titheEnglish', 'Tithe - English')}
           categoryOptions={['Tithe - English']}
@@ -281,6 +482,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           onToggleExpand={() => toggleExpandCard('titheTamil')}
           editMode={!!editSections.titheTamil}
           onToggleEdit={() => toggleSection('titheTamil')}
+          {...sectionProps('titheTamil')}
+
+          onPasteClick={() => setPasteSection('titheTamil')}
           isAdding={addingSection === 'titheTamil'}
           onAddNew={() => handleAddForCategory('titheTamil', 'Tithe - Tamil')}
           categoryOptions={['Tithe - Tamil']}
@@ -296,6 +500,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           onToggleExpand={() => toggleExpandCard('contribution')}
           editMode={!!editSections.contribution}
           onToggleEdit={() => toggleSection('contribution')}
+          {...sectionProps('contribution')}
+
+          onPasteClick={() => setPasteSection('contribution')}
           isAdding={addingSection === 'contribution'}
           onAddNew={() => handleAddForCategory('contribution', 'Contribution')}
           categoryOptions={['Contribution']}
@@ -310,6 +517,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           onToggleExpand={() => toggleExpandCard('supportFromROLCC')}
           editMode={!!editSections.supportFromROLCC}
           onToggleEdit={() => toggleSection('supportFromROLCC')}
+          {...sectionProps('supportFromROLCC')}
+
+          onPasteClick={() => setPasteSection('supportFromROLCC')}
           isAdding={addingSection === 'supportFromROLCC'}
           onAddNew={() => handleAddForCategory('supportFromROLCC', 'Support from ROLCC')}
           categoryOptions={['Support from ROLCC']}
@@ -325,6 +535,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           onToggleExpand={() => toggleExpandCard('otherIncome')}
           editMode={!!editSections.otherIncome}
           onToggleEdit={() => toggleSection('otherIncome')}
+          {...sectionProps('otherIncome')}
+
+          onPasteClick={() => setPasteSection('otherIncome')}
           isAdding={addingSection === 'otherIncome'}
           onAddNew={() => handleAddForCategory('otherIncome', OTHER_INCOME_CATEGORY_OPTIONS[0])}
           categoryOptions={OTHER_INCOME_CATEGORY_OPTIONS}
@@ -339,6 +552,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           onToggleExpand={() => toggleExpandCard('rsm')}
           editMode={!!editSections.rsm}
           onToggleEdit={() => toggleSection('rsm')}
+          {...sectionProps('rsm')}
+
+          onPasteClick={() => setPasteSection('rsm')}
           isAdding={addingSection === 'rsm'}
           onAddNew={() => handleAddForCategory('rsm', RSM_CATEGORY_OPTIONS[0])}
           categoryOptions={RSM_CATEGORY_OPTIONS}

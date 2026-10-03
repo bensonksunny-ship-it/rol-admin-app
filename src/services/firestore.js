@@ -1526,6 +1526,29 @@ export async function createFinanceIncome(data) {
   return ref.id
 }
 
+// Bulk create for the Income "Paste from Excel" flow. Each chunk is one atomic
+// writeBatch, so a paste either lands whole or not at all (per 450-doc chunk) —
+// no half-saved paste with rows silently missing. Returns the new ids in input order.
+export async function createFinanceIncomeMany(items) {
+  const ids = []
+  for (let i = 0; i < items.length; i += 450) {
+    const batch = writeBatch(db)
+    for (const data of items.slice(i, i + 450)) {
+      const [y, m, d] = String(data.date).split('-').map(Number)
+      const ref = doc(collection(db, 'finance_income'))
+      batch.set(ref, {
+        ...data,
+        date: Timestamp.fromDate(new Date(y, m - 1, d)),
+        amount: Number(data.amount) || 0,
+        createdAt: Timestamp.now(),
+      })
+      ids.push(ref.id)
+    }
+    await batch.commit()
+  }
+  return ids
+}
+
 export async function updateFinanceIncome(id, data) {
   const [y, m, d] = String(data.date).split('-').map(Number)
   await updateDoc(doc(db, 'finance_income', id), {
@@ -1538,6 +1561,27 @@ export async function updateFinanceIncome(id, data) {
 
 export async function deleteFinanceIncome(id) {
   await deleteDoc(doc(db, 'finance_income', id))
+}
+
+/** One Income card's "Save": writes only the changed fields of the changed
+ *  entries in that card, atomically. updates = [{ id, data: { date?, amount?,
+ *  giverName?, towards?, category? } }] — omitted fields are left untouched. */
+export async function batchUpdateFinanceIncome(updates) {
+  if (!db || !Array.isArray(updates) || !updates.length) return
+  const batch = writeBatch(db)
+  updates.forEach(({ id, data }) => {
+    const payload = { updatedAt: Timestamp.now() }
+    if (data.date != null) {
+      const [y, m, d] = String(data.date).split('-').map(Number)
+      payload.date = Timestamp.fromDate(new Date(y, m - 1, d))
+    }
+    if (data.amount != null) payload.amount = Number(data.amount) || 0
+    ;['giverName', 'towards', 'category'].forEach((k) => {
+      if (data[k] != null) payload[k] = String(data[k]).trim()
+    })
+    batch.update(doc(db, 'finance_income', id), payload)
+  })
+  await batch.commit()
 }
 
 export async function deleteAllFinanceIncomeForMonth(year, month) {

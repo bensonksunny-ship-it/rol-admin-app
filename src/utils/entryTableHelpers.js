@@ -54,6 +54,16 @@ export function sanitizeAmountString(raw) {
   return String(raw ?? '').replace(/[₹$,]|rs\.?/gi, '').replace(/\s+/g, '').trim()
 }
 
+// Splits one pasted row into its column cells. Excel / Google Sheets copy as
+// tab-separated text and preserve empty cells; text pulled from an aligned
+// plain-text table, a PDF, or a chat message instead separates columns with
+// runs of 2+ spaces and drops empty ones. Handles both shapes.
+export function splitPastedRow(rowText) {
+  if (rowText.includes('\t')) return rowText.split('\t')
+  if (/\S\s{2,}\S/.test(rowText)) return rowText.trim().split(/\s{2,}/)
+  return [rowText.trim()]
+}
+
 // Cell contents Excel / handwritten ledgers use to mean "nothing here". Collapsed
 // to '' when pasting so a "-" in the Bill No column lands as an empty field rather
 // than literal text — and, crucially, doesn't consume the slot the Amount belongs in.
