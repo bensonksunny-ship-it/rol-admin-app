@@ -832,13 +832,7 @@ export async function addSubDepartmentsToTeamMember(id, subDepartments) {
 // Department sub-departments (all departments except Cell & Worship use this)
 const DEPARTMENT_SUBDEPARTMENTS_COLLECTION = 'department_sub_departments'
 
-export async function getDepartmentSubDepartments(department) {
-  if (!db || !department) return []
-  const q = query(
-    collection(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION),
-    where('department', '==', department)
-  )
-  const snap = await getDocs(q)
+function mapDepartmentSubDepartments(department, snap) {
   const list = snap.docs.map((d) => ({
     id: d.id,
     department,
@@ -848,10 +842,58 @@ export async function getDepartmentSubDepartments(department) {
     // (see RK_CLASS_GROUPS in DepartmentHub.jsx); every other department leaves
     // this blank and keeps the flat list.
     category: d.data().category || '',
+    // Director-set display position (see reorderDepartmentSubDepartments).
+    // Rows never reordered have no `order` and fall after ordered ones, by name.
+    order: typeof d.data().order === 'number' ? d.data().order : null,
     createdAt: toDate(d.data().createdAt),
   }))
-  list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-  return list
+  return sortDepartmentSubDepartments(list)
+}
+
+export function sortDepartmentSubDepartments(list) {
+  const rank = (sd) => (typeof sd.order === 'number' ? sd.order : Number.POSITIVE_INFINITY)
+  return [...list].sort((a, b) => (rank(a) - rank(b)) || (a.name || '').localeCompare(b.name || ''))
+}
+
+export async function getDepartmentSubDepartments(department) {
+  if (!db || !department) return []
+  const q = query(
+    collection(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION),
+    where('department', '==', department)
+  )
+  const snap = await getDocs(q)
+  return mapDepartmentSubDepartments(department, snap)
+}
+
+/** Live version of getDepartmentSubDepartments — sub-departments added, renamed,
+ *  reordered or deleted elsewhere show up without a reload. Returns unsubscribe. */
+export function subscribeDepartmentSubDepartments(department, callback, onError) {
+  if (!db || !department) {
+    callback([])
+    return () => {}
+  }
+  const q = query(
+    collection(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION),
+    where('department', '==', department)
+  )
+  return onSnapshot(
+    q,
+    (snap) => callback(mapDepartmentSubDepartments(department, snap)),
+    (err) => {
+      console.error('subscribeDepartmentSubDepartments', err)
+      if (onError) onError(err)
+    }
+  )
+}
+
+/** Persists display order: writes `order: index` for each id, in the given sequence. */
+export async function reorderDepartmentSubDepartments(orderedIds) {
+  if (!db || !Array.isArray(orderedIds) || !orderedIds.length) return
+  const batch = writeBatch(db)
+  orderedIds.forEach((id, index) => {
+    batch.update(doc(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION, id), { order: index })
+  })
+  await batch.commit()
 }
 
 export async function addDepartmentSubDepartment(department, name, addedBy, servingArea = '', category = '') {
@@ -1280,8 +1322,10 @@ export async function getSundayCrewScheduleByDate(date) {
   if (!db) return { date, assignments: [] }
   const q = query(collection(db, 'sunday_crew_schedule'), where('department', '==', 'Sunday Ministry'))
   const snap = await getDocs(q)
-  const d = snap.docs.find((doc) => doc.data().date === date)
-  return d ? { id: d.id, ...d.data() } : { date, assignments: [] }
+  // Same normalization as the setter, so a date saved as its Sunday is found again.
+  const normalizedDate = normalizeToSunday(date)
+  const d = snap.docs.find((doc) => doc.data().date === normalizedDate)
+  return d ? { id: d.id, ...d.data() } : { date: normalizedDate, assignments: [] }
 }
 
 export async function setSundayCrewScheduleByDate(date, assignments, updatedBy) {

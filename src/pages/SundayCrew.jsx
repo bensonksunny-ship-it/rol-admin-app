@@ -8,7 +8,7 @@ import {
   getSundayPreServiceEntry,
   setSundayPreServiceMonth,
   getDepartmentTeamMembers,
-  getDepartmentSubDepartments,
+  subscribeDepartmentSubDepartments,
   getSundayCrewScheduleByDate,
   setSundayCrewScheduleByDate,
 } from '../services/firestore'
@@ -28,6 +28,33 @@ function subDeptKey(name) {
   return String(name || '').trim().toLowerCase().replace(/[\s-]+/g, ' ').replace(/s$/, '')
 }
 const PRE_SERVICE_SUBDEPT_KEY = subDeptKey('Pre-Service')
+
+// In-app toast (same look as ToDoListCard's) — replaces blocking alert() popups.
+function useToast() {
+  const [toast, setToast] = useState(null)
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3500)
+  }
+  const toastEl = toast && (
+    <div className={`fixed top-4 right-4 z-[60] px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
+      toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
+    }`}>
+      {toast.msg}
+    </div>
+  )
+  return [toastEl, showToast]
+}
+
+function saveErrorMessage(e, what) {
+  if (e?.code === 'permission-denied') return `You don't have permission to save ${what}.`
+  if (e?.code === 'unavailable') return `You're offline — couldn't save ${what}. Try again.`
+  return `Failed to save ${what}. Please try again.`
+}
+
+function Spinner() {
+  return <span className="inline-block w-3.5 h-3.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+}
 
 function SubTabBar({ active, onChange, tabs }) {
   return (
@@ -141,6 +168,7 @@ function PreServiceTab({ canEdit, userProfile }) {
     const d = new Date()
     return new Date(d.getFullYear(), d.getMonth(), 1)
   })
+  const [toastEl, showToast] = useToast()
 
   // Speaker options come from the Sunday Ministry team roster (Operations >
   // Team), filtered to active members whose sub-department is "Pre-Service" —
@@ -234,7 +262,7 @@ function PreServiceTab({ canEdit, userProfile }) {
       setEditMode(false)
     } catch (e) {
       console.error(e)
-      alert('Failed to save')
+      showToast(saveErrorMessage(e, 'the Pre-Service schedule'), 'error')
     } finally {
       setSaving(false)
     }
@@ -242,6 +270,7 @@ function PreServiceTab({ canEdit, userProfile }) {
 
   return (
     <div className="space-y-4">
+      {toastEl}
       {/* Page header */}
       <div className="flex items-center justify-between gap-3">
         <div>
@@ -376,10 +405,14 @@ function CrewTab({ canEdit, userProfile }) {
 
   const [assignDate, setAssignDate] = useState(nextSunday)
   const [rows, setRows] = useState([])
-  const [savedStamp, setSavedStamp] = useState(null)
+  // Last-saved crew for assignDate, keyed by subDeptId (or `role:<name>` for
+  // legacy entries). Kept separate from the sub-department list so a live
+  // sub-department change re-derives rows without re-fetching the schedule.
+  const [savedByRow, setSavedByRow] = useState({})
   const [loadingSchedule, setLoadingSchedule] = useState(false)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [toastEl, showToast] = useToast()
 
   useEffect(() => {
     setTeamLoading(true)
@@ -389,16 +422,27 @@ function CrewTab({ canEdit, userProfile }) {
       .finally(() => setTeamLoading(false))
   }, [])
 
+  // Live subscription — sub-departments created/renamed/reordered/deleted in
+  // Operations → Sub Department appear here immediately, in their saved order.
   useEffect(() => {
     setSubDeptLoading(true)
-    getDepartmentSubDepartments('Sunday Ministry')
-      .then(setSubDepartments)
-      .catch(() => setSubDepartments([]))
-      .finally(() => setSubDeptLoading(false))
+    const unsub = subscribeDepartmentSubDepartments(
+      'Sunday Ministry',
+      (list) => {
+        setSubDepartments(list)
+        setSubDeptLoading(false)
+      },
+      (e) => {
+        showToast(e?.code === 'permission-denied' ? "You don't have permission to view crew sub-departments." : 'Could not load crew sub-departments.', 'error')
+        setSubDepartments([])
+        setSubDeptLoading(false)
+      }
+    )
+    return unsub
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    if (subDeptLoading) return
     setLoadingSchedule(true)
     setEditing(false)
     getSundayCrewScheduleByDate(assignDate)
@@ -411,20 +455,32 @@ function CrewTab({ canEdit, userProfile }) {
           if (!byRow[key]) byRow[key] = []
           byRow[key].push({ id: a.memberId, name: a.memberName || '' })
         })
-        const nextRows = subDepartments.map((sd) => ({
-          subDeptId: sd.id,
-          role: sd.name,
-          members: byRow[sd.id] || byRow[`role:${sd.name}`] || [],
-        }))
-        setRows(nextRows)
-        setSavedStamp(nextRows.some((r) => r.members.length) ? nextRows.map((r) => ({ ...r, members: [...r.members] })) : null)
+        setSavedByRow(byRow)
       })
-      .catch(() => {
-        setRows(subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, members: [] })))
-        setSavedStamp(null)
+      .catch((e) => {
+        console.error(e)
+        showToast(e?.code === 'permission-denied' ? "You don't have permission to view this crew plan." : 'Could not load the crew plan.', 'error')
+        setSavedByRow({})
       })
       .finally(() => setLoadingSchedule(false))
-  }, [assignDate, subDepartments, subDeptLoading])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignDate])
+
+  // Rows = current sub-departments (live, ordered) × saved crew. While editing,
+  // a sub-department change keeps the in-progress picks for rows that still
+  // exist; otherwise (incl. Cancel / after Save) rows rebuild from savedByRow.
+  useEffect(() => {
+    const fromSaved = (sd) => ({
+      subDeptId: sd.id,
+      role: sd.name,
+      members: [...(savedByRow[sd.id] || savedByRow[`role:${sd.name}`] || [])],
+    })
+    setRows((prev) => {
+      if (!editing) return subDepartments.map(fromSaved)
+      const prevById = Object.fromEntries(prev.map((r) => [r.subDeptId, r]))
+      return subDepartments.map((sd) => (prevById[sd.id] ? { ...prevById[sd.id], role: sd.name } : fromSaved(sd)))
+    })
+  }, [subDepartments, savedByRow, editing])
 
   const memberSubDepts = (m) => (Array.isArray(m.subDepartments) ? m.subDepartments : (m.subDepartment ? [m.subDepartment] : []))
   const memberDetail = (m) => (memberSubDepts(m).length ? memberSubDepts(m).join(' · ') : (m.role || ''))
@@ -446,32 +502,33 @@ function CrewTab({ canEdit, userProfile }) {
     setRows((prev) => prev.map((r) => (r.subDeptId === subDeptId ? { ...r, members: (r.members || []).filter((m) => m.id !== id) } : r)))
   }
 
-  const cancelEdit = () => {
-    setRows(
-      savedStamp
-        ? savedStamp.map((r) => ({ ...r, members: [...(r.members || [])] }))
-        : subDepartments.map((sd) => ({ subDeptId: sd.id, role: sd.name, members: [] }))
-    )
-    setEditing(false)
-  }
+  // Leaving edit mode rebuilds rows from savedByRow (see the rows effect).
+  const cancelEdit = () => setEditing(false)
 
   const saveRows = async () => {
+    if (saving) return
     setSaving(true)
     try {
       const assignments = rows.flatMap((r) =>
         (r.members || []).map((m) => ({ subDeptId: r.subDeptId || '', role: r.role, memberId: m.id, memberName: m.name || '' }))
       )
       await setSundayCrewScheduleByDate(assignDate, assignments, userProfile?.email || 'unknown')
-      setSavedStamp(rows.some((r) => (r.members || []).length) ? rows.map((r) => ({ ...r, members: [...(r.members || [])] })) : null)
+      setSavedByRow(Object.fromEntries(rows.map((r) => [r.subDeptId, [...(r.members || [])]])))
       setEditing(false)
-    } catch (e) { console.error(e); alert('Failed to save crew assignments') }
-    setSaving(false)
+      showToast('Crew plan saved')
+    } catch (e) {
+      console.error('Failed to save crew assignments', e)
+      showToast(saveErrorMessage(e, 'crew assignments'), 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const loading = teamLoading || subDeptLoading || loadingSchedule
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {toastEl}
       <div className="px-4 py-4 border-b border-slate-200 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-semibold text-slate-800">Weekly Crew</h2>
@@ -525,8 +582,9 @@ function CrewTab({ canEdit, userProfile }) {
                 type="button"
                 disabled={saving}
                 onClick={saveRows}
-                className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 shadow-sm"
+                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 shadow-sm"
               >
+                {saving && <Spinner />}
                 {saving ? 'Saving…' : 'Save plan'}
               </button>
             </div>

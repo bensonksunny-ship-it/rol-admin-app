@@ -2,7 +2,7 @@ import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNav
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle, Trash2 } from 'lucide-react'
+import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
@@ -78,6 +78,7 @@ import {
   addDepartmentSubDepartment,
   updateDepartmentSubDepartment,
   deleteDepartmentSubDepartment,
+  reorderDepartmentSubDepartments,
   getDepartmentChildren,
   addDepartmentChild,
   updateDepartmentChild,
@@ -1197,6 +1198,31 @@ export default function DepartmentHub() {
   const [subDepartments, setSubDepartments] = useState([])
   const [subDeptLoading, setSubDeptLoading] = useState(false)
   const [subDeptError, setSubDeptError] = useState('')
+  const [subDeptReordering, setSubDeptReordering] = useState(false)
+  // Up/Down arrows on the generic sub-department lists: swap with the
+  // neighbour, then persist the whole list's `order` (reorderDepartmentSubDepartments)
+  // so Assign tabs (e.g. Sunday Ministry's Weekly Crew) list rows in this order.
+  const moveSubDepartment = async (id, delta) => {
+    const from = subDepartments.findIndex((sd) => sd.id === id)
+    const to = from + delta
+    if (from < 0 || to < 0 || to >= subDepartments.length || subDeptReordering) return
+    const before = subDepartments
+    const next = [...subDepartments]
+    ;[next[from], next[to]] = [next[to], next[from]]
+    const reordered = next.map((sd, index) => ({ ...sd, order: index }))
+    setSubDepartments(reordered)
+    setSubDeptReordering(true)
+    try {
+      await reorderDepartmentSubDepartments(reordered.map((sd) => sd.id))
+      setSubDeptError('')
+    } catch (err) {
+      console.error('Failed to reorder sub-departments', err)
+      setSubDepartments(before)
+      setSubDeptError(err?.code === 'permission-denied' ? "You don't have permission to reorder sub-departments." : 'Could not save the new order.')
+    } finally {
+      setSubDeptReordering(false)
+    }
+  }
   const [subDeptForm, setSubDeptForm] = useState({ name: '', servingArea: '', category: '' })
   const [editingSubDept, setEditingSubDept] = useState(null)
   const [genericSubDeptModalOpen, setGenericSubDeptModalOpen] = useState(false)
@@ -6139,13 +6165,40 @@ export default function DepartmentHub() {
                   <table className="min-w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
+                        {canEdit && <th className="text-left px-2 py-3 font-medium text-slate-600 w-20">Order</th>}
                         <th className="text-left px-4 py-3 font-medium text-slate-600">Sub Department</th>
                         {canEdit && <th className="text-right px-4 py-3 font-medium text-slate-600 w-16">Actions</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {subDepartments.map((row) => (
+                      {subDepartments.map((row, rowIndex) => (
                         <tr key={row.id}>
+                          {canEdit && (
+                            <td className="px-2 py-2">
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => moveSubDepartment(row.id, -1)}
+                                  disabled={rowIndex === 0 || subDeptReordering}
+                                  className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-colors"
+                                  aria-label={`Move ${row.name || 'sub department'} up`}
+                                  title="Move up"
+                                >
+                                  <ChevronUp className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveSubDepartment(row.id, 1)}
+                                  disabled={rowIndex === subDepartments.length - 1 || subDeptReordering}
+                                  className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-colors"
+                                  aria-label={`Move ${row.name || 'sub department'} down`}
+                                  title="Move down"
+                                >
+                                  <ChevronDown className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          )}
                           <td className="px-4 py-3 text-slate-800 font-medium">{row.name || '—'}</td>
                           {canEdit && (
                             <td className="px-4 py-3 text-right relative">
@@ -6199,7 +6252,7 @@ export default function DepartmentHub() {
                       ))}
                       {subDepartments.length === 0 && (
                         <tr>
-                          <td colSpan={canEdit ? 2 : 1} className="px-4 py-8 text-center text-slate-500">
+                          <td colSpan={canEdit ? 3 : 1} className="px-4 py-8 text-center text-slate-500">
                             No sub departments yet.
                           </td>
                         </tr>
@@ -8689,8 +8742,35 @@ export default function DepartmentHub() {
                         {rows.length === 0 && (
                           <p className="px-5 py-6 text-center text-sm text-slate-500">No sub-departments yet — add one below.</p>
                         )}
-                        {rows.map((row) => (
-                          <div key={row.id} className="px-5 py-3">
+                        {rows.map((row, rowIndex) => (
+                          <div key={row.id} className="px-5 py-3 flex items-start gap-2">
+                            {/* Reorder (generic collection only — D-Light's sub-departments
+                                live in dlight_sub_departments with no order field). */}
+                            {!isDlight && teamSubDeptEditingId !== row.id && (
+                              <div className="flex flex-col -my-1 flex-shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => moveSubDepartment(row.id, -1)}
+                                  disabled={rowIndex === 0 || subDeptReordering}
+                                  className="w-6 h-5 inline-flex items-center justify-center rounded text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                                  aria-label={`Move ${row.name || 'sub-department'} up`}
+                                  title="Move up"
+                                >
+                                  <ChevronUp className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveSubDepartment(row.id, 1)}
+                                  disabled={rowIndex === rows.length - 1 || subDeptReordering}
+                                  className="w-6 h-5 inline-flex items-center justify-center rounded text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                                  aria-label={`Move ${row.name || 'sub-department'} down`}
+                                  title="Move down"
+                                >
+                                  <ChevronDown className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
                             {teamSubDeptEditingId === row.id ? (
                               <div className="space-y-2">
                                 <input
@@ -8728,9 +8808,13 @@ export default function DepartmentHub() {
                                 </span>
                               </div>
                             )}
+                            </div>
                           </div>
                         ))}
                       </div>
+                      {!isDlight && subDeptError && (
+                        <p className="px-5 py-2 text-xs text-red-600 border-t border-slate-100">{subDeptError}</p>
+                      )}
                       <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 space-y-2 flex-shrink-0">
                         <input
                           type="text"

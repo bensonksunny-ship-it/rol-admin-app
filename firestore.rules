@@ -685,9 +685,19 @@ service cloud.firestore {
     }
 
     // Sunday Ministry crew schedule (SundayCrew.jsx Assign tab) — same convention
-    // as media_schedule above.
+    // as media_schedule above. The client gates this tab on isSundayMinistryDirector
+    // (AuthContext.jsx), which also admits Senior Pastor and the display-formatted
+    // "Director - Sunday Ministry" position — canAccessDept's exact-map matching
+    // misses both, so they're allowed explicitly or the Save plan write is denied.
     match /sunday_crew_schedule/{docId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Sunday Ministry'));
+      allow read, write: if isSignedIn() && (
+        isFullAccess() ||
+        canAccessDept('Sunday Ministry') ||
+        getUserRole() == 'Senior Pastor' ||
+        userPositions().hasAny([
+          {'department': 'Sunday Ministry', 'position': 'Director - Sunday Ministry'}
+        ])
+      );
     }
 
     // Auto-created/updated by saveAssignPlan (DepartmentWorship.jsx) right after the
