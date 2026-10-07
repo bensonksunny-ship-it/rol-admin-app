@@ -24,6 +24,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, functions, httpsCallable } from '../lib/firebase'
 import { ROLES, deriveRoleFromPositions } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
+import { normalizeEngagementType } from '../utils/pcsEngagement'
 
 // Firestore's writes reject any `undefined` field value, including ones nested inside
 // array elements (e.g. one row of a dynamically-built assignments array). Recursively
@@ -678,6 +679,7 @@ export async function getDepartmentTeamMembers(department) {
       id: d.id,
       department: data.department,
       name: data.name,
+      displayName: data.displayName || '',
       role: rolePosition,
       rolePosition,
       subDepartment: subDepts[0] || '',
@@ -714,6 +716,7 @@ export function subscribeDepartmentTeamMembers(department, onChange) {
         id: d.id,
         department: data.department,
         name: data.name,
+        displayName: data.displayName || '',
         role: rolePosition,
         rolePosition,
         subDepartment: subDepts[0] || '',
@@ -2472,6 +2475,7 @@ export async function getCellGroupMembers(cellId) {
     return {
       id: d.id,
       name: data.name || '',
+      displayName: data.displayName || '',
       birthday: data.birthday || '',
       anniversary: data.anniversary || '',
       phone: data.phone || '',
@@ -2496,6 +2500,7 @@ export async function getAllCellGroupMembers() {
     id: d.id,
     cellId: d.ref.parent.parent.id,
     name: d.data().name || '',
+    displayName: d.data().displayName || '',
     phone: d.data().phone || '',
     visitorId: d.data().visitorId || '',
     since: d.data().since || '',
@@ -3399,7 +3404,73 @@ function mapPCSDoc(d) {
     removedAt: toDate(data.removedAt),
     removedBy: data.removedBy || '',
     inactiveCellAlertDismissed: !!data.inactiveCellAlertDismissed,
+    engagementType: normalizeEngagementType(data.engagementType),
+    displayName: data.displayName || '',
+    // Travel / vacation availability — see utils/awayStatus.js
+    away: !!data.away,
+    awayFrom: data.awayFrom || '',
+    awayUntil: data.awayUntil || '',
+    awayNote: data.awayNote || '',
+    awayPeriods: Array.isArray(data.awayPeriods) ? data.awayPeriods : [],
+    // Pastoral follow-up log — [{ at: ISO timestamp, by, note }], oldest first
+    followUps: Array.isArray(data.followUps) ? data.followUps : [],
+    // status 'pending_discard' — a Discard Profile request awaits the Founder
+    discardApprovalId: data.discardApprovalId || '',
+    discardRequestedBy: data.discardRequestedBy || '',
+    discardRequestedAt: toDate(data.discardRequestedAt),
+    discardReason: data.discardReason || '',
   }
+}
+
+/** Live list of PCS entries currently marked Away — lets attendance sheets spot an
+ *  Away person being marked present without a query per tap. */
+export function subscribeAwayPCSEntries(onChange) {
+  if (!db) { onChange([]); return () => {} }
+  const q = query(collection(db, CARING_PCS_COLLECTION), where('away', '==', true))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map(mapPCSDoc).filter((e) => e.status !== 'inactive'))
+  }, (err) => { console.error('subscribeAwayPCSEntries:', err); onChange([]) })
+}
+
+/**
+ * Auto-return: an Away person was marked present on an attendance sheet. Flips them
+ * back to Active and archives the Away period with how they came back — that
+ * archived period is what the PCS history shows as "Returned from Away status on
+ * [date] via [Sunday Service / Cell Group] attendance". Field set is limited to the
+ * keys firestore.rules lets Cell / Sunday Ministry users write on caring_pcs.
+ */
+export async function returnPCSEntryFromAway(entry, { via, dateStr, by }) {
+  if (!db || !entry?.id) return
+  const date = String(dateStr || '').slice(0, 10) || new Date().toISOString().slice(0, 10)
+  const periods = Array.isArray(entry.awayPeriods) ? [...entry.awayPeriods] : []
+  periods.push({ from: entry.awayFrom || date, to: date, note: entry.awayNote || '', returnedVia: via || '' })
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, entry.id), {
+    away: false,
+    awayFrom: '',
+    awayUntil: '',
+    awayNote: '',
+    awayPeriods: periods,
+    awayUpdatedBy: by || 'unknown',
+    awayUpdatedAt: Timestamp.now(),
+  })
+}
+
+/** Write a PCS entry's Away/Active availability (patch from buildAwayPatch / buildReturnPatch). */
+export async function setPCSAwayStatus(id, patch, updatedBy = '') {
+  if (!db || !id) return
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, id), {
+    ...patch,
+    awayUpdatedBy: updatedBy || 'unknown',
+    awayUpdatedAt: Timestamp.now(),
+  })
+}
+
+/** Append a pastoral follow-up note to a PCS entry; returns the saved item. */
+export async function addPCSFollowUp(id, note, by = '') {
+  if (!db || !id) return null
+  const item = { at: new Date().toISOString(), by: by || 'unknown', note: String(note || '').trim() }
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, id), { followUps: arrayUnion(item) })
+  return item
 }
 
 export async function getPCSEntries() {
@@ -3510,6 +3581,8 @@ export async function updatePCSEntry(id, data) {
   if (data.year !== undefined) payload.year = data.year ? Number(data.year) : null
   if (data.membershipNumber !== undefined) payload.membershipNumber = String(data.membershipNumber)
   if (data.leadershipPosition !== undefined) payload.leadershipPosition = String(data.leadershipPosition)
+  if (data.engagementType !== undefined) payload.engagementType = normalizeEngagementType(data.engagementType)
+  if (data.displayName !== undefined) payload.displayName = String(data.displayName).trim()
   if (Object.keys(payload).length) await updateDoc(doc(db, CARING_PCS_COLLECTION, id), payload)
   // pcs_lookup is a denormalized name/phone/visitorId index for fast search elsewhere —
   // without this it only catches up the next time someone runs the manual bulk sync.
@@ -3525,6 +3598,83 @@ export async function updatePCSEntry(id, data) {
 export async function deletePCSEntry(id) {
   if (!db || !id) return
   await deleteDoc(doc(db, CARING_PCS_COLLECTION, id))
+}
+
+// ── Founder approvals (My Workspace > Approvals) ─────────────────────────────
+// Discarding a PCS profile is for records that are wrong (duplicate, entered by
+// mistake) — unlike "Remove from PCS", which only marks someone as no longer
+// attending. Caring files a request; the profile is locked as 'pending_discard'
+// until the Founder approves (profile deleted) or rejects (back to active).
+const APPROVALS_COLLECTION = 'approvals'
+
+/** Caring → Founder: ask to discard a PCS profile. Returns the approval id. */
+export async function requestPCSDiscard(entry, { reason = '', requestedBy = '', requestedByUid = '' } = {}) {
+  if (!db || !entry?.id) return null
+  const ref = doc(collection(db, APPROVALS_COLLECTION))
+  const batch = writeBatch(db)
+  batch.set(ref, {
+    type: 'pcs_discard',
+    status: 'pending',
+    memberId: entry.id,
+    memberName: entry.name || '',
+    memberPhone: entry.phone || '',
+    memberVisitorId: entry.visitorId || '',
+    reason: String(reason || '').trim(),
+    requestedBy: requestedBy || 'unknown',
+    requestedByUid: requestedByUid || '',
+    timestamp: Timestamp.now(),
+  })
+  batch.update(doc(db, CARING_PCS_COLLECTION, entry.id), {
+    status: 'pending_discard',
+    discardApprovalId: ref.id,
+    discardRequestedBy: requestedBy || 'unknown',
+    discardRequestedAt: Timestamp.now(),
+    discardReason: String(reason || '').trim(),
+  })
+  await batch.commit()
+  return ref.id
+}
+
+/** Founder: live list of pending approval requests, newest first. */
+export function subscribePendingApprovals(onChange, onError) {
+  if (!db) { onChange([]); return () => {} }
+  const q = query(collection(db, APPROVALS_COLLECTION), where('status', '==', 'pending'))
+  return onSnapshot(q, (snap) => {
+    const rows = snap.docs.map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, timestamp: toDate(data.timestamp) }
+    })
+    rows.sort((a, b) => (b.timestamp?.getTime?.() || 0) - (a.timestamp?.getTime?.() || 0))
+    onChange(rows)
+  }, (err) => { console.error('subscribePendingApprovals failed:', err); onError?.(err) })
+}
+
+/** Founder approves: the PCS profile and its lookup row are deleted; the approval
+ *  doc stays as the record of what was discarded, by whom and why. */
+export async function approvePCSDiscard(approval, decidedBy = '') {
+  if (!db || !approval?.id) return
+  const batch = writeBatch(db)
+  batch.update(doc(db, APPROVALS_COLLECTION, approval.id), { status: 'approved', decidedBy: decidedBy || 'unknown', decidedAt: Timestamp.now() })
+  if (approval.memberId) {
+    batch.delete(doc(db, CARING_PCS_COLLECTION, approval.memberId))
+    batch.delete(doc(db, PCS_LOOKUP_COLLECTION, approval.memberId))
+  }
+  await batch.commit()
+}
+
+/** Founder rejects: the PCS profile goes back to active, request details cleared. */
+export async function rejectPCSDiscard(approval, decidedBy = '') {
+  if (!db || !approval?.id) return
+  const batch = writeBatch(db)
+  batch.update(doc(db, APPROVALS_COLLECTION, approval.id), { status: 'rejected', decidedBy: decidedBy || 'unknown', decidedAt: Timestamp.now() })
+  if (approval.memberId) {
+    const pcsRef = doc(db, CARING_PCS_COLLECTION, approval.memberId)
+    const pcsSnap = await getDoc(pcsRef)
+    if (pcsSnap.exists()) {
+      batch.update(pcsRef, { status: 'active', discardApprovalId: '', discardRequestedBy: '', discardRequestedAt: null, discardReason: '' })
+    }
+  }
+  await batch.commit()
 }
 
 // D Light – sub departments (dlight_sub_departments)
@@ -4016,6 +4166,15 @@ function normalizeReport(data) {
           Object.entries(sca).map(([k, v]) => [k, Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []])
         )
       : {}
+  // Per-cell names marked "Away" (travel/vacation) for this Sunday — neither present
+  // nor absent; see utils/awayStatus.js.
+  const away = data.sundayCellAway
+  const sundayCellAway =
+    away && typeof away === 'object' && !Array.isArray(away)
+      ? Object.fromEntries(
+          Object.entries(away).map(([k, v]) => [k, Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []])
+        )
+      : {}
   return {
     date: data.date || '',
     filed: !!data.filed,
@@ -4023,6 +4182,7 @@ function normalizeReport(data) {
     pastoralAttendees: Array.isArray(data.pastoralAttendees) ? data.pastoralAttendees : [],
     pastoralLinked: data.pastoralLinked && typeof data.pastoralLinked === 'object' ? data.pastoralLinked : {},
     sundayCellAttendance,
+    sundayCellAway,
     olive: Array.isArray(data.olive) ? data.olive : [],
     jordan: Array.isArray(data.jordan) ? data.jordan : [],
     bethany: Array.isArray(data.bethany) ? data.bethany : [],
@@ -4226,7 +4386,23 @@ export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onErr
         addAll(data.fourthWeekAttendeesNames)
         const sca = data.sundayCellAttendance
         if (sca && typeof sca === 'object') Object.values(sca).forEach((arr) => addAll(arr))
-        return { date: d.id, names, ids: idsByDate.get(d.id) || new Set() }
+        // Names marked Away this Sunday — absence counters skip the week for them.
+        const awayNames = new Set()
+        const away = data.sundayCellAway
+        if (away && typeof away === 'object') {
+          Object.values(away).forEach((arr) => (Array.isArray(arr) ? arr : []).forEach((n) => {
+            const norm = String(n).trim().toLowerCase()
+            if (norm) awayNames.add(norm)
+          }))
+        }
+        // River Kids (Sunday School) names on their own — callers that only care about
+        // adults (PCS "Recommended to Add") use this to leave children out.
+        const kidNames = new Set()
+        ;(Array.isArray(data.riverKids) ? data.riverKids : []).forEach((n) => {
+          const norm = String(n).trim().toLowerCase()
+          if (norm) kidNames.add(norm)
+        })
+        return { date: d.id, names, awayNames, kidNames, ids: idsByDate.get(d.id) || new Set() }
       })
       .sort((a, b) => b.date.localeCompare(a.date))
 
@@ -4431,6 +4607,7 @@ export async function setSundayReport(dateStr, payload, updatedBy) {
     pastoralAttendees: data.pastoralAttendees,
     pastoralLinked: data.pastoralLinked || {},
     sundayCellAttendance: data.sundayCellAttendance || {},
+    sundayCellAway: data.sundayCellAway || {},
     olive: data.olive,
     jordan: data.jordan,
     bethany: data.bethany,
@@ -4574,7 +4751,11 @@ export async function getRecentCellReportsForHeatmap(cellId, count = 2, altCellI
       const attendeeNames = new Set(
         attendeeSnap.docs.map((a) => String(a.data().name || '').trim().toLowerCase())
       )
-      return { reportId: d.id, reportDate: d.data().reportDate || '', attendeeNames }
+      // Members marked Away for this meeting (travel/vacation) — see utils/awayStatus.js
+      const awayNames = new Set(
+        (Array.isArray(d.data().awayNames) ? d.data().awayNames : []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean)
+      )
+      return { reportId: d.id, reportDate: d.data().reportDate || '', attendeeNames, awayNames }
     })
   )
 }
@@ -4972,7 +5153,7 @@ export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTiming
  * distinct from department_children — it's the session's roster of River Kids children
  * confirmed as attending alongside their parent, written to cell_reports.childrenList.
  */
-export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy, visitors = [], children = []) {
+export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy, visitors = [], children = [], awayNames = []) {
   if (!db || !cellId || !dateStr || !Array.isArray(presentMembers)) return
   const d = String(dateStr).slice(0, 10)
   const visitorNames = Array.isArray(visitors) ? visitors.map((v) => v.name).filter(Boolean) : []
@@ -4989,7 +5170,7 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
 
   // Don't create a new doc if the meeting ended with no attendance recorded.
   // If an existing doc is already there, proceed normally (preserve its data).
-  if (snap.empty && presentMembers.length === 0) return
+  if (snap.empty && presentMembers.length === 0 && awayNames.length === 0) return
 
   let reportId
   if (!snap.empty) {
@@ -5040,6 +5221,7 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
     visitorsList: visitorNames,
     children: childNames.length,
     childrenList: childNames,
+    awayNames: Array.isArray(awayNames) ? awayNames.filter(Boolean) : [],
   })
 }
 
@@ -5906,6 +6088,7 @@ export async function updateCellMembersByVisitorId(visitorId, data) {
   if (data.name  !== undefined) payload.name  = String(data.name)
   if (data.phone !== undefined) payload.phone = String(data.phone)
   if (data.birthday !== undefined) payload.birthday = data.birthday ? String(data.birthday).slice(0, 10) : ''
+  if (data.displayName !== undefined) payload.displayName = String(data.displayName).trim()
   if (!Object.keys(payload).length) return
   await Promise.all(docs.map(d => updateDoc(d.ref, payload)))
 }
@@ -5933,6 +6116,7 @@ export async function updateDeptTeamMembersByVisitorId(visitorId, data) {
   const payload = {}
   if (data.name  !== undefined) payload.name  = String(data.name)
   if (data.phone !== undefined) payload.phone = String(data.phone)
+  if (data.displayName !== undefined) payload.displayName = String(data.displayName).trim()
   if (!Object.keys(payload).length) return
   await Promise.all(snap.docs.map(d => updateDoc(doc(db, 'department_team_members', d.id), payload)))
 }
@@ -5945,6 +6129,7 @@ export async function updateWorshipTeamMembersByVisitorId(visitorId, data) {
   const payload = {}
   if (data.name  !== undefined) payload.name  = String(data.name)
   if (data.phone !== undefined) payload.phone = String(data.phone)
+  if (data.displayName !== undefined) payload.displayName = String(data.displayName).trim()
   if (!Object.keys(payload).length) return
   await Promise.all(snap.docs.map(d => updateDoc(doc(db, 'worship_team_members', d.id), payload)))
 }
@@ -6018,6 +6203,12 @@ export async function getMemberProfile(visitorId) {
     spouseVisitorId:  d.spouseVisitorId  || '',
     hasKids:          d.hasKids          || '',
     children:         Array.isArray(d.children) ? d.children : [],
+    // Reverse side of an adult-child link: parents who listed this person as a
+    // linked Adult Son/Daughter — [{ pcsEntryId, visitorId, name }].
+    parents:          Array.isArray(d.parents) ? d.parents : [],
+    // 'yes' | 'no' | '' — "Is this the first church they are attending?"; the two
+    // previous-church fields only apply when 'no'.
+    isFirstChurch:       d.isFirstChurch       || '',
     previousChurchName:  d.previousChurchName  || '',
     previousChurchPlace: d.previousChurchPlace || '',
     isDirector:       d.isDirector       || false,
@@ -6062,7 +6253,7 @@ export async function upsertMemberProfile(visitorId, data, updatedBy = '') {
     'baptised','baptismDate','baptismPlace','baptismChurch','maritalStatus','marriageDate','spouseName','spouseVisitorId',
     'isDirector','directorOf','directorSince','leaderSince','leaderUntil','ministryNotes',
     'ministryHistory','membershipStatus','membershipDocs','permanentAddress','photoUrl',
-    'hasKids','children','previousChurchName','previousChurchPlace',
+    'hasKids','children','parents','isFirstChurch','previousChurchName','previousChurchPlace',
   ]
   for (const k of allowed) {
     if (data[k] !== undefined) payload[k] = data[k]
@@ -6070,6 +6261,22 @@ export async function upsertMemberProfile(visitorId, data, updatedBy = '') {
   payload.updatedAt = Timestamp.now()
   payload.updatedBy = updatedBy
   await setDoc(doc(db, MEMBER_PROFILES_COLLECTION, visitorId), payload, { merge: true })
+}
+
+// Mirror (or undo) a parent → adult-child link onto the child's own member_profiles
+// doc, so the child's profile shows "Parent: …". Read-modify-write on `parents`,
+// keyed by the parent's PCS entry id so a later rename doesn't leave a stale twin.
+export async function setParentLinkOnChild(childVisitorId, parent, linked, updatedBy = '') {
+  if (!db || !childVisitorId || !parent?.pcsEntryId) return
+  const ref = doc(db, MEMBER_PROFILES_COLLECTION, childVisitorId)
+  const snap = await getDoc(ref)
+  const current = snap.exists() && Array.isArray(snap.data().parents) ? snap.data().parents : []
+  const others = current.filter((p) => p?.pcsEntryId !== parent.pcsEntryId)
+  const next = linked
+    ? [...others, { pcsEntryId: parent.pcsEntryId, visitorId: parent.visitorId || '', name: parent.name || '' }]
+    : others
+  if (!linked && next.length === current.length) return
+  await setDoc(ref, { parents: next, updatedAt: Timestamp.now(), updatedBy }, { merge: true })
 }
 
 export async function uploadMemberPhoto(visitorId, file) {
@@ -6547,6 +6754,51 @@ export function subscribePCSFillInvitationsByCellId(cellId, onChange) {
       return { id: d.id, ...data, sentAt: toDate(data.sentAt) }
     }))
   }, () => {})
+}
+
+// ─── PCS removal notices (Caring → Cell Leader) ──────────────────────────────
+// Written when Caring removes someone from PCS who is on an active cell roster, so
+// that cell's leader is told (bell item) and the roster card shows "Removed from
+// PCS" with a one-tap "Remove from Cell". status: 'pending' → 'resolved' once the
+// leader acts on it (removed / requested removal from the cell).
+const PCS_REMOVAL_NOTICES = 'pcs_removal_notices'
+
+export async function createPCSRemovalNotice({ pcsEntryId, visitorId, personName, phone, cellId, cellName, cellMemberId, removedBy }) {
+  if (!db || !cellId) return null
+  const ref = await addDoc(collection(db, PCS_REMOVAL_NOTICES), {
+    pcsEntryId: pcsEntryId || '',
+    visitorId: visitorId || '',
+    personName: personName || '',
+    phone: phone || '',
+    cellId,
+    cellName: cellName || '',
+    cellMemberId: cellMemberId || '',
+    removedBy: removedBy || '',
+    status: 'pending',
+    createdAt: Timestamp.now(),
+  })
+  return ref.id
+}
+
+/** Every notice for one cell (pending + resolved) — the roster tag uses both. */
+export function subscribePCSRemovalNoticesByCellId(cellId, onChange) {
+  if (!db || !cellId) { onChange([]); return () => {} }
+  const q = query(collection(db, PCS_REMOVAL_NOTICES), where('cellId', '==', cellId))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, createdAt: toDate(data.createdAt) }
+    }))
+  }, (err) => { console.error('subscribePCSRemovalNoticesByCellId:', err); onChange([]) })
+}
+
+export async function resolvePCSRemovalNotice(id, resolvedBy = '') {
+  if (!db || !id) return
+  await updateDoc(doc(db, PCS_REMOVAL_NOTICES, id), {
+    status: 'resolved',
+    resolvedBy: resolvedBy || '',
+    resolvedAt: Timestamp.now(),
+  })
 }
 
 export async function completePCSFillInvitation(id, filledBy = '', visitorId = '') {
@@ -7186,4 +7438,95 @@ export async function bulkCreateProjectFiles(rows, createdBy) {
     }
   }
   return { imported, failed }
+}
+
+// ─── Baptism Applications ─────────────────────────────────────────────────────
+// One doc per application, keyed by an unguessable random token that doubles as
+// the public QR link (/baptism-apply?token=…). Firestore rules let anyone *get*
+// (never list) an unexpired doc by its token and submit the applicant's part
+// once; everything else is Caring-only. See firestore.rules → baptism_applications.
+
+const BAPTISM_APPLICATIONS = 'baptism_applications'
+const BAPTISM_LINK_DAYS = 30
+
+function randomToken() {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function mapBaptismApplication(d) {
+  const data = d.data()
+  return {
+    id: d.id,
+    ...data,
+    createdAt: toDate(data.createdAt),
+    expiresAt: toDate(data.expiresAt),
+    submittedAt: toDate(data.submittedAt),
+  }
+}
+
+/** Create an application for a PCS entry; returns the new doc (its id is the token). */
+export async function createBaptismApplication({ pcsEntryId, visitorId, personId, batch, place, prefill }, createdBy = '') {
+  if (!db || !pcsEntryId) throw new Error('Missing PCS entry')
+  // Running number across all applications — the "42" in "B-9 / 42".
+  const all = await getDocs(collection(db, BAPTISM_APPLICATIONS))
+  const seq = all.docs.reduce((max, d) => Math.max(max, Number(d.data().seq) || 0), 0) + 1
+  const token = randomToken()
+  const batchStr = String(batch || '').trim()
+  const payload = {
+    pcsEntryId, visitorId: visitorId || '', personId: personId || '',
+    batch: batchStr, seq, formId: `B-${batchStr || '?'} / ${seq}`,
+    place: place || 'Bangalore',
+    prefill: prefill || {},
+    applicant: {},
+    photoDataUrl: '', signatureDataUrl: '', declarationAccepted: false,
+    status: 'pending', officeNotes: '',
+    createdAt: Timestamp.now(), createdBy,
+    expiresAt: Timestamp.fromDate(new Date(Date.now() + BAPTISM_LINK_DAYS * 24 * 60 * 60 * 1000)),
+    submittedAt: null,
+  }
+  await setDoc(doc(db, BAPTISM_APPLICATIONS, token), payload)
+  return { id: token, ...payload, createdAt: new Date(), expiresAt: payload.expiresAt.toDate() }
+}
+
+/** Public read by token (works signed-out while the link is unexpired). */
+export async function getBaptismApplicationByToken(token) {
+  if (!db || !token) return null
+  const snap = await getDoc(doc(db, BAPTISM_APPLICATIONS, token))
+  return snap.exists() ? mapBaptismApplication(snap) : null
+}
+
+/** Caring: live list of applications for one PCS entry, newest first. */
+export function subscribeBaptismApplicationsForEntry(pcsEntryId, onChange, onError) {
+  if (!db || !pcsEntryId) { onChange([]); return () => {} }
+  return onSnapshot(
+    query(collection(db, BAPTISM_APPLICATIONS), where('pcsEntryId', '==', pcsEntryId)),
+    (snap) => onChange(snap.docs.map(mapBaptismApplication).sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))),
+    (err) => { console.error('subscribeBaptismApplicationsForEntry:', err); onError?.(err) }
+  )
+}
+
+/** Applicant submission from the public page — the only update rules allow signed-out. */
+export async function submitBaptismApplication(token, { applicant, photoDataUrl, signatureDataUrl }) {
+  if (!db || !token) throw new Error('Missing link')
+  await updateDoc(doc(db, BAPTISM_APPLICATIONS, token), {
+    applicant: applicant || {},
+    photoDataUrl: photoDataUrl || '',
+    signatureDataUrl: signatureDataUrl || '',
+    declarationAccepted: true,
+    status: 'submitted',
+    submittedAt: Timestamp.now(),
+  })
+}
+
+/** Caring: office notes / status changes / extending the link. */
+export async function updateBaptismApplication(token, data) {
+  if (!db || !token) return
+  await updateDoc(doc(db, BAPTISM_APPLICATIONS, token), data)
+}
+
+export async function deleteBaptismApplication(token) {
+  if (!db || !token) return
+  await deleteDoc(doc(db, BAPTISM_APPLICATIONS, token))
 }

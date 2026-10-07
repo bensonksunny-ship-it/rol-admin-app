@@ -553,6 +553,14 @@ service cloud.firestore {
       // otherwise silently unfindable outside Caring. Write stays Caring-gated.
       allow read: if isSignedIn();
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      // Auto-return from Away: marking an Away person present on a Cell or Sunday
+      // attendance sheet flips them back to Active (returnPCSEntryFromAway). Only
+      // Away -> Active, and only the away* fields — nothing else on the entry.
+      allow update: if isSignedIn() &&
+        (canAccessDept('Cell') || canAccessDept('Sunday Ministry')) &&
+        resource.data.away == true && request.resource.data.away == false &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['away', 'awayFrom', 'awayUntil', 'awayNote', 'awayPeriods', 'awayUpdatedBy', 'awayUpdatedAt']);
     }
 
     // Central people registry — Caring is the primary gatekeeper; other depts read for search/linking
@@ -562,9 +570,39 @@ service cloud.firestore {
     }
 
     // Lightweight PCS membership lookup — any signed-in user can read, Caring writes
+    // Baptism applications (PCS → "Baptism Application & QR"). The doc id is a
+    // 128-bit random token that is also the public link /baptism-apply?token=….
+    //  - Signed-out applicants may GET (never LIST) an unexpired doc by exact token,
+    //    and submit their part exactly once: only the applicant fields may change,
+    //    status must go pending → submitted, and only before expiry.
+    //  - Caring / full access manage everything (create, list, notes, delete).
+    match /baptism_applications/{token} {
+      allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+        || resource.data.expiresAt > request.time;
+      allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+        || (resource.data.status == 'pending'
+            && resource.data.expiresAt > request.time
+            && request.resource.data.status == 'submitted'
+            && request.resource.data.declarationAccepted == true
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'declarationAccepted', 'status', 'submittedAt']));
+    }
+
     match /pcs_lookup/{docId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+    }
+
+    // Founder approval queue (My Workspace > Approvals). Currently only
+    // type 'pcs_discard' — Caring asks the Pastoral Office to discard a wrong PCS
+    // profile. Caring may file a request; only the Founder reads and decides them.
+    match /approvals/{docId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.requestedByUid == request.auth.uid);
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'))
+        && request.resource.data.requestedByUid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update, delete: if isSignedIn() && isFullAccess();
     }
 
     // PCS add notifications: Cell Leader sends → Caring Director receives
@@ -584,6 +622,15 @@ service cloud.firestore {
     }
 
     // PCS profile-fill invitations: Caring Director sends → Cell Leader fills
+    // PCS removal notices: Caring removes someone from PCS → their Cell Leader is told
+    // and resolves it from the cell roster ("Remove from Cell").
+    match /pcs_removal_notices/{docId} {
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow read:   if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
+      allow update: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));
+      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+    }
+
     match /pcs_fill_invitations/{docId} {
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
       allow read:   if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canAccessDept('Cell'));

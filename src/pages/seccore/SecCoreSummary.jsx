@@ -1183,7 +1183,7 @@ function nextPsalm(psalm) {
 // can batch-write every row in one call instead of each row saving itself. Read-only
 // typography by default; the Leader/Psalm cells only swap in <select> inputs while the
 // parent's edit toggle is active (canEdit here already folds in that toggle).
-function SundayLeaderRow({ date, value, onChange, onReset, pool, dirty, hasAssignment, loading, canEdit }) {
+function SundayLeaderRow({ date, value, onChange, onReset, pool, dirty, hasAssignment, loading, canEdit, highlighted }) {
   const d = new Date(date + 'T00:00:00')
 
   const statusBadge = loading ? (
@@ -1197,7 +1197,10 @@ function SundayLeaderRow({ date, value, onChange, onReset, pool, dirty, hasAssig
   )
 
   return (
-    <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition-colors">
+    <tr
+      id={`sunday-row-${date}`}
+      className={`border-b border-slate-100 last:border-0 transition-colors duration-700 ${highlighted ? 'bg-amber-50 ring-2 ring-inset ring-amber-300' : 'hover:bg-slate-50/70'}`}
+    >
       <td className="px-4 py-3 align-top whitespace-nowrap">
         <p className="text-sm font-semibold text-slate-800">{format(d, 'dd MMM yyyy')}</p>
         <p className="text-xs text-slate-400">{format(d, 'EEEE')}</p>
@@ -1265,12 +1268,14 @@ function SundayLeaderRow({ date, value, onChange, onReset, pool, dirty, hasAssig
 // Only counts/lists Sundays that have already occurred (date < today) — a future
 // assignment doesn't count toward a leader's duty total until that Sunday passes.
 
-function SundayLeaderHistoryModal({ entries, pool, onClose }) {
-  const [view, setView] = useState('stats') // 'stats' | 'history'
+function SundayLeaderHistoryModal({ entries, pool, initialLeader = '', onClose }) {
+  // initialLeader (from the Summary's "Most Active Sunday Leader" card) opens
+  // straight onto that person's History, pre-filtered.
+  const [view, setView] = useState(initialLeader ? 'history' : 'stats') // 'stats' | 'history'
   // `query` is the actual filter (an exact leader name, or '' for all leaders);
   // `nameInput`/`nameDropdownOpen` drive the searchable-select UI on top of it.
-  const [query, setQuery] = useState('')
-  const [nameInput, setNameInput] = useState('')
+  const [query, setQuery] = useState(initialLeader)
+  const [nameInput, setNameInput] = useState(initialLeader)
   const [nameDropdownOpen, setNameDropdownOpen] = useState(false)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
@@ -1467,6 +1472,14 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [historyEntries, setHistoryEntries]     = useState([])
   const [historyLoading, setHistoryLoading]     = useState(false)
+  const [historyInitialLeader, setHistoryInitialLeader] = useState('')
+
+  // Deep links from the Summary analytics cards: ?date= jumps to that Sunday's
+  // month and flashes its row, ?filter=missing narrows to unassigned upcoming
+  // Sundays, ?leader= opens Leader History pre-filtered to that person.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [missingOnly, setMissingOnly]   = useState(false)
+  const [highlightDate, setHighlightDate] = useState(null)
 
   const openHistory = () => {
     setHistoryModalOpen(true)
@@ -1484,6 +1497,37 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
     () => monthSundays(monthCursor.getFullYear(), monthCursor.getMonth()),
     [monthCursor]
   )
+
+  useEffect(() => {
+    const date = searchParams.get('date')
+    const filter = searchParams.get('filter')
+    const leader = searchParams.get('leader')
+    if (!date && !filter && !leader) return
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const d = new Date(date + 'T00:00:00')
+      setMonthCursor(new Date(d.getFullYear(), d.getMonth(), 1))
+      setHighlightDate(date)
+    }
+    if (filter === 'missing') setMissingOnly(true)
+    if (leader) { setHistoryInitialLeader(leader); openHistory() }
+    const next = new URLSearchParams(searchParams)
+    next.delete('date'); next.delete('filter'); next.delete('leader')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  // Scroll the deep-linked row into view once its month has loaded, then let
+  // the highlight fade after a few seconds.
+  useEffect(() => {
+    if (!highlightDate || entriesLoading) return
+    document.getElementById(`sunday-row-${highlightDate}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const t = setTimeout(() => setHighlightDate(null), 4000)
+    return () => clearTimeout(t)
+  }, [highlightDate, entriesLoading])
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
+  const visibleSundays = missingOnly
+    ? sundaysInMonth.filter((d) => d >= todayStr && !savedEntries[d]?.leader)
+    : sundaysInMonth
 
   useEffect(() => {
     const unsub = subscribeToSundayLeaderPool(
@@ -1685,7 +1729,7 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
           <div className="relative group">
             <button
               type="button"
-              onClick={openHistory}
+              onClick={() => { setHistoryInitialLeader(''); openHistory() }}
               aria-label="Leader History"
               title="Leader History"
               className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50 hover:shadow-md active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:ring-offset-2"
@@ -1781,6 +1825,15 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
         <p className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">{saveMessage}</p>
       )}
 
+      {missingOnly && (
+        <div className="flex items-center justify-between gap-3 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <span>Showing upcoming Sundays with no leader assigned</span>
+          <button type="button" onClick={() => setMissingOnly(false)} className="inline-flex items-center gap-1 font-semibold hover:text-amber-900">
+            Show all <X size={12} />
+          </button>
+        </div>
+      )}
+
       {canEdit && editMode && pool.length === 0 && (
         <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           No approved leaders yet — tap the + button above to add people from the directory.
@@ -1802,10 +1855,18 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
               </tr>
             </thead>
             <tbody>
-              {sundaysInMonth.map((date) => (
+              {visibleSundays.length === 0 && !entriesLoading && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-400">
+                    Every upcoming Sunday in {format(monthCursor, 'MMMM')} has a leader.
+                  </td>
+                </tr>
+              )}
+              {visibleSundays.map((date) => (
                 <SundayLeaderRow
                   key={date}
                   date={date}
+                  highlighted={date === highlightDate}
                   value={entries[date] || EMPTY_LEADER_FORM}
                   onChange={(value) => updateEntry(date, value)}
                   onReset={() => resetEntry(date)}
@@ -1837,7 +1898,12 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
             <div className="bg-white rounded-2xl shadow-2xl px-6 py-4 text-sm text-slate-500" onClick={(e) => e.stopPropagation()}>Loading…</div>
           </div>
         ) : (
-          <SundayLeaderHistoryModal entries={historyEntries} pool={pool} onClose={() => setHistoryModalOpen(false)} />
+          <SundayLeaderHistoryModal
+            entries={historyEntries}
+            pool={pool}
+            initialLeader={historyInitialLeader}
+            onClose={() => { setHistoryModalOpen(false); setHistoryInitialLeader('') }}
+          />
         )
       )}
     </div>
@@ -2713,6 +2779,16 @@ export function DirectorBoardPage({ canEdit, userProfile }) {
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
+  // ?openAgenda=1 — the Summary analytics points drill-down's "Open Board Agenda"
+  // hand-off. Opens the agenda modal, then strips the param like the one above.
+  useEffect(() => {
+    if (!searchParams.get('openAgenda')) return
+    openAgenda(null)
+    const next = new URLSearchParams(searchParams)
+    next.delete('openAgenda')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
   return (
     <div className="space-y-4">
       <DirectorBoardTab
@@ -2799,9 +2875,32 @@ function Badge({ tone = 'slate', children }) {
 // Mirrors DeptExpenseTab's "Total Expense" summary card (src/components/DeptExpenseTab.jsx)
 // — label/value on the left, a single pill badge on the right — so KPI tiles read
 // as the same card as the Worship Finance page's stat card, just repeated per metric.
-function KpiTile({ label, value, badge, badgeTone }) {
+// Shared hover/press recipe for every clickable analytics card — lift + indigo
+// border on hover, settle back on press, keyboard focus ring for tab users.
+const CLICKABLE_CARD = 'cursor-pointer text-left transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-indigo-200 active:translate-y-0 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2'
+
+// Cards hold block content (<p>, <ul>), which isn't valid inside a <button>, so a
+// clickable card is a div with button semantics + Enter/Space handling instead.
+function clickableProps(onClick, label) {
+  if (!onClick) return {}
+  return {
+    role: 'button',
+    tabIndex: 0,
+    'aria-label': label,
+    onClick,
+    onKeyDown: (e) => {
+      if (e.target !== e.currentTarget) return
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() }
+    },
+  }
+}
+
+function KpiTile({ label, value, badge, badgeTone, onClick }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div
+      {...clickableProps(onClick, label)}
+      className={`flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${onClick ? CLICKABLE_CARD : ''}`}
+    >
       <div className="min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
         <p className="text-2xl font-bold text-slate-800 tabular-nums mt-0.5">{value}</p>
@@ -2822,15 +2921,91 @@ function ChartCard({ title, children }) {
 
 // Mirrors a DeptExpenseTab entry row (bg-white rounded-xl border shadow-sm px-4 py-3)
 // with a StatusBadge-style pill in the header instead of a colored card border.
-function InsightCard({ title, badge, badgeTone, children }) {
+function InsightCard({ title, badge, badgeTone, onClick, children }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
+    <div
+      {...clickableProps(onClick, title)}
+      className={`bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 ${onClick ? CLICKABLE_CARD : ''}`}
+    >
       <div className="flex items-center justify-between gap-2 mb-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</p>
         {badge && <Badge tone={badgeTone}>{badge}</Badge>}
       </div>
       {children}
     </div>
+  )
+}
+
+// Drill-down list behind the Agenda Completion / Board Points / Stale Pending
+// cards. BoardAgendaTab groups points by meeting date with no status filter, so
+// the filtered list lives here, with a hand-off button into the full agenda.
+function BoardPointsListModal({ title, subtitle, points, onOpenAgenda, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const today = new Date()
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] bg-black/40 flex items-end sm:items-center justify-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-800 truncate">{title}</p>
+            {subtitle && <p className="text-xs text-slate-400 mt-0.5 truncate">{subtitle}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors flex-shrink-0"
+          >
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {points.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-8">Nothing to show.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {points.map((p) => (
+                <li key={p.id} className="px-5 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-700 truncate">{p.department || '—'}</span>
+                    <Badge tone={p.status === 'approved' ? 'emerald' : 'amber'}>{p.status === 'approved' ? 'Approved' : 'Pending'}</Badge>
+                  </div>
+                  <p className="text-sm text-slate-800 mt-1 leading-snug line-clamp-3 whitespace-pre-wrap">{p.point || '—'}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {p.createdAt ? `Submitted ${formatDisplayDate(p.createdAt)} · ${differenceInCalendarDays(today, p.createdAt)}d ago` : 'Submission date unknown'}
+                    {p.meetingDate ? ` · Meeting ${formatDisplayDate(p.meetingDate)}` : ''}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-slate-100 flex justify-end flex-shrink-0">
+          <button
+            type="button"
+            onClick={onOpenAgenda}
+            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 active:scale-95 transition-all"
+          >
+            Open Board Agenda →
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   )
 }
 
@@ -2843,6 +3018,13 @@ export function SecCoreAnalyticsHub() {
   const [allPoints, setAllPoints] = useState([])
   const [expenses, setExpenses]   = useState([])
   const [loading, setLoading]     = useState(true)
+  const [pointsModal, setPointsModal] = useState(null) // 'pending' | 'month' | 'stale' | null
+  const [, setSearchParams] = useSearchParams()
+
+  // Pushes (not replaces) so the browser Back button returns to this summary.
+  // DepartmentHub syncs activeTab from ?tab=; the target tab consumes and then
+  // strips its own extra params (filter/date/leader/openAgenda).
+  const goTo = (params) => setSearchParams(params)
 
   useEffect(() => {
     let pending = 4
@@ -2945,6 +3127,17 @@ export function SecCoreAnalyticsHub() {
     return { entry: sorted[0] || null, total: last12.length }
   }, [sundayEntries])
 
+  const pendingPoints = useMemo(
+    () => allPoints.filter((p) => p.status !== 'approved').sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
+    [allPoints]
+  )
+
+  const pointsModalConfig = {
+    pending: { title: 'Pending Agenda Points', subtitle: `${pendingPoints.length} awaiting approval · oldest first`, points: pendingPoints },
+    month:   { title: 'Board Points This Month', subtitle: `${format(now, 'MMMM yyyy')} · ${deptsThisMonth} department${deptsThisMonth !== 1 ? 's' : ''}`, points: [...pointsThisMonth].sort((a, b) => b.createdAt - a.createdAt) },
+    stale:   { title: 'Stale Pending Points', subtitle: 'Pending for more than 14 days · oldest first', points: stalePending },
+  }[pointsModal]
+
   if (loading) {
     return <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-6 text-center text-slate-400 text-sm">Loading analytics…</div>
   }
@@ -2958,24 +3151,30 @@ export function SecCoreAnalyticsHub() {
           value={`${completionPct}%`}
           badge={`${pendingCount} pending`}
           badgeTone={completionPct >= 70 ? 'emerald' : completionPct >= 40 ? 'amber' : 'rose'}
+          onClick={() => setPointsModal('pending')}
         />
         <KpiTile
           label="Sunday Coverage"
           value={`${next4Sundays.length - missingSundays.length}/${next4Sundays.length}`}
           badge={missingSundays.length ? `${missingSundays.length} missing` : 'All covered'}
           badgeTone={missingSundays.length === 0 ? 'emerald' : 'amber'}
+          onClick={() => goTo(missingSundays.length
+            ? { tab: 'sundayLeader', filter: 'missing', date: missingSundays[0] }
+            : { tab: 'sundayLeader' })}
         />
         <KpiTile
           label="Active Roster"
           value={activeMembers.length}
           badge={`D:${rosterByType.director} C:${rosterByType.coordinator} S:${rosterByType.secretary}`}
           badgeTone="indigo"
+          onClick={() => goTo({ tab: 'directorBoard' })}
         />
         <KpiTile
           label="Board Points This Month"
           value={pointsThisMonth.length}
           badge={`${deptsThisMonth} dept${deptsThisMonth !== 1 ? 's' : ''}`}
           badgeTone="indigo"
+          onClick={() => setPointsModal('month')}
         />
       </div>
 
@@ -3026,13 +3225,25 @@ export function SecCoreAnalyticsHub() {
           title="Unassigned Sundays"
           badge={missingSundays.length || 'Clear'}
           badgeTone={missingSundays.length ? 'amber' : 'emerald'}
+          onClick={() => goTo(missingSundays.length
+            ? { tab: 'sundayLeader', filter: 'missing', date: missingSundays[0] }
+            : { tab: 'sundayLeader' })}
         >
           {missingSundays.length === 0 ? (
             <p className="text-sm text-slate-500">All upcoming Sundays covered.</p>
           ) : (
             <ul className="space-y-1">
               {missingSundays.map((d) => (
-                <li key={d} className="text-sm text-slate-700">{format(new Date(d + 'T00:00:00'), 'EEE, d MMM')}</li>
+                <li key={d}>
+                  {/* Each date jumps straight to its own slot, not just the filtered list */}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); goTo({ tab: 'sundayLeader', date: d }) }}
+                    className="text-sm text-indigo-600 font-medium hover:underline"
+                  >
+                    {format(new Date(d + 'T00:00:00'), 'EEE, d MMM')} →
+                  </button>
+                </li>
               ))}
             </ul>
           )}
@@ -3042,6 +3253,7 @@ export function SecCoreAnalyticsHub() {
           title="Stale Pending Points"
           badge={stalePending.length || 'Clear'}
           badgeTone={stalePending.length ? 'rose' : 'emerald'}
+          onClick={stalePending.length ? () => setPointsModal('stale') : undefined}
         >
           {stalePending.length === 0 ? (
             <p className="text-sm text-slate-500">Nothing to flag.</p>
@@ -3058,6 +3270,7 @@ export function SecCoreAnalyticsHub() {
           title="Roster Renewals Due"
           badge={renewalsDue.length || 'Clear'}
           badgeTone={renewalsDue.length ? 'amber' : 'emerald'}
+          onClick={() => goTo({ tab: 'directorBoard' })}
         >
           {renewalsDue.length === 0 ? (
             <p className="text-sm text-slate-500">Nothing to flag.</p>
@@ -3070,7 +3283,10 @@ export function SecCoreAnalyticsHub() {
           )}
         </InsightCard>
 
-        <InsightCard title="Most Active Sunday Leader">
+        <InsightCard
+          title="Most Active Sunday Leader"
+          onClick={topLeader.entry ? () => goTo({ tab: 'sundayLeader', leader: topLeader.entry[0] }) : undefined}
+        >
           {topLeader.entry ? (
             <p className="text-sm text-slate-700">
               <span className="font-bold">{topLeader.entry[0]}</span> led {topLeader.entry[1]} of last {topLeader.total} Sundays
@@ -3080,6 +3296,14 @@ export function SecCoreAnalyticsHub() {
           )}
         </InsightCard>
       </div>
+
+      {pointsModalConfig && (
+        <BoardPointsListModal
+          {...pointsModalConfig}
+          onClose={() => setPointsModal(null)}
+          onOpenAgenda={() => { setPointsModal(null); goTo({ tab: 'directorBoard', openAgenda: '1' }) }}
+        />
+      )}
     </div>
   )
 }

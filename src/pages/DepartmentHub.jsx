@@ -2,7 +2,7 @@ import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNav
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
+import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle, Trash2, ChevronUp, ChevronDown, ChevronLeft } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
@@ -103,6 +103,10 @@ import {
   updatePCSEntry,
   deletePCSEntry,
   deactivatePCSEntry,
+  createPCSRemovalNotice,
+  addPCSFollowUp,
+  requestPCSDiscard,
+  approvePCSDiscard,
   dismissInactiveCellAlert,
   getInactivePCSEntries,
   getDelightVisitorById,
@@ -119,6 +123,7 @@ import {
   getMemberProfile,
   getMemberProfileWithContext,
   upsertMemberProfile,
+  setParentLinkOnChild,
   uploadMemberPhoto,
   addPerson,
   updatePerson,
@@ -140,15 +145,19 @@ import {
   dismissCellVisitorProposal,
   getSundayAttendanceCountsByName,
   subscribeToRecentSundayAttendanceWeeks,
-  assignSeniorPastor,
 } from '../services/firestore'
+import { getMemberDisplayName } from '../utils/displayName'
+import BaptismApplicationModal from '../components/caring/BaptismApplicationModal'
 import { ROLES } from '../constants/roles'
 import { SAVINGS_FUNDS } from '../constants/savingsFunds'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { isPreServiceLeaderInPositions } from '../utils/sundayMinistryAccess'
 import { differenceInDays, differenceInCalendarDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
-import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate, formatTimestampFull, formatRelativeTime } from '../utils/date'
+import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate, formatTimestampFull, formatRelativeTime, formatJoinedDate } from '../utils/date'
+import { ENGAGEMENT_TYPES, normalizeEngagementType, engagementLabel, isCellOnly, isSundayOnly, findPcsCellMember, computeCellHealth, countConsecutiveCellAbsences, REMOVAL_ABSENCE_THRESHOLD, CELL_HEALTH_REPORT_COUNT, CELL_HEALTH_BADGE_CLS } from '../utils/pcsEngagement'
+import { isCurrentlyAway, isProfileAwayOn, awaySummary, awayReturnHistoryLabel, AWAY_BADGE_CLS } from '../utils/awayStatus'
+import PcsAwayControl from '../components/caring/PcsAwayControl'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
@@ -315,9 +324,22 @@ const fmtService = (s) => {
 const emptyFillInviteForm = () => ({
   phone: '', email: '', dob: '', nativity: '', currentPlace: '',
   baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
-  previousChurchName: '', previousChurchPlace: '',
+  isFirstChurch: '', previousChurchName: '', previousChurchPlace: '',
   maritalStatus: '', marriageDate: '', spouseName: '', hasKids: '', children: [],
 })
+
+// Records saved before the "first church?" question existed: any previous-church
+// data already on file means the answer is effectively "No" — don't hide it.
+const deriveIsFirstChurch = (p) =>
+  p?.isFirstChurch || ((p?.previousChurchName || p?.previousChurchPlace) ? 'no' : '')
+
+// "Is this the first church…?" change for both PCS forms. "Yes" clears the
+// previous-church fields so stale values aren't saved behind a hidden input.
+const withIsFirstChurch = (prev, isFirstChurch) => (
+  isFirstChurch === 'yes'
+    ? { ...prev, isFirstChurch, previousChurchName: '', previousChurchPlace: '' }
+    : { ...prev, isFirstChurch }
+)
 
 const FILL_INVITE_SECTIONS = [
   {
@@ -342,8 +364,9 @@ const FILL_INVITE_SECTIONS = [
       { key: 'baptismDate', label: 'Baptism Date', type: 'date', relevantIf: f => f.baptised === 'yes' },
       { key: 'baptismPlace', label: 'Baptism Place', type: 'text', placeholder: 'Location', relevantIf: f => f.baptised === 'yes' },
       { key: 'baptismChurch', label: 'Baptism Church', type: 'church', relevantIf: f => f.baptised === 'yes' },
-      { key: 'previousChurchName', label: 'Previous Church Name', type: 'text' },
-      { key: 'previousChurchPlace', label: 'Previous Church Location', type: 'text' },
+      { key: 'isFirstChurch', label: 'Is this the first church they are attending?', type: 'select', options: [['yes', 'Yes'], ['no', 'No']] },
+      { key: 'previousChurchName', label: 'Previous Church Name', type: 'text', relevantIf: f => f.isFirstChurch === 'no' },
+      { key: 'previousChurchPlace', label: 'Previous Church Location', type: 'text', relevantIf: f => f.isFirstChurch === 'no' },
     ],
   },
   {
@@ -352,11 +375,20 @@ const FILL_INVITE_SECTIONS = [
       { key: 'maritalStatus', label: 'Marital Status', type: 'select', options: [['Single', 'Single'], ['Married', 'Married'], ['Widowed', 'Widowed'], ['Divorced', 'Divorced']] },
       { key: 'marriageDate', label: 'Marriage Date', type: 'date', relevantIf: f => f.maritalStatus === 'Married' },
       { key: 'spouseName', label: 'Spouse Name', type: 'text', placeholder: 'Spouse name', relevantIf: f => f.maritalStatus === 'Married' },
-      { key: 'hasKids', label: 'Do they have kids?', type: 'select', options: [['yes', 'Yes'], ['no', 'No']] },
-      { key: 'children', label: 'Children', type: 'children', relevantIf: f => f.hasKids === 'yes' },
+      { key: 'hasKids', label: 'Do they have kids?', type: 'select', options: [['yes', 'Yes'], ['no', 'No']], relevantIf: f => f.maritalStatus !== 'Single' },
+      { key: 'children', label: 'Children', type: 'children', relevantIf: f => f.maritalStatus !== 'Single' && f.hasKids === 'yes' },
     ],
   },
 ]
+
+// Marital Status change for both PCS forms (main edit + fill invitation). "Do they
+// have kids?" is hidden for Single, so switching to Single also clears hasKids and
+// children — otherwise a stale "yes" + children list would still be saved.
+const withMaritalStatus = (prev, maritalStatus) => (
+  maritalStatus === 'Single'
+    ? { ...prev, maritalStatus, hasKids: '', children: [] }
+    : { ...prev, maritalStatus }
+)
 
 // "Missing" is judged against the pre-fill baseline (not live edits), so a field
 // doesn't lose its highlight the instant the leader starts typing into it.
@@ -577,7 +609,7 @@ export default function DepartmentHub() {
   const location = useLocation()
   const navigate = useNavigate()
   const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder, isCellDirector, isSundayMinistryDirector } = useAuth()
-  const { isSeniorPastorName, title: SENIOR_PASTOR_TITLE, fullTitle: SENIOR_PASTOR_FULL_TITLE, name: seniorPastorName } = useSeniorPastor()
+  const { isSeniorPastorName, title: SENIOR_PASTOR_TITLE, fullTitle: SENIOR_PASTOR_FULL_TITLE } = useSeniorPastor()
   const department = getDepartmentBySlug(slug)
 
   // Cell access helper must be defined BEFORE any effects that reference it (avoid TDZ crashes)
@@ -836,10 +868,22 @@ export default function DepartmentHub() {
   const [pcsSearchQuery, setPcsSearchQuery] = useState('')
   const [pcsActiveFilters, setPcsActiveFilters] = useState(() => new Set())
   const [sundayAttendanceWeeks, setSundayAttendanceWeeks] = useState([])
+  // cellId → recent cell reports (attendee-name sets), fetched only for cells
+  // that have a Cell Only PCS member — drives their Cell Health badge.
+  const [pcsCellReportsByCellId, setPcsCellReportsByCellId] = useState(() => new Map())
   const [rkChildrenForPCS, setRkChildrenForPCS] = useState([])
   const [pcsChildSearchOpenId, setPcsChildSearchOpenId] = useState(null)
   const [pcsSpouseFocused, setPcsSpouseFocused] = useState(false)
   const [pcsShowFormer, setPcsShowFormer] = useState(false)
+  // "Recommended for Removal" review list (10 consecutive Sunday AND cell absences, per Engagement Type)
+  const [pcsRemovalView, setPcsRemovalView] = useState(false)
+  const [pcsRemovalAction, setPcsRemovalAction] = useState(null) // { id, kind: 'away' | 'followup' }
+  const [pcsFollowUpText, setPcsFollowUpText] = useState('')
+  const [pcsFollowUpSaving, setPcsFollowUpSaving] = useState(false)
+  // Discard Profile (wrong / duplicate record) — Founder-approved, see requestPCSDiscard
+  const [pcsDiscardTarget, setPcsDiscardTarget] = useState(null)
+  const [pcsDiscardReason, setPcsDiscardReason] = useState('')
+  const [pcsDiscardSaving, setPcsDiscardSaving] = useState(false)
   const [pcsInactiveEntries, setPcsInactiveEntries] = useState([])
   const [pcsLoadingFormer, setPcsLoadingFormer] = useState(false)
   const [pcsFormDirty, setPcsFormDirty] = useState(false)
@@ -855,6 +899,41 @@ export default function DepartmentHub() {
   const [fillInviteLoading, setFillInviteLoading] = useState(false)
   const [fillInviteSaving, setFillInviteSaving] = useState(false)
   const [fillShowAllFields, setFillShowAllFields] = useState(false)
+
+  // Below 768px the PCS profile opens as a full-screen slide-in panel over the
+  // list (with a ← Back button) instead of expanding inline under the card.
+  const [pcsIsMobile, setPcsIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const update = () => setPcsIsMobile(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+
+  const closePcsProfile = useCallback(() => {
+    setPcsExpandedId(null); setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null); setPcsExpandedForm({})
+    setPcsPhotoFile(null); setPcsPhotoPreview(null)
+    setPcsEditingId(null)
+  }, [])
+
+  // Mobile: the open profile panel owns one history entry, so the phone's
+  // hardware/gesture Back closes the panel instead of leaving the page.
+  const pcsMobilePanelOpen = pcsIsMobile && !!pcsExpandedId && slug === 'caring' && activeTab === 'pcs' && !pcsShowFormer
+  useEffect(() => {
+    if (!pcsMobilePanelOpen) return
+    window.history.pushState({ ...(window.history.state || {}), pcsProfilePanel: true }, '')
+    const onPop = () => closePcsProfile()
+    window.addEventListener('popstate', onPop)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      document.body.style.overflow = prevOverflow
+      // Closed by the ← button (not by Back) — drop the history entry we pushed.
+      if (window.history.state?.pcsProfilePanel) window.history.back()
+    }
+  }, [pcsMobilePanelOpen, closePcsProfile])
 
   // Capture baseline after load completes; reset dirty flag
   useEffect(() => {
@@ -911,6 +990,7 @@ export default function DepartmentHub() {
         baptised: profile.baptised || '', baptismDate: profile.baptismDate || '', baptismPlace: profile.baptismPlace || '',
         baptismChurch: profile.baptismChurch || '',
         baptismChurchIsOther: !!profile.baptismChurch && profile.baptismChurch !== 'River Of Life Christian Church',
+        isFirstChurch: deriveIsFirstChurch(profile),
         previousChurchName: profile.previousChurchName || '', previousChurchPlace: profile.previousChurchPlace || '',
         maritalStatus: profile.maritalStatus || '', marriageDate: profile.marriageDate || '', spouseName: profile.spouseName || '',
         hasKids: profile.hasKids || '', children: profile.children || [],
@@ -950,6 +1030,13 @@ export default function DepartmentHub() {
   const [pcsAddAdding, setPcsAddAdding] = useState(new Set())
   const [pcsAddDismissing, setPcsAddDismissing] = useState(new Set())
   const [pcsAddForwarding, setPcsAddForwarding] = useState(new Set())
+
+  // "Recommended to Add" — people not in PCS who attended 2+ gatherings recently.
+  const [pcsRecOpen, setPcsRecOpen] = useState(false)
+  const [pcsRecBusy, setPcsRecBusy] = useState(new Set())        // rec keys being added/forwarded
+  const [pcsRecForwarded, setPcsRecForwarded] = useState(new Set())
+  const [pcsFormerForRec, setPcsFormerForRec] = useState([])       // removed PCS entries — never re-recommended
+  const [pcsBaptismOpenFor, setPcsBaptismOpenFor] = useState(null)  // PCS entry id whose Baptism Application modal is open
 
   const [cellVisitorProposals, setCellVisitorProposals] = useState([])
   const [cellVisitorProposalOpen, setCellVisitorProposalOpen] = useState(false)
@@ -1342,6 +1429,10 @@ export default function DepartmentHub() {
       setActiveTab(tabFromUrl && allowed.includes(tabFromUrl) ? tabFromUrl : fallback)
     } else if (tabFromUrl && nextTabs.includes(tabFromUrl)) {
       setActiveTab(tabFromUrl)
+    } else if (isFounder && !tabFromUrl) {
+      // Founder always lands on the department's Summary (hub) from a bare
+      // department link, even where staff get a different default (D-Light → Team).
+      setActiveTab('summary')
     } else if (slug === 'media' && tabFromUrl === 'operations') {
       // Operations (and its only child, Planning) was removed from Media — a stale
       // link/bookmark to ?tab=operations lands on Assign instead of falling all the
@@ -1363,7 +1454,7 @@ export default function DepartmentHub() {
     } else {
       setActiveTab('summary')
     }
-  }, [slug, tabFromUrl, userProfile])
+  }, [slug, tabFromUrl, userProfile, isFounder])
 
   // Operations' sub-view used to be an inline toggle strip (CellOperationsToggle,
   // SundayOperationsToggle, etc.) the user clicked; it's now a nested grid inside the
@@ -2201,6 +2292,56 @@ export default function DepartmentHub() {
       getDepartmentChildren('River Kids').then(kids => setRkChildrenForPCS(kids.filter(k => k.active !== false))).catch(() => setRkChildrenForPCS([]))
       return () => unsubSundayAttendance()
     }
+  }, [slug, activeTab])
+
+  // Recent cell reports for every cell holding a PCS member who's expected at cell
+  // (everyone except Sunday Only) — fetched once per cell (already-loaded cells are
+  // skipped). Drives the Cell Only "Cell Health" badge and the 10-consecutive-cell-
+  // absence check behind "Recommended for Removal".
+  useEffect(() => {
+    if (slug !== 'caring' || activeTab !== 'pcs') return
+    const cellIds = [...new Set(pcsEntries
+      .filter(e => !isSundayOnly(e))
+      .map(e => findPcsCellMember(e, allCellMembers)?.cellId)
+      .filter(cid => cid && !pcsCellReportsByCellId.has(cid)))]
+    if (!cellIds.length) return
+    let cancelled = false
+    Promise.all(cellIds.map(cid => getRecentCellReportsForHeatmap(cid, CELL_HEALTH_REPORT_COUNT).catch(() => [])))
+      .then(results => {
+        if (cancelled) return
+        setPcsCellReportsByCellId(prev => {
+          const next = new Map(prev)
+          cellIds.forEach((cid, i) => next.set(cid, results[i]))
+          return next
+        })
+      })
+    return () => { cancelled = true }
+  }, [slug, activeTab, pcsEntries, allCellMembers, pcsCellReportsByCellId])
+
+  // "Recommended to Add to PCS" needs cell attendance for people *not* in PCS too, so
+  // load the same recent-report window for every cell (into the shared map — cells the
+  // effect above already fetched are skipped), plus removed PCS entries so someone
+  // deliberately taken out of PCS isn't recommended straight back in.
+  useEffect(() => {
+    if (slug !== 'caring' || activeTab !== 'pcs' || !cellGroups.length) return
+    const cellIds = cellGroups.map(g => g.id).filter(cid => cid && !pcsCellReportsByCellId.has(cid))
+    if (!cellIds.length) return
+    let cancelled = false
+    Promise.all(cellIds.map(cid => getRecentCellReportsForHeatmap(cid, CELL_HEALTH_REPORT_COUNT).catch(() => [])))
+      .then(results => {
+        if (cancelled) return
+        setPcsCellReportsByCellId(prev => {
+          const next = new Map(prev)
+          cellIds.forEach((cid, i) => { if (!next.has(cid)) next.set(cid, results[i]) })
+          return next
+        })
+      })
+    return () => { cancelled = true }
+  }, [slug, activeTab, cellGroups, pcsCellReportsByCellId])
+
+  useEffect(() => {
+    if (slug !== 'caring' || activeTab !== 'pcs') return
+    getInactivePCSEntries().then(setPcsFormerForRec).catch(() => setPcsFormerForRec([]))
   }, [slug, activeTab])
 
   useEffect(() => {
@@ -3465,7 +3606,7 @@ export default function DepartmentHub() {
                                   >
                                     <option value="">— Not assigned</option>
                                     {team.filter((m) => !m.isFormer && m.status !== 'former').map((m) => (
-                                      <option key={m.id} value={m.name}>{m.name}</option>
+                                      <option key={m.id} value={m.name}>{getMemberDisplayName(m)}</option>
                                     ))}
                                   </select>
                                 </td>
@@ -5966,7 +6107,7 @@ export default function DepartmentHub() {
                                   <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
                                     {rowMembers.map((m) => (
                                       <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
-                                        {m.name}
+                                        {getMemberDisplayName(team.find((tm) => tm.id === m.id) || m)}
                                         <button
                                           type="button"
                                           onClick={() => removePersonFromRow(r.subDeptId, m.id)}
@@ -5990,7 +6131,7 @@ export default function DepartmentHub() {
                                 ) : rowMembers.length ? (
                                   <div className="flex flex-wrap gap-1.5">
                                     {rowMembers.map((m) => (
-                                      <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{m.name}</span>
+                                      <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{getMemberDisplayName(team.find((tm) => tm.id === m.id) || m)}</span>
                                     ))}
                                   </div>
                                 ) : (
@@ -6038,7 +6179,7 @@ export default function DepartmentHub() {
                                       <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
                                         {rowMembers.map((m) => (
                                           <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
-                                            {m.name}
+                                            {getMemberDisplayName(team.find((tm) => tm.id === m.id) || m)}
                                             <button
                                               type="button"
                                               onClick={() => removePersonFromRow(r.subDeptId, m.id)}
@@ -6063,7 +6204,7 @@ export default function DepartmentHub() {
                                     ) : rowMembers.length ? (
                                       <div className="flex flex-wrap gap-1.5">
                                         {rowMembers.map((m) => (
-                                          <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{m.name}</span>
+                                          <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{getMemberDisplayName(team.find((tm) => tm.id === m.id) || m)}</span>
                                         ))}
                                       </div>
                                     ) : (
@@ -6499,11 +6640,11 @@ export default function DepartmentHub() {
 
             const handleChipClick = (entry) => {
               if (pcsExpandedId === entry.id) {
-                setPcsExpandedId(null); setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null); setPcsExpandedForm({})
-                setPcsPhotoFile(null); setPcsPhotoPreview(null)
+                closePcsProfile()
                 return
               }
               setPcsExpandedId(entry.id)
+              setPcsEditingId(null)
               setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null)
               setPcsPhotoFile(null); setPcsPhotoPreview(null)
               // Auto-link: any River Kids child whose father/mother name matches this person
@@ -6517,16 +6658,17 @@ export default function DepartmentHub() {
                 .map(k => ({ id: `rk_${k.id}`, name: k.name, inRiverKids: 'yes', riverKidsChildId: k.id }))
               setPcsExpandedForm({
                 personId: entry.personId || '',
-                name: entry.name || '', phone: entry.phone || '', attendedDate: entry.attendedDate || '',
+                name: entry.name || '', displayName: entry.displayName || '', phone: entry.phone || '', attendedDate: entry.attendedDate || '',
                 membershipNumber: entry.membershipNumber || '', leadershipPosition: entry.leadershipPosition || '',
                 year: entry.year || '', email: entry.email || '', dob: entry.dob || '', nativity: entry.nativity || '',
                 currentPlace: entry.currentPlace || '', serviceAttended: entry.serviceAttended || '', howKnown: entry.howKnown || '',
                 ministries: entry.ministries || [],
+                engagementType: normalizeEngagementType(entry.engagementType),
                 baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
                 gender: '',
                 maritalStatus: '', marriageDate: '', spouseName: '', spouseVisitorId: '',
                 hasKids: autoKids.length ? 'yes' : '', children: autoKids,
-                previousChurchName: '', previousChurchPlace: '',
+                isFirstChurch: '', previousChurchName: '', previousChurchPlace: '',
                 membershipStatus: '', membershipDocs: [], permanentAddress: '', photoUrl: '',
               })
               // Load full personal data from people collection if linked
@@ -6599,6 +6741,7 @@ export default function DepartmentHub() {
                       marriageDate: p.marriageDate || '', spouseName: p.spouseName || '', spouseVisitorId: p.spouseVisitorId || '',
                       hasKids: p.hasKids || (mergedChildren.length ? 'yes' : ''),
                       children: mergedChildren,
+                      isFirstChurch: deriveIsFirstChurch(p),
                       previousChurchName: p.previousChurchName || '',
                       previousChurchPlace: p.previousChurchPlace || '',
                       membershipStatus: p.membershipStatus || '',
@@ -6620,10 +6763,62 @@ export default function DepartmentHub() {
               }
             })
 
+            // Discard Profile — for a wrong record (duplicate / entered by mistake), not for
+            // someone who stopped attending (that is Remove from PCS). Non-Founders file a
+            // request and the profile is locked as "Under Review of the Pastoral Office";
+            // the Founder's own discard is filed and approved in one go (same audit trail).
+            const handleSubmitDiscard = async () => {
+              const entry = pcsDiscardTarget
+              if (!entry || !pcsDiscardReason.trim()) return
+              setPcsDiscardSaving(true)
+              const requestedBy = userProfile?.displayName || userProfile?.email || ''
+              try {
+                const approvalId = await requestPCSDiscard(entry, { reason: pcsDiscardReason, requestedBy, requestedByUid: user?.uid || '' })
+                if (isFounder) {
+                  await approvePCSDiscard({ id: approvalId, memberId: entry.id }, requestedBy)
+                  setPcsEntries(prev => prev.filter(e => e.id !== entry.id))
+                  if (pcsExpandedId === entry.id) closePcsProfile()
+                } else {
+                  setPcsEntries(prev => prev.map(e => e.id === entry.id ? {
+                    ...e, status: 'pending_discard', discardApprovalId: approvalId,
+                    discardRequestedBy: requestedBy, discardRequestedAt: new Date(), discardReason: pcsDiscardReason.trim(),
+                  } : e))
+                }
+                setPcsEditingId(null)
+                setPcsFormDirty(false)
+                setPcsDiscardTarget(null)
+                setPcsDiscardReason('')
+              } catch (err) {
+                console.error('Discard request failed:', err)
+                alert('Could not send the discard request. Please try again.')
+              } finally {
+                setPcsDiscardSaving(false)
+              }
+            }
+
             const handleRemoveFromPCS = async (entry) => {
+              if (entry.status === 'pending_discard') { alert(`${entry.name}'s profile is under review of the Pastoral Office for discard.`); return }
               if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
               try {
                 await deactivatePCSEntry(entry.id, userProfile?.email || '')
+                // Tell their Cell Leader (bell + "Removed from PCS" roster tag). Best-effort:
+                // the PCS removal itself already succeeded, so a failure here only warns.
+                const cm = findPcsCellMember(entry, allCellMembers)
+                if (cm?.cellId) {
+                  createPCSRemovalNotice({
+                    pcsEntryId: entry.id,
+                    visitorId: entry.visitorId || cm.visitorId || '',
+                    personName: entry.name,
+                    phone: entry.phone || cm.phone || '',
+                    cellId: cm.cellId,
+                    cellName: cellGroups.find(g => g.id === cm.cellId)?.cellName || '',
+                    cellMemberId: cm.id,
+                    removedBy: userProfile?.displayName || userProfile?.email || '',
+                  }).catch(err => {
+                    console.error('createPCSRemovalNotice failed:', err)
+                    alert(`${entry.name} was removed from PCS, but their Cell Leader could not be notified.`)
+                  })
+                }
                 setPcsEntries(prev => prev.filter(e => e.id !== entry.id))
                 setPcsInactiveEntries(prev => [{ ...entry, status: 'inactive', removedAt: new Date(), removedBy: userProfile?.email || '' }, ...prev])
                 if (pcsExpandedId === entry.id) setPcsExpandedId(null)
@@ -6631,19 +6826,9 @@ export default function DepartmentHub() {
               setPcsMenuOpenId(null)
             }
 
-            // Founder-only — see docs/superpowers/specs/2026-09-09-pcs-senior-pastor-assignment-design.md.
-            // Always a reassignment, never a clear-to-vacant: the only way to change who
-            // holds it is to assign a different PCS entry, which also syncs the outgoing/
-            // incoming holder's login role (ROLES.SENIOR_PASTOR) when they have an account
-            // matching by email.
-            const handleSetSeniorPastor = async (entry) => {
-              const msg = `Make ${entry.name} the Senior Pastor${seniorPastorName ? `, replacing ${seniorPastorName}` : ''}? This also updates their app login permissions if they have an account.`
-              if (!window.confirm(msg)) return
-              try {
-                await assignSeniorPastor(entry, userProfile?.displayName || userProfile?.email || '')
-              } catch { alert('Failed to set Senior Pastor. Please try again.') }
-              setPcsMenuOpenId(null)
-            }
+            // "Set as Senior Pastor" was removed from the card ⋮ menu (2026-10) — the
+            // assignSeniorPastor service (services/firestore.js) is kept for a future,
+            // less exposed entry point.
 
             const handleDismissInactiveCellAlert = async (entry) => {
               try {
@@ -6658,18 +6843,103 @@ export default function DepartmentHub() {
             // person's record) and by name second (fallback, for weeks that were
             // never explicitly linked to a profile). Weeks with no filed report are
             // skipped rather than counted as absent.
-            const getConsecutiveAbsentSundays = (entry) => {
+            // `sinceISO` (optional) stops the count at Sundays before that date — e.g.
+            // before the person first visited, when they couldn't have been absent.
+            const getConsecutiveAbsentSundays = (entry, sinceISO = '') => {
               const norm = String(entry?.name || '').trim().toLowerCase()
               const idKey = entry?.visitorId ? `v:${entry.visitorId}` : null
               if ((!norm && !idKey) || sundayAttendanceWeeks.length === 0) return 0
               let count = 0
               for (const wk of sundayAttendanceWeeks) {
+                if (sinceISO && wk.date && wk.date < sinceISO) break
                 const present = (idKey && wk.ids?.has(idKey)) || (norm && wk.names.has(norm))
                 if (present) break
+                // Away that Sunday (marked on the sheet, or inside a PCS Away period) —
+                // the week is skipped: the streak freezes rather than grows or resets.
+                if ((norm && wk.awayNames?.has(norm)) || isProfileAwayOn(entry, wk.date)) continue
                 count++
               }
               return count
             }
+
+            // Sunday-absence warnings only apply to people expected on Sundays — Cell Only
+            // members are judged by getCellHealth instead.
+            const getSundayAbsentWeeks = (entry) => isCellOnly(entry) ? 0 : getConsecutiveAbsentSundays(entry)
+
+            // Cell Health for a Cell Only member, matched against their cell's recent
+            // reports by both their PCS name and their cell-roster name.
+            const getCellHealth = (entry) => {
+              const cm = findPcsCellMember(entry, allCellMembers)
+              const names = [entry?.name, cm?.name].map(n => String(n || '').trim().toLowerCase()).filter(Boolean)
+              return computeCellHealth({ hasCell: !!cm, reports: cm ? pcsCellReportsByCellId.get(cm.cellId) : null, names, isAwayOn: (d) => isProfileAwayOn(entry, d) })
+            }
+
+            // "Recommended for Removal" — strict per-track rule by Engagement Type:
+            //  - Sunday Only:   10+ consecutive missed Sundays
+            //  - Cell Only:     10+ consecutive missed cell meetings
+            //  - Sunday & Cell: BOTH 10+ missed Sundays AND 10+ missed cell meetings, so
+            //    someone still active in one stream is never flagged. A Sunday & Cell
+            //    person with no cell roster row has no cell track to judge, so only
+            //    Sundays count for them (otherwise they could never be flagged).
+            // Never flags someone currently Away or the Senior Pastor. Away weeks are
+            // skipped by both counters, and weeks before they first visited / joined the
+            // cell don't count.
+            const isoDay = (v) => /^\d{4}-\d{2}-\d{2}/.test(String(v || '')) ? String(v).slice(0, 10) : ''
+            const getRemovalReasons = (entry) => {
+              if (isCurrentlyAway(entry) || isSeniorPastorName(entry.name) || entry.status === 'pending_discard') return []
+              const needsSunday = !isCellOnly(entry)
+              const needsCell = !isSundayOnly(entry)
+
+              let sunday = null
+              if (needsSunday) {
+                const weeks = getConsecutiveAbsentSundays(entry, isoDay(entry.attendedDate))
+                sunday = { met: weeks >= REMOVAL_ABSENCE_THRESHOLD, reason: { kind: 'sunday', count: weeks, label: `${weeks} Consecutive Sunday Absences` } }
+              }
+
+              let cell = null
+              if (needsCell) {
+                const cm = findPcsCellMember(entry, allCellMembers)
+                if (cm) {
+                  const reports = pcsCellReportsByCellId.get(cm.cellId)
+                  // Reports still loading — can't judge the cell track yet, so don't flag.
+                  if (!reports) return []
+                  const names = [entry.name, cm.name].map(n => String(n || '').trim().toLowerCase()).filter(Boolean)
+                  const meetings = countConsecutiveCellAbsences({ reports, names, sinceISO: isoDay(cm.since), isAwayOn: (d) => isProfileAwayOn(entry, d) })
+                  cell = { met: meetings >= REMOVAL_ABSENCE_THRESHOLD, reason: { kind: 'cell', count: meetings, label: `${meetings} Consecutive Cell Absences` } }
+                } else if (!needsSunday) {
+                  return [] // Cell Only but not on any cell roster — nothing to judge
+                }
+              }
+
+              const tracks = [sunday, cell].filter(Boolean)
+              if (!tracks.length || !tracks.every(t => t.met)) return []
+              return tracks.map(t => t.reason)
+            }
+            // Suggested Away start date — the day after the person's most recent attendance,
+            // whichever is later of their last Sunday present (last 20 Sundays, by visitorId or
+            // name) and their last cell meeting present (their cell's last 12 reports).
+            // null when neither has a record, so the Away form falls back to today.
+            const suggestAwayStart = (entry) => {
+              const norm = String(entry?.name || '').trim().toLowerCase()
+              const idKey = entry?.visitorId ? `v:${entry.visitorId}` : null
+              const lastSunday = sundayAttendanceWeeks.find(wk => (idKey && wk.ids?.has(idKey)) || (norm && wk.names.has(norm)))?.date || ''
+              const cm = findPcsCellMember(entry, allCellMembers)
+              const names = [entry?.name, cm?.name].map(n => String(n || '').trim().toLowerCase()).filter(Boolean)
+              const lastCell = ((cm && pcsCellReportsByCellId.get(cm.cellId)) || [])
+                .find(r => names.some(n => r.attendeeNames?.has(n)))?.reportDate || ''
+              const attendedOn = isoDay(lastSunday > lastCell ? lastSunday : lastCell)
+              if (!attendedOn) return null
+              const source = lastSunday && lastSunday === lastCell ? 'Sunday Service & Cell' : lastSunday > lastCell ? 'Sunday Service' : 'Cell'
+              const [y, m, d] = attendedOn.split('-').map(Number)
+              const next = new Date(y, m - 1, d + 1)
+              const date = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`
+              return { date, attendedOn, source }
+            }
+
+            const removalCandidates = pcsEntries
+              .map(entry => ({ entry, reasons: getRemovalReasons(entry) }))
+              .filter(c => c.reasons.length > 0)
+              .sort((a, b) => a.entry.name.localeCompare(b.entry.name))
 
             const Chip = ({ entry }) => {
               const hasMember = !!entry.membershipNumber
@@ -6678,8 +6948,12 @@ export default function DepartmentHub() {
               const isInCell = !!(entry.visitorId && cellVisitorIds.has(entry.visitorId))
               const menuOpen = pcsMenuOpenId === entry.id
               const isPastor = isSeniorPastorName(entry.name)
-              const absentWeeks = getConsecutiveAbsentSundays(entry)
-              const isLongAbsent = absentWeeks >= 4
+              const absentWeeks = getSundayAbsentWeeks(entry)
+              // Away (travel/vacation) suppresses the red absence warnings entirely.
+              const isAway = isCurrentlyAway(entry)
+              const isLongAbsent = !isAway && absentWeeks >= 4
+              const cellHealth = isCellOnly(entry) ? getCellHealth(entry) : null
+              const cellFlag = !isAway && cellHealth && (cellHealth.tier === 'inactive' || cellHealth.tier === 'irregular') ? cellHealth : null
               return (
                 <div id={`pcs-entry-${entry.id}`} className="relative w-full h-full">
                   {menuOpen && (
@@ -6736,12 +7010,36 @@ export default function DepartmentHub() {
                             {entry.leadershipPosition}
                           </span>
                         )}
+                        {entry.status === 'pending_discard' && (
+                          <span
+                            className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-amber-100' : 'bg-amber-100 text-amber-800'}`}
+                            title="Discard requested — under review of the Pastoral Office"
+                          >
+                            Under Review
+                          </span>
+                        )}
+                        {isAway && (
+                          <span
+                            className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-sky-100' : 'bg-sky-100 text-sky-700'}`}
+                            title={awaySummary(entry, formatDisplayDate)}
+                          >
+                            ✈ Away
+                          </span>
+                        )}
                         {isLongAbsent && (
                           <span
                             className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-red-100' : 'bg-red-100 text-red-700'}`}
                             title={`Absent for ${absentWeeks} consecutive Sundays`}
                           >
                             ⚠️ {absentWeeks}w
+                          </span>
+                        )}
+                        {cellFlag && (
+                          <span
+                            className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-white' : cellFlag.tier === 'inactive' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}
+                            title={`${cellFlag.label} — ${cellFlag.count} of ${cellFlag.meetings} cell meetings in the past 4 weeks`}
+                          >
+                            ⚠️ Cell
                           </span>
                         )}
                       </div>
@@ -6772,18 +7070,6 @@ export default function DepartmentHub() {
                   {/* Dropdown menu */}
                   {menuOpen && (
                     <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[160px]">
-                      {isFounder && !isPastor && (
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); handleSetSeniorPastor(entry) }}
-                          className="w-full text-left px-4 py-2.5 text-sm text-amber-700 hover:bg-amber-50 font-medium flex items-center gap-2"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M2 18h20l-2-9-5 4-3-8-3 8-5-4-2 9z"/>
-                          </svg>
-                          Set as Senior Pastor
-                        </button>
-                      )}
                       <button
                         type="button"
                         onClick={e => { e.stopPropagation(); handleRemoveFromPCS(entry) }}
@@ -6802,7 +7088,9 @@ export default function DepartmentHub() {
 
             // Inline expanded profile panel
             const PCSInlineProfile = ({ entry }) => {
-              const isEditing = pcsEditingId === entry.id
+              // A profile awaiting a Discard decision is read-only until the Founder decides.
+              const isPendingDiscard = entry.status === 'pending_discard'
+              const isEditing = pcsEditingId === entry.id && !isPendingDiscard
               // Recomputed here (matches the collapsed-chip's own `isPastor` above) — this
               // is a separate closure over the same `entry`, not a shared scope, so it
               // isn't visible via the outer map's local unless computed again.
@@ -6855,7 +7143,10 @@ export default function DepartmentHub() {
 
               // Children rows (Personal Data section)
               const children = f.children || []
-              const addChildRow = () => setF(p => ({ ...p, children: [...(p.children || []), { id: Date.now().toString(), name: '', inRiverKids: '', riverKidsChildId: '' }] }))
+              // childType: 'minor' (River Kids / Sunday School) | 'adult' (adult son/daughter,
+              // optionally linked to their own PCS entry via linkedChildMemberId). Rows saved
+              // before childType existed have none and are treated as minors.
+              const addChildRow = () => setF(p => ({ ...p, children: [...(p.children || []), { id: Date.now().toString(), childType: 'minor', name: '', inRiverKids: '', riverKidsChildId: '', linkedChildMemberId: '' }] }))
               const updateChildRow = (id, patch) => setF(p => ({ ...p, children: (p.children || []).map(c => c.id === id ? { ...c, ...patch } : c) }))
               const removeChildRow = (id) => setF(p => ({ ...p, children: (p.children || []).filter(c => c.id !== id) }))
 
@@ -6874,7 +7165,7 @@ export default function DepartmentHub() {
               const s2Checks = [autoMinistry.length > 0]
               const s2Fill = s2Checks.filter(Boolean).length / s2Checks.length
 
-              const sPersonalBaseKeys = ['maritalStatus', 'hasKids']
+              const sPersonalBaseKeys = f.maritalStatus === 'Single' ? ['maritalStatus'] : ['maritalStatus', 'hasKids']
               const sPersonalMarriageKeys = f.maritalStatus === 'Married' ? ['marriageDate','spouseName'] : []
               const sPersonalAllKeys = [...sPersonalBaseKeys, ...sPersonalMarriageKeys]
               const sPersonalFill = countFilled(sPersonalAllKeys) / sPersonalAllKeys.length
@@ -6914,190 +7205,312 @@ export default function DepartmentHub() {
               )
               const _cg = _cellMember ? cellGroups.find(g => g.id === _cellMember.cellId) : null
 
-              // ── Stamp view (read-only, clean portrait) ──────────────
+              // ── Stamp view (read-only A4 document) ──────────────────
+              // Laid out on the same A4 grid as downloadProfileAsPDF (794px = 210mm,
+              // navy band, identity + personal on the left, church journey / notes /
+              // history on the right) so the printed sheet mirrors what's on screen.
+              // Two columns kick in from the card's own width (container query), not
+              // the viewport, since the centre pane is narrower than the window.
               if (!isEditing) {
                 const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null
+                const hasVal = (v) => v !== null && v !== undefined && String(v).trim() !== ''
 
-                // Clean label+value field
-                const field = (label, value) => value && String(value).trim() ? (
-                  <div className="min-w-0">
-                    <p className="text-[8px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">{label}</p>
-                    <p className="text-[11px] font-semibold text-slate-800 leading-snug">{value}</p>
-                  </div>
-                ) : null
+                // Label over value with a hairline divider — same shape as the PDF's field().
+                // Core fields always render ("—" when empty); optional ones only when filled.
+                const row = (label, value, { optional = false, wide = false } = {}) => {
+                  if (optional && !hasVal(value)) return null
+                  return (
+                    <div className={`min-w-0 py-1.5 border-b border-slate-100 ${wide ? 'col-span-2' : ''}`}>
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
+                      {hasVal(value)
+                        ? <p className="text-[13px] font-medium text-slate-800 leading-snug break-words">{value}</p>
+                        : <p className="text-[13px] text-slate-300 leading-snug">—</p>}
+                    </div>
+                  )
+                }
+                const Section = ({ title, color, badge, grid = true, children }) => (
+                  <section className="mb-5">
+                    <div className="flex items-center justify-between gap-2 pb-1 mb-1.5 border-b-[1.5px]" style={{ borderColor: color }}>
+                      <p className="text-[10px] font-extrabold uppercase tracking-[0.15em]" style={{ color }}>{title}</p>
+                      {badge}
+                    </div>
+                    {grid ? <div className="grid grid-cols-2 gap-x-4">{children}</div> : children}
+                  </section>
+                )
 
-                // Section header row: coloured dot + label + optional badge
-                const SH = ({ dot, label, badge }) => (
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />
-                    <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500 flex-1">{label}</p>
-                    {badge}
+                const absentWeeks = getSundayAbsentWeeks(entry)
+                const cellHealth = isCellOnly(entry) ? getCellHealth(entry) : null
+                const profileNotes = (pcsExpandedProfile?.notes || pcsExpandedVisitor?.notes || '').trim()
+                const kids = f.hasKids === 'yes' ? (f.children || []).filter(c => c.name) : []
+                const minorKids = kids.filter(c => c.childType !== 'adult')
+                const adultKids = kids.filter(c => c.childType === 'adult')
+                // Reverse side of adult-child links: parents who linked this person.
+                const familyParents = (pcsExpandedProfile?.parents || []).filter(p => p?.name)
+                // Family row — a linked person (still in PCS) is a button that opens their profile.
+                const familyLinks = (label, people) => people.length === 0 ? null : (
+                  <div className="min-w-0 py-1.5 border-b border-slate-100 col-span-2">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
+                    <div className="flex flex-wrap gap-1.5 mt-0.5">
+                      {people.map(p => {
+                        const target = p.pcsId && pcsEntries.find(e => e.id === p.pcsId)
+                        return target ? (
+                          <button key={p.key} type="button" onClick={() => handleChipClick(target)}
+                            className="text-[12px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-2.5 py-0.5 hover:bg-teal-100 transition-colors">
+                            {p.name} ↗
+                          </button>
+                        ) : (
+                          <span key={p.key} className="text-[12px] font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-full px-2.5 py-0.5">{p.name}</span>
+                        )
+                      })}
+                    </div>
                   </div>
                 )
 
-                return (
-                  <div className="border-t-2 border-indigo-500 bg-slate-100 px-3 py-4 flex justify-center">
-                    {pcsExpandedLoading && <p className="text-xs text-slate-400 text-center py-6">Loading profile…</p>}
-                    <div className="w-full max-w-[400px] rounded-2xl shadow-lg overflow-hidden border border-slate-200">
+                // Ministry list — manual entries win over auto-detected ones of the same name
+                // (identical to what the PDF has always printed).
+                const manualMinistry = (entry.ministries || []).map(r => ({ ...r, isAuto: false }))
+                const manualNames = new Set(manualMinistry.map(r => r.ministry?.toLowerCase()))
+                const ministryAll = [...manualMinistry, ...autoMinistry.filter(a => !manualNames.has(a.ministry?.toLowerCase()))]
 
-                      {/* ── Header ── */}
-                      <div className="bg-gradient-to-b from-indigo-800 via-indigo-700 to-indigo-600 px-5 pt-5 pb-4 flex flex-col items-center text-center">
-                        <p className="text-[8px] font-extrabold uppercase tracking-[0.18em] text-indigo-300 mb-3">River Of Life Church · PCS</p>
-                        <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black text-white border-[3px] border-white/30 shadow-lg mb-3 ${f.membershipNumber ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-gradient-to-br from-indigo-400 to-violet-500'}`}>
-                          {pcsPhotoPreview
-                            ? <img src={pcsPhotoPreview} alt="" className="w-16 h-16 rounded-full object-cover" />
-                            : (f.name || '?')[0].toUpperCase()}
+                // History — assembled from existing records (PCS entry, visitor record,
+                // Sunday attendance); there is no separate activity-log collection.
+                const historyItems = [
+                  f.attendedDate && { when: fmtD(f.attendedDate), what: `First visited${f.serviceAttended ? ` · ${f.serviceAttended}` : ''}` },
+                  entry.addedAt && { when: fmtD(entry.addedAt), what: `Added to PCS${entry.addedBy ? ` by ${entry.addedBy}` : ''}` },
+                  _cg && { when: null, what: `In cell group · ${_cg.cellName || 'Unnamed Cell'}` },
+                  f.baptised === 'yes' && f.baptismDate && { when: fmtD(f.baptismDate), what: `Baptised${f.baptismChurch ? ` · ${f.baptismChurch}` : ''}` },
+                  f.membershipNumber && { when: null, what: `Church member · #${f.membershipNumber}` },
+                  cellHealth && cellHealth.tier !== 'loading' && {
+                    when: cellHealth.lastAttended ? `Last at cell ${fmtD(cellHealth.lastAttended)}` : null,
+                    what: cellHealth.meetings > 0 ? `${cellHealth.label} · ${cellHealth.count} of ${cellHealth.meetings} cell meetings in 4 weeks` : cellHealth.label,
+                    warn: cellHealth.tier === 'inactive',
+                  },
+                  isCurrentlyAway(entry) && { when: entry.awayFrom ? fmtD(entry.awayFrom) : null, what: awaySummary(entry, fmtD) },
+                  // Auto-returns from Away (marked present on a Sunday / Cell sheet)
+                  ...(entry.awayPeriods || []).filter(p => p?.returnedVia).map(p => ({ when: fmtD(p.to), what: awayReturnHistoryLabel(p, fmtD) })),
+                  !cellHealth && sundayAttendanceWeeks.length > 0 && {
+                    when: null,
+                    what: absentWeeks === 0 ? 'Present at the most recent Sunday service' : `Absent ${absentWeeks} consecutive Sunday${absentWeeks === 1 ? '' : 's'}${isCurrentlyAway(entry) ? ' (before going Away)' : ''}`,
+                    warn: absentWeeks >= 4 && !isCurrentlyAway(entry),
+                  },
+                  ...getRemovalReasons(entry).map(r => ({ when: null, what: `Recommended for removal · ${r.label}`, warn: true })),
+                  ...(entry.followUps || []).map(fu => ({
+                    when: formatTimestampFull(fu.at),
+                    what: `Follow-up${fu.by ? ` by ${fu.by}` : ''}${fu.note ? `: ${fu.note}` : ''}`,
+                  })),
+                ].filter(Boolean)
+
+                return (
+                  <div className="border-t-2 border-indigo-500 bg-slate-100 px-2 py-4 sm:px-4">
+                    {pcsExpandedLoading && <p className="text-xs text-slate-400 text-center pb-3">Loading profile…</p>}
+                    {pcsBaptismOpenFor === entry.id && (() => {
+                      // Pre-fill from what PCS already knows; blanks are asked of the applicant.
+                      const [firstName, ...rest] = String(f.name || '').trim().split(/s+/)
+                      return (
+                        <BaptismApplicationModal
+                          entry={entry}
+                          userEmail={userProfile?.email || ''}
+                          onClose={() => setPcsBaptismOpenFor(null)}
+                          prefill={{
+                            firstName: firstName || '', lastName: rest.join(' '),
+                            dob: f.dob || '', gender: f.gender || '', maritalStatus: f.maritalStatus || '',
+                            spouseName: f.maritalStatus === 'Married' ? (f.spouseName || '') : '',
+                            street: f.permanentAddress || '', city: f.currentPlace || '',
+                            state: '', zip: '', country: '',
+                            phone: f.phone || '', altPhone: '', email: f.email || '',
+                            cellName: _cg?.cellName || '',
+                          }}
+                        />
+                      )
+                    })()}
+                    <div className="@container w-full max-w-[794px] mx-auto bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
+
+                      {/* ── Navy band: title + actions ── */}
+                      <div className="bg-[#1e3a5f] px-5 @xl:px-8 py-4 flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#93c5fd]">River Of Life Church · Bangalore</p>
+                          <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-white mt-0.5">Personal Caring System — Member Profile</p>
                         </div>
-                        <p className="text-white font-black text-xl leading-tight tracking-tight">{f.name || '—'}</p>
-                        <div className="flex flex-wrap justify-center gap-1.5 mt-2">
-                          {f.membershipNumber && <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-400/25 text-amber-200 border border-amber-400/40">Member #{f.membershipNumber}</span>}
-                          {f.leadershipPosition && <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-400/25 text-emerald-200 border border-emerald-400/40">{f.leadershipPosition}</span>}
-                          {churchDuration && <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-white/10 text-indigo-200 border border-white/15">{churchDuration} in church</span>}
-                        </div>
-                        <div className="mt-3 w-full">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[8px] font-bold text-white/50 uppercase tracking-wider">Profile completeness</span>
-                            <span className={`text-[10px] font-black ${pctCls(overallFill)}`}>{pctStr(overallFill)}</span>
-                          </div>
-                          <div className="w-full h-1.5 bg-white/15 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full transition-all duration-500 ${barCls(overallFill)}`} style={{ width: `${Math.round(overallFill * 100)}%` }} />
-                          </div>
-                        </div>
-                        <div className="flex gap-2 mt-4 w-full">
-                          <button type="button" onClick={() => setPcsEditingId(entry.id)}
-                            className="flex-1 py-2 rounded-xl bg-white text-indigo-700 text-xs font-black hover:bg-indigo-50 transition-colors shadow">
-                            Edit
-                          </button>
-                          <button type="button" onClick={() => {
-                              const manual = (entry.ministries || []).map(r => ({ ...r, isAuto: false }))
-                              const manualNames = new Set(manual.map(r => r.ministry?.toLowerCase()))
-                              const auto = autoMinistry.filter(a => !manualNames.has(a.ministry?.toLowerCase()))
-                              downloadProfileAsPDF(f, churchDuration, [...manual, ...auto], _cg)
-                            }}
-                            className="flex-1 py-2 rounded-xl bg-white/10 text-white text-xs font-black hover:bg-white/20 transition-colors border border-white/20">
-                            Download PDF
+                        <div className="flex gap-2 flex-shrink-0">
+                          {!isPendingDiscard && (
+                            <button type="button" onClick={() => setPcsEditingId(entry.id)}
+                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white text-[#1e3a5f] text-xs font-bold hover:bg-blue-50 transition-colors shadow-sm">
+                              <Pencil className="w-3.5 h-3.5" /> Edit
+                            </button>
+                          )}
+                          <button type="button"
+                            onClick={() => downloadProfileAsPDF(f, churchDuration, ministryAll, _cg, { notes: profileNotes, history: historyItems, kids, parents: familyParents })}
+                            title="Download PDF" aria-label="Download PDF"
+                            className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors border border-white/25">
+                            <Download className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
 
-                      {/* ── Body — white, sections divided ── */}
-                      <div className="bg-white divide-y divide-slate-100">
-
-                        {/* Contact & Personal */}
-                        <div className="px-4 py-3.5">
-                          <SH dot="bg-blue-500" label="Contact & Personal" />
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                            {field('Phone', f.phone)}
-                            {field('Email', f.email)}
-                            {field('Date of Birth', fmtD(f.dob))}
-                            {field('Nativity', f.nativity)}
-                            {field('Current Place', f.currentPlace)}
-                            {field('How Known', f.howKnown)}
-                          </div>
+                      {isPendingDiscard && (
+                        <div className="px-5 @xl:px-8 py-3 bg-amber-50 border-b border-amber-200 text-amber-900">
+                          <p className="text-sm font-bold">Under Review of the Pastoral Office</p>
+                          <p className="text-xs mt-0.5">This profile discard request has been submitted and is under review of the Pastoral Office. Editing is locked until a decision is made.</p>
+                          {(entry.discardRequestedBy || entry.discardReason) && (
+                            <p className="text-xs text-amber-800/80 mt-1">
+                              {entry.discardRequestedBy && <>Requested by {entry.discardRequestedBy}{entry.discardRequestedAt ? ` on ${fmtD(entry.discardRequestedAt)}` : ''}</>}
+                              {entry.discardReason && <>{entry.discardRequestedBy ? ' · ' : ''}Reason: {entry.discardReason}</>}
+                            </p>
+                          )}
                         </div>
+                      )}
 
-                        {/* Church Journey */}
-                        <div className="px-4 py-3.5">
-                          <SH dot="bg-emerald-500" label="Church Journey"
-                            badge={churchDuration
-                              ? <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">{churchDuration}</span>
-                              : null}
-                          />
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-3">
-                            {field('First Visit', fmtD(f.attendedDate))}
-                            {field('Service', f.serviceAttended)}
-                            {field('PCS Year', f.year ? String(f.year) : null)}
-                          </div>
-                          {(() => {
-                            // Read-only — synced from duty rosters/assignments made by Ministry Leaders
-                            if (!autoMinistry.length) return null
-                            return (
-                              <div>
-                                <p className="text-[8px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Ministry & Leadership</p>
-                                <div className="space-y-1.5">
-                                  {autoMinistry.map((r) => {
-                                    const dur = miniDur(r.from, r.to)
-                                    return (
-                                      <div key={r.id} className="flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-                                        <div className="min-w-0">
-                                          <p className="text-[10px] font-bold text-slate-700 leading-tight">
-                                            {r.ministry}{r.role ? <span className="font-normal text-slate-400"> · {r.role}</span> : ''}
-                                          </p>
-                                          {r.from && <p className="text-[8px] text-slate-400 mt-0.5">since {new Date(r.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</p>}
-                                        </div>
-                                        {dur && <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
-                                      </div>
-                                    )
-                                  })}
-                                </div>
+                      {/* ── Body: two columns on A4 width, one column when narrow ── */}
+                      <div className="px-5 @xl:px-8 py-6 grid grid-cols-1 @xl:grid-cols-2 gap-x-8">
+
+                        {/* Left — identity, contact & personal */}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-4 mb-5 pb-4 border-b border-slate-100">
+                            <div className={`w-16 h-16 rounded-full flex-shrink-0 flex items-center justify-center text-2xl font-black text-white shadow ${f.membershipNumber ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-[#1e3a5f]'}`}>
+                              {pcsPhotoPreview
+                                ? <img src={pcsPhotoPreview} alt="" className="w-16 h-16 rounded-full object-cover" />
+                                : (f.name || '?')[0].toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xl font-extrabold text-[#1e3a5f] dark:text-white leading-tight tracking-tight break-words">{f.name || '—'}</p>
+                              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                {String(f.displayName || '').trim() && (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200" title="Shown as this name in other departments">
+                                    Display: {String(f.displayName).trim()}
+                                  </span>
+                                )}
+                                {isPastor &&<span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">{SENIOR_PASTOR_TITLE}</span>}
+                                {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">Member #{f.membershipNumber}</span>}
+                                {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">{f.leadershipPosition}</span>}
+                                {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{churchDuration} in church</span>}
+                                {cellHealth && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${CELL_HEALTH_BADGE_CLS[cellHealth.tier]}`}>{cellHealth.label}</span>}
+                                {isCurrentlyAway(entry) && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${AWAY_BADGE_CLS}`}>✈ Away</span>}
                               </div>
-                            )
-                          })()}
+                              <div className="mt-2 flex items-center gap-2">
+                                <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full transition-all duration-500 ${barCls(overallFill)}`} style={{ width: `${Math.round(overallFill * 100)}%` }} />
+                                </div>
+                                <span className={`text-[10px] font-bold tabular-nums whitespace-nowrap ${pctCls(overallFill)}`}>{pctStr(overallFill)} complete</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <Section title="Contact & Personal" color="#1d4ed8">
+                            {row('Phone', f.phone)}
+                            {row('Email', f.email)}
+                            {row('Date of Birth', fmtD(f.dob))}
+                            {row('Native Place', f.nativity)}
+                            {row('Current Place', f.currentPlace)}
+                            {row('How Known', f.howKnown)}
+                            {row('Address', f.permanentAddress, { wide: true })}
+                          </Section>
+
+                          {(f.maritalStatus || kids.length > 0 || familyParents.length > 0) && (
+                            <Section title="Personal" color="#0f766e">
+                              {row('Marital Status', f.maritalStatus, { optional: true })}
+                              {f.maritalStatus === 'Married' && row('Marriage Date', fmtD(f.marriageDate), { optional: true })}
+                              {f.maritalStatus === 'Married' && row('Spouse', f.spouseName, { optional: true })}
+                              {minorKids.length > 0 && row('Kids', minorKids.map(c => `${c.name}${c.riverKidsChildId ? ' (River Kids)' : ''}`).join(', '), { wide: true })}
+                              {familyLinks('Linked Adult Child', adultKids.map(c => ({ key: c.id, name: c.name, pcsId: c.linkedChildMemberId })))}
+                              {familyLinks(familyParents.length === 1 ? 'Parent' : 'Parents', familyParents.map(p => ({ key: p.pcsEntryId, name: p.name, pcsId: p.pcsEntryId })))}
+                            </Section>
+                          )}
+
+                          {(f.baptised !== 'yes' || f.isFirstChurch || f.previousChurchName || f.previousChurchPlace) && (
+                            <Section title="Spiritual" color="#5b21b6">
+                              {row('Baptised', f.baptised === 'yes' ? 'Yes' : f.baptised === 'no' ? 'No' : null, { optional: true })}
+                              {f.baptised === 'yes' && row('Baptism Date', fmtD(f.baptismDate), { optional: true })}
+                              {f.baptised === 'yes' && row('Baptism Place', f.baptismPlace, { optional: true })}
+                              {f.baptised === 'yes' && row('Baptism Church', f.baptismChurch, { optional: true })}
+                              {row('First Church', f.isFirstChurch === 'yes' ? 'Yes' : f.isFirstChurch === 'no' ? 'No' : null, { optional: true })}
+                              {f.isFirstChurch !== 'yes' && row('Previous Church', f.previousChurchName, { optional: true })}
+                              {f.isFirstChurch !== 'yes' && row('Previous Church Location', f.previousChurchPlace, { optional: true })}
+                              {f.baptised !== 'yes' && (
+                                <div className="col-span-2 pt-2">
+                                  <button type="button" onClick={() => setPcsBaptismOpenFor(entry.id)}
+                                    className={`w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold transition-colors ${f.baptised === 'no'
+                                      ? 'bg-violet-600 text-white hover:bg-violet-700 shadow-sm'
+                                      : 'bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100'}`}>
+                                    {f.baptised === 'no' ? 'Baptism Application & QR' : '+ Baptism Application'}
+                                  </button>
+                                </div>
+                              )}
+                            </Section>
+                          )}
+
+                          {f.membershipStatus && (
+                            <Section title="Membership" color="#92400e">
+                              {row('Status', f.membershipStatus === 'member' ? 'Member' : 'Applying')}
+                              {row('Membership No.', f.membershipNumber)}
+                            </Section>
+                          )}
                         </div>
 
-                        {/* Personal */}
-                        {(f.maritalStatus || (f.hasKids === 'yes' && (f.children || []).length > 0)) && (
-                          <div className="px-4 py-3.5">
-                            <SH dot="bg-teal-500" label="Personal" />
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                              {field('Marital Status', f.maritalStatus)}
-                              {f.maritalStatus === 'Married' && <>{field('Marriage Date', fmtD(f.marriageDate))}{field('Spouse', f.spouseName)}</>}
-                            </div>
-                            {f.hasKids === 'yes' && (f.children || []).filter(c => c.name).length > 0 && (() => {
-                              const kids = (f.children || []).filter(c => c.name)
-                              return (
-                                <div className="mt-3">
-                                  <p className="text-[8px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Kids</p>
-                                  {kids.length <= 3 ? (
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {kids.map(c => (
-                                        <span key={c.id} className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5">
-                                          {c.name}{c.riverKidsChildId ? ' (River Kids)' : ''}
-                                        </span>
-                                      ))}
+                        {/* Right — church journey, notes, history */}
+                        <div className="min-w-0">
+                          <Section title="Church Journey" color="#065f46"
+                            badge={churchDuration
+                              ? <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">{churchDuration}</span>
+                              : null}>
+                            {row('First Visit', fmtD(f.attendedDate))}
+                            {row('Service', f.serviceAttended)}
+                            {row('Engagement', engagementLabel(entry.engagementType))}
+                            {row('Cell Group', _cg ? (_cg.cellName || 'Unnamed Cell') : null)}
+                            {row('Cell Leader', _cg?.leader, { optional: true })}
+                            {row('PCS Year', f.year ? String(f.year) : null, { optional: true })}
+                          </Section>
+
+                          {ministryAll.length > 0 && (
+                            <Section title="Ministry & Leadership" color="#1e3a5f" grid={false}>
+                              <div className="space-y-1.5 pt-1">
+                                {ministryAll.map((r, i) => {
+                                  const dur = miniDur(r.from, r.to)
+                                  return (
+                                    <div key={r.id || i} className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-bold text-slate-800 leading-tight">
+                                          {r.ministry}{r.role ? <span className="font-normal text-slate-500"> · {r.role}</span> : ''}
+                                        </p>
+                                        {formatJoinedDate(r.from) && <p className="text-[10px] text-slate-400 mt-0.5">{formatJoinedDate(r.from)}</p>}
+                                      </div>
+                                      {dur && <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
                                     </div>
-                                  ) : (
-                                    <span className="text-[10px] font-black text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-2.5 py-0.5">
-                                      {kids.length} kids registered
-                                    </span>
-                                  )}
-                                </div>
-                              )
-                            })()}
-                          </div>
-                        )}
+                                  )
+                                })}
+                              </div>
+                            </Section>
+                          )}
 
-                        {/* Spiritual */}
-                        {(f.baptised || f.previousChurchName || f.previousChurchPlace) && (
-                          <div className="px-4 py-3.5">
-                            <SH dot="bg-violet-500" label="Spiritual" />
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                              {field('Baptised', f.baptised === 'yes' ? 'Yes' : f.baptised === 'no' ? 'No' : null)}
-                              {f.baptised === 'yes' && <>{field('Baptism Date', fmtD(f.baptismDate))}{field('Baptism Place', f.baptismPlace)}{field('Baptism Church', f.baptismChurch)}</>}
-                              {field('Previous Church', f.previousChurchName)}
-                              {field('Previous Church Location', f.previousChurchPlace)}
-                            </div>
-                          </div>
-                        )}
+                          <Section title="Notes" color="#475569" grid={false}>
+                            {profileNotes
+                              ? <p className="text-[13px] text-slate-700 leading-relaxed whitespace-pre-wrap pt-1">{profileNotes}</p>
+                              : <p className="text-[13px] text-slate-300 pt-1">No notes recorded</p>}
+                          </Section>
 
-                        {/* Membership */}
-                        {f.membershipStatus && (
-                          <div className="px-4 py-3.5">
-                            <SH dot="bg-amber-500" label="Membership" />
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                              {field('Status', f.membershipStatus === 'member' ? 'Member' : 'Applying')}
-                              {field('Membership #', f.membershipNumber)}
-                              {field('Permanent Address', f.permanentAddress)}
-                            </div>
-                          </div>
-                        )}
-
+                          <Section title="Activity History" color="#4338ca" grid={false}>
+                            {historyItems.length === 0
+                              ? <p className="text-[13px] text-slate-300 pt-1">No history yet</p>
+                              : (
+                                <ul className="space-y-2 pt-1">
+                                  {historyItems.map((h, i) => (
+                                    <li key={i} className="flex items-start gap-2.5">
+                                      <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${h.warn ? 'bg-red-500' : 'bg-indigo-300'}`} />
+                                      <div className="min-w-0 flex-1">
+                                        <p className={`text-[13px] font-medium leading-snug ${h.warn ? 'text-red-600' : 'text-slate-700'}`}>{h.what}</p>
+                                        {h.when && <p className="text-[10px] text-slate-400">{h.when}</p>}
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                          </Section>
+                        </div>
                       </div>
 
                       {/* Footer */}
-                      <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex items-center justify-between">
-                        <span className="text-[9px] text-slate-400 font-medium">PCS Record · ROL Church</span>
-                        <span className="text-[9px] text-slate-400">Confidential</span>
+                      <div className="bg-slate-50 border-t border-slate-200 px-5 @xl:px-8 py-2 flex items-center justify-between gap-3">
+                        <span className="text-[10px] text-slate-400">River Of Life Church, Bangalore</span>
+                        <span className="text-[10px] text-slate-400 font-semibold">PCS · Confidential Record</span>
                       </div>
 
                     </div>
@@ -7174,6 +7587,14 @@ export default function DepartmentHub() {
                       <SecHeader label="Visitor Data" fill={s1Fill} labelColor="text-blue-700" headerBg="bg-blue-50 border-b border-blue-100" />
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {fld('Name', 'name')}
+                        {/* Display Name — optional; other departments' rosters show this
+                            instead of the official name (see utils/displayName.js). */}
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Display Name</p>
+                          <input type="text" placeholder="e.g. Sam, Alex, Jo" value={f.displayName || ''}
+                            onChange={e => setF(p => ({ ...p, displayName: e.target.value }))} className={inp} />
+                          <p className="text-[9px] text-slate-400 leading-snug">Shown across all other department rosters instead of the full official name.</p>
+                        </div>
                         {/* Phone — country code + number */}
                         {(() => {
                           const CODES = [
@@ -7264,7 +7685,7 @@ export default function DepartmentHub() {
                           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Marital Status</p>
                           <select
                             value={f.maritalStatus}
-                            onChange={e => setF(p => ({ ...p, maritalStatus: e.target.value }))}
+                            onChange={e => setF(p => withMaritalStatus(p, e.target.value))}
                             className={inp}>
                             <option value="">— Select —</option>
                             {['Single','Married','Widowed','Divorced'].map(opt => (
@@ -7321,7 +7742,8 @@ export default function DepartmentHub() {
                           </div>
                         </>)}
 
-                        {/* Do they have kids? */}
+                        {/* Do they have kids? — hidden for Single */}
+                        {f.maritalStatus !== 'Single' && (
                         <div className="space-y-1 sm:col-span-3">
                           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Do they have kids?</p>
                           <select
@@ -7333,13 +7755,80 @@ export default function DepartmentHub() {
                             <option value="no">No</option>
                           </select>
                         </div>
+                        )}
                       </div>
 
                       {/* Children list */}
-                      {f.hasKids === 'yes' && (
+                      {f.maritalStatus !== 'Single' && f.hasKids === 'yes' && (
                         <div className="mt-3 space-y-2">
-                          {children.map(child => (
-                            <div key={child.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-start bg-slate-50 border border-slate-200 rounded-xl p-2">
+                          {children.map(child => child.childType === 'adult' ? (
+                            // ── Adult son/daughter: search & link an existing PCS member, or
+                            //    just type a full name if they aren't in PCS yet. ──
+                            <div key={child.id} className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-2">
+                              <div className="flex flex-wrap sm:flex-nowrap items-start gap-2">
+                                <div className="space-y-0.5 w-full sm:w-44 flex-shrink-0">
+                                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Child Type</p>
+                                  <select
+                                    value="adult"
+                                    onChange={e => updateChildRow(child.id, { childType: e.target.value, linkedChildMemberId: '' })}
+                                    className={`${inp} text-xs`}>
+                                    <option value="minor">Minor (Sunday School / River Kids)</option>
+                                    <option value="adult">Adult Son/Daughter</option>
+                                  </select>
+                                </div>
+                                <div className="space-y-0.5 relative flex-1 min-w-0">
+                                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Search &amp; Link Existing Member</p>
+                                  <input
+                                    type="text"
+                                    placeholder="Search PCS by name or phone…"
+                                    value={child.name}
+                                    onChange={e => updateChildRow(child.id, { name: e.target.value, linkedChildMemberId: '' })}
+                                    onFocus={() => setPcsChildSearchOpenId(child.id)}
+                                    onBlur={() => setTimeout(() => setPcsChildSearchOpenId(prev => prev === child.id ? null : prev), 150)}
+                                    className={`${inp} text-xs`}
+                                  />
+                                  {child.linkedChildMemberId
+                                    ? <p className="text-[9px] text-emerald-600 font-semibold mt-0.5">✓ Linked to their PCS profile</p>
+                                    : child.name.trim() && <p className="text-[9px] text-slate-400 mt-0.5">Not linked: saved as a name only (not in PCS yet)</p>}
+                                  {pcsChildSearchOpenId === child.id && child.name.trim().length >= 1 && (() => {
+                                    const q = child.name.trim().toLowerCase()
+                                    const qPhone = q.replace(/\s+/g, '')
+                                    const takenIds = new Set(children.filter(c => c.id !== child.id && c.linkedChildMemberId).map(c => c.linkedChildMemberId))
+                                    const matches = pcsEntries
+                                      .filter(e => e.id !== entry.id && !String(e.id).startsWith('temp_') && !takenIds.has(e.id))
+                                      .filter(e => (e.name || '').toLowerCase().includes(q) || (qPhone.length >= 3 && String(e.phone || '').replace(/\s+/g, '').includes(qPhone)))
+                                      .slice(0, 6)
+                                    if (!matches.length) return null
+                                    return (
+                                      <div className="absolute z-20 top-full left-0 right-0 mt-0.5 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                                        {matches.map(m => (
+                                          <button key={m.id} type="button"
+                                            onMouseDown={() => { updateChildRow(child.id, { name: m.name, linkedChildMemberId: m.id }); setPcsChildSearchOpenId(null) }}
+                                            className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 flex items-center gap-2">
+                                            <span className="font-semibold text-slate-800 flex-1 truncate">{m.name}</span>
+                                            {m.phone && <span className="text-[10px] text-slate-400 flex-shrink-0">{m.phone}</span>}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )
+                                  })()}
+                                </div>
+                                <button type="button" onClick={() => removeChildRow(child.id)} className="mt-4 w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors flex-shrink-0">×</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div key={child.id} className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-2">
+                              <div className="space-y-0.5 w-full sm:w-44">
+                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Child Type</p>
+                                <select
+                                  value="minor"
+                                  onChange={e => updateChildRow(child.id, { childType: e.target.value, inRiverKids: '', riverKidsChildId: '' })}
+                                  className={`${inp} text-xs`}>
+                                  <option value="minor">Minor (Sunday School / River Kids)</option>
+                                  <option value="adult">Adult Son/Daughter</option>
+                                </select>
+                              </div>
+                            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-start">
                               <div className="space-y-0.5">
                                 <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Attending Sunday School (River Kids)?</p>
                                 <select
@@ -7401,6 +7890,7 @@ export default function DepartmentHub() {
                               </div>
                               <button type="button" onClick={() => removeChildRow(child.id)} className="mt-4 w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors">×</button>
                             </div>
+                            </div>
                           ))}
                           <button type="button" onClick={addChildRow} className="text-xs text-teal-600 hover:text-teal-800 flex items-center gap-1 py-1 transition-colors">
                             <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
@@ -7418,9 +7908,42 @@ export default function DepartmentHub() {
                         {churchDuration && <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">{churchDuration}</span>}
                       </div>
 
-                      {/* Missed-Sundays alert — helps the Caring Director judge whether to push for cell assignment */}
-                      {(() => {
-                        const absentWeeks = getConsecutiveAbsentSundays(entry)
+                      {/* Engagement Type — decides whether Sunday or cell attendance judges this person */}
+                      <div className="mb-3 space-y-1">
+                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Engagement Type</p>
+                        <select
+                          value={normalizeEngagementType(f.engagementType)}
+                          onChange={e => setF(p => ({ ...p, engagementType: e.target.value }))}
+                          className={`${inp} sm:max-w-xs`}>
+                          {ENGAGEMENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                      </div>
+
+                      {/* Attendance alert — Sunday absences for Sunday-going people (helps the Caring
+                          Director judge whether to push for cell assignment); Cell Health for Cell Only.
+                          Follows the saved Engagement Type, so it changes once the form is saved. */}
+                      {/* Availability — Active | Away (travel/vacation); saves on its own */}
+                      <div className="mb-3">
+                        <PcsAwayControl
+                          key={`${entry.id}-${entry.away ? 'away' : 'active'}`}
+                          entry={entry}
+                          canEdit={canEdit}
+                          suggestedFrom={suggestAwayStart(entry)}
+                          updatedBy={userProfile?.displayName || userProfile?.email || ''}
+                          onSaved={(patch) => setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, ...patch } : e))}
+                        />
+                      </div>
+
+                      {isCurrentlyAway(entry) ? null : isCellOnly(entry) ? (() => {
+                        const health = getCellHealth(entry)
+                        return (
+                          <div className={`mb-3 inline-flex flex-wrap items-center gap-1.5 text-xs font-bold border px-3 py-1.5 rounded-full ${CELL_HEALTH_BADGE_CLS[health.tier]}`}>
+                            {health.label}
+                            {health.meetings > 0 && <span className="font-medium opacity-80">· {health.count} of {health.meetings} meetings in 4 weeks</span>}
+                          </div>
+                        )
+                      })() : (() => {
+                        const absentWeeks = getSundayAbsentWeeks(entry)
                         if (absentWeeks < 4) return null
                         return (
                           <div className="mb-3 inline-flex items-center gap-1.5 text-xs font-bold text-red-700 bg-red-50 border border-red-300 px-3 py-1.5 rounded-full">
@@ -7612,7 +8135,7 @@ export default function DepartmentHub() {
                                     <p className="text-sm font-semibold text-slate-700 leading-tight">
                                       {r.ministry}{r.role ? <span className="font-normal text-slate-400"> · {r.role}</span> : ''}
                                     </p>
-                                    {r.from && <p className="text-[10px] text-slate-400 mt-0.5">since {new Date(r.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</p>}
+                                    {formatJoinedDate(r.from) && <p className="text-[10px] text-slate-400 mt-0.5">{formatJoinedDate(r.from)}</p>}
                                   </div>
                                   {dur && <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
                                 </div>
@@ -7678,9 +8201,32 @@ export default function DepartmentHub() {
                           </div>
                         </>)}
 
-                        {/* Previous church */}
-                        {fld('Previous Church Name', 'previousChurchName')}
-                        {fld('Previous Church Place / Location', 'previousChurchPlace')}
+                        {/* First church? gate question — previous church only when "No" */}
+                        <div className="space-y-1 sm:col-span-3">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Is this the first church they are attending?</p>
+                          <select
+                            value={f.isFirstChurch || ''}
+                            onChange={e => setF(p => withIsFirstChurch(p, e.target.value))}
+                            className={inp}>
+                            <option value="">— Select —</option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                          </select>
+                        </div>
+                        {/* Smooth expand: grid-rows 0fr → 1fr animates to the content's height */}
+                        <div
+                          className={`col-span-2 sm:col-span-3 grid transition-all duration-300 ease-out ${f.isFirstChurch === 'no' ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+                          aria-hidden={f.isFirstChurch !== 'no'}
+                        >
+                          <div className="overflow-hidden">
+                            {f.isFirstChurch === 'no' && (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {fld('Previous Church Name', 'previousChurchName')}
+                                {fld('Previous Church Place / Location', 'previousChurchPlace')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
 
                       </div>
                     </div>
@@ -7765,9 +8311,9 @@ export default function DepartmentHub() {
                           setPcsExpandedSaving(true)
                           try {
                             const { personId, name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown,
-                              ministries, gender,
+                              ministries, gender, engagementType, displayName,
                               baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
-                              hasKids, children, previousChurchName, previousChurchPlace,
+                              hasKids, children, isFirstChurch, previousChurchName, previousChurchPlace,
                               membershipStatus, membershipDocs, permanentAddress } = f
                             const resolvedYear = year || (attendedDate ? new Date(attendedDate).getFullYear() : null)
 
@@ -7796,20 +8342,24 @@ export default function DepartmentHub() {
                               resolvedPersonId = await addPerson(personData, userProfile?.email || '')
                             }
 
-                            await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear, ministries: ministries || [], personId: resolvedPersonId })
-                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear ? Number(resolvedYear) : null, ministries: ministries || [], personId: resolvedPersonId } : e))
+                            await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear, ministries: ministries || [], personId: resolvedPersonId, engagementType, displayName: displayName || '' })
+                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear ? Number(resolvedYear) : null, ministries: ministries || [], personId: resolvedPersonId, engagementType: normalizeEngagementType(engagementType), displayName: String(displayName || '').trim() } : e))
                             if (entry.visitorId) {
                               updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }).catch(() => {})
-                              updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob }).catch(() => {})
+                              // displayName rides along so every other department's roster copy
+                              // can label this person by it (official name stays the match key).
+                              updateCellMembersByVisitorId(entry.visitorId, { name, phone, birthday: dob, displayName: displayName || '' }).catch(() => {})
                               updatePCSEntriesByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
-                              updateDeptTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
-                              updateWorshipTeamMembersByVisitorId(entry.visitorId, { name, phone }).catch(() => {})
+                              updateDeptTeamMembersByVisitorId(entry.visitorId, { name, phone, displayName: displayName || '' }).catch(() => {})
+                              updateWorshipTeamMembersByVisitorId(entry.visitorId, { name, phone, displayName: displayName || '' }).catch(() => {})
                               upsertMemberProfile(entry.visitorId, {
                                 phone, email, dob, nativity, currentPlace, gender,
                                 baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
                                 hasKids: hasKids || '',
                                 children: hasKids === 'yes' ? (children || []) : [],
-                                previousChurchName, previousChurchPlace,
+                                isFirstChurch: isFirstChurch || '',
+                                previousChurchName: isFirstChurch === 'no' ? (previousChurchName || '') : '',
+                                previousChurchPlace: isFirstChurch === 'no' ? (previousChurchPlace || '') : '',
                                 membershipStatus,
                                 membershipDocs: membershipDocs || [],
                                 permanentAddress,
@@ -7871,6 +8421,20 @@ export default function DepartmentHub() {
                               }
                             }
 
+                            // Reciprocal adult-child links — mirror this person onto each linked
+                            // adult child's member_profiles.parents (and unlink any child removed
+                            // since the last save), so the child's own profile shows "Parent: …".
+                            // Re-linking current children is idempotent and refreshes the name.
+                            const linkedIdsOf = (list) => new Set((list || []).filter(c => c.childType === 'adult' && c.linkedChildMemberId).map(c => c.linkedChildMemberId))
+                            const nowLinked = hasKids === 'yes' ? linkedIdsOf(children) : new Set()
+                            const prevLinked = (() => {
+                              try { const prev = JSON.parse(pcsSavedRef.current || '{}'); return prev.hasKids === 'yes' ? linkedIdsOf(prev.children) : new Set() } catch { return new Set() }
+                            })()
+                            const parentRef = { pcsEntryId: entry.id, visitorId: entry.visitorId || '', name }
+                            const childVisitorIdOf = (pcsId) => pcsEntries.find(e => e.id === pcsId)?.visitorId || ''
+                            nowLinked.forEach(id => setParentLinkOnChild(childVisitorIdOf(id), parentRef, true, userProfile?.email || '').catch(() => {}))
+                            prevLinked.forEach(id => { if (!nowLinked.has(id)) setParentLinkOnChild(childVisitorIdOf(id), parentRef, false, userProfile?.email || '').catch(() => {}) })
+
                             if (savedPhotoUrl) setF(p => ({ ...p, photoUrl: savedPhotoUrl }))
                             pcsSavedRef.current = JSON.stringify(savedPhotoUrl ? { ...pcsExpandedForm, photoUrl: savedPhotoUrl } : pcsExpandedForm)
                             setPcsFormDirty(false)
@@ -7885,8 +8449,18 @@ export default function DepartmentHub() {
                         onClick={() => { setPcsEditingId(null); setPcsFormDirty(false) }}
                         className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
                       >
-                        {pcsFormDirty ? 'Discard' : 'Done'}
+                        {pcsFormDirty ? 'Cancel' : 'Done'}
                       </button>
+                      {/* Discard Profile — wrong / duplicate record only; Founder approval */}
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => { setPcsDiscardReason(''); setPcsDiscardTarget(entry) }}
+                          className="ml-auto min-h-[44px] px-4 py-2 rounded-xl border border-red-300 text-red-700 text-sm font-semibold hover:bg-red-50 transition-colors"
+                        >
+                          Discard
+                        </button>
+                      )}
                     </div>
 
                   </div>
@@ -7894,41 +8468,64 @@ export default function DepartmentHub() {
               )
             }
 
-            const downloadProfileAsPDF = (data, dur, ministry, cellGroup) => {
+            // A4 profile sheet. Mirrors the on-screen stamp view section-for-section
+            // (same navy band, left = identity + contact/personal, right = church
+            // journey / ministry / notes / history), so keep the two in step.
+            const downloadProfileAsPDF = (data, dur, ministry, cellGroup, extras = {}) => {
+              const { notes = '', history = [], kids = [], parents = [] } = extras
+              const minorKids = kids.filter(c => c.childType !== 'adult')
+              const adultKids = kids.filter(c => c.childType === 'adult')
               const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null
+              const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+              const hasVal = (v) => v !== null && v !== undefined && String(v).trim() !== ''
 
-              const field = (label, value) => value && String(value).trim()
-                ? `<div style="padding:5px 0;border-bottom:1px solid #f0f0f0">
-                    <div style="font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#6b7280;margin-bottom:1px">${label}</div>
-                    <div style="font-size:10.5px;color:#1f2937;font-weight:500">${value}</div>
+              // Core fields always print ("—" when empty); optional ones only when filled.
+              const field = (label, value, { optional = false, wide = false } = {}) => {
+                if (optional && !hasVal(value)) return ''
+                return `<div style="padding:5px 0;border-bottom:1px solid #f1f5f9;${wide ? 'grid-column:1 / -1;' : ''}">
+                    <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#64748b;margin-bottom:1px">${label}</div>
+                    ${hasVal(value)
+                      ? `<div style="font-size:10.5px;color:#1f2937;font-weight:500">${esc(value)}</div>`
+                      : `<div style="font-size:10.5px;color:#cbd5e1">—</div>`}
                   </div>`
-                : ''
+              }
 
-              const section = (title, accentColor, content) =>
-                `<div style="margin-bottom:14px;break-inside:avoid">
-                  <div style="font-size:7.5px;font-weight:800;text-transform:uppercase;letter-spacing:.15em;color:${accentColor};border-bottom:1.5px solid ${accentColor};padding-bottom:3px;margin-bottom:6px">${title}</div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">${content}</div>
+              const section = (title, accentColor, content, { grid = true, badge = '' } = {}) =>
+                `<div style="margin-bottom:16px;break-inside:avoid">
+                  <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1.5px solid ${accentColor};padding-bottom:3px;margin-bottom:5px">
+                    <span style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.15em;color:${accentColor}">${title}</span>${badge}
+                  </div>
+                  ${grid ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">${content}</div>` : content}
                 </div>`
 
-              const ministryRows = ministry?.length
-                ? ministry.map(r => {
-                    const from = r.from ? new Date(r.from) : null
-                    const to   = r.to   ? new Date(r.to)   : new Date()
-                    const tot  = from ? (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) : 0
-                    const yrs  = Math.floor(tot / 12), mos = tot % 12
-                    const tenureDur = from ? ([yrs > 0 ? `${yrs}y` : '', mos > 0 ? `${mos}m` : ''].filter(Boolean).join(' ') || '<1m') : ''
-                    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:4px;break-inside:avoid">
-                      <div>
-                        <span style="font-size:10px;font-weight:700;color:#1f2937">${r.ministry}</span>
-                        ${r.role ? `<span style="font-size:9.5px;color:#6b7280"> · ${r.role}</span>` : ''}
-                        ${from ? `<div style="font-size:8px;color:#9ca3af;margin-top:1px">since ${from.toLocaleDateString('en-IN',{month:'short',year:'numeric'})}</div>` : ''}
-                      </div>
-                      ${tenureDur ? `<span style="font-size:8.5px;font-weight:700;color:#1d4ed8;white-space:nowrap;background:#eff6ff;border:1px solid #bfdbfe;padding:1px 7px;border-radius:20px">${tenureDur}</span>` : ''}
-                    </div>`
-                  }).join('')
-                : ''
+              const ministryRows = (ministry || []).map(r => {
+                const from = r.from ? new Date(r.from) : null
+                const to   = r.to   ? new Date(r.to)   : new Date()
+                const tot  = from ? (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) : 0
+                const yrs  = Math.floor(tot / 12), mos = tot % 12
+                const tenureDur = from ? ([yrs > 0 ? `${yrs}y` : '', mos > 0 ? `${mos}m` : ''].filter(Boolean).join(' ') || '<1m') : ''
+                return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:4px;break-inside:avoid">
+                  <div>
+                    <span style="font-size:10px;font-weight:700;color:#1f2937">${esc(r.ministry || '')}</span>
+                    ${r.role ? `<span style="font-size:9.5px;color:#64748b"> · ${esc(r.role)}</span>` : ''}
+                    ${formatJoinedDate(r.from) ? `<div style="font-size:8px;color:#94a3b8;margin-top:1px">${formatJoinedDate(r.from)}</div>` : ''}
+                  </div>
+                  ${tenureDur ? `<span style="font-size:8.5px;font-weight:700;color:#1d4ed8;white-space:nowrap;background:#eff6ff;border:1px solid #bfdbfe;padding:1px 7px;border-radius:20px">${tenureDur}</span>` : ''}
+                </div>`
+              }).join('')
 
-              const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PCS — ${data.name || 'Profile'}</title>
+              const historyRows = history.map(h =>
+                `<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
+                  <span style="width:5px;height:5px;border-radius:50%;margin-top:4px;flex-shrink:0;background:${h.warn ? '#ef4444' : '#a5b4fc'}"></span>
+                  <div>
+                    <div style="font-size:10.5px;font-weight:500;color:${h.warn ? '#dc2626' : '#334155'}">${esc(h.what)}</div>
+                    ${h.when ? `<div style="font-size:8px;color:#94a3b8">${esc(h.when)}</div>` : ''}
+                  </div>
+                </div>`).join('')
+
+              const pill = (text, color, bg, border) => `<span style="font-size:9px;font-weight:700;color:${color};background:${bg};border:1px solid ${border};padding:2px 8px;border-radius:20px">${esc(text)}</span>`
+
+              const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PCS — ${esc(data.name || 'Profile')}</title>
               <style>
                 * { box-sizing:border-box; margin:0; padding:0; }
                 @page { size:A4 portrait; margin:0; }
@@ -7938,83 +8535,86 @@ export default function DepartmentHub() {
 
               <div style="width:210mm;min-height:297mm;display:flex;flex-direction:column;background:#fff">
 
-                <!-- Navy header band -->
-                <div style="background:#1e3a5f;padding:20px 24px 18px;display:flex;align-items:center;justify-content:space-between;-webkit-print-color-adjust:exact;print-color-adjust:exact">
-                  <div>
-                    <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.2em;color:#93c5fd;margin-bottom:3px">River Of Life Church · Bangalore</div>
-                    <div style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#fff">Personal Caring System — Member Profile</div>
-                  </div>
-                  <div style="text-align:right">
-                    ${data.membershipNumber ? `<div style="font-size:11px;font-weight:800;color:#fbbf24">Member #${data.membershipNumber}</div>` : ''}
-                    <div style="font-size:8px;color:#93c5fd;margin-top:2px">Confidential</div>
-                  </div>
+                <!-- Navy band -->
+                <div style="background:#1e3a5f;padding:16px 30px">
+                  <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.2em;color:#93c5fd;margin-bottom:3px">River Of Life Church · Bangalore</div>
+                  <div style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#fff">Personal Caring System — Member Profile</div>
                 </div>
 
-                <!-- Name block with light blue tint -->
-                <div style="background:#f0f7ff;padding:16px 24px;border-bottom:1px solid #dbeafe;display:flex;align-items:center;justify-content:space-between;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+                <!-- Body: two columns -->
+                <div style="padding:22px 30px;flex:1;display:grid;grid-template-columns:1fr 1fr;gap:0 30px;align-content:start">
+
+                  <!-- Left -->
                   <div>
-                    <div style="font-size:22px;font-weight:800;color:#1e3a5f;letter-spacing:-.3px">${data.name || '—'}</div>
-                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
-                      ${data.leadershipPosition ? `<span style="font-size:9px;font-weight:600;color:#1e40af;background:#dbeafe;border:1px solid #bfdbfe;padding:2px 9px;border-radius:20px">${data.leadershipPosition}</span>` : ''}
-                      ${data.membershipStatus === 'member' ? `<span style="font-size:9px;font-weight:600;color:#92400e;background:#fef3c7;border:1px solid #fde68a;padding:2px 9px;border-radius:20px">Member</span>` : ''}
-                      ${dur ? `<span style="font-size:9px;color:#4b5563;background:#f3f4f6;border:1px solid #e5e7eb;padding:2px 9px;border-radius:20px">${dur} in church</span>` : ''}
-                    </div>
-                  </div>
-                  <div style="width:54px;height:54px;border-radius:50%;background:#1e3a5f;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#fff;flex-shrink:0;-webkit-print-color-adjust:exact;print-color-adjust:exact">
-                    ${(data.name || '?')[0].toUpperCase()}
-                  </div>
-                </div>
-
-                <!-- Body -->
-                <div style="padding:18px 24px;flex:1">
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 28px">
-
-                    <!-- Left -->
-                    <div>
-                      ${section('Contact & Personal', '#1d4ed8',
-                        field('Phone', data.phone) +
-                        field('Email', data.email) +
-                        field('Date of Birth', fmt(data.dob)) +
-                        field('Nativity', data.nativity) +
-                        field('Current Place', data.currentPlace) +
-                        field('How Known', data.howKnown)
-                      )}
-                      ${section('Church Journey', '#065f46',
-                        field('First Visit', fmt(data.attendedDate)) +
-                        field('Service Attended', data.serviceAttended) +
-                        field('PCS Year', data.year ? String(data.year) : null) +
-                        (cellGroup ? field('Cell Group', cellGroup.cellName || 'Unnamed Cell') + (cellGroup.leader ? field('Cell Leader', cellGroup.leader) : '') : '')
-                      )}
+                    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #f1f5f9">
+                      <div style="width:56px;height:56px;border-radius:50%;flex-shrink:0;background:${data.membershipNumber ? '#f59e0b' : '#1e3a5f'};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#fff">
+                        ${esc((data.name || '?')[0].toUpperCase())}
+                      </div>
+                      <div>
+                        <div style="font-size:18px;font-weight:800;color:#1e3a5f;letter-spacing:-.3px">${esc(data.name || '—')}</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:5px">
+                          ${String(data.displayName || '').trim() ? pill(`Display: ${String(data.displayName).trim()}`, '#4338ca', '#eef2ff', '#c7d2fe') : ''}
+                          ${data.membershipNumber ? pill(`Member #${data.membershipNumber}`, '#92400e', '#fef3c7', '#fde68a') : ''}
+                          ${data.leadershipPosition ? pill(data.leadershipPosition, '#1e40af', '#dbeafe', '#bfdbfe') : ''}
+                          ${dur ? pill(`${dur} in church`, '#475569', '#f1f5f9', '#e2e8f0') : ''}
+                        </div>
+                      </div>
                     </div>
 
-                    <!-- Right -->
-                    <div>
-                      ${(data.baptised || data.maritalStatus) ? section('Spiritual', '#5b21b6',
-                        field('Baptised', data.baptised === 'yes' ? 'Yes' : data.baptised === 'no' ? 'No' : null) +
-                        (data.baptised === 'yes' ? field('Baptism Date', fmt(data.baptismDate)) + field('Baptism Place', data.baptismPlace) + field('Baptism Church', data.baptismChurch) : '') +
-                        field('Marital Status', data.maritalStatus) +
-                        (data.maritalStatus === 'Married' ? field('Marriage Date', fmt(data.marriageDate)) + field('Spouse', data.spouseName) : '')
-                      ) : ''}
-                      ${data.membershipStatus ? section('Membership', '#92400e',
-                        field('Status', data.membershipStatus === 'member' ? 'Member' : data.membershipStatus) +
-                        field('Membership No.', data.membershipNumber) +
-                        field('Permanent Address', data.permanentAddress)
-                      ) : ''}
-                    </div>
+                    ${section('Contact & Personal', '#1d4ed8',
+                      field('Phone', data.phone) +
+                      field('Email', data.email) +
+                      field('Date of Birth', fmt(data.dob)) +
+                      field('Native Place', data.nativity) +
+                      field('Current Place', data.currentPlace) +
+                      field('How Known', data.howKnown) +
+                      field('Address', data.permanentAddress, { wide: true })
+                    )}
+                    ${(data.maritalStatus || kids.length || parents.length) ? section('Personal', '#0f766e',
+                      field('Marital Status', data.maritalStatus, { optional: true }) +
+                      (data.maritalStatus === 'Married' ? field('Marriage Date', fmt(data.marriageDate), { optional: true }) + field('Spouse', data.spouseName, { optional: true }) : '') +
+                      (minorKids.length ? field('Kids', minorKids.map(c => `${c.name}${c.riverKidsChildId ? ' (River Kids)' : ''}`).join(', '), { wide: true }) : '') +
+                      (adultKids.length ? field('Linked Adult Child', adultKids.map(c => c.name).join(', '), { wide: true }) : '') +
+                      (parents.length ? field(parents.length === 1 ? 'Parent' : 'Parents', parents.map(p => p.name).join(', '), { wide: true }) : '')
+                    ) : ''}
+                    ${(data.baptised || data.isFirstChurch || data.previousChurchName || data.previousChurchPlace) ? section('Spiritual', '#5b21b6',
+                      field('Baptised', data.baptised === 'yes' ? 'Yes' : data.baptised === 'no' ? 'No' : null, { optional: true }) +
+                      (data.baptised === 'yes' ? field('Baptism Date', fmt(data.baptismDate), { optional: true }) + field('Baptism Place', data.baptismPlace, { optional: true }) + field('Baptism Church', data.baptismChurch, { optional: true }) : '') +
+                      field('First Church', data.isFirstChurch === 'yes' ? 'Yes' : data.isFirstChurch === 'no' ? 'No' : null, { optional: true }) +
+                      (data.isFirstChurch !== 'yes' ? field('Previous Church', data.previousChurchName, { optional: true }) + field('Previous Church Location', data.previousChurchPlace, { optional: true }) : '')
+                    ) : ''}
+                    ${data.membershipStatus ? section('Membership', '#92400e',
+                      field('Status', data.membershipStatus === 'member' ? 'Member' : 'Applying') +
+                      field('Membership No.', data.membershipNumber)
+                    ) : ''}
                   </div>
 
-                  <!-- Ministry & Leadership -->
-                  ${ministry?.length ? `
-                  <div style="margin-top:14px;break-inside:avoid">
-                    <div style="font-size:7.5px;font-weight:800;text-transform:uppercase;letter-spacing:.15em;color:#1e3a5f;border-bottom:1.5px solid #1e3a5f;padding-bottom:3px;margin-bottom:8px">Ministry &amp; Leadership</div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px">${ministryRows}</div>
-                  </div>` : ''}
+                  <!-- Right -->
+                  <div>
+                    ${section('Church Journey', '#065f46',
+                      field('First Visit', fmt(data.attendedDate)) +
+                      field('Service', data.serviceAttended) +
+                      field('Cell Group', cellGroup ? (cellGroup.cellName || 'Unnamed Cell') : null) +
+                      field('Cell Leader', cellGroup?.leader, { optional: true }) +
+                      field('PCS Year', data.year ? String(data.year) : null, { optional: true }),
+                      { badge: dur ? `<span style="font-size:8.5px;font-weight:700;color:#047857;background:#ecfdf5;border:1px solid #d1fae5;padding:1px 7px;border-radius:20px">${dur}</span>` : '' }
+                    )}
+                    ${ministryRows ? section('Ministry &amp; Leadership', '#1e3a5f', ministryRows, { grid: false }) : ''}
+                    ${section('Notes', '#475569',
+                      notes
+                        ? `<div style="font-size:10.5px;color:#334155;line-height:1.5;white-space:pre-wrap">${esc(notes)}</div>`
+                        : `<div style="font-size:10.5px;color:#cbd5e1">No notes recorded</div>`,
+                      { grid: false })}
+                    ${section('Activity History', '#4338ca',
+                      historyRows || `<div style="font-size:10.5px;color:#cbd5e1">No history yet</div>`,
+                      { grid: false })}
+                  </div>
                 </div>
 
                 <!-- Footer -->
-                <div style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:8px 24px;display:flex;justify-content:space-between;align-items:center;-webkit-print-color-adjust:exact;print-color-adjust:exact">
-                  <span style="font-size:8px;color:#9ca3af">Generated ${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})} · River Of Life Church, Bangalore</span>
-                  <span style="font-size:8px;color:#9ca3af;font-weight:600">PCS · Confidential Record</span>
+                <div style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:8px 30px;display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-size:8px;color:#94a3b8">Generated ${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})} · River Of Life Church, Bangalore</span>
+                  <span style="font-size:8px;color:#94a3b8;font-weight:600">PCS · Confidential Record</span>
                 </div>
 
               </div>
@@ -8038,28 +8638,232 @@ export default function DepartmentHub() {
               .filter(m => m.status === 'inactive')
               .forEach(m => {
                 const pe = (m.visitorId && pcsVisitorIdMap.get(m.visitorId)) || (m.phone && pcsPhoneMap.get(normPhoneKey(m.phone)))
-                if (!pe || pe.inactiveCellAlertDismissed) return
+                // Sunday Only people aren't expected in a cell — leaving one isn't a flag.
+                if (!pe || pe.inactiveCellAlertDismissed || isSundayOnly(pe)) return
                 const key = pe.visitorId || pe.id
                 if (_seenVids.has(key)) return
                 _seenVids.add(key)
                 removedFromCellInPCS.push({ ...m, pcsEntry: pe })
               })
 
+            // ── Recommended to Add to PCS ──────────────────────────────────────
+            // Anyone not in PCS (active or removed) and not already in the Cell
+            // leaders' "Add to PCS" requests, with 2+ attendances across the last
+            // 20 Sunday reports and their cell's last CELL_HEALTH_REPORT_COUNT
+            // meetings. Matching is by visitorId / phone / lowercased name — the same
+            // keys the attendance records themselves carry.
+            const recNorm = (s) => String(s || '').trim().toLowerCase()
+            const recPhone = (p) => String(p || '').replace(/\s+/g, '')
+            const inPcsKeys = new Set()
+            ;[...pcsEntries, ...pcsFormerForRec].forEach(e => {
+              if (e.visitorId) inPcsKeys.add(`v:${e.visitorId}`)
+              if (recPhone(e.phone)) inPcsKeys.add(`p:${recPhone(e.phone)}`)
+              if (recNorm(e.name)) inPcsKeys.add(`n:${recNorm(e.name)}`)
+            })
+            pcsAddNotifications.forEach(n => {
+              if (n.visitorId) inPcsKeys.add(`v:${n.visitorId}`)
+              if (recNorm(n.memberName)) inPcsKeys.add(`n:${recNorm(n.memberName)}`)
+            })
+            const isKnownToPcs = (p) =>
+              (p.visitorId && inPcsKeys.has(`v:${p.visitorId}`)) ||
+              (recPhone(p.phone) && inPcsKeys.has(`p:${recPhone(p.phone)}`)) ||
+              (recNorm(p.name) && inPcsKeys.has(`n:${recNorm(p.name)}`))
+            // River Kids (minors) are never recommended for PCS: anyone on the River Kids
+            // registry, added to a roster as a River Kids child, tagged as a minor, or
+            // recorded in a Sunday report's River Kids list. Their River Kids attendance
+            // also never counts toward an adult's total.
+            const riverKidNames = new Set(rkChildrenForPCS.map(k => recNorm(k.name)).filter(Boolean))
+            sundayAttendanceWeeks.forEach(wk => wk.kidNames?.forEach(n => riverKidNames.add(n)))
+            const isRiverKid = (p) => !!p && (
+              p.source === 'river_kids' || !!p.childId ||
+              p.isRiverKid === true || p.department === 'River Kids' || p.category === 'Minor' ||
+              riverKidNames.has(recNorm(p.name))
+            )
+            const sundayCountFor = (p) => sundayAttendanceWeeks.filter(wk =>
+              (p.visitorId && wk.ids?.has(`v:${p.visitorId}`)) ||
+              (recNorm(p.name) && wk.names.has(recNorm(p.name)) && !wk.kidNames?.has(recNorm(p.name)))
+            ).length
+            const visitorFor = (p) =>
+              (p.visitorId && delightVisitors.find(v => v.id === p.visitorId)) ||
+              (recPhone(p.phone) && delightVisitors.find(v => recPhone(v.phone) === recPhone(p.phone))) ||
+              (recNorm(p.name) && delightVisitors.find(v => recNorm(v.name) === recNorm(p.name))) ||
+              null
+
+            const pcsRecommendations = []
+            const recSeen = new Set()
+            const recKeyOf = (p) => p.visitorId ? `v:${p.visitorId}` : `n:${recNorm(p.name)}`
+            // 1) Active cell-roster members — Sunday + cell attendance.
+            allCellMembers.filter(m => m.status !== 'inactive' && recNorm(m.name) && !isRiverKid(m)).forEach(m => {
+              const visitor = visitorFor(m)
+              if (isRiverKid(visitor)) return
+              const person = { name: m.name, phone: m.phone || visitor?.phone || '', visitorId: m.visitorId || visitor?.id || '' }
+              const key = recKeyOf(person)
+              if (recSeen.has(key) || isKnownToPcs(person) || (visitor && isKnownToPcs(visitor))) return
+              recSeen.add(key)
+              const reports = pcsCellReportsByCellId.get(m.cellId) || []
+              const cell = reports.filter(r => r.attendeeNames?.has(recNorm(m.name))).length
+              const sunday = sundayCountFor(person)
+              if (sunday + cell < 2) return
+              pcsRecommendations.push({ key, ...person, visitor, cellName: cellGroups.find(g => g.id === m.cellId)?.cellName || '', sunday, cell })
+            })
+            // 2) D-Light visitors not on any cell roster — Sunday attendance only.
+            delightVisitors.forEach(v => {
+              if (!recNorm(v.name) || v.isArchived || isRiverKid(v)) return
+              const person = { name: v.name, phone: v.phone || '', visitorId: v.id }
+              const key = recKeyOf(person)
+              if (recSeen.has(key) || recSeen.has(`n:${recNorm(v.name)}`) || isKnownToPcs(person)) return
+              recSeen.add(key)
+              const sunday = sundayCountFor(person)
+              if (sunday < 2) return
+              pcsRecommendations.push({ key, ...person, visitor: v, cellName: '', sunday, cell: 0 })
+            })
+            pcsRecommendations.sort((a, b) => (b.sunday + b.cell) - (a.sunday + a.cell) || a.name.localeCompare(b.name))
+
+            const addRecommendedToPCS = async (rec) => {
+              const v = rec.visitor
+              if (!v) return
+              setPcsRecBusy(prev => new Set([...prev, rec.key]))
+              const tempId = `temp_${Date.now()}`
+              setPcsEntries(prev => [{ id: tempId, visitorId: v.id, personId: '', name: v.name || rec.name, phone: v.phone || rec.phone, attendedDate: v.attendedDate, year: v.year, addedAt: new Date(), addedBy: userProfile?.email || '' }, ...prev])
+              try {
+                // Same path as the "+ Add" picker: People record, then the PCS entry
+                // linked to the existing visitor record — attendance stays matched
+                // because it's keyed on that visitorId / name.
+                const personId = await addPerson({
+                  name: v.name || rec.name, phone: v.phone || rec.phone, email: v.email || '',
+                  dob: v.dob || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '',
+                  firstVisitDate: v.attendedDate, serviceAttended: v.serviceAttended || '',
+                  howKnown: v.howKnown || '', stage: 'pcs',
+                }, userProfile?.email || '')
+                const realId = await addPCSEntry({ visitorId: v.id, personId, name: v.name || rec.name, phone: v.phone || rec.phone, attendedDate: v.attendedDate, year: v.year || new Date().getFullYear(), addedBy: userProfile?.email || 'unknown' })
+                if (realId) setPcsEntries(prev => prev.map(e => e.id === tempId ? { ...e, id: realId, personId } : e))
+                setPcsToast(`${rec.name} added to PCS`)
+                setTimeout(() => setPcsToast(null), 2500)
+              } catch {
+                setPcsEntries(prev => prev.filter(e => e.id !== tempId))
+                alert(`Couldn't add ${rec.name} to PCS. Please try again.`)
+              } finally {
+                setPcsRecBusy(prev => { const s = new Set(prev); s.delete(rec.key); return s })
+              }
+            }
+
+            // No D-Light visitor record yet → PCS can't link them; hand off to D-Light
+            // with the same task shape the "Add to PCS — from Cell" panel uses.
+            const forwardRecommendedToDLight = async (rec) => {
+              setPcsRecBusy(prev => new Set([...prev, rec.key]))
+              try {
+                const sentByName = userProfile?.displayName || userProfile?.name || userProfile?.email || 'Caring'
+                await createTask({
+                  taskTitle: `Add ${rec.name} to D-Light`,
+                  department: 'D Light',
+                  assignedPerson: '',
+                  priority: 'Medium',
+                  deadline: '',
+                  status: 'Pending',
+                  notes: `Forwarded from Caring PCS (recommended — attended ${rec.sunday} Sunday${rec.sunday === 1 ? '' : 's'}, ${rec.cell} cell meeting${rec.cell === 1 ? '' : 's'}) by ${sentByName}. ${rec.name} needs D-Light registration before being added to PCS.${rec.phone ? ` Phone: ${rec.phone}` : ''}`,
+                  createdBy: userProfile?.email || '',
+                  pcsReferral: true,
+                  pcsPersonName: rec.name,
+                  pcsPersonPhone: rec.phone || '',
+                  pcsPersonVisitorId: '',
+                  personId: rec.phone || rec.name,
+                  taskType: 'addToDLight',
+                  visibleToRole: 'DIRECTOR',
+                })
+                setPcsRecForwarded(prev => new Set([...prev, rec.key]))
+              } catch {
+                alert('Failed to forward to D-Light. Please try again.')
+              } finally {
+                setPcsRecBusy(prev => { const s = new Set(prev); s.delete(rec.key); return s })
+              }
+            }
+
             return (
               <div className="space-y-4">
+                {/* Discard Profile — confirmation + reason for the Pastoral Office */}
+                {pcsDiscardTarget && (
+                  <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4" onClick={() => !pcsDiscardSaving && setPcsDiscardTarget(null)}>
+                    <div role="dialog" aria-modal="true" aria-labelledby="pcs-discard-title"
+                      className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
+                      <h3 id="pcs-discard-title" className="text-base font-bold text-slate-800">
+                        {isFounder ? `Discard ${pcsDiscardTarget.name}'s profile?` : 'Request Discard / Profile Removal for Pastoral Office Review?'}
+                      </h3>
+                      <p className="text-sm text-slate-600">
+                        Only for a profile that is wrong, like a duplicate or one entered by mistake. If {pcsDiscardTarget.name} has stopped attending, use <span className="font-semibold">Remove from PCS</span> instead.
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        {isFounder
+                          ? 'The profile will be deleted from PCS. This cannot be undone.'
+                          : 'The profile is not deleted now. It is locked as "Under Review of the Pastoral Office" until the Founder approves or rejects the request.'}
+                      </p>
+                      <label className="block">
+                        <span className="block text-xs font-semibold text-slate-500 mb-1">Reason (required)</span>
+                        <textarea
+                          value={pcsDiscardReason}
+                          onChange={e => setPcsDiscardReason(e.target.value)}
+                          rows={3}
+                          autoFocus
+                          placeholder="e.g. Duplicate of Anitha Joseph's profile"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
+                        />
+                      </label>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button type="button" disabled={pcsDiscardSaving} onClick={() => setPcsDiscardTarget(null)}
+                          className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+                          Cancel
+                        </button>
+                        <button type="button" disabled={pcsDiscardSaving || !pcsDiscardReason.trim()} onClick={handleSubmitDiscard}
+                          className="min-h-[44px] px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
+                          {pcsDiscardSaving ? 'Sending…' : isFounder ? 'Discard profile' : 'Send for review'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Toast */}
                 {pcsToast && (
                   <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg">
                     {pcsToast}
                   </div>
                 )}
-                {/* Top bar */}
-                <div className="flex items-center justify-end gap-2">
+                {/* Top bar — grand total on the left, actions on the right */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {/* Grand total across every year (active entries only). Derived from
+                      pcsEntries / filteredGrouped, so it follows adds, removals, search
+                      and filter chips live. */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1.5 pl-1.5 pr-3.5 py-1.5 rounded-full bg-indigo-600 text-white shadow-sm">
+                      <span className="min-w-[1.75rem] h-7 px-1.5 rounded-full bg-white/20 flex items-center justify-center text-sm font-black tabular-nums">
+                        {loadingPCS ? '…' : pcsEntries.length}
+                      </span>
+                      <span className="text-xs font-bold tracking-wide">
+                        Total PCS{!loadingPCS && <span className="font-medium text-indigo-100"> · {pcsEntries.length === 1 ? 'person' : 'people'}</span>}
+                      </span>
+                    </span>
+                    {pcsIsFiltering && !pcsShowFormer && !loadingPCS && (
+                      <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold">
+                        Filtered: <span className="tabular-nums">{filteredGrouped.reduce((n, g) => n + g.entries.length, 0)}</span>
+                      </span>
+                    )}
+                    {!loadingPCS && (removalCandidates.length > 0 || pcsRemovalView) && (
+                      <button
+                        type="button"
+                        onClick={() => { setPcsRemovalView(v => !v); setPcsShowFormer(false); setPcsRemovalAction(null) }}
+                        aria-pressed={pcsRemovalView}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-colors ${pcsRemovalView ? 'bg-red-600 text-white border-red-600' : 'bg-red-50 text-red-700 border-red-300 hover:bg-red-100'}`}
+                      >
+                        ⚠️ Recommended for Removal (<span className="tabular-nums">{removalCandidates.length}</span>)
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={async () => {
                       const next = !pcsShowFormer
                       setPcsShowFormer(next)
+                      if (next) setPcsRemovalView(false)
                       if (next && pcsInactiveEntries.length === 0) {
                         setPcsLoadingFormer(true)
                         try { setPcsInactiveEntries(await getInactivePCSEntries()) } catch { /* ignore */ }
@@ -8078,6 +8882,7 @@ export default function DepartmentHub() {
                     <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>
                     + Add
                   </button>
+                  </div>
                 </div>
 
                 {/* ── Search + Filter chips ── */}
@@ -8512,6 +9317,84 @@ export default function DepartmentHub() {
                   </div>
                 )}
 
+                {/* ── Recommended to Add — recurring attendees not yet in PCS ── */}
+                {!pcsShowFormer && pcsRecommendations.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-emerald-200 shadow-sm overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setPcsRecOpen(o => !o)}
+                      className="w-full px-4 py-3 flex items-center gap-3 hover:bg-emerald-50 transition-colors text-left"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                      <p className="text-sm font-bold text-emerald-800 flex-1">Recommended to Add ({pcsRecommendations.length})</p>
+                      <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                        {pcsRecommendations.length}
+                      </span>
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`text-emerald-400 transition-transform flex-shrink-0 ${pcsRecOpen ? 'rotate-180' : ''}`}>
+                        <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+
+                    {pcsRecOpen && (
+                      <>
+                        <p className="px-4 pb-2 text-xs text-slate-400 border-t border-emerald-100 pt-3">
+                          Not in PCS yet, but attended 2 or more gatherings: the last 20 Sundays plus their cell's recent meetings.
+                        </p>
+                        <div className="divide-y divide-slate-100">
+                          {pcsRecommendations.map(rec => {
+                            const busy = pcsRecBusy.has(rec.key)
+                            const forwarded = pcsRecForwarded.has(rec.key)
+                            const attended = [
+                              rec.sunday > 0 ? `${rec.sunday} Sunday${rec.sunday === 1 ? '' : 's'}` : '',
+                              rec.cell > 0 ? `${rec.cell} Cell` : '',
+                            ].filter(Boolean).join(', ')
+                            return (
+                              <div key={rec.key} className="flex items-center gap-3 px-4 py-3">
+                                <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                                  {String(rec.name || '?').split(' ').slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('')}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-slate-900 text-sm truncate">{rec.name}</p>
+                                  <p className="text-xs text-slate-400 mt-0.5 truncate">
+                                    {[rec.phone, rec.cellName ? `Cell: ${rec.cellName}` : ''].filter(Boolean).join(' · ') || 'No contact on record'}
+                                  </p>
+                                  <p className="text-xs font-semibold text-emerald-700 mt-0.5">Attended: {attended}</p>
+                                  {!rec.visitor && (
+                                    <p className="text-xs text-amber-600 font-medium mt-0.5">Not in visitor list yet</p>
+                                  )}
+                                </div>
+                                <div className="flex-shrink-0">
+                                  {rec.visitor ? (
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => addRecommendedToPCS(rec)}
+                                      className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                                    >
+                                      {busy ? 'Adding…' : '+ Add to PCS'}
+                                    </button>
+                                  ) : forwarded ? (
+                                    <span className="text-xs text-emerald-600 font-medium px-1">✓ Forwarded to D-Light</span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => forwardRecommendedToDLight(rec)}
+                                      className="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 disabled:opacity-50 transition-colors whitespace-nowrap"
+                                    >
+                                      {busy ? 'Forwarding…' : 'Forward to D-Light'}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {/* Former (inactive) panel */}
                 {pcsShowFormer && (
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -8546,8 +9429,142 @@ export default function DepartmentHub() {
                   </div>
                 )}
 
+                {/* Recommended for Removal — review list */}
+                {pcsRemovalView && !pcsShowFormer && (
+                  <div className="bg-white rounded-xl border border-red-200 shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 bg-red-50 border-b border-red-100">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-red-800">Recommended for Removal</span>
+                        <span className="text-xs font-bold text-red-700 bg-red-100 rounded-full px-2 py-0.5 tabular-nums">{removalCandidates.length}</span>
+                      </div>
+                      <p className="text-xs text-red-700/80 mt-0.5">
+                        Missed {REMOVAL_ABSENCE_THRESHOLD} consecutive Sundays AND {REMOVAL_ABSENCE_THRESHOLD} consecutive Cell meetings. People marked &lsquo;Away&rsquo; are excluded.
+                      </p>
+                    </div>
+                    {removalCandidates.length === 0 ? (
+                      <div className="py-8 text-center text-slate-400 text-sm">No one is recommended for removal.</div>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {removalCandidates.map(({ entry, reasons }) => {
+                          const cm = findPcsCellMember(entry, allCellMembers)
+                          const cellName = cm ? (cellGroups.find(g => g.id === cm.cellId)?.cellName || 'Unnamed Cell') : ''
+                          const lastFollowUp = (entry.followUps || [])[entry.followUps.length - 1]
+                          const action = pcsRemovalAction?.id === entry.id ? pcsRemovalAction.kind : null
+                          const btn = 'px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-50'
+                          return (
+                            <div key={entry.id} className="px-4 py-3 space-y-2">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => { setPcsRemovalView(false); handleChipClick(entry) }}
+                                    className="text-sm font-bold text-slate-800 hover:text-indigo-700 hover:underline text-left"
+                                  >
+                                    {entry.name}
+                                  </button>
+                                  <p className="text-xs text-slate-500">
+                                    {[engagementLabel(entry.engagementType), cellName].filter(Boolean).join(' · ')}
+                                    {entry.phone && <> · <a href={`tel:${entry.phone.replace(/\s+/g, '')}`} className="text-indigo-600 hover:underline">{entry.phone}</a></>}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {reasons.map(r => (
+                                    <span key={r.kind} className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 whitespace-nowrap">
+                                      {r.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {lastFollowUp && (
+                                <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                                  <span className="font-semibold">Followed up {formatTimestampFull(lastFollowUp.at)}</span>
+                                  {lastFollowUp.by && <span className="text-slate-400"> by {lastFollowUp.by}</span>}
+                                  {lastFollowUp.note && <>: {lastFollowUp.note}</>}
+                                  {entry.followUps.length > 1 && <span className="text-slate-400"> ({entry.followUps.length} follow-ups)</span>}
+                                </p>
+                              )}
+
+                              {canEdit && (
+                                <div className="flex flex-wrap gap-2">
+                                  <button type="button"
+                                    onClick={() => setPcsRemovalAction(action === 'away' ? null : { id: entry.id, kind: 'away' })}
+                                    className={`${btn} ${action === 'away' ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-sky-700 border-sky-300 hover:bg-sky-50'}`}>
+                                    ✈ Mark as Away
+                                  </button>
+                                  <button type="button"
+                                    onClick={() => { setPcsFollowUpText(''); setPcsRemovalAction(action === 'followup' ? null : { id: entry.id, kind: 'followup' }) }}
+                                    className={`${btn} ${action === 'followup' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50'}`}>
+                                    Contact / Follow Up
+                                  </button>
+                                  <button type="button"
+                                    onClick={() => handleRemoveFromPCS(entry)}
+                                    className={`${btn} bg-white text-red-700 border-red-300 hover:bg-red-50`}>
+                                    Remove from PCS
+                                  </button>
+                                </div>
+                              )}
+
+                              {action === 'away' && (
+                                <PcsAwayControl
+                                  entry={entry}
+                                  canEdit={canEdit}
+                                  startEditing
+                                  suggestedFrom={suggestAwayStart(entry)}
+                                  updatedBy={userProfile?.displayName || userProfile?.email || ''}
+                                  onSaved={(patch) => {
+                                    setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, ...patch } : e))
+                                    setPcsRemovalAction(null)
+                                  }}
+                                />
+                              )}
+
+                              {action === 'followup' && (
+                                <div className="space-y-2">
+                                  <textarea
+                                    value={pcsFollowUpText}
+                                    onChange={e => setPcsFollowUpText(e.target.value)}
+                                    rows={2}
+                                    autoFocus
+                                    placeholder="What happened? e.g. Called — moved to Chennai, will visit in December"
+                                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                                  />
+                                  <div className="flex justify-end gap-2">
+                                    <button type="button" onClick={() => setPcsRemovalAction(null)} disabled={pcsFollowUpSaving}
+                                      className={`${btn} bg-white text-slate-600 border-slate-300 hover:bg-slate-50`}>
+                                      Cancel
+                                    </button>
+                                    <button type="button"
+                                      disabled={pcsFollowUpSaving || !pcsFollowUpText.trim()}
+                                      onClick={async () => {
+                                        setPcsFollowUpSaving(true)
+                                        try {
+                                          const item = await addPCSFollowUp(entry.id, pcsFollowUpText, userProfile?.displayName || userProfile?.email || '')
+                                          if (item) setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, followUps: [...(e.followUps || []), item] } : e))
+                                          setPcsRemovalAction(null)
+                                        } catch (err) {
+                                          console.error('addPCSFollowUp failed:', err)
+                                          alert('Could not save the follow-up. Please try again.')
+                                        } finally {
+                                          setPcsFollowUpSaving(false)
+                                        }
+                                      }}
+                                      className={`${btn} bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700`}>
+                                      {pcsFollowUpSaving ? 'Saving…' : 'Save follow-up'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Main card — all years on one page */}
-                {!pcsShowFormer && <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                {!pcsShowFormer && !pcsRemovalView && <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   {loadingPCS ? (
                     <div className="py-14 text-center text-slate-400 text-sm">Loading…</div>
                   ) : pcsEntries.length === 0 ? (
@@ -8583,7 +9600,7 @@ export default function DepartmentHub() {
                               {entries.map(entry => (
                                 <Fragment key={entry.id}>
                                   <Chip entry={entry} />
-                                  {pcsExpandedId === entry.id && (
+                                  {pcsExpandedId === entry.id && !pcsIsMobile && (
                                     <div className="col-span-full -mx-4">
                                       {PCSInlineProfile({ entry })}
                                     </div>
@@ -8604,6 +9621,60 @@ export default function DepartmentHub() {
                     </div>
                   )}
                 </div>}
+
+                {/* Mobile (<768px): full profile slides in over the list; ← Back slides it away. */}
+                {createPortal(
+                  <AnimatePresence>
+                    {pcsIsMobile && !pcsShowFormer && (() => {
+                      const panelEntry = pcsEntries.find(e => e.id === pcsExpandedId)
+                      if (!panelEntry) return null
+                      const editing = pcsEditingId === panelEntry.id
+                      const handleBack = () => {
+                        if (editing && pcsFormDirty && !window.confirm('Discard unsaved changes to this profile?')) return
+                        closePcsProfile()
+                      }
+                      return (
+                        <motion.div
+                          key="pcs-mobile-profile"
+                          initial={{ x: '100%' }}
+                          animate={{ x: 0 }}
+                          exit={{ x: '100%' }}
+                          transition={{ type: 'tween', duration: 0.25, ease: 'easeOut' }}
+                          className="fixed inset-0 z-[70] flex flex-col bg-slate-100"
+                        >
+                          <div className="flex-shrink-0 flex items-center gap-1 px-2 py-2 bg-white border-b border-slate-200 shadow-sm" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
+                            <button
+                              type="button"
+                              onClick={handleBack}
+                              aria-label="Back to list"
+                              className="flex items-center gap-0.5 pl-1 pr-2.5 py-1.5 rounded-lg text-indigo-600 font-semibold text-sm active:bg-indigo-50"
+                            >
+                              <ChevronLeft className="w-5 h-5" />
+                              Back
+                            </button>
+                            <p className="flex-1 min-w-0 truncate text-center text-sm font-bold text-slate-800">{panelEntry.name}</p>
+                            {editing ? (
+                              <span className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-300 px-2 py-1 rounded-full">Editing</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setPcsEditingId(panelEntry.id)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-indigo-600 font-semibold text-sm active:bg-indigo-50"
+                              >
+                                <Pencil className="w-4 h-4" />
+                                Edit
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex-1 overflow-y-auto overscroll-contain" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+                            {PCSInlineProfile({ entry: panelEntry })}
+                          </div>
+                        </motion.div>
+                      )
+                    })()}
+                  </AnimatePresence>,
+                  document.body
+                )}
               </div>
             )
           })()}
@@ -9080,7 +10151,7 @@ export default function DepartmentHub() {
                                 <div className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${m.isDirector && !teamShowFormerMembers ? 'bg-indigo-600 text-white' : teamShowFormerMembers ? 'bg-slate-200 text-slate-500' : 'bg-indigo-100 text-indigo-700'}`}>
                                   {(m.name || '?').charAt(0).toUpperCase()}
                                 </div>
-                                <span className="text-base font-semibold text-slate-800 truncate max-w-[180px]">{m.name}</span>
+                                <span className="text-base font-semibold text-slate-800 truncate max-w-[180px]">{getMemberDisplayName(m)}</span>
                                 <span className={`flex-shrink-0 whitespace-nowrap inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${m.memberType === 'guest' ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
                                   {m.memberType === 'guest' ? 'Guest Volunteer' : 'Core'}
                                 </span>
@@ -9229,7 +10300,7 @@ export default function DepartmentHub() {
                                   {(m.name || '?').charAt(0).toUpperCase()}
                                 </span>
                               )}
-                              <span className={isMedia ? 'text-base font-semibold text-slate-800' : 'text-slate-800 font-medium'}>{m.name}</span>
+                              <span className={isMedia ? 'text-base font-semibold text-slate-800' : 'text-slate-800 font-medium'}>{getMemberDisplayName(m)}</span>
                               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${m.memberType === 'guest' ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
                                 {m.memberType === 'guest' ? 'Guest Volunteer' : 'Core'}
                               </span>
@@ -13008,7 +14079,13 @@ export default function DepartmentHub() {
             return (
               <div key={field.key}>
                 {labelEl}
-                <select value={ff[field.key] || ''} onChange={e => setFf(p => ({ ...p, [field.key]: e.target.value }))} className={inputCls}>
+                <select
+                  value={ff[field.key] || ''}
+                  onChange={e => setFf(p => field.key === 'maritalStatus' ? withMaritalStatus(p, e.target.value)
+                    : field.key === 'isFirstChurch' ? withIsFirstChurch(p, e.target.value)
+                    : { ...p, [field.key]: e.target.value })}
+                  className={inputCls}
+                >
                   <option value="">— Select —</option>
                   {field.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
@@ -13146,13 +14223,18 @@ export default function DepartmentHub() {
                       const payload = {
                         phone: ff.phone, email: ff.email, dob: ff.dob, nativity: ff.nativity, currentPlace: ff.currentPlace,
                         baptised: ff.baptised, baptismDate: ff.baptismDate, baptismPlace: ff.baptismPlace, baptismChurch: ff.baptismChurch,
-                        previousChurchName: ff.previousChurchName, previousChurchPlace: ff.previousChurchPlace,
+                        isFirstChurch: ff.isFirstChurch,
+                        previousChurchName: ff.isFirstChurch === 'yes' ? '' : ff.previousChurchName,
+                        previousChurchPlace: ff.isFirstChurch === 'yes' ? '' : ff.previousChurchPlace,
                         maritalStatus: ff.maritalStatus, marriageDate: ff.marriageDate, spouseName: ff.spouseName,
                         hasKids: ff.hasKids, children: ff.hasKids === 'yes' ? (ff.children || []).filter(c => c.name) : [],
                       }
                       // Never clobber existing data with a blank — only write fields the leader actually filled in.
                       const cleanPayload = Object.fromEntries(
-                        Object.entries(payload).filter(([k, v]) => k === 'children' || (v !== '' && v !== null && v !== undefined))
+                        Object.entries(payload).filter(([k, v]) => k === 'children' ||
+                          // "First church: Yes" deliberately blanks any previous-church data on file.
+                          (ff.isFirstChurch === 'yes' && (k === 'previousChurchName' || k === 'previousChurchPlace')) ||
+                          (v !== '' && v !== null && v !== undefined))
                       )
                       await upsertMemberProfile(fillInviteOpen.visitorId, cleanPayload, userProfile?.email || '')
                       await completePCSFillInvitation(fillInviteOpen.id, userProfile?.email || '', fillInviteOpen.visitorId || '')

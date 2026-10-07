@@ -8,6 +8,8 @@ const STATUSES = [
   { key: 'present', label: 'Present' },
   { key: 'absent',  label: 'Absent' },
   { key: 'excused', label: 'Excused' },
+  // Travelling / on vacation — skipped by absence counters (see utils/awayStatus.js)
+  { key: 'away',    label: '✈ Away' },
 ]
 
 function initials(name) {
@@ -78,7 +80,7 @@ export default function MemberAttendanceSheet({
             <div className="space-y-3">
               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">This Week</p>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {STATUSES.map((s) => (
                   <button
                     key={s.key}
@@ -86,7 +88,7 @@ export default function MemberAttendanceSheet({
                     onClick={() => setStatus(s.key)}
                     className={`min-h-[44px] rounded-2xl text-sm font-semibold border transition-colors ${
                       status === s.key
-                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        ? s.key === 'away' ? 'bg-sky-600 text-white border-sky-600' : 'bg-emerald-600 text-white border-emerald-600'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
@@ -108,7 +110,7 @@ export default function MemberAttendanceSheet({
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Follow-up note (optional)"
+                placeholder={status === 'away' ? 'Where / back when? (optional)' : 'Follow-up note (optional)'}
                 rows={2}
                 className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
               />

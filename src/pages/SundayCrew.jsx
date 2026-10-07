@@ -1,3 +1,4 @@
+import { getMemberDisplayName } from '../utils/displayName'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { format, addWeeks } from 'date-fns'
 import { Link } from 'react-router-dom'
@@ -664,6 +665,9 @@ function CrewTab({ canEdit, userProfile }) {
     const key = subDeptKey(roleName)
     return team.filter((m) => memberSubDepts(m).some((sd) => subDeptKey(sd) === key))
   }
+  // Crew rows store an {id, name} snapshot — label them with the live team record's
+  // Display Name (falls back to the stored name for anyone no longer on the team).
+  const crewLabel = (m) => getMemberDisplayName(team.find((t) => t.id === m.id) || m)
   const addablePeopleFor = (row) => eligibleFor(row.role).filter((m) => !(row.members || []).some((am) => am.id === m.id))
 
   const addPersonToRow = (subDeptId, id, name) => {
@@ -805,7 +809,7 @@ function CrewTab({ canEdit, userProfile }) {
                     <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
                       {rowMembers.map((m) => (
                         <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
-                          {m.name}
+                          {crewLabel(m)}
                           <button type="button" onClick={() => removePersonFromRow(r.subDeptId, m.id)} className="font-bold leading-none text-sm opacity-60 hover:opacity-100 hover:text-red-600" aria-label={`Remove ${m.name}`}>×</button>
                         </span>
                       ))}
@@ -824,7 +828,7 @@ function CrewTab({ canEdit, userProfile }) {
                   ) : rowMembers.length ? (
                     <div className="flex flex-wrap gap-1.5">
                       {rowMembers.map((m) => (
-                        <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{m.name}</span>
+                        <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{crewLabel(m)}</span>
                       ))}
                     </div>
                   ) : (
@@ -859,7 +863,7 @@ function CrewTab({ canEdit, userProfile }) {
                         <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
                           {rowMembers.map((m) => (
                             <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
-                              {m.name}
+                              {crewLabel(m)}
                               <button type="button" onClick={() => removePersonFromRow(r.subDeptId, m.id)} className="font-bold leading-none text-sm opacity-60 hover:opacity-100 hover:text-red-600" aria-label={`Remove ${m.name}`}>×</button>
                             </span>
                           ))}
@@ -878,7 +882,7 @@ function CrewTab({ canEdit, userProfile }) {
                       ) : rowMembers.length ? (
                         <div className="flex flex-wrap gap-1.5">
                           {rowMembers.map((m) => (
-                            <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{m.name}</span>
+                            <span key={m.id} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{crewLabel(m)}</span>
                           ))}
                         </div>
                       ) : (

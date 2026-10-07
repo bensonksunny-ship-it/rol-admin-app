@@ -1,6 +1,10 @@
+import { getMemberDisplayName } from '../utils/displayName'
 import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
+  subscribePCSRemovalNoticesByCellId,
+  resolvePCSRemovalNotice,
   getCellGroups,
   getCellGroupMembers,
   getActiveBackToBibleForDate,
@@ -72,8 +76,11 @@ function getGlow(memberName, heatmapReports, originalName = null) {
   const norm = String(memberName || '').trim().toLowerCase()
   const origNorm = originalName && originalName !== memberName ? String(originalName).trim().toLowerCase() : null
   const check = (set) => set?.has(norm) || (origNorm && set?.has(origNorm))
-  const inLatest   = check(heatmapReports[0]?.attendeeNames)
-  const inPrevious = check(heatmapReports[1]?.attendeeNames)
+  // Meetings this member was marked Away for (travel/vacation) don't count either way.
+  const reports = heatmapReports.filter((r) => check(r.attendeeNames) || !check(r.awayNames))
+  if (reports.length === 0) return 'grey'
+  const inLatest   = check(reports[0]?.attendeeNames)
+  const inPrevious = check(reports[1]?.attendeeNames)
   if (inLatest) return 'green'
   if (inPrevious) return 'amber'
   return 'red'
@@ -546,6 +553,42 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   const [inactiveTarget, setInactiveTarget]   = useState(null)
   const [markingInactive, setMarkingInactive] = useState(false)
 
+  // PCS removal notices for this cell — Caring removed someone from PCS; their card
+  // shows "Removed from PCS" (instead of "Not in PCS") with a "Remove from Cell" action.
+  const [removalNotices, setRemovalNotices] = useState([])
+  useEffect(() => {
+    if (!selectedCellId) { setRemovalNotices([]); return }
+    return subscribePCSRemovalNoticesByCellId(selectedCellId, setRemovalNotices)
+  }, [selectedCellId])
+  const removalNoticeFor = (member) => {
+    const nm = normName(member.name)
+    return removalNotices.find((r) =>
+      (r.cellMemberId && r.cellMemberId === member.id) ||
+      (r.visitorId && member.visitorId && r.visitorId === member.visitorId) ||
+      (nm && normName(r.personName) === nm)
+    ) || null
+  }
+
+  // ?openPcsRemoval=<noticeId> — the bell's deep link. Scrolls to and flashes that
+  // member's card (where "Remove from Cell" sits), then strips the param.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [highlightMemberId, setHighlightMemberId] = useState(null)
+  const openPcsRemovalId = searchParams.get('openPcsRemoval')
+  useEffect(() => {
+    if (!openPcsRemovalId || loadingMembers || !members.length || !removalNotices.length) return
+    const notice = removalNotices.find((r) => r.id === openPcsRemovalId)
+    const member = notice && members.find((m) => removalNoticeFor(m)?.id === notice.id)
+    if (member) {
+      setHighlightMemberId(member.id)
+      setTimeout(() => document.getElementById(`shepherd-member-${member.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150)
+      setTimeout(() => setHighlightMemberId(null), 4000)
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('openPcsRemoval')
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPcsRemovalId, loadingMembers, members, removalNotices])
+
   // Pending transfer/deactivation requests awaiting Director approval — drives the
   // "⏳ Pending" badge and disables re-submitting while one is outstanding.
   const [pendingChangeByMemberId, setPendingChangeByMemberId] = useState(new Map())
@@ -802,6 +845,11 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
           requestedBy: userProfile?.name || userProfile?.email || 'Cell Leader',
         })
         showToast(`Deactivation request submitted for ${inactiveTarget.name}. Awaiting Director approval.`)
+      }
+      // Acting on a "Removed from PCS" notice closes it (clears the bell item).
+      const notice = removalNoticeFor(inactiveTarget)
+      if (notice && notice.status === 'pending') {
+        resolvePCSRemovalNotice(notice.id, userProfile?.name || userProfile?.email || '').catch(() => {})
       }
       setInactiveTarget(null)
       setDetailMember(null)
@@ -1069,7 +1117,9 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               const notifying  = notifyingPCS.has(member.id)
               const isNew      = isNewlyAdded(member.createdAt)
 
-              const pcsStatus = pcsLoading ? 'checking' : inPCS ? 'in' : 'out'
+              const removalNotice = !inPCS ? removalNoticeFor(member) : null
+              const pcsStatus = pcsLoading ? 'checking' : inPCS ? 'in' : removalNotice ? 'removed' : 'out'
+              const pendingChange = pendingChangeByMemberId.get(member.id)
 
               const openMemberDetail = () => {
                 setDetailMember(member)
@@ -1111,14 +1161,15 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
               return (
                 <div
                   key={member.id}
+                  id={`shepherd-member-${member.id}`}
                   role="button"
                   tabIndex={0}
                   onClick={openMemberDetail}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMemberDetail() } }}
-                  style={pcsStatus === 'out' ? { borderLeft: '4px solid #f97316' } : { borderLeft: '4px solid #e2e8f0' }}
+                  style={pcsStatus === 'removed' ? { borderLeft: '4px solid #ef4444' } : pcsStatus === 'out' ? { borderLeft: '4px solid #f97316' } : { borderLeft: '4px solid #e2e8f0' }}
                   className={`rounded-3xl shadow-sm transition-all overflow-hidden cursor-pointer ${GLOW_RING[glow]} ${
                     isNew ? 'bg-emerald-50/40 border border-emerald-200' : 'bg-white'
-                  }`}
+                  } ${highlightMemberId === member.id ? 'outline outline-4 outline-red-300 outline-offset-2' : ''}`}
                 >
                   <div className="p-3 sm:p-5">
                   {/* ── Header row ── */}
@@ -1127,7 +1178,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                       <span className={`w-3 h-3 rounded-full flex-shrink-0 mt-0.5 ${GLOW_DOT[glow]}`} />
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="font-bold text-slate-900 text-sm truncate">{member.name}</p>
+                          <p className="font-bold text-slate-900 text-sm truncate">{getMemberDisplayName(member)}</p>
                           {isNew && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0">
                               ✨ Newly Added
@@ -1147,6 +1198,17 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                       </div>
                     </div>
                   </div>
+
+                  {/* ── Removed from PCS by Caring (replaces "Not in PCS") ── */}
+                  {pcsStatus === 'removed' && (
+                    <div className="flex items-center gap-1.5 mb-2.5 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0 bg-red-500" />
+                      <span className="text-[11px] font-bold text-red-700">Removed from PCS</span>
+                      {removalNotice.createdAt && (
+                        <span className="text-[10px] text-red-500/80 truncate">· {fmt(removalNotice.createdAt)}</span>
+                      )}
+                    </div>
+                  )}
 
                   {/* ── PCS status — only show when NOT in PCS ── */}
                   {pcsStatus === 'out' && (
@@ -1254,6 +1316,26 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                       <span className="text-[9px] text-slate-400 font-medium">Notify</span>
                     </button>
                   </div>
+
+                  {/* ── Removed from PCS → one-tap "Remove from Cell" (same Mark Inactive flow:
+                      instant for Directors, an approval request for Cell Leaders) ── */}
+                  {pcsStatus === 'removed' && canEditMembers && (
+                    <div className="flex gap-2 mt-2">
+                      {pendingChange === 'deactivate' ? (
+                        <span className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-slate-50 text-slate-500 text-xs font-semibold">
+                          ⏳ Removal awaiting Director approval
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setInactiveTarget(member) }}
+                          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 active:scale-[0.98] transition"
+                        >
+                          Remove from Cell
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* ── Action buttons (Notify Caring) ── */}
                   {pcsStatus === 'out' && (
@@ -2487,7 +2569,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                          <p className="font-bold text-slate-900">{member.name}</p>
+                          <p className="font-bold text-slate-900">{getMemberDisplayName(member)}</p>
                           {member.role && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">{member.role}</span>
                           )}
@@ -3091,7 +3173,7 @@ function InactiveSection({ members, canEdit, onReactivate }) {
           {members.map((member) => (
             <div key={member.id} className="flex items-center justify-between gap-3 bg-white rounded-2xl border border-slate-200 px-4 py-3">
               <div>
-                <p className="font-semibold text-slate-600 text-sm">{member.name}</p>
+                <p className="font-semibold text-slate-600 text-sm">{getMemberDisplayName(member)}</p>
                 {member.locality && <p className="text-xs text-slate-400 mt-0.5">📍 {member.locality}</p>}
               </div>
               {canEdit && (

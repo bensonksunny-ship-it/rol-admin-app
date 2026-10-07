@@ -1,3 +1,4 @@
+import { getMemberDisplayName } from '../utils/displayName'
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
@@ -23,7 +24,14 @@ import {
   syncMidweekAttendanceToCellReport,
   getDepartmentChildren,
   createTask,
+  getPCSEntries,
+  subscribeAwayPCSEntries,
+  returnPCSEntryFromAway,
 } from '../services/firestore'
+import { findAwayEntriesFor } from '../utils/awayStatus'
+import FloatingToast from '../components/FloatingToast'
+import useFloatingToast from '../hooks/useFloatingToast'
+import { buildEngagementLookup, engagementTag } from '../utils/pcsEngagement'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
 
@@ -195,6 +203,32 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
   const [programStartTime, setProgramStartTime] = useState('19:00')
   const [segmentIdx, setSegmentIdx]           = useState(-1)
   const [presentIds, setPresentIds]           = useState(new Set())
+
+  // ── Auto-return from Away ── a PCS-Away member marked present here is flipped
+  // back to Active (returnPCSEntryFromAway) with a toast. Ref-guarded so a double
+  // invoke (StrictMode updater, rapid re-tap) only writes once.
+  const [awayEntries, setAwayEntries] = useState([])
+  useEffect(() => subscribeAwayPCSEntries(setAwayEntries), [])
+  const [awayToast, showAwayToast] = useFloatingToast()
+  const returningIdsRef = useRef(new Set())
+  const awayEntriesRef = useRef([])
+  awayEntriesRef.current = awayEntries
+  const autoReturnFromAway = useCallback((member) => {
+    if (!member) return
+    const dateStr = format(new Date(), 'yyyy-MM-dd')
+    findAwayEntriesFor(awayEntriesRef.current, member).forEach((entry) => {
+      if (returningIdsRef.current.has(entry.id)) return
+      if (entry.awayFrom && dateStr < entry.awayFrom) return
+      returningIdsRef.current.add(entry.id)
+      returnPCSEntryFromAway(entry, { via: 'Cell Group', dateStr, by: userProfile?.name || userProfile?.email || 'unknown' })
+        .then(() => showAwayToast(`${entry.name} has been automatically set back to Active status.`))
+        .catch((err) => {
+          console.error('returnPCSEntryFromAway failed:', err)
+          showAwayToast(`Couldn't update ${entry.name}'s Away status — ask Caring to set them Active.`, 'error')
+        })
+        .finally(() => returningIdsRef.current.delete(entry.id))
+    })
+  }, [userProfile, showAwayToast])
   // Per-member attendance detail for this session, keyed by member id:
   // { status: 'present'|'absent'|'excused', reason, note }. presentIds stays the
   // count source of truth; this just enriches it. Persisted on the session doc.
@@ -420,6 +454,14 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       })
   }, [members])
 
+  // PCS Engagement Type per roster row — a "Sunday Only" / "Cell Only" tag for the
+  // attendance taker. Informational only: everyone on the roster stays markable.
+  const [pcsEntriesForTags, setPcsEntriesForTags] = useState([])
+  useEffect(() => {
+    getPCSEntries().then(setPcsEntriesForTags).catch(() => setPcsEntriesForTags([]))
+  }, [])
+  const engagementOf = useMemo(() => buildEngagementLookup(pcsEntriesForTags), [pcsEntriesForTags])
+
   // name (lowercased/trimmed) → River Kids children who list that name as a parent.
   // Name-string matching is the only linkage available — department_children has no
   // parentMemberId, just free-text fatherName/motherName fields.
@@ -450,6 +492,8 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         [id]: { reason: '', note: '', ...(d[id] || {}), status: wasPresent ? 'absent' : 'present' },
       }))
 
+      if (!wasPresent) autoReturnFromAway(activeMembers.find((m) => m.id === id))
+
       // Only prompt on the transition to present, and only once per parent per
       // session — repeatedly toggling the same member shouldn't re-show the popover.
       if (!wasPresent && !askedParentIds.has(id)) {
@@ -468,7 +512,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       }
       return next
     })
-  }, [askedParentIds, activeMembers, childrenByParentName])
+  }, [askedParentIds, activeMembers, childrenByParentName, autoReturnFromAway])
 
   const toggleChildPromptCheck = useCallback((name) => {
     setChildPrompt((prev) => {
@@ -513,7 +557,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
   }, [])
 
   // Save one member's attendance status from the per-member sheet. 'present'
-  // adds to presentIds; 'absent'/'excused' removes and keeps the reason/note.
+  // adds to presentIds; 'absent'/'excused'/'away' removes and keeps the reason/note.
   const saveMemberAttendance = useCallback((id, status, reason, note) => {
     setPresentIds((prev) => {
       const next = new Set(prev)
@@ -521,12 +565,13 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       else next.delete(id)
       return next
     })
+    if (status === 'present') autoReturnFromAway(activeMembers.find((m) => m.id === id))
     setAttendanceDetails((d) => ({
       ...d,
       [id]: { status, reason: status === 'present' ? '' : (reason || ''), note: note || '' },
     }))
     setSheetMemberId(null)
-  }, [])
+  }, [activeMembers, autoReturnFromAway])
 
   // Save profile edits from the per-member sheet straight to cell_members, then
   // refresh the local roster so the change is reflected everywhere.
@@ -632,6 +677,11 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
       const updatedBy = userProfile?.name || userProfile?.email || 'unknown'
       const cellName = cellGroups.find((g) => g.id === selectedCellId)?.cellName || ''
       const presentMembers = members.filter((m) => ids.has(m.id))
+      // Marked Away (travel/vacation) in the per-member sheet and not later marked present
+      const awayNames = members
+        .filter((m) => !ids.has(m.id) && attendanceDetails[m.id]?.status === 'away')
+        .map((m) => m.name)
+        .filter(Boolean)
 
       localStorage.removeItem(`rol_live_${selectedCellId}_${today}`)
 
@@ -645,7 +695,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         setSaveError('Session could not be saved. Please check your connection and try again.')
       })
 
-      syncMidweekAttendanceToCellReport(selectedCellId, cellName, today, presentMembers, updatedBy, visitors, childrenAttending)
+      syncMidweekAttendanceToCellReport(selectedCellId, cellName, today, presentMembers, updatedBy, visitors, childrenAttending, awayNames)
         .catch((err) => {
           console.error('Failed to sync attendance to cell report:', err)
           setSaveError('Attendance could not be saved to reports. Ask your Cell Director to update your profile with the correct Cell ID.')
@@ -711,6 +761,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
 
   return (
     <div className="space-y-6 pb-24">
+      <FloatingToast toast={awayToast} />
 
       {/* Cell selector — Directors only */}
       {isDirector && (
@@ -892,6 +943,7 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
                   member={member}
                   present={presentIds.has(member.id)}
                   detail={attendanceDetails[member.id]}
+                  tag={engagementTag(engagementOf(member))}
                   onToggle={canWrite ? togglePresent : undefined}
                   onOpenSheet={canWrite ? setSheetMemberId : undefined}
                 />
@@ -1370,12 +1422,14 @@ function ChildAttendancePrompt({ prompt, onToggle, onConfirm, onSkip }) {
 
 // ─── Member Bubble ────────────────────────────────────────────────────────────
 
-function MemberBubble({ member, present, detail, onToggle, onOpenSheet }) {
+function MemberBubble({ member, present, detail, tag, onToggle, onOpenSheet }) {
   const initials = getInitials(member.name)
   const detailLabel =
     detail?.status === 'excused' ? 'Excused'
+      : detail?.status === 'away' && !present ? `✈ Away${detail.note ? ` — ${detail.note}` : ''}`
       : detail?.status === 'absent' && detail.reason ? `Absent — ${detail.reason}`
       : null
+  const away = detail?.status === 'away' && !present
   const readOnly = !onToggle
 
   return (
@@ -1389,6 +1443,7 @@ function MemberBubble({ member, present, detail, onToggle, onOpenSheet }) {
         } ${readOnly ? 'cursor-default' : ''} ${
           present
             ? 'bg-emerald-600 text-white shadow-sm'
+            : away ? 'bg-sky-50 text-sky-800 ring-1 ring-sky-200'
             : readOnly ? 'bg-slate-50 text-slate-700' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
         }`}
       >
@@ -1398,7 +1453,14 @@ function MemberBubble({ member, present, detail, onToggle, onOpenSheet }) {
           {initials}
         </span>
         <span className="flex-1 min-w-0 text-left leading-tight">
-          <span className="block truncate">{member.name}</span>
+          <span className="flex items-center gap-1.5 min-w-0">
+            <span className="truncate">{getMemberDisplayName(member)}</span>
+            {tag && (
+              <span className={`flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border leading-none ${present ? 'bg-white/20 text-white border-white/30' : tag.cls}`}>
+                {tag.label}
+              </span>
+            )}
+          </span>
           {detailLabel && (
             <span className={`block truncate text-[11px] font-medium ${present ? 'text-white/80' : 'text-slate-400'}`}>
               {detailLabel}

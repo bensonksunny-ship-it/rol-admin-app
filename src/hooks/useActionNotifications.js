@@ -4,7 +4,8 @@ import {
   subscribePCSFillInvitationsByCellId, subscribeCellVisitorProposals, subscribeCellDlightConsultTasks,
   subscribeDismissedNotificationIds, dismissNotification as dismissNotificationDoc,
   subscribeNotificationTodoAdditionIds, markNotificationAddedToTodo, createTask,
-  subscribeSundayLeaderAssignmentNotifications,
+  subscribeSundayLeaderAssignmentNotifications, subscribePCSRemovalNoticesByCellId,
+  subscribePendingApprovals,
 } from '../services/firestore'
 import { formatDisplayDate } from '../utils/date'
 import { isDepartmentDirectorInPositions } from '../utils/access'
@@ -19,6 +20,11 @@ const CONSULT_RESPONSE_ID_PREFIX = 'consult_response:'
 function buildNotificationDeepLink(n) {
   if (n.type === 'pcs_fill') {
     return '/department/cell?tab=shepherdCare&openFillInvite=' + (n.inviteId || '')
+  }
+  if (n.type === 'pcs_removed') {
+    // ShepherdCareTab reads ?openPcsRemoval= and opens that member's card, where the
+    // "Removed from PCS" tag and "Remove from Cell" action live.
+    return '/department/cell?tab=shepherdCare&openPcsRemoval=' + encodeURIComponent(n.id || '')
   }
   if (n.type === 'visitor_proposal') {
     // Deep-link straight into the "Visitors from Cell Reports" row for this proposal
@@ -40,6 +46,10 @@ function buildNotificationDeepLink(n) {
   if (n.type === 'sunday_leader_assignment') {
     return '/department/sec-core?tab=sundayLeader'
   }
+  if (n.type === 'pcs_discard_approval') {
+    // My Workspace's Approvals card reads ?approval= and scrolls to that request.
+    return `/?approval=${encodeURIComponent(n.id || '')}`
+  }
   return null
 }
 
@@ -51,9 +61,11 @@ function notificationTaskType(n) {
   if (n.type === 'sunday_leader_assignment') return `sundayLeaderAssignment:${n.date || ''}`
   return {
     pcs_fill: 'fillProfile',
+    pcs_removed: 'reviewPcsRemoval',
     visitor_proposal: 'addToDLight',
     dlight_consult: 'cellAssignConsult',
     consult_response: 'cellAssignRecommendation',
+    pcs_discard_approval: 'reviewPcsDiscard',
   }[n.type] || n.type || 'task'
 }
 
@@ -69,6 +81,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   const [dlightConsultNotifications, setDlightConsultNotifications] = useState([])
   const [consultResponseNotifications, setConsultResponseNotifications] = useState([])
   const [sundayLeaderNotifications, setSundayLeaderNotifications] = useState([])
+  const [pcsRemovalNotifications, setPcsRemovalNotifications] = useState([])
+  const [approvalNotifications, setApprovalNotifications] = useState([])
   const [dismissedIds, setDismissedIds] = useState(new Set())
   const [addedToTodoIds, setAddedToTodoIds] = useState(new Set())
   // Optimistic hide — set synchronously the instant Ignore/Add-to-Todo is clicked, so
@@ -94,6 +108,26 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         // and, since it's the same field, to detect a re-sent invitation for someone
         // who already has one pending.
         personId: inv.visitorId || inv.pcsEntryId || '',
+      })))
+    })
+  }, [userProfile?.cellGroupId, userProfile?.cellId])
+
+  // Cell: Caring removed one of this leader's cell members from PCS. Same cellId
+  // scoping as the fill requests above; resolved once "Remove from Cell" is used.
+  useEffect(() => {
+    const cellId = userProfile?.cellGroupId || userProfile?.cellId
+    if (!cellId) { setPcsRemovalNotifications([]); return }
+    return subscribePCSRemovalNoticesByCellId(cellId, (notices) => {
+      setPcsRemovalNotifications(notices.filter((r) => r.status === 'pending').map((r) => ({
+        id: r.id,
+        type: 'pcs_removed',
+        department: 'Cell',
+        cellId: r.cellId,
+        title: `Member Removed from PCS: ${r.personName || 'a member'}`,
+        body: `${r.personName || 'A member'} has been removed from PCS due to continuous inactivity. Please review and update your Cell roster if needed.`,
+        cellName: r.cellName || '',
+        sentAt: r.createdAt,
+        personId: r.visitorId || r.cellMemberId || '',
       })))
     })
   }, [userProfile?.cellGroupId, userProfile?.cellId])
@@ -209,6 +243,24 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     })
   }, [uid])
 
+  // Founder: pending approval requests (PCS Discard). Drops out on its own once the
+  // request is approved/rejected, since only status 'pending' is subscribed.
+  useEffect(() => {
+    if (!isFounder) { setApprovalNotifications([]); return }
+    return subscribePendingApprovals((rows) => {
+      setApprovalNotifications(rows.filter((a) => a.type === 'pcs_discard').map((a) => ({
+        id: a.id,
+        type: 'pcs_discard_approval',
+        department: 'Caring',
+        title: 'PCS Discard Request',
+        body: `${a.requestedBy || 'Caring'} asks to discard ${a.memberName || 'a PCS profile'}${a.reason ? `: ${a.reason}` : ''}`,
+        cellName: '',
+        sentAt: a.timestamp,
+        personId: a.memberId || '',
+      })))
+    }, () => setApprovalNotifications([]))
+  }, [isFounder])
+
   // Per-user "Ignore" state — hides an item from this feed everywhere it's rendered
   // without touching the underlying business record it was synthesized from.
   useEffect(() => {
@@ -235,7 +287,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   const canSeeNotification = (n) => {
     if (isFounder) return true
     switch (n.type) {
-      case 'pcs_fill': {
+      case 'pcs_fill':
+      case 'pcs_removed': {
         const cellId = userProfile?.cellGroupId || userProfile?.cellId
         return !!cellId && (n.cellId ? n.cellId === cellId : true)
       }
@@ -246,6 +299,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         return isCellDirectorInPositions(userProfile)
       case 'sunday_leader_assignment':
         return !!uid && n.personId === uid
+      case 'pcs_discard_approval':
+        return false // Founder-only (handled above)
       default:
         // Unrecognized type: fail closed rather than showing something no known rule
         // has vouched for.
@@ -260,12 +315,12 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     dismissedIds.has(n.id) || optimisticHiddenIds.has(n.id) || (n.legacyId && dismissedIds.has(n.legacyId))
 
   const notifications = useMemo(
-    () => [...fillNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
+    () => [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
       .filter((n) => !isHidden(n))
       .filter(canSeeNotification)
       .map((n) => ({ ...n, addedToTodo: addedToTodoIds.has(n.id) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fillNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds, userProfile, isFounder, uid]
+    [fillNotifications, pcsRemovalNotifications, approvalNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds, userProfile, isFounder, uid]
   )
 
   const handleNotifAction = (n) => {

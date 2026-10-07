@@ -14,6 +14,8 @@ import {
   getDelightVisitors,
   getPeople,
   getPCSEntries,
+  subscribeAwayPCSEntries,
+  returnPCSEntryFromAway,
   getAllDepartmentTeamMembers,
   getAllWorshipTeamMembers,
   recordPersonSundayAttendance,
@@ -29,6 +31,10 @@ import {
   getRecentNonCellAttendeeNames,
   getSundayAttendanceNameSetsInRange,
 } from '../services/firestore'
+import { buildEngagementLookup, engagementTag } from '../utils/pcsEngagement'
+import { AWAY_BADGE_CLS, findAwayEntriesFor } from '../utils/awayStatus'
+import FloatingToast from '../components/FloatingToast'
+import useFloatingToast from '../hooks/useFloatingToast'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import useSeniorPastor from '../hooks/useSeniorPastor'
@@ -1794,8 +1800,46 @@ export default function SundayReport({ embedded = false }) {
 
   const updateReport = (patch) => setReport((prev) => (prev ? { ...prev, ...patch } : { ...patch }))
 
+  // ── Auto-return from Away ──
+  // PCS profiles currently marked Away (live). Marking one of them present on this
+  // sheet flips them back to Active (returnPCSEntryFromAway) and toasts it. Only for
+  // a Sunday on/after the date they went Away, so back-filling an old report doesn't
+  // end a current trip.
+  const [awayEntries, setAwayEntries] = useState([])
+  useEffect(() => subscribeAwayPCSEntries(setAwayEntries), [])
+  const [awayToast, showAwayToast] = useFloatingToast()
+  const returningIdsRef = useRef(new Set())
+  const autoReturnFromAway = (people) => {
+    const by = userProfile?.displayName || userProfile?.email || 'unknown'
+    const seen = new Set()
+    people.forEach((person) => {
+      findAwayEntriesFor(awayEntries, person).forEach((entry) => {
+        if (seen.has(entry.id) || returningIdsRef.current.has(entry.id)) return
+        if (entry.awayFrom && selectedDate < entry.awayFrom) return
+        seen.add(entry.id)
+        returningIdsRef.current.add(entry.id)
+        returnPCSEntryFromAway(entry, { via: 'Sunday Service', dateStr: selectedDate, by })
+          .then(() => showAwayToast(`${entry.name} has been automatically set back to Active status.`))
+          .catch((err) => {
+            console.error('returnPCSEntryFromAway failed:', err)
+            showAwayToast(`Couldn't update ${entry.name}'s Away status — please set them Active in PCS.`, 'error')
+          })
+          .finally(() => returningIdsRef.current.delete(entry.id))
+      })
+    })
+  }
+
   const handleSave = async () => {
     if (!report || !canEdit) return
+    // Catch Away people marked present in any section (Others, Non-Cell, Pastoral…),
+    // not just the cell picker, which already handles it on tap.
+    const presentNames = [
+      ...Object.values(report.sundayCellAttendance || {}).flat(),
+      ...(report.others || []), ...(report.nonCell || []), ...(report.pastoralAttendees || []),
+      ...(report.newComers || []), ...(report.secondWeekAttendeesNames || []),
+      ...(report.thirdWeekAttendeesNames || []), ...(report.fourthWeekAttendeesNames || []),
+    ].filter(Boolean).map((name) => ({ name }))
+    autoReturnFromAway(presentNames)
     // Firestore queues writes locally when offline and resolves optimistically — the button
     // would otherwise look like it worked with no error, while the write only reaches the
     // server once connectivity returns. Warn up front instead of a silent false "success".
@@ -1891,9 +1935,31 @@ export default function SundayReport({ embedded = false }) {
       list.splice(origIdx, 1)
     } else {
       list.push(name)
+      autoReturnFromAway([{ name }, ...(origStored ? [{ name: origStored }] : [])])
     }
     sca[cellId] = list
-    updateReport({ sundayCellAttendance: sca })
+    // Present and Away are mutually exclusive — marking present clears an Away mark.
+    const awayMap = { ...(report?.sundayCellAway || {}) }
+    awayMap[cellId] = (awayMap[cellId] || []).filter((n) => n !== name && n !== origStored)
+    updateReport({ sundayCellAttendance: sca, sundayCellAway: awayMap })
+  }
+
+  // Third attendance state for a cell member: Away (travel/vacation). Stored in
+  // sundayCellAway[cellId]; absence counters skip this Sunday for them instead of
+  // counting it as missed (see utils/awayStatus.js).
+  const toggleMemberAway = (cellId, memberName, originalName = null) => {
+    const name = String(memberName || '').trim()
+    if (!name || !canEditEffective || completedSections.cells) return
+    const origStored = originalName && originalName !== name ? String(originalName).trim() : null
+    const awayMap = { ...(report?.sundayCellAway || {}) }
+    const awayList = awayMap[cellId] || []
+    const isAway = awayList.includes(name) || (origStored && awayList.includes(origStored))
+    awayMap[cellId] = isAway
+      ? awayList.filter((n) => n !== name && n !== origStored)
+      : [...awayList, name]
+    const sca = { ...(report?.sundayCellAttendance || {}) }
+    if (!isAway) sca[cellId] = (sca[cellId] || []).filter((n) => n !== name && n !== origStored)
+    updateReport({ sundayCellAttendance: sca, sundayCellAway: awayMap })
   }
 
   const updateCellList = (key, idx, value) => {
@@ -2352,12 +2418,23 @@ export default function SundayReport({ embedded = false }) {
   }
 
   const selectedForCell = (cellId) => new Set(report?.sundayCellAttendance?.[cellId] || [])
+  const awayForCell = (cellId) => new Set(report?.sundayCellAway?.[cellId] || [])
+
+  // PCS profiles currently marked Away — shown as a hint on the cell roster chips.
+  const pcsAwayNames = new Set(
+    awayEntries.map((p) => String(p.name || '').trim().toLowerCase()).filter(Boolean)
+  )
+
+  // PCS Engagement Type → "Cell Only" / "Sunday Only" tag on each cell-roster button.
+  // Informational only: Cell Only people stay listed and markable here.
+  const engagementOf = buildEngagementLookup(pcsEntriesAll)
 
   const cellsEdit = canEditEffective && !completedSections.cells
   const pastoralEdit = canEditEffective && !completedSections.pastoral
 
   return (
     <div>
+      <FloatingToast toast={awayToast} />
       {!embedded && (
         <div className="px-4 pt-4">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Live Control</h1>
@@ -2513,6 +2590,7 @@ export default function SundayReport({ embedded = false }) {
                     const isSelected = expandedCellId === g.id
                     const cellNames = report?.sundayCellAttendance?.[g.id] || []
                     const count = cellNames.length
+                    const awayCount = (report?.sundayCellAway?.[g.id] || []).length
                     // Flagged without needing to expand — a name in this cell also appears
                     // in another section (or another cell) per the global duplicateNorms set.
                     const hasDupe = cellNames.some((n) => duplicateNorms.has((n || '').replace(/\s+/g, ' ').trim().toLowerCase()))
@@ -2535,6 +2613,7 @@ export default function SundayReport({ embedded = false }) {
                         )}
                         <p className={`text-xs font-semibold leading-tight truncate ${hasDupe ? 'text-red-700' : 'text-slate-700'}`}>{g.cellName || 'Unnamed'}</p>
                         <p className={`text-base font-extrabold tabular-nums mt-0.5 ${hasDupe ? 'text-red-600' : count > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{count}</p>
+                        {awayCount > 0 && <p className="text-[10px] font-semibold text-sky-600 leading-none">✈ {awayCount} away</p>}
                       </button>
                     )
                   })}
@@ -2565,23 +2644,54 @@ export default function SundayReport({ embedded = false }) {
                               const nm = (m.name || '').trim()
                               const cellSet = selectedForCell(g.id)
                               const sel = cellSet.has(nm) || (m.originalName !== nm && cellSet.has(m.originalName))
+                              const awaySet = awayForCell(g.id)
+                              const isAway = !sel && (awaySet.has(nm) || (m.originalName !== nm && awaySet.has(m.originalName)))
+                              const profileAway = !sel && !isAway && (pcsAwayNames.has(nm.toLowerCase()) || pcsAwayNames.has(String(m.originalName || '').trim().toLowerCase()))
                               const isDupe = sel && duplicateNorms.has(nm.replace(/\s+/g, ' ').toLowerCase())
+                              const tag = engagementTag(engagementOf({ visitorId: m.visitorId, phone: m.phone, name: nm }) || engagementOf({ name: m.originalName }))
                               return (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  disabled={!cellsEdit || !nm}
-                                  onClick={() => toggleMemberAttendance(g.id, nm, m.originalName)}
-                                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${
-                                    isDupe
-                                      ? 'bg-red-100 text-red-700 border-red-400'
-                                      : sel
-                                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
-                                        : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
-                                  } ${!cellsEdit ? 'opacity-70 cursor-default' : ''}`}
-                                >
-                                  {nm || '—'}
-                                </button>
+                                <span key={m.id} className="inline-flex items-stretch">
+                                  <button
+                                    type="button"
+                                    disabled={!cellsEdit || !nm}
+                                    onClick={() => toggleMemberAttendance(g.id, nm, m.originalName)}
+                                    className={`pl-3 pr-2 py-1.5 rounded-l-lg text-sm font-medium border transition ${
+                                      isDupe
+                                        ? 'bg-red-100 text-red-700 border-red-400'
+                                        : sel
+                                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                          : isAway
+                                            ? 'bg-sky-50 text-sky-800 border-sky-300'
+                                            : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
+                                    } ${!cellsEdit ? 'opacity-70 cursor-default' : ''}`}
+                                  >
+                                    {/* Label only — the toggle still records the official name (nm). */}
+                                    {String(m.displayName || '').trim() || nm || '—'}
+                                    {tag && (
+                                      <span className={`ml-1.5 align-middle text-[9px] font-bold px-1.5 py-0.5 rounded-full border leading-none ${sel && !isDupe ? 'bg-white/20 text-white border-white/30' : tag.cls}`}>
+                                        {tag.label}
+                                      </span>
+                                    )}
+                                    {isAway && <span className={`ml-1.5 align-middle text-[9px] font-bold px-1.5 py-0.5 rounded-full border leading-none ${AWAY_BADGE_CLS}`}>Away</span>}
+                                    {profileAway && (
+                                      <span title="PCS profile is marked Away" className={`ml-1.5 align-middle text-[9px] font-bold px-1.5 py-0.5 rounded-full border leading-none opacity-70 ${AWAY_BADGE_CLS}`}>Away?</span>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={!cellsEdit || !nm}
+                                    onClick={() => toggleMemberAway(g.id, nm, m.originalName)}
+                                    title={isAway ? 'Clear Away' : 'Mark Away (travelling / vacation)'}
+                                    aria-label={isAway ? `Clear Away for ${nm}` : `Mark ${nm} Away`}
+                                    className={`px-2 rounded-r-lg text-xs border border-l-0 transition ${
+                                      isAway
+                                        ? 'bg-sky-600 text-white border-sky-600'
+                                        : 'bg-white text-slate-400 border-slate-200 hover:text-sky-600 hover:bg-sky-50'
+                                    } ${!cellsEdit ? 'opacity-70 cursor-default' : ''}`}
+                                  >
+                                    ✈
+                                  </button>
+                                </span>
                               )
                             })}
                           </div>

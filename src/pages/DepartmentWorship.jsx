@@ -1,3 +1,4 @@
+import { getMemberDisplayName } from '../utils/displayName'
 import { useEffect, useState, useMemo, useRef } from 'react'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -1281,7 +1282,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
     >
       {/* Top: name + ⋮ actions menu */}
       <div className="flex items-start justify-between gap-2">
-        <span className={`font-semibold text-sm leading-snug truncate ${isFormer ? 'text-slate-700' : 'text-slate-800'}`}>{m.name}</span>
+        <span className={`font-semibold text-sm leading-snug truncate ${isFormer ? 'text-slate-700' : 'text-slate-800'}`}>{getMemberDisplayName(m)}</span>
         {canManageWorship && (
           <div className="relative shrink-0 -mt-1 -mr-1" onClick={(e) => e.stopPropagation()}>
             <button
@@ -1498,7 +1499,11 @@ export default function DepartmentWorship() {
   useEffect(() => {
     const t = searchParams.get('tab')
     if (t) setActiveTab(t)
-  }, [searchParams])
+    // Founder lands on Hub (Summary) from a bare /department/worship link; an
+    // explicit ?tab= deep link still wins. isFounder can resolve after first
+    // render (custom claims), hence an effect rather than the useState initializer.
+    else if (isFounder) setActiveTab('summary')
+  }, [searchParams, isFounder])
   // Expense is always the base Finance view now — Budget/Payout Request are drawers
   // layered on top rather than sibling tabs, so this only ever tracks which drawer (if
   // any) is open: null | 'budget' | 'payout'. Still deep-linkable the same way as
@@ -2237,7 +2242,7 @@ export default function DepartmentWorship() {
                       {m.name?.charAt(0)?.toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-slate-800">{m.name}</p>
+                      <p className="text-xs font-bold text-slate-800">{getMemberDisplayName(m)}</p>
                       <p className="text-[11px] text-amber-700 font-medium">
                         {m.years} {m.years === 1 ? 'year' : 'years'} · {m.daysAway === 0 ? 'Today!' : `in ${m.daysAway} day${m.daysAway > 1 ? 's' : ''}`}
                       </p>
@@ -3631,7 +3636,7 @@ export default function DepartmentWorship() {
                             className="w-4 h-4 rounded accent-violet-600 flex-shrink-0"
                           />
                           <label htmlFor={`att-${r.id}-${m.id}`} className={`text-sm flex-1 cursor-pointer ${entry.present ? 'font-medium text-slate-800' : 'text-slate-500'}`}>
-                            {m.name}
+                            {getMemberDisplayName(m)}
                             {m.isWorshipDirector && <span className="ml-1.5 text-[10px] text-amber-600 font-semibold">Director</span>}
                           </label>
                           <div className="flex items-center gap-1.5">

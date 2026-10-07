@@ -16,6 +16,7 @@ import { hasAccess } from '../utils/access'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
 import useSeniorPastor from '../hooks/useSeniorPastor'
+import { formatJoinedDate } from '../utils/date'
 
 const fmt = (d) => {
   if (!d) return null
@@ -392,7 +393,7 @@ function ExpandedProfile({ p, onEdit, canEdit }) {
                     <p className="text-[10px] font-bold text-slate-700">
                       {m.ministry}{m.role ? <span className="font-normal text-slate-400"> · {m.role}</span> : ''}
                     </p>
-                    {m.from && <p className="text-[8px] text-slate-400 mt-0.5">since {new Date(m.from).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</p>}
+                    {formatJoinedDate(m.from) && <p className="text-[8px] text-slate-400 mt-0.5">{formatJoinedDate(m.from)}</p>}
                   </div>
                   {dur && <span className="text-[9px] font-black text-violet-700 bg-violet-100 border border-violet-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
                 </div>

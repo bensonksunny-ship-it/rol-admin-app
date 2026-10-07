@@ -6,6 +6,7 @@ import EdenGardenGrid from '../components/workspace/EdenGardenGrid'
 import FounderInsightsPanel from '../components/workspace/FounderInsightsPanel'
 import WorshipWorkspaceWidget from '../components/workspace/WorshipWorkspaceWidget'
 import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWorkspaceWidget'
+import ApprovalsCard from '../components/workspace/ApprovalsCard'
 
 function greeting() {
   const h = new Date().getHours()
@@ -68,6 +69,7 @@ export default function MyWorkspace() {
 
       {isFounder && (
         <>
+          <ApprovalsCard />
           <FounderInsightsPanel />
           <EdenGardenGrid />
         </>

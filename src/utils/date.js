@@ -85,6 +85,14 @@ export function formatDisplayDate(value) {
   return d ? format(d, 'dd/MMM/yyyy') : '—'
 }
 
+/** "Joined 14 Sep 2026" for a ministry/team start date. A bare year (legacy
+ *  records) prints as "Joined 2024" rather than inventing 1 Jan. '' if unparseable. */
+export function formatJoinedDate(value) {
+  if (/^\d{4}$/.test(String(value ?? '').trim())) return `Joined ${String(value).trim()}`
+  const d = toDate(value)
+  return d ? `Joined ${format(d, 'd MMM yyyy')}` : ''
+}
+
 /** "16 Sep 2026, 04:30 PM" — full date+time for an activity/request timestamp. */
 export function formatTimestampFull(value) {
   const d = toDate(value)
