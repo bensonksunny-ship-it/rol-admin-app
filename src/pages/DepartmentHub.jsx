@@ -105,6 +105,7 @@ import {
   deactivatePCSEntry,
   createPCSRemovalNotice,
   addPCSFollowUp,
+  subscribeMembershipApplicationsForEntry,
   requestPCSDiscard,
   approvePCSDiscard,
   dismissInactiveCellAlert,
@@ -148,16 +149,22 @@ import {
 } from '../services/firestore'
 import { getMemberDisplayName } from '../utils/displayName'
 import BaptismApplicationModal from '../components/caring/BaptismApplicationModal'
+import MembershipApplicationModal from '../components/caring/MembershipApplicationModal'
+import CaringEventsTab from '../components/caring/CaringEventsTab'
+import { MEMBERSHIP_DECISIONS } from '../constants/membershipForm'
 import { ROLES } from '../constants/roles'
 import { SAVINGS_FUNDS } from '../constants/savingsFunds'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { isPreServiceLeaderInPositions } from '../utils/sundayMinistryAccess'
 import { differenceInDays, differenceInCalendarDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
-import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate, formatTimestampFull, formatRelativeTime, formatJoinedDate } from '../utils/date'
+import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate, formatTimestampFull, formatRelativeTime, formatShortDate, calculateTenure } from '../utils/date'
 import { ENGAGEMENT_TYPES, normalizeEngagementType, engagementLabel, isCellOnly, isSundayOnly, findPcsCellMember, computeCellHealth, countConsecutiveCellAbsences, REMOVAL_ABSENCE_THRESHOLD, CELL_HEALTH_REPORT_COUNT, CELL_HEALTH_BADGE_CLS } from '../utils/pcsEngagement'
 import { isCurrentlyAway, isProfileAwayOn, awaySummary, awayReturnHistoryLabel, AWAY_BADGE_CLS } from '../utils/awayStatus'
 import PcsAwayControl from '../components/caring/PcsAwayControl'
+import AppreciationSummaryModal from '../components/caring/AppreciationSummaryModal'
+import { downloadPastoralClosureLetter } from '../utils/pastoralClosureLetter'
+import { isRelocated, churchTillDate, RELOCATED_BADGE_CLS } from '../utils/relocation'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
@@ -609,7 +616,7 @@ export default function DepartmentHub() {
   const location = useLocation()
   const navigate = useNavigate()
   const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder, isCellDirector, isSundayMinistryDirector } = useAuth()
-  const { isSeniorPastorName, title: SENIOR_PASTOR_TITLE, fullTitle: SENIOR_PASTOR_FULL_TITLE } = useSeniorPastor()
+  const { isSeniorPastorName, title: SENIOR_PASTOR_TITLE, fullTitle: SENIOR_PASTOR_FULL_TITLE, name: seniorPastorName } = useSeniorPastor()
   const department = getDepartmentBySlug(slug)
 
   // Cell access helper must be defined BEFORE any effects that reference it (avoid TDZ crashes)
@@ -1036,7 +1043,18 @@ export default function DepartmentHub() {
   const [pcsRecBusy, setPcsRecBusy] = useState(new Set())        // rec keys being added/forwarded
   const [pcsRecForwarded, setPcsRecForwarded] = useState(new Set())
   const [pcsFormerForRec, setPcsFormerForRec] = useState([])       // removed PCS entries — never re-recommended
-  const [pcsBaptismOpenFor, setPcsBaptismOpenFor] = useState(null)  // PCS entry id whose Baptism Application modal is open
+  const [pcsBaptismOpenFor, setPcsBaptismOpenFor] = useState(null)
+  const [pcsMembershipOpenFor, setPcsMembershipOpenFor] = useState(null) // PCS entry id whose Membership Application modal is open
+  // Latest membership application of the open PCS profile — its status shows in the
+  // profile's Membership section ("Membership Application: Under Review").
+  const [pcsMembershipApp, setPcsMembershipApp] = useState(null)
+  useEffect(() => {
+    setPcsMembershipApp(null)
+    if (slug !== 'caring' || !pcsExpandedId) return
+    return subscribeMembershipApplicationsForEntry(pcsExpandedId, (apps) => setPcsMembershipApp(apps[0] || null), () => setPcsMembershipApp(null))
+  }, [slug, pcsExpandedId])
+  const [pcsClosureLetterBusy, setPcsClosureLetterBusy] = useState(false)
+  const [pcsAppreciationOpenFor, setPcsAppreciationOpenFor] = useState(null) // PCS entry id whose Appreciation Summary is open  // PCS entry id whose Baptism Application modal is open
 
   const [cellVisitorProposals, setCellVisitorProposals] = useState([])
   const [cellVisitorProposalOpen, setCellVisitorProposalOpen] = useState(false)
@@ -6594,6 +6612,14 @@ export default function DepartmentHub() {
               getDlightSubDepartments() data. See the opsSub effect above for the
               redirect that replaces this page for any stale ?opsSub=subDepartment link. */}
 
+          {activeTab === 'events' && slug === 'caring' && (
+            <CaringEventsTab
+              canEdit={!!canEdit}
+              savedBy={userProfile?.displayName || userProfile?.email || ''}
+              defaultOfficiant={seniorPastorName || ''}
+            />
+          )}
+
           {activeTab === 'pcs' && slug === 'caring' && (() => {
             const pcsYears = [...new Set(pcsEntries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a)
             const noYearEntries = pcsEntries.filter(e => !e.year)
@@ -6620,7 +6646,7 @@ export default function DepartmentHub() {
             }, {})
             const pcsSearchTrimmed = pcsSearchQuery.trim().toLowerCase()
             const matchesPcsFilters = (entry) => {
-              if (pcsSearchTrimmed && !(entry.name || '').toLowerCase().includes(pcsSearchTrimmed)) return false
+              if (pcsSearchTrimmed && !(entry.name || '').toLowerCase().includes(pcsSearchTrimmed) && !(entry.displayName || '').toLowerCase().includes(pcsSearchTrimmed)) return false
               return Object.values(pcsChipsByGroup).every((chips) =>
                 chips.some((c) => {
                   if (c.group === 'cell') return getEntryCellName(entry).includes(c.value)
@@ -6735,6 +6761,7 @@ export default function DepartmentHub() {
                       baptised: p.baptised || '',
                       baptismDate: p.baptismDate || '', baptismPlace: p.baptismPlace || '',
                       baptismChurch: p.baptismChurch || '',
+                      baptismBatch: p.baptismBatch || '', baptismSerialNo: p.baptismSerialNo || '',
                       baptismChurchIsOther: !!p.baptismChurch && p.baptismChurch !== 'River Of Life Christian Church',
                       gender: p.gender || '',
                       maritalStatus: p.maritalStatus || '',
@@ -6774,6 +6801,21 @@ export default function DepartmentHub() {
               const requestedBy = userProfile?.displayName || userProfile?.email || ''
               try {
                 const approvalId = await requestPCSDiscard(entry, { reason: pcsDiscardReason, requestedBy, requestedByUid: user?.uid || '' })
+                // System activity log (audit_logs) — best-effort; logAction never throws.
+                logAction({
+                  action: isFounder ? 'PCS_PROFILE_DISCARDED' : 'PCS_DISCARD_REQUESTED',
+                  user,
+                  targetId: entry.id,
+                  targetType: 'PCS_ENTRY',
+                  department: 'Caring',
+                  details: {
+                    name: entry.name || '',
+                    visitorId: entry.visitorId || '',
+                    reason: pcsDiscardReason.trim(),
+                    approvalId,
+                    hadUnsavedEdits: pcsEditingId === entry.id && !!pcsFormDirty,
+                  },
+                })
                 if (isFounder) {
                   await approvePCSDiscard({ id: approvalId, memberId: entry.id }, requestedBy)
                   setPcsEntries(prev => prev.filter(e => e.id !== entry.id))
@@ -6885,35 +6927,60 @@ export default function DepartmentHub() {
             // skipped by both counters, and weeks before they first visited / joined the
             // cell don't count.
             const isoDay = (v) => /^\d{4}-\d{2}-\d{2}/.test(String(v || '')) ? String(v).slice(0, 10) : ''
+            // Both removal counters for one person — shared by the removal check and the
+            // profile's "Sunday Absences: X | Cell Absences: Y" diagnostic line.
+            //  sunday / cell: { count } when that track applies to them, else null.
+            //  cellNote: why the cell count is missing ('loading' | 'noCell'), if it is.
+            const getAbsenceCounts = (entry) => {
+              const sunday = isCellOnly(entry) ? null : { count: getConsecutiveAbsentSundays(entry, isoDay(entry.attendedDate)) }
+              if (isSundayOnly(entry)) return { sunday, cell: null, cellNote: '' }
+              const cm = findPcsCellMember(entry, allCellMembers)
+              if (!cm) return { sunday, cell: null, cellNote: 'noCell' }
+              const reports = pcsCellReportsByCellId.get(cm.cellId)
+              if (!reports) return { sunday, cell: null, cellNote: 'loading' }
+              const names = [entry.name, cm.name].map(n => String(n || '').trim().toLowerCase()).filter(Boolean)
+              const count = countConsecutiveCellAbsences({
+                reports, names, sinceISO: isoDay(cm.since), isAwayOn: (d) => isProfileAwayOn(entry, d),
+                truncated: reports.length >= CELL_HEALTH_REPORT_COUNT,
+              })
+              return { sunday, cell: { count }, cellNote: '' }
+            }
+
             const getRemovalReasons = (entry) => {
-              if (isCurrentlyAway(entry) || isSeniorPastorName(entry.name) || entry.status === 'pending_discard') return []
-              const needsSunday = !isCellOnly(entry)
-              const needsCell = !isSundayOnly(entry)
-
-              let sunday = null
-              if (needsSunday) {
-                const weeks = getConsecutiveAbsentSundays(entry, isoDay(entry.attendedDate))
-                sunday = { met: weeks >= REMOVAL_ABSENCE_THRESHOLD, reason: { kind: 'sunday', count: weeks, label: `${weeks} Consecutive Sunday Absences` } }
-              }
-
-              let cell = null
-              if (needsCell) {
-                const cm = findPcsCellMember(entry, allCellMembers)
-                if (cm) {
-                  const reports = pcsCellReportsByCellId.get(cm.cellId)
-                  // Reports still loading — can't judge the cell track yet, so don't flag.
-                  if (!reports) return []
-                  const names = [entry.name, cm.name].map(n => String(n || '').trim().toLowerCase()).filter(Boolean)
-                  const meetings = countConsecutiveCellAbsences({ reports, names, sinceISO: isoDay(cm.since), isAwayOn: (d) => isProfileAwayOn(entry, d) })
-                  cell = { met: meetings >= REMOVAL_ABSENCE_THRESHOLD, reason: { kind: 'cell', count: meetings, label: `${meetings} Consecutive Cell Absences` } }
-                } else if (!needsSunday) {
-                  return [] // Cell Only but not on any cell roster — nothing to judge
-                }
-              }
-
-              const tracks = [sunday, cell].filter(Boolean)
+              if (entry.departed || isCurrentlyAway(entry) || isRelocated(entry) || isSeniorPastorName(entry.name) || entry.status === 'pending_discard') return []
+              const { sunday, cell, cellNote } = getAbsenceCounts(entry)
+              // Cell reports still loading — can't judge the cell track yet, so don't flag.
+              if (cellNote === 'loading') return []
+              // A person with no cell roster row has no cell track, so only Sundays count
+              // for them; Cell Only with no cell has nothing to judge.
+              const tracks = [
+                sunday && { met: sunday.count >= REMOVAL_ABSENCE_THRESHOLD, reason: { kind: 'sunday', count: sunday.count, label: `${sunday.count} Consecutive Sunday Absences` } },
+                cell && { met: cell.count >= REMOVAL_ABSENCE_THRESHOLD, reason: { kind: 'cell', count: cell.count, label: `${cell.count} Consecutive Cell Absences` } },
+              ].filter(Boolean)
               if (!tracks.length || !tracks.every(t => t.met)) return []
               return tracks.map(t => t.reason)
+            }
+
+            // "Sunday Absences: 13 | Cell Absences: 4" — plus why it is or isn't flagged.
+            const AbsenceDiagnostics = ({ entry }) => {
+              const { sunday, cell, cellNote } = getAbsenceCounts(entry)
+              const flagged = getRemovalReasons(entry).length > 0
+              const blocker = isCurrentlyAway(entry) ? 'Away'
+                : isRelocated(entry) ? 'Relocated'
+                : entry.status === 'pending_discard' ? 'Discard under review'
+                : isSeniorPastorName(entry.name) ? 'Senior Pastor'
+                : null
+              const cellText = cell ? cell.count : cellNote === 'loading' ? 'loading…' : cellNote === 'noCell' ? 'no cell group' : 'not counted (Sunday Only)'
+              return (
+                <p className="text-[11px] text-slate-500 tabular-nums">
+                  Sunday Absences: <span className="font-semibold text-slate-700">{sunday ? sunday.count : 'not counted (Cell Only)'}</span>
+                  {' | '}Cell Absences: <span className="font-semibold text-slate-700">{cellText}</span>
+                  {' · '}
+                  {flagged
+                    ? <span className="font-semibold text-red-600">Recommended for removal</span>
+                    : <span>Not flagged{blocker ? ` (${blocker})` : ` (needs ${REMOVAL_ABSENCE_THRESHOLD}+ on every counted track)`}</span>}
+                </p>
+              )
             }
             // Suggested Away start date — the day after the person's most recent attendance,
             // whichever is later of their last Sunday present (last 20 Sundays, by visitorId or
@@ -6950,7 +7017,9 @@ export default function DepartmentHub() {
               const isPastor = isSeniorPastorName(entry.name)
               const absentWeeks = getSundayAbsentWeeks(entry)
               // Away (travel/vacation) suppresses the red absence warnings entirely.
-              const isAway = isCurrentlyAway(entry)
+              // Relocated people are offboarded — same warning suppression as Away.
+              // Promoted to Glory (Caring Events burial record) — no absence warnings either.
+              const isAway = isCurrentlyAway(entry) || isRelocated(entry) || !!entry.departed
               const isLongAbsent = !isAway && absentWeeks >= 4
               const cellHealth = isCellOnly(entry) ? getCellHealth(entry) : null
               const cellFlag = !isAway && cellHealth && (cellHealth.tier === 'inactive' || cellHealth.tier === 'irregular') ? cellHealth : null
@@ -6979,7 +7048,7 @@ export default function DepartmentHub() {
                     <div className="relative flex-shrink-0">
                       <div className={`w-8 h-8 rounded-full text-white text-sm font-bold flex items-center justify-center
                         ${isPastor ? 'bg-gradient-to-br from-amber-500 to-yellow-600' : isExpanded ? 'bg-white/25' : hasMember ? 'bg-amber-500' : 'bg-blue-500'}`}>
-                        {entry.name.charAt(0).toUpperCase()}
+                        {getMemberDisplayName(entry).charAt(0).toUpperCase()}
                       </div>
                       {isPastor && (
                         <span className="absolute -top-1.5 -left-1.5 text-amber-500" title={SENIOR_PASTOR_FULL_TITLE}>
@@ -6995,7 +7064,7 @@ export default function DepartmentHub() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <p className={`text-sm font-semibold leading-tight truncate ${isPastor ? isExpanded ? 'text-white' : 'text-amber-900' : isExpanded ? 'text-white' : hasMember ? 'text-amber-900' : 'text-blue-900'}`}>
-                          {entry.name}
+                          {getMemberDisplayName(entry)}
                         </p>
                         {isPastor && (
                           <span
@@ -7010,6 +7079,14 @@ export default function DepartmentHub() {
                             {entry.leadershipPosition}
                           </span>
                         )}
+                        {entry.departed && (
+                          <span
+                            className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}
+                            title={`Promoted to Glory${entry.departedDate ? ` · ${formatShortDate(entry.departedDate)}` : ''}`}
+                          >
+                            ✝ Promoted to Glory
+                          </span>
+                        )}
                         {entry.status === 'pending_discard' && (
                           <span
                             className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-amber-100' : 'bg-amber-100 text-amber-800'}`}
@@ -7018,7 +7095,14 @@ export default function DepartmentHub() {
                             Under Review
                           </span>
                         )}
-                        {isAway && (
+                        {isRelocated(entry) ? (
+                          <span
+                            className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-violet-100' : 'bg-violet-100 text-violet-700'}`}
+                            title={`Moved out${entry.relocatedDestination ? ` to ${entry.relocatedDestination}` : ''}`}
+                          >
+                            🏠 Relocated
+                          </span>
+                        ) : isAway && (
                           <span
                             className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-sky-100' : 'bg-sky-100 text-sky-700'}`}
                             title={awaySummary(entry, formatDisplayDate)}
@@ -7049,6 +7133,9 @@ export default function DepartmentHub() {
                           ? <p className={`text-xs font-medium leading-tight truncate ${isExpanded ? 'text-indigo-200' : 'text-emerald-600'}`}>{cellNameByVisitorId.get(entry.visitorId) || 'Cell member'}</p>
                           : <p className={`text-xs leading-tight truncate ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>Not a member</p>
                       }
+                      {String(entry.displayName || '').trim() && (
+                        <p className={`text-[10px] leading-tight truncate ${isExpanded ? 'text-white/60' : 'text-slate-400'}`} title={entry.name}>Legal: {entry.name}</p>
+                      )}
                     </div>
                     {/* Three-dots menu button — pinned to a fixed slot at the card's
                         trailing edge regardless of name/badge length above. */}
@@ -7096,6 +7183,27 @@ export default function DepartmentHub() {
               // isn't visible via the outer map's local unless computed again.
               const isPastor = isSeniorPastorName(entry.name)
               const f = pcsExpandedForm
+              // Baptism already on record — answered Yes, or any baptism detail filled in
+              // (older profiles can have a date/church without the Yes/No answer). Gates the
+              // Baptism Application button and modal: never offered to someone baptised.
+              const baptismRecorded = String(f.baptised || '').toLowerCase() === 'yes'
+                || !!(f.baptismDate || f.baptismChurch || f.baptismPlace)
+              // Water baptism is a prerequisite for membership: a *new* membership
+              // application can only be started once baptism is recorded. Anyone who
+              // already has an application or a membership status keeps access to it.
+              const membershipBlocked = !baptismRecorded && !pcsMembershipApp && !f.membershipStatus
+              const membershipBlockedMsg = `Cannot generate Membership Application. ${getMemberDisplayName(f) || entry.name} must have a recorded baptism in PCS before applying for membership.`
+              const MembershipPrereqNotice = ({ compact = false }) => (
+                <div className={`rounded-xl border border-amber-300 bg-amber-50 ${compact ? 'px-3 py-2' : 'px-3 py-2.5'}`}>
+                  <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">Prerequisite Pending</span>
+                  <p className="text-xs text-amber-900 mt-1.5 leading-snug">Water Baptism is required before applying for official Church Membership. Complete Baptism Application first.</p>
+                  {!compact && (
+                    <button type="button" onClick={() => setPcsBaptismOpenFor(entry.id)} className="mt-2 text-xs font-bold text-violet-700 hover:underline">
+                      Open Baptism Application →
+                    </button>
+                  )}
+                </div>
+              )
               const setF = setPcsExpandedForm
               const inp = 'w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-colors'
               const fld = (label, key, type = 'text', placeholder = '') => (
@@ -7113,27 +7221,85 @@ export default function DepartmentHub() {
               const joinDate = entry.attendedDate ? new Date(entry.attendedDate) : null
               const churchDuration = (() => {
                 if (!joinDate) return null
-                const now = new Date()
+                // Relocated: tenure ends on the official "Part of Church Till Date".
+                const till = isRelocated(entry) ? churchTillDate(entry) : ''
+                const now = till ? new Date(till) : new Date()
                 const totalMonths = (now.getFullYear() - joinDate.getFullYear()) * 12 + (now.getMonth() - joinDate.getMonth())
                 const y = Math.floor(totalMonths / 12), m = totalMonths % 12
                 return [y > 0 ? `${y} yr${y > 1 ? 's' : ''}` : '', m > 0 ? `${m} mo` : ''].filter(Boolean).join(' ') || 'Less than a month'
               })()
 
-              // Ministry duration helper
-              const miniDur = (from, to) => {
-                if (!from) return ''
-                const s = new Date(from), e = to ? new Date(to) : new Date()
-                const tot = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth())
-                const y = Math.floor(tot / 12), m = tot % 12
-                return [y > 0 ? `${y}y` : '', m > 0 ? `${m}m` : ''].filter(Boolean).join(' ') || '<1m'
+              // Auto-detected ministry entries (read-only, from system records).
+              // `ended` — 'completed' (marked Former, or a Director Board term that has
+              // ended) or 'inactive' (switched to Inactive on the team roster); `to` is
+              // then the end date: formerDate if stamped, else the record's last update
+              // (same fallback as getMemberTenureEnd), so the tenure stops growing.
+              const todayIso = format(new Date(), 'yyyy-MM-dd')
+              // End date resolution: the stamped "moved to Former" date (`formerDate` on
+              // department rosters, `formerSince` on Worship), else the last rehearsal
+              // they attended (`lastWorshipActivityDate`, resolved in
+              // getMemberProfileWithContext), else the record's last update.
+              const teamEnd = (t) => {
+                if (t.formerDate) return String(t.formerDate).slice(0, 10)
+                if (t.formerSince) return String(t.formerSince).slice(0, 10)
+                if (t.lastWorshipActivityDate) return String(t.lastWorshipActivityDate).slice(0, 10)
+                const u = typeof t.updatedAt?.toDate === 'function' ? t.updatedAt.toDate() : t.updatedAt
+                return u instanceof Date && !isNaN(u.getTime()) ? format(u, 'yyyy-MM-dd') : ''
               }
-
-              // Auto-detected ministry entries (read-only, from system records)
+              const teamEnded = (t) => (t.isFormer || t.status === 'former') ? 'completed' : t.status === 'inactive' ? 'inactive' : null
+              // Relocated: every role still open (or merely Inactive) reads as Completed,
+              // ending on their last attendance date — an earlier explicit end is kept.
+              // Mirrors what completeMinistryRolesForRelocation writes, so the profile is
+              // right even before this context reloads (or where the write was refused).
+              const relocEnd = isRelocated(entry) ? String(entry.relocatedLastDate || '').slice(0, 10) : ''
+              const closeForRelocation = (row) => {
+                if (!relocEnd || row.ended === 'completed') return row
+                const to = row.to && String(row.to).slice(0, 10) < relocEnd ? String(row.to).slice(0, 10) : relocEnd
+                return { ...row, ended: 'completed', to, endedReason: 'relocated' }
+              }
               const autoMinistry = [
-                ...deptTeams.map(t => ({ id: `dept-${t.id}`, ministry: t.department, role: t.rolePosition || t.role || '', from: t.memberSince || t.since || '', to: '', isAuto: true })),
-                ...worshipTeams.map(t => ({ id: `wor-${t.id}`, ministry: 'Worship', role: (t.positions || [])[0] || t.rolePosition || '', from: t.memberSince || t.since || t.createdAt || '', to: '', isAuto: true })),
-                ...secCoreRoles.map(m => ({ id: `sc-${m.personId || m.name}`, ministry: 'Director Board', role: m.type ? m.type.charAt(0).toUpperCase() + m.type.slice(1) : '', from: m.from || '', to: m.to || '', isAuto: true })),
-              ]
+                ...deptTeams.map(t => { const ended = teamEnded(t); return { id: `dept-${t.id}`, ministry: t.department, role: t.rolePosition || t.role || '', from: t.memberSince || t.since || '', to: ended ? teamEnd(t) : '', ended, endedReason: t.formerReason || '', isAuto: true } }),
+                ...worshipTeams.map(t => { const ended = teamEnded(t); return { id: `wor-${t.id}`, ministry: 'Worship', role: (t.positions || [])[0] || t.rolePosition || '', from: t.memberSince || t.since || t.createdAt || '', to: ended ? teamEnd(t) : '', ended, endedReason: t.formerReason || '', isAuto: true } }),
+                ...secCoreRoles.map(m => ({ id: `sc-${m.personId || m.name}`, ministry: 'Director Board', role: m.type ? m.type.charAt(0).toUpperCase() + m.type.slice(1) : '', from: m.from || '', to: m.to || '', ended: m.to && String(m.to).slice(0, 10) < todayIso ? 'completed' : null, isAuto: true })),
+              ].map(closeForRelocation)
+              // Active roles first, then ended ones, most recently ended first.
+              const sortMinistry = (rows) => [...rows].sort((a, b) =>
+                (!!a.ended - !!b.ended) || String(b.to || '').localeCompare(String(a.to || '')))
+
+              // One Ministry & Leadership row. Active: "Joined: <date>" + green
+              // "Active · <tenure so far>". Ended: "<start> – <end>" + Completed/Inactive
+              // badge + "Served <tenure>".
+              const MinistryRow = ({ r, size = 'sm' }) => {
+                const start = formatShortDate(r.from)
+                const end = formatShortDate(r.to)
+                const tenure = r.from ? calculateTenure(r.from, r.ended ? (r.to || null) : null) : ''
+                return (
+                  <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${r.ended ? 'bg-slate-50 border-slate-200' : 'bg-emerald-50/60 border-emerald-100'}`}>
+                    <div className="min-w-0">
+                      <p className={`${size === 'lg' ? 'text-sm font-semibold' : 'text-xs font-bold'} leading-tight ${r.ended ? 'text-slate-600' : 'text-slate-800'}`}>
+                        {r.ministry}{r.role ? <span className="font-normal text-slate-500"> · {r.role}</span> : ''}
+                      </p>
+                      {r.ended
+                        ? (start || end) && <p className="text-[10px] text-slate-400 mt-0.5">{start || 'Start not recorded'} – {end || 'end not recorded'}</p>
+                        : start && <p className="text-[10px] text-slate-400 mt-0.5">Joined: {start}</p>}
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1 flex-shrink-0">
+                      {r.ended ? (
+                        <>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${r.ended === 'inactive' ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-slate-600 bg-slate-100 border-slate-200'}`}>
+                            {r.ended === 'inactive' ? 'Inactive' : 'Completed'}
+                          </span>
+                          {tenure && r.to && <span className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-full whitespace-nowrap">Served {tenure}</span>}
+                        </>
+                      ) : (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                          Active{tenure ? ` · ${tenure}` : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
 
               // Membership docs
               const membershipDocs = f.membershipDocs || []
@@ -7268,9 +7434,12 @@ export default function DepartmentHub() {
 
                 // Ministry list — manual entries win over auto-detected ones of the same name
                 // (identical to what the PDF has always printed).
-                const manualMinistry = (entry.ministries || []).map(r => ({ ...r, isAuto: false }))
+                const manualMinistry = (entry.ministries || []).map(r => closeForRelocation({
+                  ...r, isAuto: false,
+                  ended: r.ended || (r.to && String(r.to).slice(0, 10) < todayIso ? 'completed' : null),
+                }))
                 const manualNames = new Set(manualMinistry.map(r => r.ministry?.toLowerCase()))
-                const ministryAll = [...manualMinistry, ...autoMinistry.filter(a => !manualNames.has(a.ministry?.toLowerCase()))]
+                const ministryAll = sortMinistry([...manualMinistry, ...autoMinistry.filter(a => !manualNames.has(a.ministry?.toLowerCase()))])
 
                 // History — assembled from existing records (PCS entry, visitor record,
                 // Sunday attendance); there is no separate activity-log collection.
@@ -7286,14 +7455,31 @@ export default function DepartmentHub() {
                     warn: cellHealth.tier === 'inactive',
                   },
                   isCurrentlyAway(entry) && { when: entry.awayFrom ? fmtD(entry.awayFrom) : null, what: awaySummary(entry, fmtD) },
+                  isRelocated(entry) && { when: entry.relocatedLastDate ? `Last attended ${fmtD(entry.relocatedLastDate)}` : null, what: `Relocated / Moved Out${entry.relocatedDestination ? ` to ${entry.relocatedDestination}` : ''} · ${entry.relocatedStanding || 'In Good Standing'}` },
                   // Auto-returns from Away (marked present on a Sunday / Cell sheet)
                   ...(entry.awayPeriods || []).filter(p => p?.returnedVia).map(p => ({ when: fmtD(p.to), what: awayReturnHistoryLabel(p, fmtD) })),
-                  !cellHealth && sundayAttendanceWeeks.length > 0 && {
+                  // Relocated: post-move weeks are skipped, so a Sunday line would read "Present".
+                  !cellHealth && !isRelocated(entry) && sundayAttendanceWeeks.length > 0 && {
                     when: null,
                     what: absentWeeks === 0 ? 'Present at the most recent Sunday service' : `Absent ${absentWeeks} consecutive Sunday${absentWeeks === 1 ? '' : 's'}${isCurrentlyAway(entry) ? ' (before going Away)' : ''}`,
-                    warn: absentWeeks >= 4 && !isCurrentlyAway(entry),
+                    warn: absentWeeks >= 4 && !isCurrentlyAway(entry) && !isRelocated(entry),
                   },
                   ...getRemovalReasons(entry).map(r => ({ when: null, what: `Recommended for removal · ${r.label}`, warn: true })),
+                  // Ministry roles that have ended — their tenure, as a timeline entry.
+                  ...ministryAll.filter(r => r.ended).map(r => {
+                    const tenure = r.from && r.to ? calculateTenure(r.from, r.to) : ''
+                    if (r.endedReason === 'relocated') {
+                      return {
+                        when: r.to ? fmtD(r.to) : null,
+                        what: `Completed ${r.ministry} ministry tenure on ${r.to ? fmtD(r.to) : 'their last attendance'} due to church relocation${tenure ? ` · Served ${tenure}` : ''}.`,
+                      }
+                    }
+                    return {
+                      when: r.to ? fmtD(r.to) : null,
+                      // e.g. "Completed service in Worship (Served 5 mos: 7 Dec 2025 – 14 May 2026)"
+                      what: `${r.ended === 'inactive' ? 'Became inactive' : 'Completed service'} in ${r.ministry}${r.role ? ` · ${r.role}` : ''}${tenure ? ` (Served ${tenure}: ${formatShortDate(r.from)} – ${formatShortDate(r.to)})` : ''}`,
+                    }
+                  }),
                   ...(entry.followUps || []).map(fu => ({
                     when: formatTimestampFull(fu.at),
                     what: `Follow-up${fu.by ? ` by ${fu.by}` : ''}${fu.note ? `: ${fu.note}` : ''}`,
@@ -7303,9 +7489,55 @@ export default function DepartmentHub() {
                 return (
                   <div className="border-t-2 border-indigo-500 bg-slate-100 px-2 py-4 sm:px-4">
                     {pcsExpandedLoading && <p className="text-xs text-slate-400 text-center pb-3">Loading profile…</p>}
-                    {pcsBaptismOpenFor === entry.id && (() => {
+                    {pcsAppreciationOpenFor === entry.id && (
+                      <AppreciationSummaryModal
+                        entry={entry}
+                        form={f}
+                        ministry={ministryAll}
+                        allCellMembers={allCellMembers}
+                        cellGroups={cellGroups}
+                        onClose={() => setPcsAppreciationOpenFor(null)}
+                      />
+                    )}
+                    {pcsMembershipOpenFor === entry.id && membershipBlocked && createPortal(
+                      <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={() => setPcsMembershipOpenFor(null)}>
+                        <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
+                          <p className="text-base font-bold text-slate-900">Baptism required</p>
+                          <p className="text-sm text-slate-600">{membershipBlockedMsg}</p>
+                          <div className="flex gap-2 justify-end pt-1">
+                            <button type="button" onClick={() => setPcsMembershipOpenFor(null)} className="px-4 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-600">Close</button>
+                            <button type="button" onClick={() => { setPcsMembershipOpenFor(null); setPcsBaptismOpenFor(entry.id) }} className="px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-bold">Baptism Application</button>
+                          </div>
+                        </div>
+                      </div>,
+                      document.body
+                    )}
+                    {pcsMembershipOpenFor === entry.id && !membershipBlocked && (() => {
                       // Pre-fill from what PCS already knows; blanks are asked of the applicant.
-                      const [firstName, ...rest] = String(f.name || '').trim().split(/s+/)
+                      const [firstName, ...rest] = String(f.name || '').trim().split(/\s+/)
+                      return (
+                        <MembershipApplicationModal
+                          entry={entry}
+                          userName={userProfile?.displayName || ''}
+                          userEmail={userProfile?.email || ''}
+                          onClose={() => setPcsMembershipOpenFor(null)}
+                          baptismBlockedMessage={baptismRecorded ? '' : membershipBlockedMsg}
+                          prefill={{
+                            firstName: firstName || '', lastName: rest.join(' '),
+                            gender: f.gender || '', dob: f.dob || '',
+                            phone: f.phone || '', email: f.email || '',
+                            currentAddress: f.currentPlace || '',
+                            permanentAddress: f.permanentAddress || '',
+                            dateOfJoin: f.attendedDate || '',
+                            baptismDate: f.baptismDate || '', baptismChurch: f.baptismChurch || '',
+                            cellName: _cg?.cellName || '',
+                          }}
+                        />
+                      )
+                    })()}
+                    {pcsBaptismOpenFor === entry.id && !baptismRecorded && (() => {
+                      // Pre-fill from what PCS already knows; blanks are asked of the applicant.
+                      const [firstName, ...rest] = String(f.name || '').trim().split(/\s+/)
                       return (
                         <BaptismApplicationModal
                           entry={entry}
@@ -7347,6 +7579,12 @@ export default function DepartmentHub() {
                         </div>
                       </div>
 
+                      {entry.departed && (
+                        <div className="px-5 @xl:px-8 py-3 bg-slate-100 border-b border-slate-200 text-slate-800">
+                          <p className="text-sm font-bold">✝ Promoted to Glory{entry.departedDate ? ` · ${formatShortDate(entry.departedDate)}` : ''}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">Recorded by a burial service in Caring → Events. Absence and removal warnings are switched off.</p>
+                        </div>
+                      )}
                       {isPendingDiscard && (
                         <div className="px-5 @xl:px-8 py-3 bg-amber-50 border-b border-amber-200 text-amber-900">
                           <p className="text-sm font-bold">Under Review of the Pastoral Office</p>
@@ -7369,22 +7607,22 @@ export default function DepartmentHub() {
                             <div className={`w-16 h-16 rounded-full flex-shrink-0 flex items-center justify-center text-2xl font-black text-white shadow ${f.membershipNumber ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-[#1e3a5f]'}`}>
                               {pcsPhotoPreview
                                 ? <img src={pcsPhotoPreview} alt="" className="w-16 h-16 rounded-full object-cover" />
-                                : (f.name || '?')[0].toUpperCase()}
+                                : (getMemberDisplayName(f) || '?')[0].toUpperCase()}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="text-xl font-extrabold text-[#1e3a5f] dark:text-white leading-tight tracking-tight break-words">{f.name || '—'}</p>
+                              {/* Display Name is the primary title; the legal name sits beneath it. */}
+                              <p className="text-xl font-extrabold text-[#1e3a5f] dark:text-white leading-tight tracking-tight break-words">{getMemberDisplayName(f) || '—'}</p>
+                              {String(f.displayName || '').trim() && f.name && (
+                                <p className="text-xs text-slate-400 mt-0.5 break-words">Legal: {f.name}</p>
+                              )}
                               <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                {String(f.displayName || '').trim() && (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200" title="Shown as this name in other departments">
-                                    Display: {String(f.displayName).trim()}
-                                  </span>
-                                )}
                                 {isPastor &&<span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">{SENIOR_PASTOR_TITLE}</span>}
                                 {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">Member #{f.membershipNumber}</span>}
                                 {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">{f.leadershipPosition}</span>}
                                 {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{churchDuration} in church</span>}
                                 {cellHealth && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${CELL_HEALTH_BADGE_CLS[cellHealth.tier]}`}>{cellHealth.label}</span>}
                                 {isCurrentlyAway(entry) && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${AWAY_BADGE_CLS}`}>✈ Away</span>}
+                                {isRelocated(entry) && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${RELOCATED_BADGE_CLS}`}>🏠 Relocated{entry.relocatedDestination ? ` · ${entry.relocatedDestination}` : ''}</span>}
                               </div>
                               <div className="mt-2 flex items-center gap-2">
                                 <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -7416,16 +7654,33 @@ export default function DepartmentHub() {
                             </Section>
                           )}
 
-                          {(f.baptised !== 'yes' || f.isFirstChurch || f.previousChurchName || f.previousChurchPlace) && (
+                          {(baptismRecorded || f.baptised === 'no' || !pcsExpandedLoading || f.isFirstChurch || f.previousChurchName || f.previousChurchPlace) && (
                             <Section title="Spiritual" color="#5b21b6">
-                              {row('Baptised', f.baptised === 'yes' ? 'Yes' : f.baptised === 'no' ? 'No' : null, { optional: true })}
-                              {f.baptised === 'yes' && row('Baptism Date', fmtD(f.baptismDate), { optional: true })}
-                              {f.baptised === 'yes' && row('Baptism Place', f.baptismPlace, { optional: true })}
-                              {f.baptised === 'yes' && row('Baptism Church', f.baptismChurch, { optional: true })}
+                              {baptismRecorded ? (() => {
+                                // "Baptised on 14 Feb 2022 at ROLCC" — or "Baptised: Yes" plus a
+                                // pointer to Edit when the details are only partly recorded.
+                                const on = formatShortDate(f.baptismDate)
+                                const at = [f.baptismChurch, f.baptismPlace].filter(Boolean).join(', ')
+                                const partial = !on || !at
+                                return (
+                                  <div className="col-span-2 py-1.5">
+                                    <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+                                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                                      {on || at ? `Baptised${on ? ` on ${on}` : ''}${at ? ` at ${at}` : ''}` : 'Baptised: Yes'}
+                                    </p>
+                                    {partial && !isPendingDiscard && (
+                                      <p className="text-[11px] text-slate-400 mt-0.5">
+                                        Baptism {!on && !at ? 'date and church are' : !on ? 'date is' : 'church is'} not recorded.{' '}
+                                        {canEdit && <button type="button" onClick={() => setPcsEditingId(entry.id)} className="font-semibold text-violet-700 hover:underline">Add in Edit</button>}
+                                      </p>
+                                    )}
+                                  </div>
+                                )
+                              })() : row('Baptised', f.baptised === 'no' ? 'No' : null, { optional: true })}
                               {row('First Church', f.isFirstChurch === 'yes' ? 'Yes' : f.isFirstChurch === 'no' ? 'No' : null, { optional: true })}
                               {f.isFirstChurch !== 'yes' && row('Previous Church', f.previousChurchName, { optional: true })}
                               {f.isFirstChurch !== 'yes' && row('Previous Church Location', f.previousChurchPlace, { optional: true })}
-                              {f.baptised !== 'yes' && (
+                              {!baptismRecorded && !pcsExpandedLoading && (
                                 <div className="col-span-2 pt-2">
                                   <button type="button" onClick={() => setPcsBaptismOpenFor(entry.id)}
                                     className={`w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold transition-colors ${f.baptised === 'no'
@@ -7438,10 +7693,24 @@ export default function DepartmentHub() {
                             </Section>
                           )}
 
-                          {f.membershipStatus && (
+                          {(f.membershipStatus || pcsMembershipApp || canEdit) && (
                             <Section title="Membership" color="#92400e">
-                              {row('Status', f.membershipStatus === 'member' ? 'Member' : 'Applying')}
-                              {row('Membership No.', f.membershipNumber)}
+                              {f.membershipStatus && row('Status', f.membershipStatus === 'member' ? 'Member' : 'Applying')}
+                              {f.membershipStatus && row('Membership No.', f.membershipNumber)}
+                              {pcsMembershipApp && row('Membership Application',
+                                pcsMembershipApp.status === 'pending' ? 'Sent · waiting for applicant' : MEMBERSHIP_DECISIONS[pcsMembershipApp.status] || pcsMembershipApp.status,
+                                { wide: true })}
+                              {canEdit && !isPendingDiscard && membershipBlocked && !pcsExpandedLoading && (
+                                <div className="col-span-2 pt-2"><MembershipPrereqNotice /></div>
+                              )}
+                              {canEdit && !isPendingDiscard && !membershipBlocked && (
+                                <div className="col-span-2 pt-2">
+                                  <button type="button" onClick={() => setPcsMembershipOpenFor(entry.id)}
+                                    className="w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors">
+                                    {pcsMembershipApp ? 'Membership Application & QR' : 'Generate QR Code for Applicant'}
+                                  </button>
+                                </div>
+                              )}
                             </Section>
                           )}
                         </div>
@@ -7458,25 +7727,56 @@ export default function DepartmentHub() {
                             {row('Cell Group', _cg ? (_cg.cellName || 'Unnamed Cell') : null)}
                             {row('Cell Leader', _cg?.leader, { optional: true })}
                             {row('PCS Year', f.year ? String(f.year) : null, { optional: true })}
+                            {isRelocated(entry) && row('Status', `Relocated / Moved Out${entry.relocatedDestination ? ` · ${entry.relocatedDestination}` : ''}`, { wide: true })}
+                            {isRelocated(entry) && row('Last Attendance', fmtD(entry.relocatedLastDate))}
+                            {isRelocated(entry) && row('Part of Church Till', fmtD(churchTillDate(entry)))}
+                            {isRelocated(entry) && row('Standing', entry.relocatedStanding, { optional: true })}
+                            <div className="col-span-2 pt-1.5"><AbsenceDiagnostics entry={entry} /></div>
+                            {isRelocated(entry) && (
+                              <div className="col-span-2 pt-2 space-y-2">
+                                <button type="button" onClick={() => setPcsAppreciationOpenFor(entry.id)}
+                                  className="w-full min-h-[40px] rounded-xl bg-violet-600 text-white text-sm font-bold hover:bg-violet-700 shadow-sm">
+                                  Generate Appreciation Summary
+                                </button>
+                                {/* Relocated only — formal letter with 1 Cor 15:58 (utils/pastoralClosureLetter.js) */}
+                                <button type="button"
+                                  disabled={pcsClosureLetterBusy}
+                                  onClick={async () => {
+                                    // Every cell roster row that is this person (any status) — visitorId, phone, then name.
+                                    const ph = String(f.phone || entry.phone || '').replace(/\D/g, '').slice(-10)
+                                    const nm = String(entry.name || '').trim().toLowerCase()
+                                    const cells = allCellMembers
+                                      .filter(m => (entry.visitorId && m.visitorId === entry.visitorId) ||
+                                        (ph.length === 10 && String(m.phone || '').replace(/\D/g, '').slice(-10) === ph) ||
+                                        (nm && String(m.name || '').trim().toLowerCase() === nm))
+                                      .map(m => ({ cellName: cellGroups.find(g => g.id === m.cellId)?.cellName || 'Cell group', since: m.since, leftDate: m.leftDate }))
+                                    setPcsClosureLetterBusy(true)
+                                    try {
+                                      await downloadPastoralClosureLetter({
+                                        name: f.name || entry.name,
+                                        destination: entry.relocatedDestination,
+                                        firstVisit: f.attendedDate,
+                                        lastDate: entry.relocatedLastDate,
+                                        standing: entry.relocatedStanding,
+                                        ministries: ministryAll,
+                                        cells,
+                                      })
+                                    } catch (e) {
+                                      console.error('Closure letter failed', e)
+                                      alert('Could not create the PDF. Please try again.')
+                                    } finally { setPcsClosureLetterBusy(false) }
+                                  }}
+                                  className="w-full min-h-[40px] rounded-xl border-2 border-violet-600 text-violet-700 text-sm font-bold hover:bg-violet-50 disabled:opacity-60">
+                                  {pcsClosureLetterBusy ? 'Preparing PDF…' : 'Download Pastoral Closure Letter (PDF)'}
+                                </button>
+                              </div>
+                            )}
                           </Section>
 
                           {ministryAll.length > 0 && (
                             <Section title="Ministry & Leadership" color="#1e3a5f" grid={false}>
                               <div className="space-y-1.5 pt-1">
-                                {ministryAll.map((r, i) => {
-                                  const dur = miniDur(r.from, r.to)
-                                  return (
-                                    <div key={r.id || i} className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                                      <div className="min-w-0">
-                                        <p className="text-xs font-bold text-slate-800 leading-tight">
-                                          {r.ministry}{r.role ? <span className="font-normal text-slate-500"> · {r.role}</span> : ''}
-                                        </p>
-                                        {formatJoinedDate(r.from) && <p className="text-[10px] text-slate-400 mt-0.5">{formatJoinedDate(r.from)}</p>}
-                                      </div>
-                                      {dur && <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
-                                    </div>
-                                  )
-                                })}
+                                {ministryAll.map((r, i) => <MinistryRow key={r.id || i} r={r} />)}
                               </div>
                             </Section>
                           )}
@@ -7554,7 +7854,8 @@ export default function DepartmentHub() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-bold text-slate-800">{f.name || '—'}</p>
+                          <p className="font-bold text-slate-800">{getMemberDisplayName(f) || '—'}</p>
+                          {String(f.displayName || '').trim() && f.name && <span className="text-[11px] text-slate-400">Legal: {f.name}</span>}
                           {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Member #{f.membershipNumber}</span>}
                           {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{f.leadershipPosition}</span>}
                           {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600">{churchDuration} in church</span>}
@@ -7731,7 +8032,7 @@ export default function DepartmentHub() {
                                         setPcsSpouseFocused(false)
                                       }}
                                       className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 flex items-center gap-2">
-                                      <span className="font-semibold text-slate-800 flex-1">{m.name}</span>
+                                      <span className="font-semibold text-slate-800 flex-1">{getMemberDisplayName(m)}{String(m.displayName || '').trim() && <span className="font-normal text-slate-400"> · {m.name}</span>}</span>
                                       {m.phone && <span className="text-slate-400">{m.phone}</span>}
                                       <span className="text-[9px] font-bold text-teal-500 bg-teal-50 border border-teal-200 rounded-full px-1.5 py-0.5 flex-shrink-0">ROL</span>
                                     </button>
@@ -7805,7 +8106,7 @@ export default function DepartmentHub() {
                                           <button key={m.id} type="button"
                                             onMouseDown={() => { updateChildRow(child.id, { name: m.name, linkedChildMemberId: m.id }); setPcsChildSearchOpenId(null) }}
                                             className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 flex items-center gap-2">
-                                            <span className="font-semibold text-slate-800 flex-1 truncate">{m.name}</span>
+                                            <span className="font-semibold text-slate-800 flex-1 truncate">{getMemberDisplayName(m)}{String(m.displayName || '').trim() && <span className="font-normal text-slate-400"> · {m.name}</span>}</span>
                                             {m.phone && <span className="text-[10px] text-slate-400 flex-shrink-0">{m.phone}</span>}
                                           </button>
                                         ))}
@@ -7922,6 +8223,8 @@ export default function DepartmentHub() {
                       {/* Attendance alert — Sunday absences for Sunday-going people (helps the Caring
                           Director judge whether to push for cell assignment); Cell Health for Cell Only.
                           Follows the saved Engagement Type, so it changes once the form is saved. */}
+                      <div className="mb-2"><AbsenceDiagnostics entry={entry} /></div>
+
                       {/* Availability — Active | Away (travel/vacation); saves on its own */}
                       <div className="mb-3">
                         <PcsAwayControl
@@ -8127,20 +8430,7 @@ export default function DepartmentHub() {
                           <p className="text-xs text-slate-400 py-1">No active ministry assignments recorded by Ministry Leaders.</p>
                         ) : (
                           <div className="space-y-2">
-                            {autoMinistry.map((r) => {
-                              const dur = r.from ? miniDur(r.from, r.to) : null
-                              return (
-                                <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5">
-                                  <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-slate-700 leading-tight">
-                                      {r.ministry}{r.role ? <span className="font-normal text-slate-400"> · {r.role}</span> : ''}
-                                    </p>
-                                    {formatJoinedDate(r.from) && <p className="text-[10px] text-slate-400 mt-0.5">{formatJoinedDate(r.from)}</p>}
-                                  </div>
-                                  {dur && <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">{dur}</span>}
-                                </div>
-                              )
-                            })}
+                            {sortMinistry(autoMinistry).map((r) => <MinistryRow key={r.id} r={r} size="lg" />)}
                           </div>
                         )}
                       </div>
@@ -8236,8 +8526,14 @@ export default function DepartmentHub() {
                       <div className="-mx-4 -mt-3 mb-4 px-4 py-3 flex items-center gap-3 bg-amber-50 border-b border-amber-100">
                         <span className={`w-3 h-3 rounded-full flex-shrink-0 transition-colors duration-300 ${f.membershipStatus ? dotCls(s4Fill) : 'bg-slate-300'}`} />
                         <p className="text-sm font-bold tracking-tight text-amber-700">Membership</p>
-                        <div className="ml-auto flex-shrink-0">
-                          {!f.membershipStatus && (
+                        <div className="ml-auto flex-shrink-0 flex items-center gap-2">
+                          {!membershipBlocked && (
+                          <button type="button" onClick={() => setPcsMembershipOpenFor(entry.id)}
+                            className="text-xs font-bold text-amber-800 bg-white border border-amber-300 px-2.5 py-1 rounded-full hover:bg-amber-100 transition-colors">
+                            {pcsMembershipApp ? 'Application & QR' : 'QR for Applicant'}
+                          </button>
+                          )}
+                          {!f.membershipStatus && !membershipBlocked && (
                             <button type="button" onClick={() => setF(p => ({ ...p, membershipStatus: 'applying' }))}
                               className="text-xs font-bold text-amber-600 bg-amber-100 border border-amber-300 px-2.5 py-1 rounded-full hover:bg-amber-200 transition-colors">
                               + Begin Application
@@ -8298,7 +8594,9 @@ export default function DepartmentHub() {
                           </div>
                         </div>
                       ) : (
-                        <p className="text-xs text-slate-400">No membership application yet. Click "+ Begin Application" to start.</p>
+                        membershipBlocked
+                          ? <MembershipPrereqNotice compact />
+                          : <p className="text-xs text-slate-400">No membership application yet. Click "+ Begin Application" to start.</p>
                       )}
                     </div>
 
@@ -8451,12 +8749,14 @@ export default function DepartmentHub() {
                       >
                         {pcsFormDirty ? 'Cancel' : 'Done'}
                       </button>
-                      {/* Discard Profile — wrong / duplicate record only; Founder approval */}
+                      {/* Discard Profile — wrong / duplicate record only; Founder approval.
+                          Deliberately a quiet text link (not a red button) tucked in the
+                          corner, so it isn't hit by accident next to Save / Done. */}
                       {canEdit && (
                         <button
                           type="button"
                           onClick={() => { setPcsDiscardReason(''); setPcsDiscardTarget(entry) }}
-                          className="ml-auto min-h-[44px] px-4 py-2 rounded-xl border border-red-300 text-red-700 text-sm font-semibold hover:bg-red-50 transition-colors"
+                          className="ml-auto self-center text-xs text-gray-500 hover:text-red-600 hover:underline underline-offset-2 px-2 py-1 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
                         >
                           Discard
                         </button>
@@ -8498,19 +8798,26 @@ export default function DepartmentHub() {
                   ${grid ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">${content}</div>` : content}
                 </div>`
 
+              // Same rules as the on-screen MinistryRow: active → "Joined: <date>" +
+              // "Active · <tenure>"; ended → "<start> – <end>" + Completed/Inactive + "Served <tenure>".
+              const tenurePill = (text, color, bg, border) => `<span style="font-size:8.5px;font-weight:700;color:${color};white-space:nowrap;background:${bg};border:1px solid ${border};padding:1px 7px;border-radius:20px">${text}</span>`
               const ministryRows = (ministry || []).map(r => {
-                const from = r.from ? new Date(r.from) : null
-                const to   = r.to   ? new Date(r.to)   : new Date()
-                const tot  = from ? (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) : 0
-                const yrs  = Math.floor(tot / 12), mos = tot % 12
-                const tenureDur = from ? ([yrs > 0 ? `${yrs}y` : '', mos > 0 ? `${mos}m` : ''].filter(Boolean).join(' ') || '<1m') : ''
+                const start = formatShortDate(r.from), end = formatShortDate(r.to)
+                const tenure = r.from ? calculateTenure(r.from, r.ended ? (r.to || null) : null) : ''
+                const sub = r.ended
+                  ? ((start || end) ? `${start || 'Start not recorded'} – ${end || 'end not recorded'}` : '')
+                  : (start ? `Joined: ${start}` : '')
+                const badges = r.ended
+                  ? (r.ended === 'inactive' ? tenurePill('Inactive', '#92400e', '#fffbeb', '#fde68a') : tenurePill('Completed', '#475569', '#f1f5f9', '#e2e8f0'))
+                    + (tenure && r.to ? ' ' + tenurePill(`Served ${tenure}`, '#334155', '#ffffff', '#e2e8f0') : '')
+                  : tenurePill(`Active${tenure ? ` · ${tenure}` : ''}`, '#047857', '#ecfdf5', '#a7f3d0')
                 return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:4px;break-inside:avoid">
                   <div>
                     <span style="font-size:10px;font-weight:700;color:#1f2937">${esc(r.ministry || '')}</span>
                     ${r.role ? `<span style="font-size:9.5px;color:#64748b"> · ${esc(r.role)}</span>` : ''}
-                    ${formatJoinedDate(r.from) ? `<div style="font-size:8px;color:#94a3b8;margin-top:1px">${formatJoinedDate(r.from)}</div>` : ''}
+                    ${sub ? `<div style="font-size:8px;color:#94a3b8;margin-top:1px">${esc(sub)}</div>` : ''}
                   </div>
-                  ${tenureDur ? `<span style="font-size:8.5px;font-weight:700;color:#1d4ed8;white-space:nowrap;background:#eff6ff;border:1px solid #bfdbfe;padding:1px 7px;border-radius:20px">${tenureDur}</span>` : ''}
+                  <div style="display:flex;gap:4px;flex-shrink:0">${badges}</div>
                 </div>`
               }).join('')
 
@@ -8679,10 +8986,16 @@ export default function DepartmentHub() {
               p.isRiverKid === true || p.department === 'River Kids' || p.category === 'Minor' ||
               riverKidNames.has(recNorm(p.name))
             )
-            const sundayCountFor = (p) => sundayAttendanceWeeks.filter(wk =>
+            // Sunday weeks credited to a real profile: an ID-linked check-in, or a name in
+            // a profile-backed list. Free-text "Others" entries are a headcount only and
+            // never count here (an Others name that was explicitly linked to a profile
+            // still counts — that link writes an ID check-in, matched via wk.ids).
+            // Newest first (sundayAttendanceWeeks is sorted most-recent-first), so [0]
+            // is the latest Sunday — shown on the card as recency.
+            const sundayDatesFor = (p) => sundayAttendanceWeeks.filter(wk =>
               (p.visitorId && wk.ids?.has(`v:${p.visitorId}`)) ||
-              (recNorm(p.name) && wk.names.has(recNorm(p.name)) && !wk.kidNames?.has(recNorm(p.name)))
-            ).length
+              (recNorm(p.name) && (wk.profileNames || wk.names).has(recNorm(p.name)) && !wk.kidNames?.has(recNorm(p.name)))
+            ).map(wk => wk.date)
             const visitorFor = (p) =>
               (p.visitorId && delightVisitors.find(v => v.id === p.visitorId)) ||
               (recPhone(p.phone) && delightVisitors.find(v => recPhone(v.phone) === recPhone(p.phone))) ||
@@ -8696,15 +9009,18 @@ export default function DepartmentHub() {
             allCellMembers.filter(m => m.status !== 'inactive' && recNorm(m.name) && !isRiverKid(m)).forEach(m => {
               const visitor = visitorFor(m)
               if (isRiverKid(visitor)) return
-              const person = { name: m.name, phone: m.phone || visitor?.phone || '', visitorId: m.visitorId || visitor?.id || '' }
+              const person = { name: m.name, displayName: m.displayName || '', phone: m.phone || visitor?.phone || '', visitorId: m.visitorId || visitor?.id || '' }
               const key = recKeyOf(person)
               if (recSeen.has(key) || isKnownToPcs(person) || (visitor && isKnownToPcs(visitor))) return
               recSeen.add(key)
               const reports = pcsCellReportsByCellId.get(m.cellId) || []
-              const cell = reports.filter(r => r.attendeeNames?.has(recNorm(m.name))).length
-              const sunday = sundayCountFor(person)
+              // Cell reports are newest first too.
+              const cellDates = reports.filter(r => r.attendeeNames?.has(recNorm(m.name))).map(r => r.reportDate).filter(Boolean)
+              const sundayDates = sundayDatesFor(person)
+              const cell = cellDates.length
+              const sunday = sundayDates.length
               if (sunday + cell < 2) return
-              pcsRecommendations.push({ key, ...person, visitor, cellName: cellGroups.find(g => g.id === m.cellId)?.cellName || '', sunday, cell })
+              pcsRecommendations.push({ key, ...person, visitor, cellName: cellGroups.find(g => g.id === m.cellId)?.cellName || '', sunday, cell, sundayDates, cellDates })
             })
             // 2) D-Light visitors not on any cell roster — Sunday attendance only.
             delightVisitors.forEach(v => {
@@ -8713,9 +9029,10 @@ export default function DepartmentHub() {
               const key = recKeyOf(person)
               if (recSeen.has(key) || recSeen.has(`n:${recNorm(v.name)}`) || isKnownToPcs(person)) return
               recSeen.add(key)
-              const sunday = sundayCountFor(person)
+              const sundayDates = sundayDatesFor(person)
+              const sunday = sundayDates.length
               if (sunday < 2) return
-              pcsRecommendations.push({ key, ...person, visitor: v, cellName: '', sunday, cell: 0 })
+              pcsRecommendations.push({ key, ...person, visitor: v, cellName: '', sunday, cell: 0, sundayDates, cellDates: [] })
             })
             pcsRecommendations.sort((a, b) => (b.sunday + b.cell) - (a.sunday + a.cell) || a.name.localeCompare(b.name))
 
@@ -8786,9 +9103,12 @@ export default function DepartmentHub() {
                     <div role="dialog" aria-modal="true" aria-labelledby="pcs-discard-title"
                       className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
                       <h3 id="pcs-discard-title" className="text-base font-bold text-slate-800">
-                        {isFounder ? `Discard ${pcsDiscardTarget.name}'s profile?` : 'Request Discard / Profile Removal for Pastoral Office Review?'}
+                        Discard Profile Changes / Under Pastoral Review
                       </h3>
-                      <p className="text-sm text-slate-600">
+                      <p className="text-sm text-slate-700">
+                        Are you sure you want to discard these profile edits? Discarding non-member profiles requires Pastoral Office review.
+                      </p>
+                      <p className="text-xs text-slate-500">
                         Only for a profile that is wrong, like a duplicate or one entered by mistake. If {pcsDiscardTarget.name} has stopped attending, use <span className="font-semibold">Remove from PCS</span> instead.
                       </p>
                       <p className="text-sm text-slate-600">
@@ -8802,19 +9122,21 @@ export default function DepartmentHub() {
                           value={pcsDiscardReason}
                           onChange={e => setPcsDiscardReason(e.target.value)}
                           rows={3}
-                          autoFocus
                           placeholder="e.g. Duplicate of Anitha Joseph's profile"
                           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
                         />
                       </label>
-                      <div className="flex justify-end gap-2 pt-1">
-                        <button type="button" disabled={pcsDiscardSaving} onClick={() => setPcsDiscardTarget(null)}
-                          className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
-                          Cancel
+                      {/* Keep Editing is the primary, focused action; Confirm Discard is a
+                          small ghost button so the safe choice is always the obvious one. */}
+                      <div className="flex flex-row-reverse items-center justify-start gap-3 pt-1">
+                        <button type="button" autoFocus disabled={pcsDiscardSaving} onClick={() => setPcsDiscardTarget(null)}
+                          className="min-h-[44px] px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 disabled:opacity-50">
+                          Keep Editing
                         </button>
                         <button type="button" disabled={pcsDiscardSaving || !pcsDiscardReason.trim()} onClick={handleSubmitDiscard}
-                          className="min-h-[44px] px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
-                          {pcsDiscardSaving ? 'Sending…' : isFounder ? 'Discard profile' : 'Send for review'}
+                          title={!pcsDiscardReason.trim() ? 'Enter a reason first' : undefined}
+                          className="px-2 py-1 rounded text-xs font-medium text-gray-500 hover:text-red-600 hover:underline underline-offset-2 disabled:opacity-40 disabled:hover:no-underline disabled:hover:text-gray-500">
+                          {pcsDiscardSaving ? 'Sending…' : 'Confirm Discard'}
                         </button>
                       </div>
                     </div>
@@ -9354,11 +9676,29 @@ export default function DepartmentHub() {
                                   {String(rec.name || '?').split(' ').slice(0, 2).map(w => (w[0] || '').toUpperCase()).join('')}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="font-semibold text-slate-900 text-sm truncate">{rec.name}</p>
+                                  <p className="font-semibold text-slate-900 text-sm truncate">{getMemberDisplayName(rec)}</p>
+                                  {String(rec.displayName || '').trim() && <p className="text-[10px] text-slate-400 truncate">Legal: {rec.name}</p>}
                                   <p className="text-xs text-slate-400 mt-0.5 truncate">
                                     {[rec.phone, rec.cellName ? `Cell: ${rec.cellName}` : ''].filter(Boolean).join(' · ') || 'No contact on record'}
                                   </p>
                                   <p className="text-xs font-semibold text-emerald-700 mt-0.5">Attended: {attended}</p>
+                                  {(() => {
+                                    // Recency line + hover list of the last 3 gatherings of each kind.
+                                    const fmtRec = (d) => { const dt = new Date(String(d).slice(0, 10) + 'T00:00:00'); return isNaN(dt.getTime()) ? String(d) : format(dt, 'dd MMM yyyy') }
+                                    const sundays = rec.sundayDates || []
+                                    const cells = rec.cellDates || []
+                                    const tip = [
+                                      `Last Sundays: ${sundays.length ? sundays.slice(0, 3).map(fmtRec).join(', ') : 'No records'}`,
+                                      `Last Cell meetings: ${cells.length ? cells.slice(0, 3).map(fmtRec).join(', ') : 'No records'}`,
+                                    ].join('\n')
+                                    return (
+                                      <p className="text-[11px] text-slate-500 mt-0.5 truncate cursor-help" title={tip}>
+                                        Latest Sunday: <span className="font-medium text-slate-700">{sundays[0] ? fmtRec(sundays[0]) : 'No records'}</span>
+                                        <span className="text-slate-300"> | </span>
+                                        Latest Cell: <span className="font-medium text-slate-700">{cells[0] ? fmtRec(cells[0]) : 'No records'}</span>
+                                      </p>
+                                    )
+                                  })()}
                                   {!rec.visitor && (
                                     <p className="text-xs text-amber-600 font-medium mt-0.5">Not in visitor list yet</p>
                                   )}
@@ -9460,7 +9800,7 @@ export default function DepartmentHub() {
                                     onClick={() => { setPcsRemovalView(false); handleChipClick(entry) }}
                                     className="text-sm font-bold text-slate-800 hover:text-indigo-700 hover:underline text-left"
                                   >
-                                    {entry.name}
+                                    {getMemberDisplayName(entry)}
                                   </button>
                                   <p className="text-xs text-slate-500">
                                     {[engagementLabel(entry.engagementType), cellName].filter(Boolean).join(' · ')}
@@ -9652,7 +9992,7 @@ export default function DepartmentHub() {
                               <ChevronLeft className="w-5 h-5" />
                               Back
                             </button>
-                            <p className="flex-1 min-w-0 truncate text-center text-sm font-bold text-slate-800">{panelEntry.name}</p>
+                            <p className="flex-1 min-w-0 truncate text-center text-sm font-bold text-slate-800">{getMemberDisplayName(panelEntry)}</p>
                             {editing ? (
                               <span className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-300 px-2 py-1 rounded-full">Editing</span>
                             ) : (
@@ -13487,6 +13827,7 @@ export default function DepartmentHub() {
                                 since: member.since || '',
                                 visitorId: member.visitorId || '',
                                 status: 'active',
+                                transferOfExisting: true,
                               })
                               await deleteCellGroupMember(fromCellId, member.id)
                               const [fromList, toList] = await Promise.all([

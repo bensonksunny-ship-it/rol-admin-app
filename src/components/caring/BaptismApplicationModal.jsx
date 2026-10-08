@@ -31,8 +31,14 @@ export default function BaptismApplicationModal({ entry, prefill, userEmail, onC
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [error, setError] = useState('')
+  const [loadNote, setLoadNote] = useState('')
 
-  useEffect(() => subscribeBaptismApplicationsForEntry(entry.id, setApps, () => { setApps([]); setError('Could not load applications. The database rules may not be deployed yet.') }), [entry.id])
+  useEffect(() => subscribeBaptismApplicationsForEntry(entry.id, setApps, (err) => {
+    setApps([])
+    setLoadNote(err?.code === 'permission-denied'
+      ? 'Earlier applications could not be checked: the database rules for this form are not deployed yet. Generating a QR code will fail until they are.'
+      : 'Earlier applications could not be checked right now. You can still generate a QR code.')
+  }), [entry.id])
 
   const app = apps?.[0] || null
   const link = app ? `${window.location.origin}/baptism-apply?token=${app.id}` : ''
@@ -181,6 +187,7 @@ export default function BaptismApplicationModal({ entry, prefill, userEmail, onC
               <button type="button" onClick={() => setShowCreate(true)} className="text-xs font-semibold text-slate-500 hover:text-slate-700">+ New application</button>
             </>
           )}
+          {loadNote && <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">{loadNote}</p>}
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
       </div>

@@ -183,7 +183,7 @@ export default function AdminUserManagement() {
       return emailMatch.id
     }
 
-    return await addPerson(directoryPayload, updatedBy)
+    return await addPerson({ ...directoryPayload, createdSource: 'admin_import' }, updatedBy)
   }
 
   const handleSave = async (e) => {

@@ -131,7 +131,9 @@ function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
       if (resolvedPersonId) {
         await updatePerson(resolvedPersonId, personData, userEmail)
       } else {
-        resolvedPersonId = await addPerson(personData, userEmail)
+        // Editing someone who so far exists only in another source (roster/visitor) —
+        // the People record is created now, tagged as an admin-side creation.
+        resolvedPersonId = await addPerson({ ...personData, createdSource: 'admin_import' }, userEmail)
         // Link PCS entry if this was a legacy PCS record
         if (p.pcs?.id) {
           await updatePCSEntry(p.pcs.id, { personId: resolvedPersonId })
@@ -309,6 +311,29 @@ function ExpandedProfile({ p, onEdit, canEdit }) {
   return (
     <div className="px-3 pb-4 pt-3 bg-slate-50 border-t border-slate-100 space-y-3">
 
+      {/* Record origin — visitor-first audit: where this person entered the system */}
+      {(() => {
+        const o = originInfo(p)
+        return (
+          <div className={`rounded-xl border px-3 py-2.5 text-xs ${p.hasVisitorRecord ? 'bg-white border-slate-200' : 'bg-amber-50 border-amber-300'}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold uppercase tracking-wider text-[10px] text-slate-500">Record origin</span>
+              {p.hasVisitorRecord
+                ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Has visitor record</span>
+                : <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">No visitor record</span>}
+            </div>
+            <p className="mt-1 text-slate-700">
+              {o.label}{o.cellName ? ` · ${o.cellName}` : ''}
+            </p>
+            {(o.when || o.by || o.createdSource) && (
+              <p className="text-slate-400 mt-0.5">
+                {[o.when ? `created ${o.when.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : '', o.by ? `by ${o.by}` : '', o.createdSource ? `via ${o.createdSource}` : ''].filter(Boolean).join(' · ')}
+              </p>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Row 1: Contact + Spiritual side by side */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
@@ -464,7 +489,34 @@ const FILTERS = [
   { key: 'ministry', label: 'Ministry' },
   { key: 'pcs',      label: 'PCS' },
   { key: 'visitor',  label: 'Visitors Only' },
+  { key: 'novisitor', label: 'No Visitor Record' },
 ]
+
+// Where a directory entry first came from — the record that created it in the
+// merged directory (see getMergedPeopleDirectory's `source` / `_origin`).
+const ORIGIN_LABELS = {
+  people: 'People record (written by PCS, the People Directory or Admin user setup)',
+  'pcs-legacy': 'Legacy PCS entry (added to PCS before the People record existed)',
+  visitor: 'D-Light Visitor Entry',
+  'cell-member': 'Cell group roster (name typed in, not matched to anyone else)',
+  'dept-team': 'Department team roster',
+  'worship-team': 'Worship team roster',
+}
+const CREATED_SOURCE_LABELS = {
+  visitor_form: 'Visitor form', cell_leader: 'Cell add', admin_import: 'Admin / import', pcs_direct: 'PCS',
+}
+function originInfo(p) {
+  const o = p._origin || {}
+  const when = o.addedAt || o.createdAt
+  const whenDate = when?.toDate ? when.toDate() : (when instanceof Date ? when : (typeof when === 'string' ? new Date(when) : null))
+  return {
+    label: ORIGIN_LABELS[p.source] || p.source || 'Unknown',
+    createdSource: CREATED_SOURCE_LABELS[o.createdSource] || o.createdSource || '',
+    by: o.addedBy || o.createdBy || '',
+    when: whenDate && !isNaN(whenDate.getTime()) ? whenDate : null,
+    cellName: p.source === 'cell-member' ? (p.cells[0]?.cellName || '') : '',
+  }
+}
 
 export default function PeopleDirectory() {
   const { userProfile, isFounder, isSeniorPastor, isAdmin, isCellDirector } = useAuth()
@@ -576,6 +628,7 @@ export default function PeopleDirectory() {
       case 'ministry': list = list.filter(p => p.deptTeams.length > 0 || p.worshipTeams.length > 0 || p.ministries?.length > 0); break
       case 'pcs':      list = list.filter(p => !!p.pcs); break
       case 'visitor':  list = list.filter(p => p.cells.length === 0 && !p.pcs && p.deptTeams.length === 0 && p.worshipTeams.length === 0); break
+      case 'novisitor': list = list.filter(p => !p.hasVisitorRecord); break
     }
     return list
   }, [people, search, filter])
@@ -610,6 +663,7 @@ export default function PeopleDirectory() {
     ministry: people.filter(p => p.deptTeams.length > 0 || p.worshipTeams.length > 0 || p.ministries?.length > 0).length,
     pcs:      people.filter(p => !!p.pcs).length,
     visitor:  people.filter(p => p.cells.length === 0 && !p.pcs && p.deptTeams.length === 0 && p.worshipTeams.length === 0).length,
+    novisitor: people.filter(p => !p.hasVisitorRecord).length,
   }), [people])
 
   return (

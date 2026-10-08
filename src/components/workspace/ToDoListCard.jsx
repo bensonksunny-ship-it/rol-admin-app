@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckSquare, Check, XCircle, Users, X } from 'lucide-react'
-import { subscribeTasksForDepartments, markTaskCompleted, markTaskTurnedDown, getCellGroups, addCellGroupMember } from '../../services/firestore'
+import { subscribeTasksForDepartments, markTaskCompleted, markTaskTurnedDown, getCellGroups, addCellGroupMember, VISITOR_REQUIRED_MESSAGE } from '../../services/firestore'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentPath } from '../../constants/departments'
 import { formatDMY } from '../../utils/date'
@@ -241,8 +241,8 @@ export default function ToDoListCard() {
       showToast(created
         ? `${t.consultPersonName || 'Member'} assigned to ${cellName}.`
         : `${t.consultPersonName || 'Member'} was already in ${cellName} — task cleared.`)
-    } catch {
-      showToast('Failed to assign. Please try again.', 'error')
+    } catch (err) {
+      showToast(err?.message === VISITOR_REQUIRED_MESSAGE ? err.message : 'Failed to assign. Please try again.', 'error')
     } finally {
       setAssigningId(null)
     }

@@ -88,11 +88,12 @@ service cloud.firestore {
       return isSignedIn() && (
         isFullAccess() ||
         (userDepartment() in departmentIds) ||
-        userDepartments().hasAny(departmentIds) ||
-        userPositions().exists(p,
-          (p.get('department', '') in departmentIds) &&
-          (p.get('position', '') != '' || p.get('role', '') != '')
-        )
+        userDepartments().hasAny(departmentIds)
+        // No positions[] tier here (unlike canAccessDept): the rules language has no
+        // "any element matches" function — the `positions().exists(p, …)` that used
+        // to sit here doesn't exist in rules, so it errored and denied the request.
+        // departments[] is synced from positions[] by AuthContext on login, so this
+        // only misses a role assigned since that user's last login.
       );
     }
 
@@ -225,6 +226,11 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && (isFullAccess() || canAccessDept(request.resource.data.department));
       allow update, delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
+      // Caring marking someone Relocated closes their team roles out as Former
+      // (completeMinistryRolesForRelocation) — only those fields, only to Former.
+      allow update: if isSignedIn() && canAccessDept('Caring') &&
+        request.resource.data.isFormer == true &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isFormer', 'formerDate', 'formerReason', 'formerSetBy']);
     }
 
     // Church member profiles (baptism, marriage, leadership history) — Caring holds highest authority
@@ -587,6 +593,29 @@ service cloud.firestore {
             && request.resource.data.declarationAccepted == true
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'declarationAccepted', 'status', 'submittedAt']));
+    }
+
+    // Membership applications — same token model as baptism_applications above: the
+    // doc id is the unguessable QR token. Signed-out holders of the link may read an
+    // unexpired doc and submit the applicant's part exactly once; listing, creating,
+    // deciding and deleting stay Caring-only.
+    match /membership_applications/{token} {
+      allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+        || resource.data.expiresAt > request.time;
+      allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+        || (resource.data.status == 'pending'
+            && resource.data.expiresAt > request.time
+            && request.resource.data.status == 'submitted'
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'documents', 'status', 'submittedAt']));
+    }
+
+    // Caring → Events: pastoral lifecycle registry (baptism, marriage, dedication,
+    // burial). Saving one also writes member_profiles / people / caring_pcs, which
+    // Caring can already write.
+    match /caring_events/{eventId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
     match /pcs_lookup/{docId} {

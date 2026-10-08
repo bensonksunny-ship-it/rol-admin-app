@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { subscribePendingApprovals, approvePCSDiscard, rejectPCSDiscard } from '../../services/firestore'
+import { approvePCSDiscard, rejectPCSDiscard } from '../../services/firestore'
 import { formatTimestampFull } from '../../utils/date'
 
 /**
@@ -9,26 +9,24 @@ import { formatTimestampFull } from '../../utils/date'
  * requests from Caring (status 'pending_discard' profiles). The bell's
  * "PCS Discard Request" notification deep-links here with ?approval=<id>,
  * which scrolls to and highlights that request. Hidden when nothing is pending.
+ * The list comes from useActionNotifications (MainLayout's Outlet context) — the
+ * app's single `approvals` listener — rather than a second listener of its own.
  */
 export default function ApprovalsCard() {
   const { userProfile, isFounder } = useAuth()
   const [searchParams] = useSearchParams()
   const focusId = searchParams.get('approval') || ''
-  const [approvals, setApprovals] = useState([])
+  const { pendingApprovals } = useOutletContext() || {}
+  const approvals = pendingApprovals || []
   const [busyId, setBusyId] = useState(null)
   const [error, setError] = useState('')
   const cardRef = useRef(null)
 
+  // Scroll once the deep-linked request is present (not on every list update).
+  const focusPresent = !!focusId && approvals.some((a) => a.id === focusId)
   useEffect(() => {
-    if (!isFounder) return
-    return subscribePendingApprovals(setApprovals, () => setError('Could not load approvals.'))
-  }, [isFounder])
-
-  useEffect(() => {
-    if (focusId && approvals.some((a) => a.id === focusId)) {
-      cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }, [focusId, approvals])
+    if (focusPresent) cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [focusId, focusPresent])
 
   if (!isFounder || approvals.length === 0) return null
 

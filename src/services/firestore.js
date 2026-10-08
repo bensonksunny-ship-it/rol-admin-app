@@ -19,6 +19,7 @@ import {
   increment,
   getDocsFromServer,
   arrayUnion,
+  deleteField,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, functions, httpsCallable } from '../lib/firebase'
@@ -50,6 +51,18 @@ function normalizeGlobalRole(v) {
 }
 
 const toDate = (v) => (v?.toDate ? v.toDate() : v)
+
+// ── Visitor-first rule ──────────────────────────────────────────────────────
+// Every new person enters through D-Light Visitor Entry. Roster adds (cell,
+// department, worship) must link an existing directory record; this error is
+// thrown — and shown by the calling screen — when one tries to create a person
+// from a typed name instead. `createdSource` tags where each new record came from:
+// 'visitor_form' | 'cell_leader' | 'admin_import' | 'pcs_direct'.
+export const VISITOR_REQUIRED_MESSAGE =
+  'Pick this person from the People Directory. New people must first be registered through D-Light Visitor Entry.'
+function requireLinkedPerson(...ids) {
+  if (!ids.some(Boolean)) throw new Error(VISITOR_REQUIRED_MESSAGE)
+}
 
 // Users (read/update by auth)
 export async function getUser(uid) {
@@ -591,6 +604,7 @@ export async function getWorshipTeamMembers(department, options = {}) {
 
 export async function addWorshipTeamMember(department, data, addedBy) {
   if (!db) return null
+  requireLinkedPerson(data.visitorId, data.personId)
   const ref = await addDoc(collection(db, 'worship_team_members'), {
     department,
     name: data.name,
@@ -605,6 +619,7 @@ export async function addWorshipTeamMember(department, data, addedBy) {
     positions: Array.isArray(data.positions) ? data.positions : [],
     isWorshipDirector: !!data.isWorshipDirector,
     addedBy: addedBy || 'unknown',
+    createdSource: data.createdSource || 'admin_import',
     createdAt: Timestamp.now(),
   })
   return ref.id
@@ -612,7 +627,9 @@ export async function addWorshipTeamMember(department, data, addedBy) {
 
 export async function updateWorshipTeamMember(id, data) {
   if (!db) return
-  await updateDoc(doc(db, 'worship_team_members', id), data)
+  // updatedAt is the last-resort end date PCS uses for a Former member with no
+  // "Former since" date and no rehearsal attendance (see DepartmentHub teamEnd).
+  await updateDoc(doc(db, 'worship_team_members', id), { ...data, updatedAt: Timestamp.now() })
 }
 
 export async function deleteWorshipTeamMember(id, { department, name } = {}) {
@@ -749,6 +766,7 @@ export function subscribeDepartmentTeamMembers(department, onChange) {
 export async function addDepartmentTeamMember(department, data, addedBy) {
   if (!db) return null
   const subDepts = Array.isArray(data.subDepartments) ? data.subDepartments.filter(Boolean) : (data.subDepartment ? [data.subDepartment] : [])
+  requireLinkedPerson(data.visitorId, data.childId)
   const ref = await addDoc(collection(db, 'department_team_members'), {
     department,
     name: data.name || '',
@@ -776,6 +794,7 @@ export async function addDepartmentTeamMember(department, data, addedBy) {
     source: data.source || '',
     childId: data.childId || '',
     addedBy: addedBy || 'unknown',
+    createdSource: data.createdSource || 'admin_import',
     createdAt: Timestamp.now(),
   })
   return ref.id
@@ -2503,6 +2522,8 @@ export async function getAllCellGroupMembers() {
     displayName: d.data().displayName || '',
     phone: d.data().phone || '',
     visitorId: d.data().visitorId || '',
+    createdAt: toDate(d.data().createdAt),
+    createdSource: d.data().createdSource || '',
     since: d.data().since || '',
     leftDate: d.data().leftDate || '',
     status: d.data().status === 'inactive' ? 'inactive' : 'active',
@@ -2523,6 +2544,9 @@ function memberPhoneKey(raw) {
 
 export async function addCellGroupMember(cellId, data) {
   if (!db || !cellId) return { id: null, created: false }
+  // Moving an existing roster row between cells (`transferOfExisting`) isn't a new
+  // person, so legacy rows without a visitorId may still be transferred.
+  if (!data.transferOfExisting) requireLinkedPerson(data.visitorId)
 
   // Duplicate guard — every UI path that adds a member (Assign from a referral,
   // approving an "add" pending change, the Director's own Add Member form, the
@@ -2562,6 +2586,7 @@ export async function addCellGroupMember(cellId, data) {
     notes:       data.notes       || '',
     visitorId:   data.visitorId   || '',
     status: data.status === 'inactive' ? 'inactive' : 'active',
+    createdSource: data.createdSource || 'cell_leader',
     createdAt: Timestamp.now(),
   })
   const memberCount = existingMembers ? existingMembers.length + 1 : (await getCellGroupMembers(cellId)).length
@@ -3333,6 +3358,7 @@ export function subscribeDelightVisitors(onChange) {
 export async function addDelightVisitor(data) {
   if (!db) return null
   const ref = await addDoc(collection(db, DELIGHT_VISITORS_COLLECTION), {
+    createdSource: data.createdSource || 'visitor_form',
     name: data.name || '',
     dob: data.dob ? String(data.dob).slice(0, 10) : '',
     phone: data.phone || '',
@@ -3412,8 +3438,23 @@ function mapPCSDoc(d) {
     awayUntil: data.awayUntil || '',
     awayNote: data.awayNote || '',
     awayPeriods: Array.isArray(data.awayPeriods) ? data.awayPeriods : [],
+    // Relocated / Moved Out — see utils/relocation.js
+    relocated: !!data.relocated,
+    relocatedLastDate: data.relocatedLastDate || '',
+    relocatedDestination: data.relocatedDestination || '',
+    relocatedStanding: data.relocatedStanding || '',
+    relocatedOn: data.relocatedOn || '',
+    // Official end of church membership for a Relocated person — see utils/relocation.js
+    churchJourney: {
+      partOfChurchTillDate: data.churchJourney?.partOfChurchTillDate || '',
+    },
     // Pastoral follow-up log — [{ at: ISO timestamp, by, note }], oldest first
     followUps: Array.isArray(data.followUps) ? data.followUps : [],
+    // Promoted to Glory — set by a Caring Events burial record (kept in PCS, out of
+    // every absence / removal warning).
+    departed: !!data.departed,
+    departedDate: data.departedDate || '',
+    departedEventId: data.departedEventId || '',
     // status 'pending_discard' — a Discard Profile request awaits the Founder
     discardApprovalId: data.discardApprovalId || '',
     discardRequestedBy: data.discardRequestedBy || '',
@@ -3456,6 +3497,44 @@ export async function returnPCSEntryFromAway(entry, { via, dateStr, by }) {
 }
 
 /** Write a PCS entry's Away/Active availability (patch from buildAwayPatch / buildReturnPatch). */
+/**
+ * Relocation write-through: every department-team (River Kids, Media, …) and
+ * Worship-team row for this person that isn't already Former is closed out as
+ * Former ("Completed") with formerDate = their last attendance date — or an earlier
+ * formerDate already on the row, so a role that ended long ago keeps its real end.
+ * formerReason: 'relocated' drives the PCS history line. Field set matches the
+ * Caring carve-out on department_team_members in firestore.rules.
+ * Returns { completed, failed }.
+ */
+export async function completeMinistryRolesForRelocation({ visitorId, phone, lastDate, by }) {
+  if (!db || (!visitorId && !phone) || !lastDate) return { completed: 0, failed: 0 }
+  const normalPhone = String(phone || '').replace(/\s+/g, '')
+  const end = String(lastDate).slice(0, 10)
+  const snaps = await Promise.all(['department_team_members', 'worship_team_members'].flatMap((col) => [
+    visitorId ? getDocs(query(collection(db, col), where('visitorId', '==', visitorId))).catch(() => null) : null,
+    normalPhone ? getDocs(query(collection(db, col), where('phone', '==', normalPhone))).catch(() => null) : null,
+  ]))
+  const seen = new Set()
+  const targets = []
+  snaps.forEach((snap) => snap?.docs.forEach((d) => {
+    if (seen.has(d.ref.path)) return
+    seen.add(d.ref.path)
+    const data = d.data()
+    if (data.isFormer === true || data.status === 'former') return
+    const existing = String(data.formerDate || '').slice(0, 10)
+    targets.push({ ref: d.ref, formerDate: existing && existing < end ? existing : end })
+  }))
+  const results = await Promise.allSettled(targets.map((t) => updateDoc(t.ref, {
+    isFormer: true,
+    formerDate: t.formerDate,
+    formerReason: 'relocated',
+    formerSetBy: by || 'unknown',
+  })))
+  const failed = results.filter((r) => r.status === 'rejected')
+  failed.forEach((r) => console.error('completeMinistryRolesForRelocation:', r.reason))
+  return { completed: results.length - failed.length, failed: failed.length }
+}
+
 export async function setPCSAwayStatus(id, patch, updatedBy = '') {
   if (!db || !id) return
   await updateDoc(doc(db, CARING_PCS_COLLECTION, id), {
@@ -4369,18 +4448,25 @@ export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onErr
       .map((d) => {
         const data = d.data()
         const names = new Set()
-        const addAll = (arr) => {
+        // `profileNames` = names from every list EXCEPT "Others" (free-text, ad-hoc
+        // headcount — not tied to any profile) and River Kids. Profile-matching
+        // engines (PCS "Recommended to Add") use this so a typed "Ramesh" in Others
+        // never credits whichever directory profile happens to share that name.
+        const profileNames = new Set()
+        const addAll = (arr, { profile = true } = {}) => {
           if (!Array.isArray(arr)) return
           arr.forEach((n) => {
             const norm = String(n).trim().toLowerCase()
-            if (norm) names.add(norm)
+            if (!norm) return
+            names.add(norm)
+            if (profile) profileNames.add(norm)
           })
         }
         addAll(data.nonCell)
-        addAll(data.others)
+        addAll(data.others, { profile: false })
         addAll(data.newComers)
         addAll(data.pastoralAttendees)
-        addAll(data.riverKids)
+        addAll(data.riverKids, { profile: false })
         addAll(data.secondWeekAttendeesNames)
         addAll(data.thirdWeekAttendeesNames)
         addAll(data.fourthWeekAttendeesNames)
@@ -4402,7 +4488,7 @@ export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onErr
           const norm = String(n).trim().toLowerCase()
           if (norm) kidNames.add(norm)
         })
-        return { date: d.id, names, awayNames, kidNames, ids: idsByDate.get(d.id) || new Set() }
+        return { date: d.id, names, profileNames, awayNames, kidNames, ids: idsByDate.get(d.id) || new Set() }
       })
       .sort((a, b) => b.date.localeCompare(a.date))
 
@@ -6197,6 +6283,10 @@ export async function getMemberProfile(visitorId) {
     baptismDate:      d.baptismDate      || '',
     baptismPlace:     d.baptismPlace     || '',
     baptismChurch:    d.baptismChurch    || '',
+    // Written by a Caring Events baptism record (not edited on the PCS form).
+    baptismBatch:     d.baptismBatch     || '',
+    baptismSerialNo:  d.baptismSerialNo  || '',
+    baptismOfficiant: d.baptismOfficiant || '',
     maritalStatus:    d.maritalStatus    || '',
     marriageDate:     d.marriageDate     || '',
     spouseName:       d.spouseName       || '',
@@ -6306,6 +6396,7 @@ export async function addPerson(data, addedBy = '') {
   const payload = {
     addedAt: serverTimestamp(),
     addedBy,
+    createdSource: data.createdSource || 'pcs_direct',
     lastUpdatedAt: serverTimestamp(),
     lastUpdatedBy: addedBy,
   }
@@ -6432,6 +6523,7 @@ export async function getMergedPeopleDirectory() {
       deptTeams: [],
       worshipTeams: [],
       source: 'people',
+      _origin: p,
       _visitorIds: [],
       sundayAttendance: [],
     }
@@ -6485,6 +6577,7 @@ export async function getMergedPeopleDirectory() {
       deptTeams: [],
       worshipTeams: [],
       source: 'pcs-legacy',
+      _origin: p,
       _visitorIds: [],
       sundayAttendance: [],
     }
@@ -6531,6 +6624,7 @@ export async function getMergedPeopleDirectory() {
       deptTeams: [],
       worshipTeams: [],
       source: 'visitor',
+      _origin: v,
       _visitorIds: [v.id],
       sundayAttendance: [],
     }
@@ -6582,6 +6676,7 @@ export async function getMergedPeopleDirectory() {
         deptTeams: [],
         worshipTeams: [],
         source,
+        _origin: record,
         _visitorIds: [],
         sundayAttendance: [],
       }
@@ -6622,6 +6717,13 @@ export async function getMergedPeopleDirectory() {
     entry.sundayAttendance.push(a.date)
   })
 
+  // Visitor-first audit: does this person have a D-Light visitor record at all?
+  // Linked via a matched visitor, their PCS entry, or any roster row's visitorId.
+  merged.forEach(e => {
+    e.hasVisitorRecord = e._visitorIds.length > 0 || !!e.pcs?.visitorId ||
+      e.cells.some(c => c.visitorId) || e.deptTeams.some(t => t.visitorId) || e.worshipTeams.some(t => t.visitorId)
+  })
+
   // Sort final merged list by date descending
   merged.sort((a, b) => {
     const da = a.attendedDate ? new Date(a.attendedDate).getTime() : 0
@@ -6641,6 +6743,30 @@ export async function getMergedPeopleDirectory() {
       visitors: visitors.length,
     },
   }
+}
+
+/**
+ * Former Worship members whose leaving date was never stamped (`formerSince` — the
+ * Worship module's "date moved to Former") get `lastWorshipActivityDate`: the most
+ * recent rehearsal they were marked present at. PCS uses it as the end of their
+ * Worship tenure instead of "end not recorded". Mutates the given team docs.
+ */
+async function attachLastWorshipActivity(worshipTeams) {
+  const needs = worshipTeams.filter(t => (t.isFormer || t.status === 'former') && !t.formerSince && !t.formerDate)
+  if (!needs.length) return
+  const departments = [...new Set(needs.map(t => t.department || 'Worship'))]
+  const rehearsalsByDept = new Map(await Promise.all(departments.map(async (dept) => [dept, await getWorshipRehearsals(dept).catch(() => [])])))
+  needs.forEach(t => {
+    const nm = String(t.name || '').trim().toLowerCase()
+    let last = ''
+    for (const r of rehearsalsByDept.get(t.department || 'Worship') || []) {
+      const a = r.attendance?.[t.id]
+      const present = a?.present || Object.values(r.attendance || {}).some(x => x?.present && nm && String(x.memberName || '').trim().toLowerCase() === nm)
+      const date = String(r.date || '').slice(0, 10)
+      if (present && date > last) last = date
+    }
+    if (last) t.lastWorshipActivityDate = last
+  })
 }
 
 export async function getMemberProfileWithContext(visitorId, phone, personId, name) {
@@ -6679,10 +6805,13 @@ export async function getMemberProfileWithContext(visitorId, phone, personId, na
     (nameLower && m.name?.toLowerCase().trim() === nameLower)
   )
 
+  const worshipTeams = mergeDocs(worshipById, worshipByPhone)
+  await attachLastWorshipActivity(worshipTeams)
+
   return {
     profile:      profile || {},
     deptTeams:    mergeDocs(deptById, deptByPhone),
-    worshipTeams: mergeDocs(worshipById, worshipByPhone),
+    worshipTeams,
     secCoreRoles,
   }
 }
@@ -7529,4 +7658,275 @@ export async function updateBaptismApplication(token, data) {
 export async function deleteBaptismApplication(token) {
   if (!db || !token) return
   await deleteDoc(doc(db, BAPTISM_APPLICATIONS, token))
+}
+
+// ─── Membership Applications ──────────────────────────────────────────────────
+// Same shape as Baptism Applications: one doc per application, keyed by an
+// unguessable token that is also the public QR link (/membership-apply?token=…).
+// Signed-out, anyone holding the link can read it while unexpired and submit the
+// applicant's part once (status pending → submitted); everything else — creating,
+// listing, the office decision — is Caring-only. See firestore.rules →
+// membership_applications. Photo, signature and document scans are stored as
+// compressed data URLs inside the doc (no Storage upload from a signed-out page).
+
+const MEMBERSHIP_APPLICATIONS = 'membership_applications'
+const MEMBERSHIP_LINK_DAYS = 30
+
+function mapMembershipApplication(d) {
+  const data = d.data()
+  return {
+    id: d.id,
+    ...data,
+    createdAt: toDate(data.createdAt),
+    expiresAt: toDate(data.expiresAt),
+    submittedAt: toDate(data.submittedAt),
+    decidedAt: toDate(data.decidedAt),
+  }
+}
+
+/** Caring: create a pre-filled application for a PCS entry; returns it (id = token). */
+export async function createMembershipApplication({ pcsEntryId, visitorId, personId, prefill }, createdBy = '') {
+  if (!db || !pcsEntryId) throw new Error('Missing PCS entry')
+  const token = randomToken()
+  const payload = {
+    pcsEntryId, visitorId: visitorId || '', personId: personId || '',
+    prefill: prefill || {},
+    applicant: {},
+    photoDataUrl: '', signatureDataUrl: '', documents: {},
+    status: 'pending', officeNotes: '',
+    createdAt: Timestamp.now(), createdBy,
+    expiresAt: Timestamp.fromDate(new Date(Date.now() + MEMBERSHIP_LINK_DAYS * 24 * 60 * 60 * 1000)),
+    submittedAt: null,
+  }
+  await setDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), payload)
+  return { id: token, ...payload, createdAt: new Date(), expiresAt: payload.expiresAt.toDate() }
+}
+
+/** Public read by token (works signed-out while the link is unexpired). */
+export async function getMembershipApplicationByToken(token) {
+  if (!db || !token) return null
+  const snap = await getDoc(doc(db, MEMBERSHIP_APPLICATIONS, token))
+  return snap.exists() ? mapMembershipApplication(snap) : null
+}
+
+/** Caring: live list of applications for one PCS entry, newest first. */
+export function subscribeMembershipApplicationsForEntry(pcsEntryId, onChange, onError) {
+  if (!db || !pcsEntryId) { onChange([]); return () => {} }
+  return onSnapshot(
+    query(collection(db, MEMBERSHIP_APPLICATIONS), where('pcsEntryId', '==', pcsEntryId)),
+    (snap) => onChange(snap.docs.map(mapMembershipApplication).sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))),
+    (err) => { console.error('subscribeMembershipApplicationsForEntry:', err); onError?.(err) }
+  )
+}
+
+/** Applicant submission from the public page — the only update rules allow signed-out. */
+export async function submitMembershipApplication(token, { applicant, photoDataUrl, signatureDataUrl, documents }) {
+  if (!db || !token) throw new Error('Missing link')
+  await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), {
+    applicant: applicant || {},
+    photoDataUrl: photoDataUrl || '',
+    signatureDataUrl: signatureDataUrl || '',
+    documents: documents || {},
+    status: 'submitted',
+    submittedAt: Timestamp.now(),
+  })
+}
+
+/** Caring: office notes, decision (approved / rejected), extending the link. */
+export async function updateMembershipApplication(token, data) {
+  if (!db || !token) return
+  await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), data)
+}
+
+export async function deleteMembershipApplication(token) {
+  if (!db || !token) return
+  await deleteDoc(doc(db, MEMBERSHIP_APPLICATIONS, token))
+}
+
+// ─── Caring Events (pastoral lifecycle registry) ──────────────────────────────
+// Baptism / Marriage / Baby Dedication / Burial events with linked PCS
+// participants. Saving an event writes its details into each participant's
+// profile (member_profiles by visitorId, people by personId, caring_pcs for
+// burial). Every write is logged on the event (`syncLog`) with the value it
+// replaced, so removing a participant or deleting the event can undo it — but
+// only for fields that still hold the event's value, so a later manual
+// correction in PCS is never overwritten.
+
+const CARING_EVENTS = 'caring_events'
+const sameValue = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+const plain = (v) => JSON.parse(JSON.stringify(v ?? null))
+
+function mapCaringEvent(d) {
+  const data = d.data()
+  return { id: d.id, ...data, createdAt: toDate(data.createdAt), updatedAt: toDate(data.updatedAt), syncedAt: toDate(data.syncedAt) }
+}
+
+/** Caring: live list of events, newest event date first. */
+export function subscribeCaringEvents(onChange, onError) {
+  if (!db) { onChange([]); return () => {} }
+  return onSnapshot(collection(db, CARING_EVENTS), (snap) => {
+    onChange(snap.docs.map(mapCaringEvent).sort((a, b) =>
+      String(b.date || '').localeCompare(String(a.date || '')) || String(b.batchCode || '').localeCompare(String(a.batchCode || ''))))
+  }, (err) => { console.error('subscribeCaringEvents:', err); onError?.(err) })
+}
+
+// Plain field writes an event makes, one per profile doc it touches.
+function caringEventFieldWrites(event) {
+  const writes = []
+  const add = (participantKey, coll, id, mode, fields) => { if (id) writes.push({ participantKey, coll, id, mode, fields }) }
+  for (const p of event.participants || []) {
+    if (event.type === 'baptism') {
+      add(p.key, MEMBER_PROFILES_COLLECTION, p.visitorId, 'merge', {
+        baptised: 'yes', baptismDate: event.date, baptismChurch: event.venue || '',
+        baptismBatch: event.batchCode || '', baptismSerialNo: p.serialNo, baptismOfficiant: event.officiant || '',
+        baptismEventId: event.id,
+      })
+      add(p.key, PEOPLE_COLLECTION, p.personId, 'update', { baptised: 'yes', baptismDate: event.date, baptismChurch: event.venue || '' })
+    } else if (event.type === 'marriage') {
+      const pair = [[p, p.spouse || {}], [p.spouse || {}, p]]
+      for (const [me, other] of pair) {
+        add(p.key, MEMBER_PROFILES_COLLECTION, me.visitorId, 'merge', {
+          maritalStatus: 'Married', marriageDate: event.date, spouseName: other.name || '',
+          spouseVisitorId: other.visitorId || '', marriageEventId: event.id,
+        })
+        add(p.key, PEOPLE_COLLECTION, me.personId, 'update', {
+          maritalStatus: 'Married', marriageDate: event.date, spouseName: other.name || '', spousePersonId: other.personId || '',
+        })
+      }
+    } else if (event.type === 'burial') {
+      add(p.key, CARING_PCS_COLLECTION, p.pcsEntryId, 'update', { departed: true, departedDate: event.date, departedEventId: event.id })
+    }
+  }
+  return writes
+}
+
+async function applyCaringFieldWrite(w) {
+  const ref = doc(db, w.coll, w.id)
+  const snap = await getDoc(ref)
+  if (w.mode === 'update' && !snap.exists()) return null
+  const cur = snap.exists() ? snap.data() : {}
+  const keys = Object.keys(w.fields)
+  const before = Object.fromEntries(keys.map((k) => [k, k in cur ? plain(cur[k]) : null]))
+  const missing = keys.filter((k) => !(k in cur))
+  await setDoc(ref, w.fields, { merge: true })
+  return { kind: 'field', participantKey: w.participantKey, coll: w.coll, id: w.id, fields: plain(w.fields), before, missing }
+}
+
+// Baby dedication: recorded on the child's entry inside each parent's
+// member_profiles.children list (added there if the child isn't listed yet).
+async function applyDedication(event, p, parent) {
+  const ref = doc(db, MEMBER_PROFILES_COLLECTION, parent.visitorId)
+  const snap = await getDoc(ref)
+  const cur = snap.exists() ? snap.data() : {}
+  const children = Array.isArray(cur.children) ? plain(cur.children) : []
+  const norm = (s) => String(s || '').trim().toLowerCase()
+  let idx = children.findIndex((c) => (p.riverKidsChildId && c.riverKidsChildId === p.riverKidsChildId) || norm(c.name) === norm(p.childName))
+  const after = { dedicationDate: event.date, dedicationOfficiant: event.officiant || '', dedicationEventId: event.id }
+  const added = idx === -1
+  if (added) {
+    children.push({ id: `ev_${event.id}_${p.key}`, name: p.childName, ...(p.riverKidsChildId ? { riverKidsChildId: p.riverKidsChildId, inRiverKids: 'yes' } : {}), addedByEventId: event.id })
+    idx = children.length - 1
+  }
+  const child = children[idx]
+  const before = Object.fromEntries(Object.keys(after).map((k) => [k, k in child ? child[k] : null]))
+  children[idx] = { ...child, ...after }
+  await setDoc(ref, { children, hasKids: 'yes' }, { merge: true })
+  return {
+    kind: 'child', participantKey: p.key, coll: MEMBER_PROFILES_COLLECTION, id: parent.visitorId,
+    childId: children[idx].id || '', childName: children[idx].name || '', added, before, after,
+    hasKidsBefore: cur.hasKids ?? null,
+  }
+}
+
+async function syncCaringEvent(event) {
+  const log = []
+  const warnings = []
+  for (const w of caringEventFieldWrites(event)) {
+    const rec = await applyCaringFieldWrite(w)
+    if (rec) log.push(rec)
+  }
+  if (event.type === 'dedication') {
+    for (const p of event.participants || []) {
+      for (const parent of p.parents || []) {
+        if (parent.visitorId) log.push(await applyDedication(event, p, parent))
+      }
+    }
+  }
+  // Participants nothing could be written for (no linked profile record).
+  for (const p of event.participants || []) {
+    if (!log.some((r) => r.participantKey === p.key)) warnings.push(p.key)
+  }
+  return { log, warnings }
+}
+
+async function undoCaringLogRecord(rec, eventId) {
+  const ref = doc(db, rec.coll, rec.id)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return
+  const cur = snap.data()
+  if (rec.kind === 'field') {
+    const patch = {}
+    for (const [k, v] of Object.entries(rec.fields || {})) {
+      if (!sameValue(cur[k], v)) continue
+      const prev = rec.before?.[k]
+      patch[k] = (rec.missing || []).includes(k) || prev === null || prev === undefined ? deleteField() : prev
+    }
+    if (Object.keys(patch).length) await updateDoc(ref, patch)
+    return
+  }
+  // Dedication child record
+  const children = Array.isArray(cur.children) ? plain(cur.children) : []
+  const idx = children.findIndex((c) => c.dedicationEventId === eventId && (rec.childId ? c.id === rec.childId : c.name === rec.childName))
+  if (idx === -1) return
+  if (rec.added && children[idx].addedByEventId === eventId) {
+    children.splice(idx, 1)
+  } else {
+    const c = { ...children[idx] }
+    for (const k of Object.keys(rec.after || {})) {
+      if (rec.before?.[k] === null || rec.before?.[k] === undefined) delete c[k]
+      else c[k] = rec.before[k]
+    }
+    children[idx] = c
+  }
+  const patch = { children }
+  if (rec.added && children.length === 0 && rec.hasKidsBefore !== 'yes') patch.hasKids = rec.hasKidsBefore ?? deleteField()
+  await updateDoc(ref, patch)
+}
+
+/** Undo everything an event wrote (newest write first). */
+async function undoCaringEventSync(event) {
+  const log = Array.isArray(event?.syncLog) ? event.syncLog : []
+  for (const rec of [...log].reverse()) {
+    try { await undoCaringLogRecord(rec, event.id) } catch (err) { console.error('undo caring event write failed:', rec, err) }
+  }
+}
+
+/**
+ * Create or update an event and sync its participants into PCS. On an update the
+ * previous version's writes are undone first, then the new version is applied, so
+ * removed participants are cleaned up and changed dates/codes are rewritten.
+ * Returns { id, warnings } — warnings are participant keys with no profile record.
+ */
+export async function saveCaringEvent(event, { previous = null, savedBy = '' } = {}) {
+  if (!db) throw new Error('No database')
+  if (previous) await undoCaringEventSync(previous)
+  const ref = event.id ? doc(db, CARING_EVENTS, event.id) : doc(collection(db, CARING_EVENTS))
+  const full = plain({ ...event, id: ref.id })
+  const { log, warnings } = await syncCaringEvent(full)
+  delete full.id
+  await setDoc(ref, {
+    ...full,
+    syncLog: log, syncWarnings: warnings, syncedAt: Timestamp.now(),
+    updatedAt: Timestamp.now(), updatedBy: savedBy,
+    createdAt: previous?.createdAt || Timestamp.now(),
+    createdBy: previous ? (previous.createdBy || '') : savedBy,
+  })
+  return { id: ref.id, warnings }
+}
+
+/** Delete an event after undoing what it wrote into PCS profiles. */
+export async function deleteCaringEvent(event) {
+  if (!db || !event?.id) return
+  await undoCaringEventSync(event)
+  await deleteDoc(doc(db, CARING_EVENTS, event.id))
 }

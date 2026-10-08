@@ -16,6 +16,7 @@ import DepartmentWorship from './pages/DepartmentWorship'
 import WorshipApplicationsPage from './pages/worship/WorshipApplicationsPage'
 import SundayReport from './pages/SundayReport'
 import BaptismApply from './pages/BaptismApply'
+import MembershipApply from './pages/MembershipApply'
 import SundayProgram from './pages/SundayProgram'
 import SundayCrew from './pages/SundayCrew'
 import Sunday from './pages/Sunday'
@@ -48,6 +49,8 @@ function App() {
             {/* Public — opened from the PCS baptism QR code; no login. Access is the
                 unguessable token in the link (see firestore.rules → baptism_applications). */}
             <Route path="/baptism-apply" element={<BaptismApply />} />
+            {/* Public — PCS membership QR code; same token model (firestore.rules → membership_applications). */}
+            <Route path="/membership-apply" element={<MembershipApply />} />
             <Route
               path="/board-present/:meetingId"
               element={

@@ -1,4 +1,4 @@
-import { format, parseISO, isValid } from 'date-fns'
+import { format, parseISO, isValid, differenceInMonths } from 'date-fns'
 
 function toDate(value) {
   if (!value) return null
@@ -83,6 +83,26 @@ export function formatDisplayDate(value) {
   if (!value) return '—'
   const d = toDate(value)
   return d ? format(d, 'dd/MMM/yyyy') : '—'
+}
+
+/** "14 Sep 2026" — '' when unparseable. */
+export function formatShortDate(value) {
+  const d = toDate(value)
+  return d ? format(d, 'd MMM yyyy') : ''
+}
+
+/** Length of service between two dates (end defaults to today): "1 yr 4 mos",
+ *  "2 yrs", "8 mos", "< 1 mo". Accepts ISO strings, Dates or Firestore Timestamps;
+ *  '' when the start date is missing or unparseable. */
+export function calculateTenure(startDate, endDate) {
+  const start = toDate(startDate)
+  if (!start) return ''
+  const end = (endDate && toDate(endDate)) || new Date()
+  const total = Math.max(differenceInMonths(end, start), 0)
+  if (total === 0) return '< 1 mo'
+  const y = Math.floor(total / 12)
+  const m = total % 12
+  return [y ? `${y} yr${y === 1 ? '' : 's'}` : '', m ? `${m} mo${m === 1 ? '' : 's'}` : ''].filter(Boolean).join(' ')
 }
 
 /** "Joined 14 Sep 2026" for a ministry/team start date. A bare year (legacy

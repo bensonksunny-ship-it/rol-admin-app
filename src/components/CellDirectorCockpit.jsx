@@ -19,6 +19,7 @@ import {
   undismissUnassignedPerson,
   subscribeCellUnassignedDismissals,
   getDelightVisitors,
+  VISITOR_REQUIRED_MESSAGE,
 } from '../services/firestore'
 import { totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
@@ -501,8 +502,10 @@ export function CellDirectorCockpit({
         await deleteCellMemberPendingChange(change.id)
         onChangeResolved(change.id)
         showToast(`${change.memberData?.name || 'Member'} — request approved.`)
-      } catch {
-        showToast('Approval failed. Please try again.', 'error')
+      } catch (err) {
+        // A cell leader's "add" request for someone with no visitor record is
+        // refused by the visitor-first rule — say so instead of a generic failure.
+        showToast(err?.message === VISITOR_REQUIRED_MESSAGE ? err.message : 'Approval failed. Please try again.', 'error')
       }
     },
     [onChangeResolved, showToast]
@@ -582,7 +585,7 @@ export function CellDirectorCockpit({
         setAssignSelectedCellId('')
       } catch (err) {
         console.error('Failed to assign', item?.name, 'to cell', targetCellId, err)
-        showToast('Failed to assign. Please try again.', 'error')
+        showToast(err?.message === VISITOR_REQUIRED_MESSAGE ? err.message : 'Failed to assign. Please try again.', 'error')
       } finally {
         setAssigning(false)
       }

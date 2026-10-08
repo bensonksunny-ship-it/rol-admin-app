@@ -27,6 +27,8 @@ export const isCurrentlyAway = (entry) => !!entry?.away
 export function isProfileAwayOn(entry, dateStr) {
   const d = iso(dateStr)
   if (!entry || !d) return false
+  // Relocated / Moved Out: every week after their last attendance is skipped too.
+  if (entry.relocated && (!entry.relocatedLastDate || d > iso(entry.relocatedLastDate))) return true
   if (entry.away && (!entry.awayFrom || d >= iso(entry.awayFrom))) return true
   return (entry.awayPeriods || []).some((p) => p?.from && d >= iso(p.from) && (!p.to || d <= iso(p.to)))
 }

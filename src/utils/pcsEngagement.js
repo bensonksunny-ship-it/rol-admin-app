@@ -78,18 +78,66 @@ export const REMOVAL_ABSENCE_THRESHOLD = 10
  *  streak plus a couple of meetings skipped as Away. */
 export const CELL_HEALTH_REPORT_COUNT = 12
 
+/** How far back (weeks) the cell absence streak is counted — same reach as the
+ *  20-Sunday attendance window. */
+export const CELL_ABSENCE_MAX_WEEKS = 20
+
+const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+/** Monday (local) of the week containing `date`. */
+const weekStartOf = (date) => {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return d
+}
+const parseISO = (s) => {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null
+}
+
 /**
- * Consecutive cell meetings missed, newest first — stops at the first meeting
- * attended. Meetings the member was Away for are skipped (neither attended nor
- * missed), and meetings before they joined the cell (`sinceISO`) don't count.
+ * Consecutive cell weeks missed, counting back week by week from last week — stops
+ * at the first week they attended. Cells meet weekly, so a past week with no filed
+ * report counts as missed too (an unlogged meeting must not keep the streak low).
+ *  - Away weeks (marked Away on that report, or inside a PCS Away period) are skipped.
+ *  - The current week only counts once its report is filed (the meeting may still
+ *    be ahead).
+ *  - Weeks wholly before they joined the cell (`sinceISO`) end the count.
+ *  - `truncated` — the reports were capped by the fetch limit, so weeks older than
+ *    the oldest fetched report are unknown and end the count rather than being
+ *    guessed as missed.
  */
-export function countConsecutiveCellAbsences({ reports, names, sinceISO = '', isAwayOn = null }) {
-  let count = 0
+export function countConsecutiveCellAbsences({
+  reports, names, sinceISO = '', isAwayOn = null, today = new Date(),
+  maxWeeks = CELL_ABSENCE_MAX_WEEKS, truncated = false,
+}) {
+  const byWeek = new Map()
+  let oldestWeek = ''
   for (const r of reports || []) {
-    const date = r.reportDate || ''
-    if (sinceISO && date && date < sinceISO) break
-    if (names.some((n) => n && r.attendeeNames?.has(n))) break
-    if (names.some((n) => n && r.awayNames?.has(n)) || isAwayOn?.(date)) continue
+    const d = parseISO(r.reportDate)
+    if (!d) continue
+    const key = isoOf(weekStartOf(d))
+    if (!byWeek.has(key)) byWeek.set(key, [])
+    byWeek.get(key).push(r)
+    if (!oldestWeek || key < oldestWeek) oldestWeek = key
+  }
+  const attended = (r) => names.some((n) => n && r.attendeeNames?.has(n))
+  const markedAway = (r) => names.some((n) => n && r.awayNames?.has(n))
+
+  let count = 0
+  const thisWeek = weekStartOf(today)
+  for (let i = 0; i < maxWeeks; i++) {
+    const start = new Date(thisWeek)
+    start.setDate(start.getDate() - 7 * i)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 6)
+    const key = isoOf(start)
+    if (sinceISO && isoOf(end) < sinceISO) break
+    if (truncated && oldestWeek && key < oldestWeek) break
+    const rs = byWeek.get(key)
+    if (rs?.some(attended)) break
+    if (!rs && i === 0) continue
+    const awayDate = rs?.[0]?.reportDate || isoOf(end)
+    if (rs?.some(markedAway) || isAwayOn?.(awayDate) || (!rs && isAwayOn?.(key))) continue
     count++
   }
   return count

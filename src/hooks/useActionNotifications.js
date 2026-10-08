@@ -83,6 +83,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   const [sundayLeaderNotifications, setSundayLeaderNotifications] = useState([])
   const [pcsRemovalNotifications, setPcsRemovalNotifications] = useState([])
   const [approvalNotifications, setApprovalNotifications] = useState([])
+  const [pendingApprovals, setPendingApprovals] = useState([])
   const [dismissedIds, setDismissedIds] = useState(new Set())
   const [addedToTodoIds, setAddedToTodoIds] = useState(new Set())
   // Optimistic hide — set synchronously the instant Ignore/Add-to-Todo is clicked, so
@@ -245,9 +246,13 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
 
   // Founder: pending approval requests (PCS Discard). Drops out on its own once the
   // request is approved/rejected, since only status 'pending' is subscribed.
+  // This is the app's only `approvals` listener — My Workspace's ApprovalsCard reads
+  // `pendingApprovals` from here (via MainLayout's Outlet context) instead of opening
+  // a second listener on the same query.
   useEffect(() => {
-    if (!isFounder) { setApprovalNotifications([]); return }
+    if (!isFounder) { setApprovalNotifications([]); setPendingApprovals([]); return }
     return subscribePendingApprovals((rows) => {
+      setPendingApprovals(rows)
       setApprovalNotifications(rows.filter((a) => a.type === 'pcs_discard').map((a) => ({
         id: a.id,
         type: 'pcs_discard_approval',
@@ -258,7 +263,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         sentAt: a.timestamp,
         personId: a.memberId || '',
       })))
-    }, () => setApprovalNotifications([]))
+    }, () => { setApprovalNotifications([]); setPendingApprovals([]) })
   }, [isFounder])
 
   // Per-user "Ignore" state — hides an item from this feed everywhere it's rendered
@@ -397,6 +402,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
 
   return {
     notifications,
+    pendingApprovals,
     dlightConsultCount: dlightConsultNotifications.filter((n) => !isHidden(n)).length,
     consultResponseCount: consultResponseNotifications.filter((n) => !isHidden(n)).length,
     handleNotifAction,

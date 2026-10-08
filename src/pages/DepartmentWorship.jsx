@@ -1,5 +1,6 @@
 import { getMemberDisplayName } from '../utils/displayName'
 import { useEffect, useState, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2 } from 'lucide-react'
@@ -1369,10 +1370,15 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
         On mobile this renders as a bottom sheet (anchored to the viewport bottom,
         rounded top corners only) instead of a centered floating card — a centered
         card with a tall song history list could push its close button off-screen
-        on short mobile viewports. Desktop (sm+) keeps the centered dialog. */}
-    {detailOpen && (
+        on short mobile viewports. Desktop (sm+) keeps the centered dialog.
+        Portalled to <body> so it is always laid out against the viewport — rendered
+        inline it sat inside the team grid, where any transformed / filtered /
+        overflow-clipped ancestor would trap the "fixed" overlay inside the page
+        instead of covering the screen. z-[60] keeps it above the mobile header (z-50)
+        and the department dock (z-40); the bottom padding clears the home indicator. */}
+    {detailOpen && createPortal(
       <div
-        className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4"
+        className="fixed inset-0 z-[60] bg-black/50 flex items-end sm:items-center justify-center sm:p-4"
         onClick={() => setDetailOpen(false)}
       >
         <div
@@ -1380,7 +1386,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
           aria-modal="true"
           aria-label={`${m.name} — Individual Record`}
           onClick={(e) => e.stopPropagation()}
-          className="w-full sm:max-w-md max-h-[80vh] flex flex-col bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden"
+          className="w-full sm:max-w-md max-h-[85dvh] flex flex-col bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
         >
           <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200">
             <div className="min-w-0">
@@ -1447,7 +1453,8 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
             </div>
           </div>
         </div>
-      </div>
+      </div>,
+      document.body
     )}
     </>
   )
@@ -3036,7 +3043,9 @@ export default function DepartmentWorship() {
                     memberSince: editMember.memberSince,
                     isWorshipDirector: !!editMember.isWorshipDirector,
                     positions: editMember.positions || [],
-                    ...(editMember.isFormer && { formerSince: editMember.formerSince || '' }),
+                    // Never blank out a recorded "Former since" date — PCS uses it as the
+                    // end of their Worship tenure. An empty box keeps the stored date.
+                    ...(editMember.isFormer && editMember.formerSince && { formerSince: editMember.formerSince }),
                   }
                   try {
                     await updateWorshipTeamMember(editMember.id, patch)
