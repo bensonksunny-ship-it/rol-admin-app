@@ -20,7 +20,7 @@ const fmt = (d) => {
  * lets the parent update its local PCS list without a reload.
  */
 export default function MembershipPipelineTracker({
-  entry, stages, application, cellLeaderName = '', canCaring, canPastor, by, onChanged, compact = false,
+  entry, stages, application, cellLeaderName = '', canCaring, canPastor, canFirstLady = false, by, onChanged, compact = false,
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -35,13 +35,13 @@ export default function MembershipPipelineTracker({
   const mirror = progressMirror(stages)
   const mirroring = useRef('')
   useEffect(() => {
-    if (!application || application.status === 'pending' || !(canCaring || canPastor)) return
+    if (!application || application.status === 'pending' || !(canCaring || canPastor || canFirstLady)) return
     if (application.pipelineProgress?.sig === mirror.sig || mirroring.current === mirror.sig) return
     mirroring.current = mirror.sig
     updateApplication('membership', application.id, { pipelineProgress: { ...mirror, updatedAt: new Date().toISOString() } })
       .catch((e) => { console.error('Mirroring membership progress failed:', e); mirroring.current = '' })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [application?.id, application?.status, application?.pipelineProgress?.sig, mirror.sig, canCaring, canPastor])
+  }, [application?.id, application?.status, application?.pipelineProgress?.sig, mirror.sig, canCaring, canPastor, canFirstLady])
 
   const local = (key, value, extra = {}) => onChanged?.(entry.id, (p) => ({
     ...p, ...extra, stages: { ...(p?.stages || {}), [key]: value },
@@ -76,7 +76,7 @@ export default function MembershipPipelineTracker({
     run(async () => { await setMembershipStage(entry.id, key, null, by); local(key, undefined, { status: 'in_progress' }) })
   }
 
-  const block = cur ? advanceBlockReason(cur, stages, { canCaring, canPastor }) : ''
+  const block = cur ? advanceBlockReason(cur, stages, { canCaring, canPastor, canFirstLady }) : ''
   const inp = 'px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200'
   const btn = 'px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap'
 

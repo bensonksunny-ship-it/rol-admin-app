@@ -26,6 +26,17 @@ service cloud.firestore {
     function userPositions() {
       return isSignedIn() ? getUserData().get('positions', []) : [];
     }
+    // Deacon Office managers besides the Founder: the Senior Pastor role (any of
+    // the spellings it has been stored as) or the authorised admin email (verified).
+    // Keep the email list in step with DEACON_MANAGER_EMAILS in utils/deaconOffice.js.
+    function isDeaconManager() {
+      return isSignedIn() && (
+        getUserRole() in ['Senior Pastor', 'SeniorPastor', 'senior pastor', 'Senior pastor'] ||
+        (request.auth.token.email_verified == true &&
+         request.auth.token.email.lower() in ['rolccbangalore@gmail.com'])
+      );
+    }
+
     function isFullAccess() {
       // Super admin override (prioritize Auth custom claim), with legacy fallback.
       return isSignedIn() && (
@@ -567,12 +578,14 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
       allow update: if isSignedIn() && (isFullAccess()
         || (canAccessDept('Caring') && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['deaconOffice'])));
-      // Deacon Office — Senior Pastor (Founder is covered by isFullAccess above).
-      allow update: if isSignedIn() && getUserRole() == 'Senior Pastor' &&
+      // Deacon Office — Senior Pastor, or the authorised admin account (Founder is
+      // covered by isFullAccess above). Mirrors canManageDeacons in utils/deaconOffice.js.
+      allow update: if isDeaconManager() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deaconOffice']);
-      // Membership pipeline: the Senior Pastor gives Pastoral Approval (stage 7)
+      // Membership pipeline: the Senior Pastor gives Pastoral Approval (stage 7), and
+      // the First Lady signs off Membership Interview + Pastoral Approval (stages 6–7),
       // even without Caring access — only the membershipPipeline field.
-      allow update: if isSignedIn() && getUserRole() == 'Senior Pastor' &&
+      allow update: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady')) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipPipeline']);
       // Auto-return from Away: marking an Away person present on a Cell or Sunday
       // attendance sheet flips them back to Active (returnPCSEntryFromAway). Only
@@ -637,11 +650,11 @@ service cloud.firestore {
         || resource.data.expiresAt > request.time
         || resource.data.status != 'pending';
       allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
-      // Senior Pastor reads applications for the Membership Onboarding Pipeline on
-      // My Workspace (stage 3 + Pastoral Approval).
-      allow list: if isSignedIn() && getUserRole() == 'Senior Pastor';
-      // Senior Pastor (Pastoral Approval, stage 7): mirror progress + approve only.
-      allow update: if isSignedIn() && getUserRole() == 'Senior Pastor'
+      // Senior Pastor / First Lady read applications for the Membership Onboarding
+      // Pipeline on My Workspace (stage 3 + Pastoral Approval).
+      allow list: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady'));
+      // Senior Pastor / First Lady (Pastoral Approval, stage 7): mirror progress + approve only.
+      allow update: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady'))
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['pipelineProgress', 'status', 'decidedBy', 'decidedAt', 'familySyncedAt', 'familySyncError']);
       allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))

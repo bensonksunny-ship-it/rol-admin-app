@@ -108,6 +108,7 @@ import {
   addPCSFollowUp,
   subscribeMembershipApplicationsForEntry,
   subscribeApplicationsForEntry,
+  setPCSDeaconOffice,
   subscribeCaringEvents,
   requestPCSDiscard,
   approvePCSDiscard,
@@ -162,7 +163,7 @@ import MembershipApplicationModal from '../components/caring/MembershipApplicati
 import CaringEventsTab from '../components/caring/CaringEventsTab'
 import DedicationApplicationModal from '../components/caring/DedicationApplicationModal'
 import DeaconOfficeCard from '../components/caring/DeaconOfficeCard'
-import { canManageDeacons, deaconStatusOf, deaconSummary } from '../utils/deaconOffice'
+import { canManageDeacons, deaconStatusOf, deaconSummary, logDeaconGuard } from '../utils/deaconOffice'
 import MarriageApplicationModal from '../components/caring/MarriageApplicationModal'
 import MembershipPipelineTracker from '../components/caring/MembershipPipelineTracker'
 import { hasMembershipPipeline, resolveMembershipStages } from '../utils/membershipPipeline'
@@ -472,6 +473,7 @@ const PCS_FILTER_CHIPS = [
   { key: 'cell:olive',       label: 'Olive',         group: 'cell',   value: 'olive' },
   { key: 'status:notmember', label: 'Not a member',  group: 'status', value: 'notmember' },
   { key: 'status:leader',    label: 'Leader',        group: 'status', value: 'leader' },
+  { key: 'status:deacon',    label: 'Deacons',       group: 'status', value: 'deacon' },
   { key: 'year:2026',        label: '2026',          group: 'year',   value: 2026 },
 ]
 
@@ -6755,6 +6757,7 @@ export default function DepartmentHub() {
                   if (c.group === 'status') {
                     if (c.value === 'notmember') return !entry.membershipNumber
                     if (c.value === 'leader') return !!entry.leadershipPosition
+                    if (c.value === 'deacon') return deaconStatusOf(entry.deaconOffice) === 'Active'
                   }
                   if (c.group === 'year') return entry.year === c.value
                   return false
@@ -6930,6 +6933,30 @@ export default function DepartmentHub() {
                 alert('Could not send the discard request. Please try again.')
               } finally {
                 setPcsDiscardSaving(false)
+              }
+            }
+
+            // ⋮ menu → Mark as Deacon (appointed today) / End Deacon Office (ends today).
+            // Founder / Senior Pastor only — firestore.rules guard deaconOffice the same way.
+            // Dates can be adjusted afterwards in the profile's Deacon Office Management.
+            const quickSetDeacon = async (entry) => {
+              setPcsMenuOpenId(null)
+              const active = deaconStatusOf(entry.deaconOffice) === 'Active'
+              if (!window.confirm(active ? `End ${entry.name}'s Deacon Office as of today?` : `Mark ${entry.name} as a Deacon (appointed today)?`)) return
+              const today = format(new Date(), 'yyyy-MM-dd')
+              const by = userProfile?.displayName || userProfile?.email || ''
+              const next = active
+                ? { ...entry.deaconOffice, isDeacon: true, status: 'Former', endDate: today, updatedBy: by, updatedAt: new Date().toISOString() }
+                : { isDeacon: true, status: 'Active', appointedDate: today, endDate: '', appointedBy: by, updatedBy: by, updatedAt: new Date().toISOString() }
+              try {
+                await setPCSDeaconOffice(entry.id, next)
+                setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, deaconOffice: next } : e))
+                setPcsToast(active ? `${entry.name}'s Deacon Office ended` : `${entry.name} marked as Deacon`)
+                setTimeout(() => setPcsToast(null), 2500)
+              } catch (err) {
+                alert(err?.code === 'permission-denied'
+                  ? 'Not allowed. Only the Founder or the Senior Pastor can change the Deacon Office.'
+                  : 'Could not save. Please try again.')
               }
             }
 
@@ -7177,6 +7204,12 @@ export default function DepartmentHub() {
                             {entry.leadershipPosition}
                           </span>
                         )}
+                        {deaconStatusOf(entry.deaconOffice) === 'Active' && (
+                          <span title={deaconSummary(entry.deaconOffice)}
+                            className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+                            Deacon
+                          </span>
+                        )}
                         {entry.departed && (
                           <span
                             className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap ${isExpanded ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}
@@ -7255,6 +7288,16 @@ export default function DepartmentHub() {
                   {/* Dropdown menu */}
                   {menuOpen && (
                     <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg py-1 min-w-[160px]">
+                      {canManageDeacons(isFounder, userProfile, user) && entry.status !== 'pending_discard' && (
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); quickSetDeacon(entry) }}
+                          className="w-full text-left px-4 py-2.5 text-sm text-indigo-700 hover:bg-indigo-50 font-medium flex items-center gap-2"
+                        >
+                          <span aria-hidden>✝</span>
+                          {deaconStatusOf(entry.deaconOffice) === 'Active' ? 'End Deacon Office' : 'Mark as Deacon'}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={e => { e.stopPropagation(); handleRemoveFromPCS(entry) }}
@@ -7796,26 +7839,67 @@ export default function DepartmentHub() {
                         />
                       )
                     })()}
-                    <div className="@container w-full max-w-[794px] mx-auto bg-white rounded-xl shadow-sm overflow-hidden">
+                    {/* overflow-visible (not hidden): the status header below must be able to stick. */}
+                    <div className="@container w-full max-w-[794px] mx-auto bg-white rounded-xl shadow-sm">
 
-                      {/* ── Navy band: title + actions ── */}
-                      <div className="bg-[#1e3a5f] px-5 @xl:px-8 py-4 flex flex-wrap items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#93c5fd]">River Of Life Church · Bangalore</p>
-                          <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-white mt-0.5">Personal Caring System — Member Profile</p>
+                      {/* ── Member status header — first in the card, sticky while scrolling.
+                          top offset = whatever bar is pinned above it: none in the phone
+                          panel (its own scroller), the 3rem fixed top bar on tablets, the
+                          89px desktop department nav (two rows) on lg+. ── */}
+                      <div className="sticky top-0 md:top-[calc(3rem_+_env(safe-area-inset-top,24px))] lg:top-[89px] z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 @xl:px-6 py-3 shadow-sm rounded-t-xl flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-xl font-black text-white shadow ${f.membershipNumber ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-[#1e3a5f]'}`}>
+                            {pcsPhotoPreview
+                              ? <img src={pcsPhotoPreview} alt="" className="w-12 h-12 rounded-full object-cover" />
+                              : (getMemberDisplayName(f) || '?')[0].toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Personal Caring System — Member Profile</p>
+                            {/* Display Name is the primary title; the legal name sits beneath it. */}
+                            <p className="text-lg font-extrabold text-[#1e3a5f] dark:text-white leading-tight tracking-tight break-words">{getMemberDisplayName(f) || '—'}</p>
+                            {String(f.displayName || '').trim() && f.name && (
+                              <p className="text-xs text-slate-400 break-words">Legal: {f.name}</p>
+                            )}
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                              {/* Key status: Active (unless Away / Relocated / departed) + Visitor / In Progress / Member */}
+                              {!entry.departed && !isCurrentlyAway(entry) && !isRelocated(entry) && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Active</span>
+                              )}
+                              {f.membershipStatus === 'member' || f.membershipNumber
+                                ? (!f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">Member</span>)
+                                : f.membershipStatus === 'applying'
+                                  ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">Membership – In Progress</span>
+                                  : <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">Visitor</span>}
+                              {isPastor &&<span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">{SENIOR_PASTOR_TITLE}</span>}
+                              {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">Member #{f.membershipNumber}</span>}
+                              {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">{f.leadershipPosition}</span>}
+                              {deaconStatusOf(entry.deaconOffice) === 'Active' && <span title={deaconSummary(entry.deaconOffice)} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-700 text-white">Deacon</span>}
+                              {deaconStatusOf(entry.deaconOffice) === 'Former' && <span title={deaconSummary(entry.deaconOffice)} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300">Former Deacon</span>}
+                              {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{churchDuration} in church</span>}
+                              {cellHealth && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${CELL_HEALTH_BADGE_CLS[cellHealth.tier]}`}>{cellHealth.label}</span>}
+                              {isCurrentlyAway(entry) && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${AWAY_BADGE_CLS}`}>✈ Away</span>}
+                              {isRelocated(entry) && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${RELOCATED_BADGE_CLS}`}>🏠 Relocated{entry.relocatedDestination ? ` · ${entry.relocatedDestination}` : ''}</span>}
+                            </div>
+                            <div className="mt-1.5 flex items-center gap-2 max-w-[260px]">
+                              <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all duration-500 ${barCls(overallFill)}`} style={{ width: `${Math.round(overallFill * 100)}%` }} />
+                              </div>
+                              <span className={`text-[10px] font-bold tabular-nums whitespace-nowrap ${pctCls(overallFill)}`}>{pctStr(overallFill)} complete</span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex gap-2 flex-shrink-0">
+                        <div className="flex gap-2 flex-shrink-0 self-start">
                           {!isPendingDiscard && (
                             <button type="button" onClick={() => setPcsEditingId(entry.id)}
-                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white text-[#1e3a5f] text-xs font-bold hover:bg-blue-50 transition-colors shadow-sm">
-                              <Pencil className="w-3.5 h-3.5" /> Edit
+                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1e3a5f] text-white text-xs font-bold hover:bg-[#16304f] transition-colors shadow-sm">
+                              <Pencil className="w-3.5 h-3.5" /> Edit Profile
                             </button>
                           )}
                           <button type="button"
                             onClick={() => downloadProfileAsPDF(f, churchDuration, ministryAll, _cg, { notes: profileNotes, history: historyItems, kids, parents: familyParents })}
-                            title="Download PDF" aria-label="Download PDF"
-                            className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors border border-white/25">
-                            <Download className="w-4 h-4" />
+                            title="Export PDF" aria-label="Export PDF"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-50 transition-colors">
+                            <Download className="w-4 h-4" /> <span className="hidden sm:inline">Export PDF</span>
                           </button>
                         </div>
                       </div>
@@ -7843,39 +7927,8 @@ export default function DepartmentHub() {
                       {/* ── Body: two columns on A4 width, one column when narrow ── */}
                       <div className="px-5 @xl:px-8 py-6 grid grid-cols-1 @xl:grid-cols-2 gap-x-8">
 
-                        {/* Left — identity, contact & personal */}
+                        {/* Main stack — contact & personal, family, church journey, spiritual, membership */}
                         <div className="min-w-0">
-                          <div className="flex items-center gap-4 mb-5 pb-4 border-b border-slate-100">
-                            <div className={`w-16 h-16 rounded-full flex-shrink-0 flex items-center justify-center text-2xl font-black text-white shadow ${f.membershipNumber ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-[#1e3a5f]'}`}>
-                              {pcsPhotoPreview
-                                ? <img src={pcsPhotoPreview} alt="" className="w-16 h-16 rounded-full object-cover" />
-                                : (getMemberDisplayName(f) || '?')[0].toUpperCase()}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              {/* Display Name is the primary title; the legal name sits beneath it. */}
-                              <p className="text-xl font-extrabold text-[#1e3a5f] dark:text-white leading-tight tracking-tight break-words">{getMemberDisplayName(f) || '—'}</p>
-                              {String(f.displayName || '').trim() && f.name && (
-                                <p className="text-xs text-slate-400 mt-0.5 break-words">Legal: {f.name}</p>
-                              )}
-                              <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                {isPastor &&<span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">{SENIOR_PASTOR_TITLE}</span>}
-                                {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">Member #{f.membershipNumber}</span>}
-                                {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">{f.leadershipPosition}</span>}
-                                {deaconStatusOf(entry.deaconOffice) === 'Active' && <span title={deaconSummary(entry.deaconOffice)} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-700 text-white">Deacon</span>}
-                                {deaconStatusOf(entry.deaconOffice) === 'Former' && <span title={deaconSummary(entry.deaconOffice)} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300">Former Deacon</span>}
-                                {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{churchDuration} in church</span>}
-                                {cellHealth && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${CELL_HEALTH_BADGE_CLS[cellHealth.tier]}`}>{cellHealth.label}</span>}
-                                {isCurrentlyAway(entry) && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${AWAY_BADGE_CLS}`}>✈ Away</span>}
-                                {isRelocated(entry) && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${RELOCATED_BADGE_CLS}`}>🏠 Relocated{entry.relocatedDestination ? ` · ${entry.relocatedDestination}` : ''}</span>}
-                              </div>
-                              <div className="mt-2 flex items-center gap-2">
-                                <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                  <div className={`h-full rounded-full transition-all duration-500 ${barCls(overallFill)}`} style={{ width: `${Math.round(overallFill * 100)}%` }} />
-                                </div>
-                                <span className={`text-[10px] font-bold tabular-nums whitespace-nowrap ${pctCls(overallFill)}`}>{pctStr(overallFill)} complete</span>
-                              </div>
-                            </div>
-                          </div>
 
                           <Section title="Contact & Personal" color="#1d4ed8">
                             {entry.legalName && entry.legalName !== f.name && row('Legal Name', `${entry.legalName} ✓`, { wide: true })}
@@ -7935,6 +7988,83 @@ export default function DepartmentHub() {
                               )}
                             </Section>
                           )}
+
+                          <Section title="Church Journey" color="#065f46"
+                            badge={churchDuration
+                              ? <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">{churchDuration}</span>
+                              : null}>
+                            {row('First Visit', fmtD(f.attendedDate))}
+                            {row('Service', f.serviceAttended)}
+                            {row('Engagement', engagementLabel(entry.engagementType))}
+                            {row('Cell Group', _cg ? (_cg.cellName || 'Unnamed Cell') : null)}
+                            {!_cg && !isPastor && canEdit && !isPendingDiscard && !entry.departed && (
+                              <div className="col-span-2 pb-1.5">
+                                {cellReferralSent
+                                  ? <span title={cellReferralAt ? `Sent ${formatTimestampFull(cellReferralAt)}` : 'Sent'}
+                                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
+                                      ✓ Notification sent to Cell Director{cellReferralAt ? ` · ${formatShortDate(cellReferralAt)}` : ''}
+                                    </span>
+                                  : <button type="button" disabled={cellReferralSending} onClick={sendCellReferral}
+                                      className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-md font-medium transition-colors disabled:opacity-50">
+                                      {cellReferralSending ? 'Sending…' : '+ Notify Cell Director / Assign Cell'}
+                                    </button>}
+                              </div>
+                            )}
+                            {row('Cell Leader', _cg?.leader, { optional: true })}
+                            {row('PCS Year', f.year ? String(f.year) : null, { optional: true })}
+                            {isRelocated(entry) && row('Status', `Relocated / Moved Out${entry.relocatedDestination ? ` · ${entry.relocatedDestination}` : ''}`, { wide: true })}
+                            {isRelocated(entry) && row('Last Attendance', fmtD(entry.relocatedLastDate))}
+                            {isRelocated(entry) && row('Part of Church Till', fmtD(churchTillDate(entry)))}
+                            {isRelocated(entry) && row('Standing', entry.relocatedStanding, { optional: true })}
+                            <div className="col-span-2 pt-1.5"><AbsenceDiagnostics entry={entry} /></div>
+                            {isRelocated(entry) && (
+                              <div className="col-span-2 pt-2 space-y-2">
+                                <button type="button" onClick={() => setPcsAppreciationOpenFor(entry.id)}
+                                  className="w-full min-h-[40px] rounded-xl bg-violet-600 text-white text-sm font-bold hover:bg-violet-700 shadow-sm">
+                                  Generate Appreciation Summary
+                                </button>
+                                {/* Relocated only — formal letter with 1 Cor 15:58 (utils/pastoralClosureLetter.js) */}
+                                <button type="button"
+                                  disabled={pcsClosureLetterBusy}
+                                  onClick={async () => {
+                                    // Every cell roster row that is this person (any status) — visitorId, phone, then name.
+                                    const ph = String(f.phone || entry.phone || '').replace(/\D/g, '').slice(-10)
+                                    const nm = String(entry.name || '').trim().toLowerCase()
+                                    const cells = allCellMembers
+                                      .filter(m => (entry.visitorId && m.visitorId === entry.visitorId) ||
+                                        (ph.length === 10 && String(m.phone || '').replace(/\D/g, '').slice(-10) === ph) ||
+                                        (nm && String(m.name || '').trim().toLowerCase() === nm))
+                                      .map(m => ({ cellName: cellGroups.find(g => g.id === m.cellId)?.cellName || 'Cell group', since: m.since, leftDate: m.leftDate }))
+                                    setPcsClosureLetterBusy(true)
+                                    try {
+                                      await downloadPastoralClosureLetter({
+                                        name: f.name || entry.name,
+                                        destination: entry.relocatedDestination,
+                                        firstVisit: f.attendedDate,
+                                        lastDate: entry.relocatedLastDate,
+                                        standing: entry.relocatedStanding,
+                                        ministries: ministryAll,
+                                        cells,
+                                      })
+                                    } catch (e) {
+                                      console.error('Closure letter failed', e)
+                                      alert('Could not create the PDF. Please try again.')
+                                    } finally { setPcsClosureLetterBusy(false) }
+                                  }}
+                                  className="w-full min-h-[40px] rounded-xl border-2 border-violet-600 text-violet-700 text-sm font-bold hover:bg-violet-50 disabled:opacity-60">
+                                  {pcsClosureLetterBusy ? 'Preparing PDF…' : 'Download Pastoral Closure Letter (PDF)'}
+                                </button>
+                              </div>
+                            )}
+                            {/* Deacon Office Management — last subsection of Church Journey (Founder / Senior Pastor edit) */}
+                            {logDeaconGuard(isFounder, userProfile, user)}
+                            <DeaconOfficeCard
+                              entry={entry}
+                              canManage={canManageDeacons(isFounder, userProfile, user) && !isPendingDiscard}
+                              managerName={userProfile?.displayName || userProfile?.email || ''}
+                              onSaved={(office) => setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, deaconOffice: office } : e))}
+                            />
+                          </Section>
 
                           {(baptismRecorded || f.baptised === 'no' || !pcsExpandedLoading || f.isFirstChurch || f.previousChurchName || f.previousChurchPlace) && (
                             <Section title="Spiritual" color="#5b21b6">
@@ -8126,82 +8256,8 @@ export default function DepartmentHub() {
                           )}
                         </div>
 
-                        {/* Right — church journey, notes, history */}
+                        {/* Side — ministry, notes, history, submitted forms */}
                         <div className="min-w-0">
-                          <Section title="Church Journey" color="#065f46"
-                            badge={churchDuration
-                              ? <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">{churchDuration}</span>
-                              : null}>
-                            {row('First Visit', fmtD(f.attendedDate))}
-                            {row('Service', f.serviceAttended)}
-                            {row('Engagement', engagementLabel(entry.engagementType))}
-                            <DeaconOfficeCard
-                              entry={entry}
-                              canManage={canManageDeacons(isFounder, userProfile) && !isPendingDiscard}
-                              managerName={userProfile?.displayName || userProfile?.email || ''}
-                              onSaved={(office) => setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, deaconOffice: office } : e))}
-                            />
-                            {row('Cell Group', _cg ? (_cg.cellName || 'Unnamed Cell') : null)}
-                            {!_cg && !isPastor && canEdit && !isPendingDiscard && !entry.departed && (
-                              <div className="col-span-2 pb-1.5">
-                                {cellReferralSent
-                                  ? <span title={cellReferralAt ? `Sent ${formatTimestampFull(cellReferralAt)}` : 'Sent'}
-                                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
-                                      ✓ Notification sent to Cell Director{cellReferralAt ? ` · ${formatShortDate(cellReferralAt)}` : ''}
-                                    </span>
-                                  : <button type="button" disabled={cellReferralSending} onClick={sendCellReferral}
-                                      className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-md font-medium transition-colors disabled:opacity-50">
-                                      {cellReferralSending ? 'Sending…' : '+ Notify Cell Director / Assign Cell'}
-                                    </button>}
-                              </div>
-                            )}
-                            {row('Cell Leader', _cg?.leader, { optional: true })}
-                            {row('PCS Year', f.year ? String(f.year) : null, { optional: true })}
-                            {isRelocated(entry) && row('Status', `Relocated / Moved Out${entry.relocatedDestination ? ` · ${entry.relocatedDestination}` : ''}`, { wide: true })}
-                            {isRelocated(entry) && row('Last Attendance', fmtD(entry.relocatedLastDate))}
-                            {isRelocated(entry) && row('Part of Church Till', fmtD(churchTillDate(entry)))}
-                            {isRelocated(entry) && row('Standing', entry.relocatedStanding, { optional: true })}
-                            <div className="col-span-2 pt-1.5"><AbsenceDiagnostics entry={entry} /></div>
-                            {isRelocated(entry) && (
-                              <div className="col-span-2 pt-2 space-y-2">
-                                <button type="button" onClick={() => setPcsAppreciationOpenFor(entry.id)}
-                                  className="w-full min-h-[40px] rounded-xl bg-violet-600 text-white text-sm font-bold hover:bg-violet-700 shadow-sm">
-                                  Generate Appreciation Summary
-                                </button>
-                                {/* Relocated only — formal letter with 1 Cor 15:58 (utils/pastoralClosureLetter.js) */}
-                                <button type="button"
-                                  disabled={pcsClosureLetterBusy}
-                                  onClick={async () => {
-                                    // Every cell roster row that is this person (any status) — visitorId, phone, then name.
-                                    const ph = String(f.phone || entry.phone || '').replace(/\D/g, '').slice(-10)
-                                    const nm = String(entry.name || '').trim().toLowerCase()
-                                    const cells = allCellMembers
-                                      .filter(m => (entry.visitorId && m.visitorId === entry.visitorId) ||
-                                        (ph.length === 10 && String(m.phone || '').replace(/\D/g, '').slice(-10) === ph) ||
-                                        (nm && String(m.name || '').trim().toLowerCase() === nm))
-                                      .map(m => ({ cellName: cellGroups.find(g => g.id === m.cellId)?.cellName || 'Cell group', since: m.since, leftDate: m.leftDate }))
-                                    setPcsClosureLetterBusy(true)
-                                    try {
-                                      await downloadPastoralClosureLetter({
-                                        name: f.name || entry.name,
-                                        destination: entry.relocatedDestination,
-                                        firstVisit: f.attendedDate,
-                                        lastDate: entry.relocatedLastDate,
-                                        standing: entry.relocatedStanding,
-                                        ministries: ministryAll,
-                                        cells,
-                                      })
-                                    } catch (e) {
-                                      console.error('Closure letter failed', e)
-                                      alert('Could not create the PDF. Please try again.')
-                                    } finally { setPcsClosureLetterBusy(false) }
-                                  }}
-                                  className="w-full min-h-[40px] rounded-xl border-2 border-violet-600 text-violet-700 text-sm font-bold hover:bg-violet-50 disabled:opacity-60">
-                                  {pcsClosureLetterBusy ? 'Preparing PDF…' : 'Download Pastoral Closure Letter (PDF)'}
-                                </button>
-                              </div>
-                            )}
-                          </Section>
 
                           {ministryAll.length > 0 && (
                             <Section title="Ministry & Leadership" color="#1e3a5f" grid={false}>
@@ -8343,6 +8399,18 @@ export default function DepartmentHub() {
                           </label>
                         )}
                       </div>
+                    </div>
+
+                    {/* ═══ Status — Active | Away (travel/vacation), first thing on the profile; saves on its own ═══ */}
+                    <div className="px-4 py-3 border-b border-slate-100">
+                      <PcsAwayControl
+                        key={`${entry.id}-${entry.away ? 'away' : 'active'}`}
+                        entry={entry}
+                        canEdit={canEdit}
+                        suggestedFrom={suggestAwayStart(entry)}
+                        updatedBy={userProfile?.displayName || userProfile?.email || ''}
+                        onSaved={(patch) => setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, ...patch } : e))}
+                      />
                     </div>
 
                     {/* ═══ SECTION 1 · Visitor Data ═══ */}
@@ -8542,38 +8610,57 @@ export default function DepartmentHub() {
                         )}
                       </div>
 
-                      {/* Children list */}
-                      {f.maritalStatus !== 'Single' && f.hasKids === 'yes' && (
-                        <div className="mt-3 space-y-2">
-                          {children.map(child => child.childType === 'adult' ? (
+                      {/* Children list — one card per child: header (name / number + delete),
+                          Row 1 type + name/search, Row 2 Sunday School · DOB · gender. */}
+                      {f.maritalStatus !== 'Single' && f.hasKids === 'yes' && (() => {
+                        const lbl = 'text-xs font-semibold text-slate-600 tracking-wide mb-1.5 block'
+                        const fi = 'w-full h-10 px-3 py-2 text-sm text-slate-800 bg-white rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500'
+                        const linkedPill = 'bg-emerald-50 text-emerald-700 text-xs px-2.5 py-1 rounded-full border border-emerald-200 font-medium inline-flex items-center gap-1 mt-1.5'
+                        const cardHeader = (child, idx) => (
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-semibold text-slate-800 text-sm md:text-base min-w-0 truncate">
+                              {child.name.trim() ? `Child: ${child.name.trim()}` : `Child #${idx + 1}`}
+                            </p>
+                            <button type="button" onClick={() => removeChildRow(child.id)}
+                              aria-label={`Remove ${child.name.trim() || `child #${idx + 1}`}`}
+                              className="w-9 h-9 -mr-1.5 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )
+                        const typeSelect = (child, onChange) => (
+                          <div>
+                            <label className={lbl} htmlFor={`child-type-${child.id}`}>Child type</label>
+                            <select id={`child-type-${child.id}`} value={child.childType === 'adult' ? 'adult' : 'minor'} onChange={onChange} className={fi}>
+                              <option value="minor">Minor (Sunday School / River Kids)</option>
+                              <option value="adult">Adult son / daughter</option>
+                            </select>
+                          </div>
+                        )
+                        return (
+                        <div className="mt-4">
+                          {children.map((child, idx) => child.childType === 'adult' ? (
                             // ── Adult son/daughter: search & link an existing PCS member, or
                             //    just type a full name if they aren't in PCS yet. ──
-                            <div key={child.id} className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-2">
-                              <div className="flex flex-wrap sm:flex-nowrap items-start gap-2">
-                                <div className="space-y-0.5 w-full sm:w-44 flex-shrink-0">
-                                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Child Type</p>
-                                  <select
-                                    value="adult"
-                                    onChange={e => updateChildRow(child.id, { childType: e.target.value, linkedChildMemberId: '' })}
-                                    className={`${inp} text-xs`}>
-                                    <option value="minor">Minor (Sunday School / River Kids)</option>
-                                    <option value="adult">Adult Son/Daughter</option>
-                                  </select>
-                                </div>
-                                <div className="space-y-0.5 relative flex-1 min-w-0">
-                                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Search &amp; Link Existing Member</p>
+                            <div key={child.id} className="bg-slate-50/80 border border-slate-200 rounded-xl p-4 md:p-5 mb-4 shadow-sm space-y-4 relative">
+                              {cardHeader(child, idx)}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {typeSelect(child, e => updateChildRow(child.id, { childType: e.target.value, linkedChildMemberId: '' }))}
+                                <div className="relative">
+                                  <label className={lbl} htmlFor={`child-name-${child.id}`}>Search &amp; link existing member</label>
                                   <input
+                                    id={`child-name-${child.id}`}
                                     type="text"
                                     placeholder="Search PCS by name or phone…"
                                     value={child.name}
                                     onChange={e => updateChildRow(child.id, { name: e.target.value, linkedChildMemberId: '' })}
                                     onFocus={() => setPcsChildSearchOpenId(child.id)}
                                     onBlur={() => setTimeout(() => setPcsChildSearchOpenId(prev => prev === child.id ? null : prev), 150)}
-                                    className={`${inp} text-xs`}
+                                    className={fi}
                                   />
                                   {child.linkedChildMemberId
-                                    ? <p className="text-[9px] text-emerald-600 font-semibold mt-0.5">✓ Linked to their PCS profile</p>
-                                    : child.name.trim() && <p className="text-[9px] text-slate-400 mt-0.5">Not linked: saved as a name only (not in PCS yet)</p>}
+                                    ? <span className={linkedPill}>✔ Linked to their PCS profile</span>
+                                    : child.name.trim() && <p className="text-xs text-slate-500 mt-1.5">Not linked: saved as a name only (not in PCS yet)</p>}
                                   {pcsChildSearchOpenId === child.id && child.name.trim().length >= 1 && (() => {
                                     const q = child.name.trim().toLowerCase()
                                     const qPhone = q.replace(/\s+/g, '')
@@ -8584,118 +8671,113 @@ export default function DepartmentHub() {
                                       .slice(0, 6)
                                     if (!matches.length) return null
                                     return (
-                                      <div className="absolute z-20 top-full left-0 right-0 mt-0.5 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                                      <div className="absolute z-20 top-[4.25rem] left-0 right-0 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
                                         {matches.map(m => (
                                           <button key={m.id} type="button"
                                             onMouseDown={() => { updateChildRow(child.id, { name: m.name, linkedChildMemberId: m.id }); setPcsChildSearchOpenId(null) }}
-                                            className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 flex items-center gap-2">
+                                            className="w-full text-left px-3 py-2.5 text-sm hover:bg-teal-50 flex items-center gap-2">
                                             <span className="font-semibold text-slate-800 flex-1 truncate">{getMemberDisplayName(m)}{String(m.displayName || '').trim() && <span className="font-normal text-slate-400"> · {m.name}</span>}</span>
-                                            {m.phone && <span className="text-[10px] text-slate-400 flex-shrink-0">{m.phone}</span>}
+                                            {m.phone && <span className="text-xs text-slate-400 flex-shrink-0">{m.phone}</span>}
                                           </button>
                                         ))}
                                       </div>
                                     )
                                   })()}
                                 </div>
-                                <button type="button" onClick={() => removeChildRow(child.id)} className="mt-4 w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors flex-shrink-0">×</button>
                               </div>
                             </div>
                           ) : (
-                            <div key={child.id} className="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-2">
-                              <div className="space-y-0.5 w-full sm:w-44">
-                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Child Type</p>
-                                <select
-                                  value="minor"
-                                  onChange={e => updateChildRow(child.id, { childType: e.target.value, inRiverKids: '', riverKidsChildId: '' })}
-                                  className={`${inp} text-xs`}>
-                                  <option value="minor">Minor (Sunday School / River Kids)</option>
-                                  <option value="adult">Adult Son/Daughter</option>
-                                </select>
-                              </div>
-                            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-start">
-                              <div className="space-y-0.5">
-                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Attending Sunday School (River Kids)?</p>
-                                <select
-                                  value={child.inRiverKids || ''}
-                                  onChange={e => updateChildRow(child.id, { inRiverKids: e.target.value, ...(e.target.value !== 'yes' ? { riverKidsChildId: '' } : {}) })}
-                                  className={`${inp} text-xs`}>
-                                  <option value="">— Select —</option>
-                                  <option value="yes">Yes</option>
-                                  <option value="no">No</option>
-                                </select>
-                              </div>
-                              <div className="space-y-0.5 relative">
-                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">
-                                  {child.inRiverKids === 'yes' ? 'Search River Kids Registry' : "Child's Name"}
-                                </p>
-                                {child.inRiverKids === 'yes' ? (
-                                  <>
+                            <div key={child.id} className="bg-slate-50/80 border border-slate-200 rounded-xl p-4 md:p-5 mb-4 shadow-sm space-y-4 relative">
+                              {cardHeader(child, idx)}
+                              {/* Row 1 — type + name / River Kids search */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {typeSelect(child, e => updateChildRow(child.id, { childType: e.target.value, inRiverKids: '', riverKidsChildId: '' }))}
+                                <div className="relative">
+                                  <label className={lbl} htmlFor={`child-name-${child.id}`}>
+                                    {child.inRiverKids === 'yes' ? 'Search River Kids registry' : "Child's name"}
+                                  </label>
+                                  {child.inRiverKids === 'yes' ? (
+                                    <>
+                                      <input
+                                        id={`child-name-${child.id}`}
+                                        type="text"
+                                        placeholder="Search by name…"
+                                        value={child.name}
+                                        onChange={e => updateChildRow(child.id, { name: e.target.value, riverKidsChildId: '' })}
+                                        onFocus={() => setPcsChildSearchOpenId(child.id)}
+                                        onBlur={() => setTimeout(() => setPcsChildSearchOpenId(prev => prev === child.id ? null : prev), 150)}
+                                        className={fi}
+                                      />
+                                      {child.riverKidsChildId && <span className={linkedPill}>✔ Linked to River Kids</span>}
+                                      {pcsChildSearchOpenId === child.id && child.name.trim().length >= 1 && (() => {
+                                        const q = child.name.trim().toLowerCase()
+                                        const matches = rkChildrenForPCS.filter(k => (k.name || '').toLowerCase().includes(q)).slice(0, 6)
+                                        if (!matches.length) return null
+                                        return (
+                                          <div className="absolute z-20 top-[4.25rem] left-0 right-0 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                                            {matches.map(k => (
+                                              <button key={k.id} type="button"
+                                                onMouseDown={() => { updateChildRow(child.id, { name: k.name, riverKidsChildId: k.id }); setPcsChildSearchOpenId(null) }}
+                                                className="w-full text-left px-3 py-2.5 text-sm hover:bg-teal-50 flex items-center gap-2">
+                                                <span className="font-semibold text-slate-800 flex-1">{k.name}</span>
+                                                <span className="text-[11px] font-semibold text-teal-600 bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5 flex-shrink-0">
+                                                  {(k.classGroups || []).length ? k.classGroups.map(rkClassGroupLabel).join(', ') : 'River Kids'}
+                                                </span>
+                                              </button>
+                                            ))}
+                                          </div>
+                                        )
+                                      })()}
+                                    </>
+                                  ) : (
                                     <input
+                                      id={`child-name-${child.id}`}
                                       type="text"
-                                      placeholder="Search by name…"
+                                      placeholder="Child's name"
                                       value={child.name}
-                                      onChange={e => updateChildRow(child.id, { name: e.target.value, riverKidsChildId: '' })}
-                                      onFocus={() => setPcsChildSearchOpenId(child.id)}
-                                      onBlur={() => setTimeout(() => setPcsChildSearchOpenId(prev => prev === child.id ? null : prev), 150)}
-                                      className={`${inp} text-xs`}
+                                      onChange={e => updateChildRow(child.id, { name: e.target.value })}
+                                      className={fi}
                                     />
-                                    {child.riverKidsChildId && (
-                                      <p className="text-[9px] text-emerald-600 font-semibold mt-0.5">✓ Linked to River Kids</p>
-                                    )}
-                                    {pcsChildSearchOpenId === child.id && child.name.trim().length >= 1 && (() => {
-                                      const q = child.name.trim().toLowerCase()
-                                      const matches = rkChildrenForPCS.filter(k => (k.name || '').toLowerCase().includes(q)).slice(0, 6)
-                                      if (!matches.length) return null
-                                      return (
-                                        <div className="absolute z-20 top-full left-0 right-0 mt-0.5 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-                                          {matches.map(k => (
-                                            <button key={k.id} type="button"
-                                              onMouseDown={() => { updateChildRow(child.id, { name: k.name, riverKidsChildId: k.id }); setPcsChildSearchOpenId(null) }}
-                                              className="w-full text-left px-3 py-2 text-xs hover:bg-teal-50 flex items-center gap-2">
-                                              <span className="font-semibold text-slate-800 flex-1">{k.name}</span>
-                                              <span className="text-[9px] font-bold text-teal-500 bg-teal-50 border border-teal-200 rounded-full px-1.5 py-0.5 flex-shrink-0">
-                                                {(k.classGroups || []).length ? k.classGroups.map(rkClassGroupLabel).join(', ') : 'River Kids'}
-                                              </span>
-                                            </button>
-                                          ))}
-                                        </div>
-                                      )
-                                    })()}
-                                  </>
-                                ) : (
-                                  <input
-                                    type="text"
-                                    placeholder="Child's name"
-                                    value={child.name}
-                                    onChange={e => updateChildRow(child.id, { name: e.target.value })}
-                                    className={`${inp} text-xs`}
-                                  />
-                                )}
+                                  )}
+                                </div>
                               </div>
-                              <button type="button" onClick={() => removeChildRow(child.id)} className="mt-4 w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors">×</button>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 sm:max-w-sm">
-                              <div className="space-y-0.5">
-                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Date of Birth</p>
-                                <input type="date" value={child.dob || ''} onChange={e => updateChildRow(child.id, { dob: e.target.value })} className={`${inp} text-xs`} />
+                              {/* Row 2 — Sunday School · date of birth · gender */}
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div>
+                                  <label className={lbl} htmlFor={`child-rk-${child.id}`}>Attending Sunday School?</label>
+                                  <select
+                                    id={`child-rk-${child.id}`}
+                                    value={child.inRiverKids || ''}
+                                    onChange={e => updateChildRow(child.id, { inRiverKids: e.target.value, ...(e.target.value !== 'yes' ? { riverKidsChildId: '' } : {}) })}
+                                    className={fi}>
+                                    <option value="">Select…</option>
+                                    <option value="yes">Yes, River Kids</option>
+                                    <option value="no">No</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className={lbl} htmlFor={`child-dob-${child.id}`}>Date of birth</label>
+                                  <input id={`child-dob-${child.id}`} type="date" value={child.dob || ''} onChange={e => updateChildRow(child.id, { dob: e.target.value })} className={fi} />
+                                </div>
+                                <div>
+                                  <label className={lbl} htmlFor={`child-gender-${child.id}`}>Gender</label>
+                                  <select id={`child-gender-${child.id}`} value={child.gender || ''} onChange={e => updateChildRow(child.id, { gender: e.target.value })} className={fi}>
+                                    <option value="">Select…</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                  </select>
+                                </div>
                               </div>
-                              <div className="space-y-0.5">
-                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Gender</p>
-                                <select value={child.gender || ''} onChange={e => updateChildRow(child.id, { gender: e.target.value })} className={`${inp} text-xs`}>
-                                  <option value="">— Select —</option>
-                                  <option value="Male">Male</option>
-                                  <option value="Female">Female</option>
-                                </select>
-                              </div>
-                            </div>
                             </div>
                           ))}
-                          <button type="button" onClick={addChildRow} className="text-xs text-teal-600 hover:text-teal-800 flex items-center gap-1 py-1 transition-colors">
-                            <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                          <button type="button" onClick={addChildRow}
+                            className="w-full py-3 border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/50 hover:bg-indigo-50 text-indigo-600 font-medium rounded-xl text-sm transition-all flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                             Add Child
                           </button>
                         </div>
-                      )}
+                        )
+                      })()}
                     </div>
 
                     {/* ═══ SECTION 2 · Church Journey ═══ */}
@@ -8721,18 +8803,6 @@ export default function DepartmentHub() {
                           Director judge whether to push for cell assignment); Cell Health for Cell Only.
                           Follows the saved Engagement Type, so it changes once the form is saved. */}
                       <div className="mb-2"><AbsenceDiagnostics entry={entry} /></div>
-
-                      {/* Availability — Active | Away (travel/vacation); saves on its own */}
-                      <div className="mb-3">
-                        <PcsAwayControl
-                          key={`${entry.id}-${entry.away ? 'away' : 'active'}`}
-                          entry={entry}
-                          canEdit={canEdit}
-                          suggestedFrom={suggestAwayStart(entry)}
-                          updatedBy={userProfile?.displayName || userProfile?.email || ''}
-                          onSaved={(patch) => setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, ...patch } : e))}
-                        />
-                      </div>
 
                       {isCurrentlyAway(entry) ? null : isCellOnly(entry) ? (() => {
                         const health = getCellHealth(entry)

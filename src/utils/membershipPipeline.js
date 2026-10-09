@@ -67,10 +67,15 @@ export function stageSummary(stages) {
  * Senior Pastor; everything else → Caring (who record the cell leader's paper
  * sign-off too). Returns '' when allowed, else the reason.
  */
-export function advanceBlockReason(stage, stages, { canCaring, canPastor }) {
+// The First Lady signs off on the pastoral-oversight stages (Membership Interview,
+// Pastoral Approval) from her My Workspace, alongside the Senior Pastor.
+export const FIRST_LADY_STAGE_KEYS = ['membershipInterview', 'pastoralApproval']
+
+export function advanceBlockReason(stage, stages, { canCaring, canPastor, canFirstLady = false }) {
   const cur = currentStage(stages)
   if (!cur || cur.key !== stage.key) return 'Complete the earlier stages first.'
   if (stage.auto) return 'Completes automatically from church records.'
+  if (canFirstLady && FIRST_LADY_STAGE_KEYS.includes(stage.key)) return ''
   if (stage.who === 'pastor' && !canPastor) return 'Only the Senior Pastor can give Pastoral Approval.'
   if (stage.who === 'caring' && !canCaring) return 'Only the Caring team can update this stage.'
   return ''

@@ -35,10 +35,14 @@ function greeting() {
 export default function MyWorkspace() {
   const { userProfile, isFounder, isSeniorPastor, isCellDirector, canManageDepartment } = useAuth()
   // Membership Onboarding Pipeline: Caring staff + Founder / Senior Pastor manage it;
-  // Cell Directors follow it read-only (PCS records are Caring-written).
+  // the First Lady (anyone holding a First Lady department position) signs off the
+  // pastoral-oversight stages — Membership Interview + Pastoral Approval; Cell
+  // Directors follow it read-only (PCS records are Caring-written).
   const canCaring = isFounder || canManageDepartment('Caring')
   const canPastor = isFounder || isSeniorPastor
-  const showPipeline = canCaring || canPastor || isCellDirector
+  const isFirstLady = (userProfile?.positions || []).some(p => p?.department === 'First Lady')
+    || (userProfile?.departments || []).includes('First Lady')
+  const showPipeline = canCaring || canPastor || isFirstLady || isCellDirector
   const {
     notifications, handleNotifAction, dismissNotification, addNotificationToTodo,
   } = useOutletContext()
@@ -85,6 +89,7 @@ export default function MyWorkspace() {
         <MembershipPipelineWidget
           canCaring={canCaring}
           canPastor={canPastor}
+          canFirstLady={isFirstLady}
           by={userProfile?.displayName || userProfile?.email || ''}
         />
       )}

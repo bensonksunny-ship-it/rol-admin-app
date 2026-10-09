@@ -22,7 +22,7 @@ const isBaptised = (p) => String(p?.baptised || '').toLowerCase() === 'yes' || !
  * on someone else's workspace appears here at once. Stages 1–3 are read live:
  * cell roster, baptism on their profile, membership application submitted.
  */
-export default function MembershipPipelineWidget({ canCaring, canPastor, by }) {
+export default function MembershipPipelineWidget({ canCaring, canPastor, canFirstLady = false, by }) {
   const navigate = useNavigate()
   const [pcsEntries, setPcsEntries] = useState([])
   const [cellGroups, setCellGroups] = useState([])
@@ -102,7 +102,7 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, by }) {
               </div>
               <MembershipPipelineTracker
                 compact entry={e} stages={stages} application={application} cellLeaderName={cg?.leader || ''}
-                canCaring={canCaring} canPastor={canPastor} by={by}
+                canCaring={canCaring} canPastor={canPastor} canFirstLady={canFirstLady} by={by}
               />
             </li>
           ))}
