@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { addProjectFileActivity } from '../services/firestore'
+import FitToWidth from './FitToWidth'
 
 const HEADER_BLUE = '#2b5b84'
 const SL_RED = '#E53E3E'
@@ -114,17 +115,18 @@ export default function ProjectFileTemplate({ file, onClose, autoPrint = false }
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 flex flex-col overflow-y-auto py-6 px-4">
-      {/* Toolbar */}
-      <div className="w-full max-w-[210mm] mx-auto mb-4 flex items-center justify-between flex-shrink-0 gap-2">
+    <div className="fixed inset-0 safe-top-off z-50 bg-slate-900/60 flex flex-col overflow-y-auto overflow-x-hidden pb-6">
+      {/* Toolbar — sticky, clears the notch / status bar (pt-safe-bar); wraps on phones */}
+      <div className="sticky top-0 z-50 w-full bg-slate-900/90 backdrop-blur-md px-4 pb-3 pt-safe-bar shadow-md flex-shrink-0">
+      <div className="w-full max-w-[210mm] mx-auto flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 rounded-xl bg-white/95 text-slate-700 text-sm font-semibold hover:bg-white transition-colors shadow-sm"
+          className="flex items-center gap-2 text-sm font-medium text-white bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-700"
         >
           ← Close
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setAddingActivity((v) => !v)}
@@ -150,9 +152,10 @@ export default function ProjectFileTemplate({ file, onClose, autoPrint = false }
           </button>
         </div>
       </div>
+      </div>
 
       {addingActivity && (
-        <form onSubmit={handleAddActivity} className="w-full max-w-[210mm] mx-auto mb-4 bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-end gap-3 flex-shrink-0">
+        <form onSubmit={handleAddActivity} className="w-[calc(100%-2rem)] max-w-[210mm] mx-auto mt-3 bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-end gap-3 flex-shrink-0">
           <label className="text-xs font-medium text-slate-500 flex-1 min-w-[200px]">
             Activity
             <input
@@ -183,7 +186,9 @@ export default function ProjectFileTemplate({ file, onClose, autoPrint = false }
         </form>
       )}
 
-      {/* A4-styled printable sheet */}
+      {/* A4-styled printable sheet — FitToWidth shrinks it to the screen on phones
+          (full size while capturing the PDF). */}
+      <FitToWidth active={!downloading} className="mt-4 px-2 sm:px-6">
       <div
         ref={pageRef}
         id="face-sheet-print"
@@ -211,6 +216,7 @@ export default function ProjectFileTemplate({ file, onClose, autoPrint = false }
 
         <div style={{ height: '6mm', background: HEADER_BLUE, marginTop: 'auto' }} />
       </div>
+      </FitToWidth>
     </div>
   )
 }

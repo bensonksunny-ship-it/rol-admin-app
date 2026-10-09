@@ -21,6 +21,27 @@
   padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 }
 
+/* Top safe-area padding for a sticky/fixed top bar: clears the notch / status bar
+   (the app runs viewport-fit=cover with a translucent status bar) plus 8px. */
+@utility pt-safe-bar {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+}
+
+/* Notch-safe overlays (phones / tablets). Every full-screen overlay — modals,
+   bottom sheets, document previews — is a `fixed inset-0` element; push its
+   content below the notch / status bar with at least 1rem of breathing room.
+   Desktop is untouched. An overlay that places its own safe-area padding (on an
+   inner sticky bar, or via an inline style, which always wins) opts out with
+   `safe-top-off`. Kept in the utilities layer so it outranks the overlay's own
+   single-class padding utilities (p-4 / py-6 …) at the same layer. */
+@layer utilities {
+  @media (max-width: 1023px) {
+    .fixed.inset-0:not(.safe-top-off) {
+      padding-top: max(1rem, calc(env(safe-area-inset-top, 0px) + 0.5rem));
+    }
+  }
+}
+
 /* Global type system — Inter (a modern, design-focused UI sans) everywhere via the
    font-sans utility, JetBrains Mono (tight, professional) via font-mono. Chord charts
    in SongDesigner/SongViewer rely on font-mono for lyrics AND chords sharing one
@@ -726,6 +747,9 @@ body {
 @media print {
   html, body { background: #fff !important; }
   #root { height: 0 !important; overflow: hidden !important; }
+  /* Undo the on-screen phone scaling (FitToWidth) so the sheet prints at A4 size. */
+  .fit-to-width { height: auto !important; overflow: visible !important; }
+  .fit-to-width-inner { transform: none !important; }
 
   body * { visibility: hidden !important; }
   #face-sheet-print, #face-sheet-print * { visibility: visible !important; }

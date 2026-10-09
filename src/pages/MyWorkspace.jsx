@@ -7,6 +7,7 @@ import FounderInsightsPanel from '../components/workspace/FounderInsightsPanel'
 import WorshipWorkspaceWidget from '../components/workspace/WorshipWorkspaceWidget'
 import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWorkspaceWidget'
 import ApprovalsCard from '../components/workspace/ApprovalsCard'
+import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
 
 function greeting() {
   const h = new Date().getHours()
@@ -32,7 +33,12 @@ function greeting() {
 // single unified surface (ToDoListCard's own soft glass panel) with no outer box,
 // so content rests directly on the page background instead.
 export default function MyWorkspace() {
-  const { userProfile, isFounder } = useAuth()
+  const { userProfile, isFounder, isSeniorPastor, isCellDirector, canManageDepartment } = useAuth()
+  // Membership Onboarding Pipeline: Caring staff + Founder / Senior Pastor manage it;
+  // Cell Directors follow it read-only (PCS records are Caring-written).
+  const canCaring = isFounder || canManageDepartment('Caring')
+  const canPastor = isFounder || isSeniorPastor
+  const showPipeline = canCaring || canPastor || isCellDirector
   const {
     notifications, handleNotifAction, dismissNotification, addNotificationToTodo,
   } = useOutletContext()
@@ -75,6 +81,13 @@ export default function MyWorkspace() {
         </>
       )}
       <ToDoListCard />
+      {showPipeline && (
+        <MembershipPipelineWidget
+          canCaring={canCaring}
+          canPastor={canPastor}
+          by={userProfile?.displayName || userProfile?.email || ''}
+        />
+      )}
       <WorshipWorkspaceWidget />
       <BoardMeetingWorkspaceWidget />
     </div>

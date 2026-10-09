@@ -20,6 +20,24 @@ const FIELDS = {
 }
 // White patch over the template's grey "DD / MM / YYYY" placeholder.
 const ISSUE_PLACEHOLDER_BOX = { x: 690, y: 268, width: 162, height: 27 }
+// The template's printed "Son/Daughter of" label (left of the parents' line). With a
+// known gender it is whited out and replaced by "Son of" / "Daughter of", right-
+// aligned to end where the original did so it still leads into the blank line.
+const RELATION_LABEL_BOX = { x: 120, y: 659, width: 158, height: 24 }
+const RELATION_LABEL_END_X = 276
+const RELATION_LABEL_Y = 666
+const RELATION_LABEL_SIZE = 17.5
+
+/** "Son of" / "Daughter of" from gender; '' keeps the template's own "Son/Daughter of". */
+export function relationLabel(gender) {
+  const g = String(gender || '').trim().toLowerCase()
+  return g === 'male' ? 'Son of' : g === 'female' ? 'Daughter of' : ''
+}
+
+/** "Thomas Mathew & Mary Thomas" — father first, then mother; either may be blank. */
+export function parentsLine(fatherName, motherName) {
+  return [fatherName, motherName].map((s) => String(s || '').trim()).filter(Boolean).join(' & ')
+}
 
 const ddmmyyyy = (v) => {
   const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
@@ -46,7 +64,8 @@ async function loadTemplate() {
 
 /**
  * One certificate's data. Blank values leave the printed line empty for handwriting.
- * @typedef {{ name: string, parents?: string, birthplace?: string, baptismDate?: string,
+ * `gender` ('Male' | 'Female') picks "Son of" / "Daughter of".
+ * @typedef {{ name: string, gender?: string, parents?: string, birthplace?: string, baptismDate?: string,
  *   officiant?: string, regNo?: string, issueDate?: string|Date }} BaptismCertificate
  */
 
@@ -81,12 +100,14 @@ export async function buildBaptismCertificatesPdf(certs) {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
   const NAVY = rgb(0.055, 0.125, 0.27)
   const INK = rgb(0.12, 0.16, 0.24)
+  const LABEL = rgb(0.37, 0.41, 0.48) // the template's grey label colour
   const template = await PDFDocument.load(await loadTemplate())
   const out = await PDFDocument.create()
   const fonts = {
     name: await out.embedFont(StandardFonts.TimesRomanBoldItalic),
     body: await out.embedFont(StandardFonts.TimesRoman),
     bold: await out.embedFont(StandardFonts.HelveticaBold),
+    label: await out.embedFont(StandardFonts.Helvetica),
   }
 
   for (const c of certs) {
@@ -103,6 +124,12 @@ export async function buildBaptismCertificatesPdf(certs) {
       page.drawText(value, { x: f.cx - w / 2, y: f.y, size, font, color })
     }
     write('name', c.name, NAVY)
+    const relation = relationLabel(c.gender)
+    if (relation) {
+      page.drawRectangle({ ...RELATION_LABEL_BOX, color: rgb(1, 1, 1) })
+      const lw = fonts.label.widthOfTextAtSize(relation, RELATION_LABEL_SIZE)
+      page.drawText(relation, { x: RELATION_LABEL_END_X - lw, y: RELATION_LABEL_Y, size: RELATION_LABEL_SIZE, font: fonts.label, color: LABEL })
+    }
     write('parents', c.parents)
     write('birthplace', c.birthplace)
     write('date', longDate(c.baptismDate))

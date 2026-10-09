@@ -5,7 +5,7 @@ import {
   setCaringEventStatus, subscribeSubmittedDedicationApplications, revealDedicationApplication, getDedicationSecretName,
   getMemberProfile,
 } from '../../services/firestore'
-import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo } from '../../utils/baptismCertificate'
+import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo, parentsLine } from '../../utils/baptismCertificate'
 import { dedicationFieldValue } from '../../constants/dedicationForm'
 import {
   CARING_EVENT_TYPES, caringEventType, suggestBatchCode, serialLabel, participantTitle, CARING_EVENT_DEFAULT_VENUE,
@@ -325,7 +325,8 @@ export default function CaringEventsTab({ canEdit, canReveal, savedBy, defaultOf
     return {
       inHouse: true, // a Caring Events baptism service is performed by ROLCC
       name: p.name || pcs?.name || '',
-      parents: (profile?.parents || []).map((x) => x?.name).filter(Boolean).join(' & '),
+      parents: parentsLine(profile?.fatherName, profile?.motherName) || (profile?.parents || []).map((x) => x?.name).filter(Boolean).join(' & '),
+      gender: profile?.gender || '',
       birthplace: pcs?.nativity || '',
       baptismDate: ev.date,
       officiant: ev.officiant || '',

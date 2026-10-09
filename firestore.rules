@@ -560,7 +560,16 @@ service cloud.firestore {
       // department (e.g. Sec-Core's Director Board "Add Person"), so a PCS-only person was
       // otherwise silently unfindable outside Caring. Write stays Caring-gated.
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      // Caring writes PCS — except the Deacon Office (deaconOffice), which only the
+      // Founder or the Senior Pastor may appoint / edit / end (rule below).
+      allow create: if isSignedIn() && (isFullAccess()
+        || (canAccessDept('Caring') && !('deaconOffice' in request.resource.data)));
+      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow update: if isSignedIn() && (isFullAccess()
+        || (canAccessDept('Caring') && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['deaconOffice'])));
+      // Deacon Office — Senior Pastor (Founder is covered by isFullAccess above).
+      allow update: if isSignedIn() && getUserRole() == 'Senior Pastor' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deaconOffice']);
       // Membership pipeline: the Senior Pastor gives Pastoral Approval (stage 7)
       // even without Caring access — only the membershipPipeline field.
       allow update: if isSignedIn() && getUserRole() == 'Senior Pastor' &&
@@ -628,6 +637,9 @@ service cloud.firestore {
         || resource.data.expiresAt > request.time
         || resource.data.status != 'pending';
       allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      // Senior Pastor reads applications for the Membership Onboarding Pipeline on
+      // My Workspace (stage 3 + Pastoral Approval).
+      allow list: if isSignedIn() && getUserRole() == 'Senior Pastor';
       // Senior Pastor (Pastoral Approval, stage 7): mirror progress + approve only.
       allow update: if isSignedIn() && getUserRole() == 'Senior Pastor'
         && request.resource.data.diff(resource.data).affectedKeys()

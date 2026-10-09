@@ -20,6 +20,10 @@ export const BAPTISM_DECLARATION_TEXT =
 
 export const BAPTISM_PASTOR_SIGNOFF = ['S/d Pr. Benson K Sunny', 'Senior Pastor, ROLCC']
 
+// Set true if the pastoral office wants the mother's name to be mandatory too.
+export const MOTHER_NAME_REQUIRED = false
+export const GENDER_REQUIRED_MESSAGE = 'Gender selection is required to generate your official Certificate of Baptism.'
+
 // Candidate Information fields, in form order. `required` fields left blank in
 // PCS are highlighted on the applicant's page; filled ones are shown locked.
 export const BAPTISM_FIELDS = [
@@ -27,7 +31,11 @@ export const BAPTISM_FIELDS = [
   { key: 'middleName',    label: 'Middle Name',     required: false },
   { key: 'lastName',      label: 'Last Name',       required: true },
   { key: 'dob',           label: 'Date of Birth',   required: true, type: 'date' },
-  { key: 'gender',        label: 'Gender',          required: true, options: ['Male', 'Female'] },
+  // Family & Personal Details — gender decides "Son of" / "Daughter of" on the
+  // Certificate of Baptism, which prints the parents' names.
+  { key: 'gender',        label: 'Gender',          required: true, options: ['Male', 'Female'], section: 'family', radio: true },
+  { key: 'fatherName',    label: "Father's Name",   required: true, section: 'family' },
+  { key: 'motherName',    label: "Mother's Name",   required: MOTHER_NAME_REQUIRED, section: 'family' },
   { key: 'maritalStatus', label: 'Marital Status',  required: true, options: ['Single', 'Married', 'Widowed', 'Divorced'] },
   { key: 'spouseName',    label: 'Spouse Name',     required: false, onlyIf: (v) => v.maritalStatus === 'Married' },
   { key: 'street',        label: 'Street Address',  required: true, wide: true },

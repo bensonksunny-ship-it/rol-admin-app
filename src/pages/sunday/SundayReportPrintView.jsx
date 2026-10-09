@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { formatDisplayDate } from '../../utils/date'
+import FitToWidth from '../../components/FitToWidth'
 
 function formatTime(isoString) {
   try { return format(parseISO(isoString), 'h:mm a') } catch { return isoString }
@@ -116,27 +117,31 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 flex flex-col overflow-y-auto py-6 px-4">
-      {/* Toolbar */}
-      <div className="w-full max-w-[210mm] mx-auto mb-4 flex items-center justify-between flex-shrink-0">
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 rounded-xl bg-white/95 text-slate-700 text-sm font-semibold hover:bg-white transition-colors shadow-sm"
-        >
-          ← Close
-        </button>
-        <button
-          type="button"
-          disabled={downloading}
-          onClick={handleDownloadPdf}
-          className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
-        >
-          {downloading ? 'Generating PDF…' : '⬇ Download as PDF'}
-        </button>
+    <div className="fixed inset-0 safe-top-off z-50 bg-slate-900/60 flex flex-col overflow-y-auto overflow-x-hidden pb-6">
+      {/* Toolbar — sticky, clears the notch / status bar (pt-safe-bar) */}
+      <div className="sticky top-0 z-50 w-full bg-slate-900/90 backdrop-blur-md px-4 pb-3 pt-safe-bar shadow-md flex-shrink-0">
+        <div className="w-full max-w-[210mm] mx-auto flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-2 text-sm font-medium text-white bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-700"
+          >
+            ← Close
+          </button>
+          <button
+            type="button"
+            disabled={downloading}
+            onClick={handleDownloadPdf}
+            className="flex items-center gap-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-1.5 rounded-full shadow-sm disabled:opacity-50"
+          >
+            {downloading ? 'Generating PDF…' : '⬇ Download as PDF'}
+          </button>
+        </div>
       </div>
 
-      {/* A4 page — grows with content; the PDF step scales it to fit one A4 sheet */}
+      {/* A4 page — grows with content; the PDF step scales it to fit one A4 sheet.
+          FitToWidth shrinks it to the screen on phones (full size while capturing). */}
+      <FitToWidth active={!downloading} className="mt-4 px-2 sm:px-6">
       <div
         ref={pageRef}
         className="mx-auto flex-shrink-0"
@@ -331,6 +336,7 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
           </p>
         </div>
       </div>
+      </FitToWidth>
     </div>
   )
 }

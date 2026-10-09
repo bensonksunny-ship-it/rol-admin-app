@@ -161,9 +161,10 @@ import BaptismApplicationModal from '../components/caring/BaptismApplicationModa
 import MembershipApplicationModal from '../components/caring/MembershipApplicationModal'
 import CaringEventsTab from '../components/caring/CaringEventsTab'
 import DedicationApplicationModal from '../components/caring/DedicationApplicationModal'
+import DeaconOfficeCard from '../components/caring/DeaconOfficeCard'
+import { canManageDeacons, deaconStatusOf, deaconSummary } from '../utils/deaconOffice'
 import MarriageApplicationModal from '../components/caring/MarriageApplicationModal'
 import MembershipPipelineTracker from '../components/caring/MembershipPipelineTracker'
-import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
 import { hasMembershipPipeline, resolveMembershipStages } from '../utils/membershipPipeline'
 import { buildFamilyPrefill, childDisplayName, childAgeText } from '../utils/familyDetails'
 import { canRevealSurpriseNames } from '../constants/dedicationForm'
@@ -180,7 +181,7 @@ import { isCurrentlyAway, isProfileAwayOn, awaySummary, awayReturnHistoryLabel, 
 import PcsAwayControl from '../components/caring/PcsAwayControl'
 import AppreciationSummaryModal from '../components/caring/AppreciationSummaryModal'
 import { downloadPastoralClosureLetter } from '../utils/pastoralClosureLetter'
-import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo, baptismCertificateEligibility } from '../utils/baptismCertificate'
+import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo, baptismCertificateEligibility, parentsLine } from '../utils/baptismCertificate'
 import { downloadMembershipCertificate, membershipCertificateData } from '../utils/membershipCertificate'
 import { isRelocated, churchTillDate, RELOCATED_BADGE_CLS } from '../utils/relocation'
 import useSeniorPastor from '../hooks/useSeniorPastor'
@@ -1065,6 +1066,18 @@ export default function DepartmentHub() {
   // (scoped to the *viewer's own* cellId) — the underlying To-Do task is tagged
   // department: 'Cell', so a Director or Founder can click it too even though they have
   // no cellId of their own, and the cell-scoped list would never contain it for them.
+  // ?pcsSearch=<name> — e.g. from My Workspace's Membership Onboarding Pipeline:
+  // opens Caring → PCS filtered to that person, then strips the param.
+  const pcsSearchParam = searchParams.get('pcsSearch')
+  useEffect(() => {
+    if (!pcsSearchParam || slug !== 'caring') return
+    setPcsSearchQuery(pcsSearchParam)
+    const next = new URLSearchParams(searchParams)
+    next.delete('pcsSearch')
+    setSearchParams(next, { replace: true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pcsSearchParam, slug])
+
   const openFillInviteId = searchParams.get('openFillInvite') || null
   useEffect(() => {
     if (!openFillInviteId || slug !== 'cell') return
@@ -3299,17 +3312,6 @@ export default function DepartmentHub() {
                     savedBy={userProfile?.displayName || userProfile?.email || ''}
                     onOpenEvents={() => { setActiveTab('events'); setSearchParams({ tab: 'events' }, { replace: true }) }}
                   />
-                  {/* Membership Onboarding Pipeline — everyone in the 8-stage membership process */}
-                  <MembershipPipelineWidget
-                    pcsEntries={pcsEntries}
-                    allCellMembers={allCellMembers}
-                    cellGroups={cellGroups}
-                    canCaring={!!canEdit}
-                    canPastor={!!(isFounder || isSeniorPastor)}
-                    by={userProfile?.displayName || userProfile?.email || ''}
-                    onChanged={onPipelineChanged}
-                    onOpenProfile={(e) => { setPcsSearchQuery(e.name || ''); setActiveTab('pcs'); setSearchParams({ tab: 'pcs' }) }}
-                  />
                   {loadingPCS ? (
                     <div className="py-10 text-center text-slate-400 text-sm">Loading insights…</div>
                   ) : (() => {
@@ -4526,14 +4528,18 @@ export default function DepartmentHub() {
               ) : filteredDelightVisitors.length === 0 ? (
                 <div className="px-5 py-5 text-center text-slate-500">No visitor entries yet.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
+                // Mobile: table-fixed with a flexible Name column and narrow Month / tick
+                // columns, so the table always fits the screen (the old px-6 padding plus
+                // fixed widths made it wider than a phone, pushing names off the left edge).
+                // pb-24 keeps the last rows clear of the floating dock button.
+                <div className="w-full overflow-x-auto pb-24 lg:pb-0">
+                  <table className="w-full table-fixed sm:table-auto text-sm">
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
-                        <th className="text-left px-6 py-3 font-semibold text-slate-700 text-base">Name</th>
-                        <th className="text-left px-6 py-3 font-medium text-slate-500 w-28">Month</th>
-                        <th className="text-center px-6 py-3 font-medium text-slate-500 w-40">
-                          Sunday Worship
+                        <th scope="col" className="text-left pl-4 pr-2 sm:px-6 py-3 font-semibold text-slate-700 text-base">Name</th>
+                        <th scope="col" className="w-14 sm:w-28 text-center sm:text-left px-1 sm:px-6 py-3 font-medium text-xs sm:text-sm text-slate-500">Month</th>
+                        <th scope="col" className="w-[4.5rem] sm:w-40 text-center pr-3 pl-1 sm:px-6 py-3 font-medium text-xs sm:text-sm text-slate-500">
+                          <span className="sm:hidden">Sunday</span><span className="hidden sm:inline">Sunday Worship</span>
                           <span className="block text-[10px] font-normal text-slate-400 normal-case">{formatDMY(visitorAttendanceDate)}</span>
                         </th>
                       </tr>
@@ -4555,9 +4561,9 @@ export default function DepartmentHub() {
                               className={`cursor-pointer transition-colors border-b border-white/60 ${rowBg} ${open ? 'opacity-80' : 'hover:opacity-90'}`}
                               onClick={() => setVisitorMenuOpenId(open ? null : v.id)}
                             >
-                              <td className="px-6 py-3 font-semibold text-base text-slate-900">
-                                <span className="inline-flex items-center gap-2">
-                                  {v.name || '—'}
+                              <td className="pl-4 pr-2 sm:px-6 py-3 font-semibold text-[15px] sm:text-base text-slate-900 align-middle">
+                                <span className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                                  <span className="break-words min-w-0">{v.name || '—'}</span>
                                   {sundayWeeks > 4 && (
                                     <span title={`Attended ${sundayWeeks} Sundays`} className="text-amber-500 text-base leading-none">★</span>
                                   )}
@@ -4583,8 +4589,8 @@ export default function DepartmentHub() {
                                   )}
                                 </span>
                               </td>
-                              <td className="px-6 py-3 text-sm text-slate-400">{monthLabel}</td>
-                              <td className="px-6 py-3">
+                              <td className="px-1 sm:px-6 py-3 text-xs sm:text-sm text-slate-500 text-center sm:text-left align-middle">{monthLabel}</td>
+                              <td className="pr-3 pl-1 sm:px-6 py-1 align-middle">
                                 <div className="flex justify-center">
                                   {canEditDelightVisitors ? (
                                     <button
@@ -4592,20 +4598,22 @@ export default function DepartmentHub() {
                                       disabled={togglingThisRow || loadingSundayAttendanceNames || !v.name}
                                       onClick={(e) => { e.stopPropagation(); toggleVisitorSundayAttendance(v) }}
                                       aria-pressed={attendedThisSunday}
-                                      aria-label={attendedThisSunday ? 'Mark not attended' : 'Mark attended'}
-                                      className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors disabled:opacity-50 ${
-                                        attendedThisSunday
-                                          ? 'bg-emerald-500 border-emerald-500 text-white hover:bg-emerald-600'
-                                          : 'bg-white border-slate-300 hover:border-emerald-400'
-                                      }`}
+                                      aria-label={`${attendedThisSunday ? 'Mark not attended' : 'Mark attended'}: ${v.name || 'visitor'}`}
+                                      className="group w-11 h-11 -my-1 flex items-center justify-center rounded-lg disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
                                     >
-                                      {togglingThisRow ? (
-                                        <span className="text-[10px] leading-none">…</span>
-                                      ) : attendedThisSunday ? (
-                                        <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                                          <path fillRule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.5 7.5a1 1 0 01-1.42 0l-3.5-3.5a1 1 0 111.42-1.42L8.5 12.09l6.79-6.8a1 1 0 011.42 0z" clipRule="evenodd" />
-                                        </svg>
-                                      ) : null}
+                                      <span className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${
+                                        attendedThisSunday
+                                          ? 'bg-emerald-500 border-emerald-500 text-white group-hover:bg-emerald-600'
+                                          : 'bg-white border-slate-300 group-hover:border-emerald-400'
+                                      }`}>
+                                        {togglingThisRow ? (
+                                          <span className="text-[10px] leading-none">…</span>
+                                        ) : attendedThisSunday ? (
+                                          <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5" aria-hidden="true">
+                                            <path fillRule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.5 7.5a1 1 0 01-1.42 0l-3.5-3.5a1 1 0 111.42-1.42L8.5 12.09l6.79-6.8a1 1 0 011.42 0z" clipRule="evenodd" />
+                                          </svg>
+                                        ) : null}
+                                      </span>
                                     </button>
                                   ) : attendedThisSunday ? (
                                     <span className="w-6 h-6 rounded-md bg-emerald-500 text-white flex items-center justify-center">
@@ -4621,8 +4629,8 @@ export default function DepartmentHub() {
                             </tr>
                             {open && (
                               <tr className={rowBg}>
-                                <td colSpan={3} className="px-6 py-3 border-b border-slate-200">
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1.5 text-sm mb-3">
+                                <td colSpan={3} className="px-4 sm:px-6 py-3 border-b border-slate-200">
+                                  <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1.5 text-sm mb-3 break-words">
                                     {v.phone && <div><span className="text-slate-500">Phone: </span><span className="text-slate-800">{v.phone}</span></div>}
                                     {v.dob && <div><span className="text-slate-500">DOB: </span><span className="text-slate-800">{formatDMY(v.dob)}</span></div>}
                                     {v.email && <div><span className="text-slate-500">Email: </span><span className="text-slate-800">{v.email}</span></div>}
@@ -6785,7 +6793,7 @@ export default function DepartmentHub() {
                 ministries: entry.ministries || [],
                 engagementType: normalizeEngagementType(entry.engagementType),
                 baptised: '', baptismDate: '', baptismPlace: '', baptismChurch: '', baptismChurchIsOther: false,
-                gender: '',
+                gender: '', fatherName: '', motherName: '',
                 maritalStatus: '', marriageDate: '', spouseName: '', spouseVisitorId: '',
                 hasKids: autoKids.length ? 'yes' : '', children: autoKids,
                 isFirstChurch: '', previousChurchName: '', previousChurchPlace: '',
@@ -6858,6 +6866,7 @@ export default function DepartmentHub() {
                       baptismBatch: p.baptismBatch || '', baptismSerialNo: p.baptismSerialNo || '',
                       baptismChurchIsOther: !!p.baptismChurch && p.baptismChurch !== 'River Of Life Christian Church',
                       gender: p.gender || '',
+                      fatherName: p.fatherName || '', motherName: p.motherName || '',
                       maritalStatus: p.maritalStatus || '',
                       marriageDate: p.marriageDate || '', spouseName: p.spouseName || '', spouseVisitorId: p.spouseVisitorId || '',
                       hasKids: p.hasKids || (mergedChildren.length ? 'yes' : ''),
@@ -7754,6 +7763,7 @@ export default function DepartmentHub() {
                           prefill={{
                             firstName: firstName || '', lastName: rest.join(' '),
                             dob: f.dob || '', gender: f.gender || '', maritalStatus: f.maritalStatus || '',
+                            fatherName: f.fatherName || '', motherName: f.motherName || '',
                             spouseName: f.maritalStatus === 'Married' ? (f.spouseName || '') : '',
                             street: f.permanentAddress || '', city: f.currentPlace || '',
                             state: '', zip: '', country: '',
@@ -7851,6 +7861,8 @@ export default function DepartmentHub() {
                                 {isPastor &&<span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">{SENIOR_PASTOR_TITLE}</span>}
                                 {f.membershipNumber && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">Member #{f.membershipNumber}</span>}
                                 {f.leadershipPosition && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">{f.leadershipPosition}</span>}
+                                {deaconStatusOf(entry.deaconOffice) === 'Active' && <span title={deaconSummary(entry.deaconOffice)} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-700 text-white">Deacon</span>}
+                                {deaconStatusOf(entry.deaconOffice) === 'Former' && <span title={deaconSummary(entry.deaconOffice)} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300">Former Deacon</span>}
                                 {churchDuration && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{churchDuration} in church</span>}
                                 {cellHealth && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${CELL_HEALTH_BADGE_CLS[cellHealth.tier]}`}>{cellHealth.label}</span>}
                                 {isCurrentlyAway(entry) && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${AWAY_BADGE_CLS}`}>✈ Away</span>}
@@ -7985,7 +7997,9 @@ export default function DepartmentHub() {
                                 const cert = () => [{
                                   inHouse: true,
                                   name: f.name || entry.name,
-                                  parents: (pcsExpandedProfile?.parents || []).map(x => x?.name).filter(Boolean).join(' & '),
+                                  // Father & mother from the profile; else linked parent profiles
+                                  parents: parentsLine(f.fatherName, f.motherName) || (pcsExpandedProfile?.parents || []).map(x => x?.name).filter(Boolean).join(' & '),
+                                  gender: f.gender || '',
                                   birthplace: f.nativity || '',
                                   baptismDate: f.baptismDate || '',
                                   officiant: pcsExpandedProfile?.baptismOfficiant || '',
@@ -8121,6 +8135,12 @@ export default function DepartmentHub() {
                             {row('First Visit', fmtD(f.attendedDate))}
                             {row('Service', f.serviceAttended)}
                             {row('Engagement', engagementLabel(entry.engagementType))}
+                            <DeaconOfficeCard
+                              entry={entry}
+                              canManage={canManageDeacons(isFounder, userProfile) && !isPendingDiscard}
+                              managerName={userProfile?.displayName || userProfile?.email || ''}
+                              onSaved={(office) => setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, deaconOffice: office } : e))}
+                            />
                             {row('Cell Group', _cg ? (_cg.cellName || 'Unnamed Cell') : null)}
                             {!_cg && !isPastor && canEdit && !isPendingDiscard && !entry.departed && (
                               <div className="col-span-2 pb-1.5">
@@ -8432,6 +8452,16 @@ export default function DepartmentHub() {
                             <option value="Male">Male</option>
                             <option value="Female">Female</option>
                           </select>
+                        </div>
+
+                        {/* Parents — printed on the Certificate of Baptism ("Son of" / "Daughter of") */}
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Father's Name</p>
+                          <input type="text" value={f.fatherName || ''} onChange={e => setF(p => ({ ...p, fatherName: e.target.value }))} className={inp} />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Mother's Name</p>
+                          <input type="text" value={f.motherName || ''} onChange={e => setF(p => ({ ...p, motherName: e.target.value }))} className={inp} />
                         </div>
 
                         {/* Marital status */}
@@ -9032,7 +9062,7 @@ export default function DepartmentHub() {
                           setPcsExpandedSaving(true)
                           try {
                             const { personId, name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown,
-                              ministries, gender, engagementType, displayName, howKnownRefId,
+                              ministries, gender, engagementType, displayName, howKnownRefId, fatherName, motherName,
                               baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
                               hasKids, children, isFirstChurch, previousChurchName, previousChurchPlace,
                               membershipStatus, membershipDocs, permanentAddress } = f
@@ -9074,7 +9104,7 @@ export default function DepartmentHub() {
                               updateDeptTeamMembersByVisitorId(entry.visitorId, { name, phone, displayName: displayName || '' }).catch(() => {})
                               updateWorshipTeamMembersByVisitorId(entry.visitorId, { name, phone, displayName: displayName || '' }).catch(() => {})
                               upsertMemberProfile(entry.visitorId, {
-                                phone, email, dob, nativity, currentPlace, gender,
+                                phone, email, dob, nativity, currentPlace, gender, fatherName, motherName,
                                 baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
                                 hasKids: hasKids || '',
                                 children: hasKids === 'yes' ? (children || []) : [],
@@ -10425,7 +10455,7 @@ export default function DepartmentHub() {
                           animate={{ x: 0 }}
                           exit={{ x: '100%' }}
                           transition={{ type: 'tween', duration: 0.25, ease: 'easeOut' }}
-                          className="fixed inset-0 z-[70] flex flex-col bg-slate-100"
+                          className="fixed inset-0 safe-top-off z-[70] flex flex-col bg-slate-100"
                         >
                           <div className="flex-shrink-0 flex items-center gap-1 px-2 py-2 bg-white border-b border-slate-200 shadow-sm" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
                             <button

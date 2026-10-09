@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { subscribeApplicationsByStatus, getMemberProfile } from '../../services/firestore'
+import { useNavigate } from 'react-router-dom'
+import {
+  subscribeApplicationsByStatus, getMemberProfile, subscribeMembershipPipelineEntries,
+  getCellGroups, getCellGroupMembers,
+} from '../../services/firestore'
 import { hasMembershipPipeline, resolveMembershipStages, currentStage } from '../../utils/membershipPipeline'
 import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { getMemberDisplayName } from '../../utils/displayName'
@@ -8,18 +12,39 @@ import MembershipPipelineTracker from './MembershipPipelineTracker'
 const isBaptised = (p) => String(p?.baptised || '').toLowerCase() === 'yes' || !!(p?.baptismDate || p?.baptismChurch || p?.baptismPlace)
 
 /**
- * Caring Hub → "Membership Onboarding Pipeline": everyone with an open membership
- * pipeline (started from their PCS profile), each with the 8-stage progress line,
- * "Stage N of 8: … Pending" and the one-click action for their current stage.
- * Stages 1–3 are read live: cell roster, baptism on their profile, membership
- * application submitted.
+ * "Membership Onboarding Pipeline" on My Workspace (Caring staff, Founder, Senior
+ * Pastor; Cell Directors read-only): everyone with a membership pipeline (started
+ * from their PCS profile), each with the 8-stage progress line, "Stage N of 8: …
+ * Pending" and the one-click action for their current stage.
+ *
+ * Self-contained and live: the candidates come from one shared onSnapshot feed
+ * (subscribeMembershipPipelineEntries), so a stage advanced on a PCS profile or
+ * on someone else's workspace appears here at once. Stages 1–3 are read live:
+ * cell roster, baptism on their profile, membership application submitted.
  */
-export default function MembershipPipelineWidget({ pcsEntries, allCellMembers, cellGroups, canCaring, canPastor, by, onChanged, onOpenProfile }) {
+export default function MembershipPipelineWidget({ canCaring, canPastor, by }) {
+  const navigate = useNavigate()
+  const [pcsEntries, setPcsEntries] = useState([])
+  const [cellGroups, setCellGroups] = useState([])
+  const [allCellMembers, setAllCellMembers] = useState([])
   const [apps, setApps] = useState([])
   const [profiles, setProfiles] = useState({}) // visitorId → member profile
   const [showDone, setShowDone] = useState(false)
 
   useEffect(() => subscribeApplicationsByStatus('membership', ['pending', 'submitted', 'info_requested', 'approved', 'rejected'], setApps, () => setApps([])), [])
+  useEffect(() => subscribeMembershipPipelineEntries(setPcsEntries, () => setPcsEntries([])), [])
+  // Cell rosters for stage 1 (and the cell leader's name for stage 5).
+  useEffect(() => {
+    let cancelled = false
+    getCellGroups('Cell').then((groups) => {
+      if (cancelled) return
+      setCellGroups(groups)
+      return Promise.all(groups.map((g) => getCellGroupMembers(g.id).then((ms) => ms.map((m) => ({ ...m, cellId: g.id }))).catch(() => [])))
+        .then((lists) => { if (!cancelled) setAllCellMembers(lists.flat()) })
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  const onOpenProfile = (e) => navigate(`/department/caring?tab=pcs&pcsSearch=${encodeURIComponent(e.name || '')}`)
 
   const candidates = useMemo(
     () => pcsEntries.filter((e) => hasMembershipPipeline(e) && (showDone || e.membershipPipeline.status !== 'completed')),
@@ -70,14 +95,14 @@ export default function MembershipPipelineWidget({ pcsEntries, allCellMembers, c
           {rows.map(({ e, cg, application, stages }) => (
             <li key={e.id} className="px-4 py-3 space-y-2">
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => onOpenProfile?.(e)} className="text-sm font-semibold text-slate-800 hover:text-indigo-700 hover:underline truncate">
+                <button type="button" onClick={() => onOpenProfile(e)} className="text-sm font-semibold text-slate-800 hover:text-indigo-700 hover:underline truncate">
                   {getMemberDisplayName(e)}
                 </button>
                 <span className="text-xs text-slate-400 truncate">{cg ? cg.cellName : 'No cell group'}</span>
               </div>
               <MembershipPipelineTracker
                 compact entry={e} stages={stages} application={application} cellLeaderName={cg?.leader || ''}
-                canCaring={canCaring} canPastor={canPastor} by={by} onChanged={onChanged}
+                canCaring={canCaring} canPastor={canPastor} by={by}
               />
             </li>
           ))}

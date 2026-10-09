@@ -3435,6 +3435,8 @@ function mapPCSDoc(d) {
     engagementType: normalizeEngagementType(data.engagementType),
     // Verified legal name (as per government ID) — set from a submitted baptism /
     // membership application by the syncBaptismLegalName / syncMembershipLegalName functions.
+    // Deacon Office — set only by the Founder / Senior Pastor (see firestore.rules).
+    deaconOffice: data.deaconOffice || null,
     legalName: data.legalName || '',
     legalNameParts: data.legalNameParts || null,
     legalNameSource: data.legalNameSource || '',
@@ -3554,6 +3556,17 @@ export async function completeMinistryRolesForRelocation({ visitorId, phone, las
 // ─── Membership Onboarding Pipeline (utils/membershipPipeline.js) ─────────────
 const nowIso = () => new Date().toISOString()
 
+/** Live list of PCS people in the membership pipeline (open + completed) — one
+ *  shared onSnapshot feed, so a stage advanced anywhere (PCS profile, Caring staff,
+ *  Founder's workspace) shows everywhere at once. */
+export function subscribeMembershipPipelineEntries(onChange, onError) {
+  if (!db) { onChange([]); return () => {} }
+  const q = query(collection(db, CARING_PCS_COLLECTION), where('membershipPipeline.status', 'in', ['in_progress', 'completed']))
+  return onSnapshot(q,
+    (snap) => onChange(snap.docs.map(mapPCSDoc).filter((e) => e.status !== 'inactive')),
+    (err) => { console.error('subscribeMembershipPipelineEntries:', err); onError?.(err) })
+}
+
 /** "+ Initiate Membership Process": opens the pipeline and marks the person
  *  "Membership – In Progress" (membershipStatus 'applying' on their profile). */
 export async function startMembershipPipeline(entry, by = '') {
@@ -3607,6 +3620,12 @@ export async function setPCSAwayStatus(id, patch, updatedBy = '') {
     awayUpdatedBy: updatedBy || 'unknown',
     awayUpdatedAt: Timestamp.now(),
   })
+}
+
+/** Founder / Senior Pastor: save a PCS entry's Deacon Office (only that field). */
+export async function setPCSDeaconOffice(id, deaconOffice) {
+  if (!db || !id) return
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, id), { deaconOffice })
 }
 
 /** Append a pastoral follow-up note to a PCS entry; returns the saved item. */
@@ -6380,6 +6399,9 @@ export async function getMemberProfile(visitorId) {
     nativity:         d.nativity         || '',
     currentPlace:     d.currentPlace     || '',
     gender:           d.gender           || '',
+    // Parents — printed on the Certificate of Baptism ("Son of" / "Daughter of")
+    fatherName:       d.fatherName       || '',
+    motherName:       d.motherName       || '',
     baptised:         d.baptised         || '',
     baptismDate:      d.baptismDate      || '',
     baptismPlace:     d.baptismPlace     || '',
@@ -6440,7 +6462,7 @@ export async function upsertMemberProfile(visitorId, data, updatedBy = '') {
   if (!db || !visitorId) return
   const payload = {}
   const allowed = [
-    'phone','email','dob','nativity','currentPlace','gender',
+    'phone','email','dob','nativity','currentPlace','gender','fatherName','motherName',
     'baptised','baptismDate','baptismPlace','baptismChurch','maritalStatus','marriageDate','spouseName','spouseVisitorId',
     'isDirector','directorOf','directorSince','leaderSince','leaderUntil','ministryNotes',
     'ministryHistory','membershipStatus','membershipDocs','permanentAddress','photoUrl',
@@ -8420,4 +8442,17 @@ export async function mergePCSEntries(masterId, duplicateIds, mergedBy = '') {
     deleteDoc(doc(db, PCS_LOOKUP_COLLECTION, id)).catch(() => {})
   }
   return { moved, archived: dupIds.length }
+}
+
+/**
+ * On approval, copy what a Baptism applicant gave about family onto their profile
+ * (member_profiles): gender and parents' names, which the Certificate of Baptism
+ * prints ("Son of" / "Daughter of …"). Other types: nothing to sync.
+ */
+export async function syncApplicationToProfile(type, app, by = '') {
+  if (type !== 'baptism' || !app?.visitorId) return
+  const v = (k) => String(app.applicant?.[k] || app.prefill?.[k] || '').trim()
+  const patch = {}
+  ;['gender', 'fatherName', 'motherName'].forEach((k) => { if (v(k)) patch[k] = v(k) })
+  if (Object.keys(patch).length) await upsertMemberProfile(app.visitorId, patch, by || 'baptism application')
 }

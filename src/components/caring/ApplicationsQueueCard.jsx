@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { subscribeApplicationsByStatus, updateApplication, subscribeCaringEvents, saveCaringEvent } from '../../services/firestore'
+import { subscribeApplicationsByStatus, updateApplication, syncApplicationToProfile, subscribeCaringEvents, saveCaringEvent } from '../../services/firestore'
 import { APPLICATION_TYPES, APPLICATION_TYPE_KEYS, SUBMITTED_STATUSES, applicationStatus, eventForApplication } from '../../utils/pastoralApplications'
 import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { getMemberDisplayName } from '../../utils/displayName'
@@ -64,7 +64,10 @@ export default function ApplicationsQueueCard({ pcsEntries, allCellMembers, cell
 
   const decide = async (type, app, data, failMsg) => {
     setBusy(true); setError('')
-    try { await updateApplication(type, app.id, { ...data, decidedBy: savedBy, decidedAt: new Date() }) }
+    try {
+      await updateApplication(type, app.id, { ...data, decidedBy: savedBy, decidedAt: new Date() })
+      if (data.status === 'approved') await syncApplicationToProfile(type, app, savedBy).catch(() => {})
+    }
     catch (e) { console.error(e); setError(failMsg) }
     setBusy(false)
   }
@@ -86,6 +89,8 @@ export default function ApplicationsQueueCard({ pcsEntries, allCellMembers, cell
           : { key: newKey(), ...(pcs ? personFromEntry(pcs) : { name: APPLICATION_TYPES[type].title(app) }), applicationId: app.id, serialNo }
       await saveCaringEvent({ ...ev, participants: [...(ev.participants || []), participant] }, { previous: ev, savedBy })
       await updateApplication(type, app.id, { status: 'approved', linkedEventId: ev.id, decidedBy: savedBy, decidedAt: new Date() })
+      // Gender + parents' names onto their profile (printed on the Certificate of Baptism)
+      await syncApplicationToProfile(type, app, savedBy).catch(() => {})
       setLinking(null); setViewing(null)
     } catch (e) {
       console.error('Approve & link', e)
