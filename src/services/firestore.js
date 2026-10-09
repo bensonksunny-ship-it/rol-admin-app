@@ -8485,7 +8485,7 @@ export async function findAccountForPerson({ email, name } = {}) {
  * Assign a Deacon to interview a candidate. Cancels any earlier pending request
  * for this candidate. Returns { interview, account } (account null = no app login).
  */
-export async function requestMembershipInterview({ candidate, deacon, scheduledAt, notes = '', by = '' }) {
+export async function requestMembershipInterview({ candidate, deacon, scheduledAt, notes = '', by = '', candidateCell = '' }) {
   if (!db || !candidate?.id || !deacon?.id) throw new Error('Missing candidate or deacon')
   const account = await findAccountForPerson({ email: deacon.email, name: deacon.name })
   const prev = candidate.membershipPipeline?.interview
@@ -8501,6 +8501,7 @@ export async function requestMembershipInterview({ candidate, deacon, scheduledA
     recipientEmail: String(account?.email || deacon.email || '').trim().toLowerCase(),
     scheduledAt: scheduledAt || '',
     notes: String(notes || '').trim(),
+    candidateCell: candidateCell || '',
     requestedBy: by || 'unknown',
     requestedAt: nowIso(),
     notificationId: notifRef.id,
@@ -8511,6 +8512,7 @@ export async function requestMembershipInterview({ candidate, deacon, scheduledA
     status: 'pending',
     candidatePcsId: candidate.id,
     candidateName: candidate.name || '',
+    candidateCell: candidateCell || '',
     deaconPcsId: deacon.id,
     deaconName: deacon.name || '',
     recipientUid: interview.recipientUid,
@@ -8521,12 +8523,18 @@ export async function requestMembershipInterview({ candidate, deacon, scheduledA
     createdAt: Timestamp.now(),
     respondedAt: '', respondedBy: '', responseNote: '',
   })
-  await updateDoc(doc(db, CARING_PCS_COLLECTION, candidate.id), { 'membershipPipeline.interview': interview })
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, candidate.id), {
+    'membershipPipeline.interview': interview,
+    // Flat copies for reports / queries
+    'membershipPipeline.interviewScheduledAt': interview.scheduledAt,
+    'membershipPipeline.assignedDeaconId': deacon.id,
+  })
   return { interview, account }
 }
 
-/** The signed-in Deacon's pending interview invitations (by uid and by email), live. */
-export function subscribeMyInterviewRequests({ uid, email }, onChange) {
+/** The signed-in Deacon's interview invitations (by uid and by email), live —
+ *  pending ones, plus accepted ones (their schedule) unless `statuses` says otherwise. */
+export function subscribeMyInterviewRequests({ uid, email, statuses = ['pending', 'accepted'] }, onChange) {
   if (!db || (!uid && !email)) { onChange([]); return () => {} }
   const lists = { uid: [], email: [] }
   const emit = () => {
@@ -8535,7 +8543,7 @@ export function subscribeMyInterviewRequests({ uid, email }, onChange) {
       .sort((a, b) => String(a.scheduledAt || '').localeCompare(String(b.scheduledAt || ''))))
   }
   const map = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) }))
-  const base = [where('type', '==', 'membership_interview'), where('status', '==', 'pending')]
+  const base = [where('type', '==', 'membership_interview'), where('status', 'in', statuses)]
   const unsubs = []
   if (uid) unsubs.push(onSnapshot(query(collection(db, WORKSPACE_NOTIFICATIONS), where('recipientUid', '==', uid), ...base),
     (s) => { lists.uid = map(s); emit() }, (e) => console.error('subscribeMyInterviewRequests(uid):', e)))

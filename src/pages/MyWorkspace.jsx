@@ -78,13 +78,6 @@ export default function MyWorkspace() {
         </div>
       </div>
 
-      {/* Membership interview invitations addressed to this account (Deacons) */}
-      <DeaconInterviewRibbon
-        uid={user?.uid || userProfile?.id || ''}
-        email={userProfile?.email || user?.email || ''}
-        myName={userProfile?.displayName || userProfile?.email || ''}
-      />
-
       {isFounder && (
         <>
           <ApprovalsCard />
@@ -93,6 +86,12 @@ export default function MyWorkspace() {
         </>
       )}
       <ToDoListCard />
+      {/* Membership interview invitations addressed to this account (Deacons) */}
+      <DeaconInterviewRibbon
+        uid={user?.uid || userProfile?.id || ''}
+        email={userProfile?.email || user?.email || ''}
+        myName={userProfile?.displayName || userProfile?.email || ''}
+      />
       {showPipeline && (
         <MembershipPipelineWidget
           canCaring={canCaring}

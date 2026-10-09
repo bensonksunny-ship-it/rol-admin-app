@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { getPCSEntries, requestMembershipInterview } from '../../services/firestore'
+import { getPCSEntries, requestMembershipInterview, getAllCellGroupMembers, getCellGroups } from '../../services/firestore'
+import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { advanceBlockReason, currentStage } from '../../utils/membershipPipeline'
 import { deaconStatusOf } from '../../utils/deaconOffice'
 import { getMemberDisplayName } from '../../utils/displayName'
@@ -53,25 +54,43 @@ export function InterviewStatusLine({ interview }) {
 function InterviewAssign({ entry, by, onSaved }) {
   const existing = entry.membershipPipeline?.interview
   const [deacons, setDeacons] = useState(null)
+  const [candidateCell, setCandidateCell] = useState('')
   const [deaconId, setDeaconId] = useState(existing?.status !== 'Declined' ? (existing?.deaconPcsId || '') : '')
   const [at, setAt] = useState(existing?.scheduledAt || '')
   const [notes, setNotes] = useState(existing?.notes || '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
 
+  // Active deacons (deaconOffice.status 'Active', or isDeacon without an end), each
+  // labelled with their cell group — else their ministry / leadership position.
   useEffect(() => {
-    getPCSEntries()
-      .then((list) => setDeacons(list.filter((e) => deaconStatusOf(e.deaconOffice) === 'Active' && e.id !== entry.id)
-        .sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b)))))
-      .catch(() => setDeacons([]))
-  }, [entry.id])
+    let cancelled = false
+    Promise.all([
+      getPCSEntries(),
+      getAllCellGroupMembers().catch(() => []),
+      getCellGroups('Cell').catch(() => []),
+    ]).then(([list, members, groups]) => {
+      if (cancelled) return
+      const own = findPcsCellMember(entry, members)
+      setCandidateCell(own ? (groups.find((g) => g.id === own.cellId)?.cellName || '') : '')
+      const isActiveDeacon = (e) => deaconStatusOf(e.deaconOffice) === 'Active'
+        || (e.deaconOffice?.isDeacon === true && e.deaconOffice?.status !== 'Former' && !e.deaconOffice?.endDate)
+      setDeacons(list.filter((e) => isActiveDeacon(e) && e.id !== entry.id).map((e) => {
+        const cm = findPcsCellMember(e, members)
+        const cell = cm ? groups.find((g) => g.id === cm.cellId)?.cellName : ''
+        const ministry = (e.ministries || []).find((m) => !m?.ended)?.ministry || e.leadershipPosition || ''
+        return { ...e, assignment: cell ? `${cell} Cell` : ministry || 'No cell / ministry' }
+      }).sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b))))
+    }).catch(() => { if (!cancelled) setDeacons([]) })
+    return () => { cancelled = true }
+  }, [entry.id]) // eslint-disable-line react-hooks/exhaustive-deps -- reload only when the candidate changes
 
   const send = async () => {
     const deacon = deacons.find((d) => d.id === deaconId)
     if (!deacon || !at) return
     setBusy(true); setMsg('')
     try {
-      const { interview, account } = await requestMembershipInterview({ candidate: entry, deacon, scheduledAt: at, notes, by })
+      const { interview, account } = await requestMembershipInterview({ candidate: entry, deacon, scheduledAt: at, notes, by, candidateCell })
       onSaved?.(interview)
       setMsg(account
         ? `✓ Sent. ${getMemberDisplayName(deacon)} will see it on their My Workspace.`
@@ -92,15 +111,15 @@ function InterviewAssign({ entry, by, onSaved }) {
         : (
           <>
             <label className="block">
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Deacon</span>
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Select Interviewing Deacon *</span>
               <select value={deaconId} onChange={(e) => setDeaconId(e.target.value)} className={inp}>
                 <option value="">Select a deacon…</option>
-                {deacons.map((d) => <option key={d.id} value={d.id}>{getMemberDisplayName(d)}{d.phone ? ` · ${d.phone}` : ''}</option>)}
+                {deacons.map((d) => <option key={d.id} value={d.id}>{getMemberDisplayName(d)} - {d.assignment}</option>)}
               </select>
             </label>
             <label className="block">
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Interview date &amp; time</span>
-              <input type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} className={inp} />
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Interview Date &amp; Time *</span>
+              <input type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white" />
             </label>
             <label className="block">
               <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Notes for the interviewer (optional)</span>
@@ -108,7 +127,7 @@ function InterviewAssign({ entry, by, onSaved }) {
             </label>
             <button type="button" disabled={busy || !deaconId || !at} onClick={send}
               className="w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-bold disabled:opacity-50">
-              {busy ? 'Sending…' : existing?.deaconName && existing.status !== 'Declined' ? 'Re-send Interview Request' : 'Send Interview Request to Deacon'}
+              {busy ? 'Scheduling…' : existing?.deaconName && existing.status !== 'Declined' ? 'Re-schedule Interview & Notify Deacon' : 'Schedule Interview & Notify Deacon'}
             </button>
           </>
         )}
@@ -131,9 +150,17 @@ export default function MembershipStageModal({
   const block = isCur ? advanceBlockReason(stage, stages, { canCaring, canPastor, canFirstLady }) : ''
   const canAct = isCur && !block
   const verificationDone = stages.find((s) => s.key === 'verification')?.done
-  const canAssignInterview = (canCaring || canFirstLady) && verificationDone
-    && !stages.find((s) => s.key === 'membershipInterview')?.done
-    && ['cellLeaderApproval', 'membershipInterview'].includes(stage.key)
+  const applicationDone = stages.find((s) => s.key === 'applicationSubmitted')?.done
+  const interviewDone = stages.find((s) => s.key === 'membershipInterview')?.done
+  const isInterviewStage = ['cellLeaderApproval', 'membershipInterview'].includes(stage.key)
+  // Interview assignment: Caring / First Lady once the Application (3) and
+  // Verification (4) are complete; the Founder / Senior Pastor may schedule it any
+  // time (pastoral bypass).
+  const canAssignInterview = isInterviewStage && !interviewDone
+    && (canPastor || ((canCaring || canFirstLady) && applicationDone && verificationDone))
+  const assignWaitingNote = isInterviewStage && !interviewDone && !canAssignInterview && (canCaring || canFirstLady)
+    ? 'Deacon interview scheduling opens once stage 3 (Application) and stage 4 (Verification) are complete.'
+    : ''
 
   const [checks, setChecks] = useState({})
   const [leader, setLeader] = useState({ approvedBy: cellLeaderName, signedOn: todayIso() })
@@ -169,7 +196,11 @@ export default function MembershipStageModal({
           ) : stage.auto ? (
             <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">Completes automatically from church records — nothing to do here.</p>
           ) : !isCur ? (
-            <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">Complete stage {cur?.n} ({cur?.label}) first.</p>
+            <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+              {canAssignInterview
+                ? `You can schedule the deacon interview now. Marking this stage complete opens after stage ${cur?.n} (${cur?.label}).`
+                : `Complete stage ${cur?.n} (${cur?.label}) first.`}
+            </p>
           ) : block ? (
             <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">{block}</p>
           ) : null}
@@ -202,6 +233,8 @@ export default function MembershipStageModal({
               </button>
             </div>
           )}
+
+          {assignWaitingNote && <p className="text-xs text-slate-500">{assignWaitingNote}</p>}
 
           {/* Stages 5–6 — assign a Deacon for the interview */}
           {canAssignInterview && (
