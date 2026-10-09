@@ -50,9 +50,7 @@ export function buildFamilyPrefill(form) {
   }
 }
 
-export const emptyFormChild = () => ({ id: newChildId(), firstName: '', middleName: '', lastName: '', dob: '', gender: '', childType: 'minor', isNew: true })
-
-/** Initial editable state for the public form's Family Details section. */
+/** The PCS family snapshot shown (read-only) in the public form's Family Details section. */
 export function initialFamilyState(prefill) {
   const fam = prefill?.family || {}
   return {
@@ -62,12 +60,6 @@ export function initialFamilyState(prefill) {
 }
 
 const childHasAny = (c) => [c.firstName, c.middleName, c.lastName, c.dob, c.gender].some((v) => clean(v))
-
-/** Problems to block submit: a started child row needs first + last name. */
-export function familyProblems(state) {
-  return (state?.children || []).filter(childHasAny).some((c) => !clean(c.firstName) || !clean(c.lastName))
-    ? ["each child's first and last name"] : []
-}
 
 /** What the applicant submits (stored as applicant.family). Empty rows dropped. */
 export function familyPayload(state, { includeSpouse = true } = {}) {

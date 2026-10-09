@@ -561,6 +561,10 @@ service cloud.firestore {
       // otherwise silently unfindable outside Caring. Write stays Caring-gated.
       allow read: if isSignedIn();
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      // Membership pipeline: the Senior Pastor gives Pastoral Approval (stage 7)
+      // even without Caring access — only the membershipPipeline field.
+      allow update: if isSignedIn() && getUserRole() == 'Senior Pastor' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipPipeline']);
       // Auto-return from Away: marking an Away person present on a Cell or Sunday
       // attendance sheet flips them back to Active (returnPCSEntryFromAway). Only
       // Away -> Active, and only the away* fields — nothing else on the entry.
@@ -618,9 +622,16 @@ service cloud.firestore {
     // unexpired doc and submit the applicant's part exactly once; listing, creating,
     // deciding and deleting stay Caring-only.
     match /membership_applications/{token} {
+      // Once submitted, the QR link stays readable past expiry: it becomes the
+      // applicant's live progress tracker (pipelineProgress mirrored by staff).
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
-        || resource.data.expiresAt > request.time;
+        || resource.data.expiresAt > request.time
+        || resource.data.status != 'pending';
       allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      // Senior Pastor (Pastoral Approval, stage 7): mirror progress + approve only.
+      allow update: if isSignedIn() && getUserRole() == 'Senior Pastor'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['pipelineProgress', 'status', 'decidedBy', 'decidedAt', 'familySyncedAt', 'familySyncError']);
       allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || (resource.data.status == 'pending'
             && resource.data.expiresAt > request.time

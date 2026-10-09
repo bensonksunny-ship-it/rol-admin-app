@@ -1,6 +1,7 @@
 import { getMemberDisplayName } from '../utils/displayName'
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import useModalOpenGuard from '../hooks/useModalOpenGuard'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2 } from 'lucide-react'
@@ -1256,6 +1257,7 @@ function WorshipAnalyticsDashboard() {
 function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEdit, onDelete, onLink, stats }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
+  useModalOpenGuard(detailOpen) // hides the mobile dock + locks page scroll while the record is open
 
   const since = new Date(m.memberSince)
   const till = isFormer && m.formerSince ? new Date(m.formerSince) : new Date()
@@ -1378,7 +1380,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
         and the department dock (z-40); the bottom padding clears the home indicator. */}
     {detailOpen && createPortal(
       <div
-        className="fixed inset-0 z-[60] bg-black/50 flex items-end sm:items-center justify-center sm:p-4"
+        className="fixed inset-0 w-screen h-[100dvh] z-[60] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4"
         onClick={() => setDetailOpen(false)}
       >
         <div
@@ -1386,7 +1388,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
           aria-modal="true"
           aria-label={`${m.name} — Individual Record`}
           onClick={(e) => e.stopPropagation()}
-          className="w-full sm:max-w-md max-h-[85dvh] flex flex-col bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden pb-[env(safe-area-inset-bottom,0px)] sm:pb-0"
+          className="w-full max-w-lg sm:max-w-md mx-auto max-h-[85dvh] flex flex-col bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden"
         >
           <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200">
             <div className="min-w-0">
@@ -1403,7 +1405,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
             </button>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-4 pb-[calc(3rem+env(safe-area-inset-bottom,0px))] sm:pb-6 space-y-4">
             {(m.isWorshipDirector || m.positions?.length > 0) && (
               <div>
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Roles</p>

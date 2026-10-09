@@ -750,3 +750,9 @@ body {
   }
   @page { size: A4; margin: 0; }
 }
+
+/* While a modal / bottom sheet is open (useModalOpenGuard): hide the mobile
+   department dock so it never floats over sheet content, and stop the page
+   behind from scrolling. */
+body.modal-open { overflow: hidden; }
+body.modal-open [data-dock] { display: none !important; }

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { getMembershipApplicationByToken, submitMembershipApplication } from '../services/firestore'
+import { subscribeMembershipApplicationByToken, submitMembershipApplication } from '../services/firestore'
+import MembershipProgressPublic from '../components/MembershipProgressPublic'
 import { applicationHasCell, APPLICATION_LOCKED_TITLE, APPLICATION_LOCKED_TEXT } from '../utils/applicationCellGuard'
 import {
   MEMBERSHIP_CHURCH_NAME, MEMBERSHIP_FORM_TITLE, MEMBERSHIP_FOOTER_NOTE,
@@ -14,7 +15,7 @@ import { EMPTY_ADDRESS, addressProblems, addressPayload } from '../utils/address
 import SignaturePad from '../components/SignaturePad'
 import LegalNameInputGroup from '../components/LegalNameInputGroup'
 import FamilyDetailsSection from '../components/FamilyDetailsSection'
-import { initialFamilyState, familyPayload, familyProblems } from '../utils/familyDetails'
+import { initialFamilyState, familyPayload } from '../utils/familyDetails'
 import { LEGAL_NAME_KEYS, legalFullName, legalNamePayload, isLegalNameComplete, splitName } from '../utils/legalName'
 
 const fmtDate = (d) => {
@@ -43,25 +44,33 @@ export default function MembershipApply() {
   const [signature, setSignature] = useState('')
   const [legal, setLegal] = useState({ firstName: '', middleName: '', lastName: '' })
   const [nameConfirmed, setNameConfirmed] = useState(false)
+  // Read-only snapshot of the PCS family (spouse / children) — shown and submitted as-is.
   const [family, setFamily] = useState({ spouse: {}, children: [] })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  // Live listener (not a one-time read): after submission this page is the
+  // applicant's progress tracker, and it follows staff advancing their stages.
+  // The form fields are seeded from the first snapshot only, so later updates
+  // never overwrite what the applicant is typing.
+  const seeded = useRef(false)
   useEffect(() => {
     if (!token) { setState('notFound'); return }
-    getMembershipApplicationByToken(token)
-      .then((a) => {
-        if (!a) { setState('notFound'); return }
-        setApp(a)
+    return subscribeMembershipApplicationByToken(token, (a) => {
+      if (!a) { setState('notFound'); return }
+      setApp(a)
+      if (!seeded.current) {
+        seeded.current = true
         setPhoto(a.photoDataUrl || '')
         // PCS only holds a locality for the current address — start Line 2 from it.
         setAddress({ ...EMPTY_ADDRESS, line2: a.prefill?.currentAddress || '' })
         setLegal(splitName([a.prefill?.firstName, a.prefill?.middleName, a.prefill?.lastName].filter(Boolean).join(' ')))
         setFamily(initialFamilyState(a.prefill))
-        setState(a.status === 'pending' ? (applicationHasCell(a) ? 'ready' : 'locked') : 'submitted')
-      })
-      // Permission-denied here means the link expired (rules stop serving it).
-      .catch(() => setState('notFound'))
+      }
+      setState(a.status === 'pending' ? (applicationHasCell(a) ? 'ready' : 'locked') : 'submitted')
+    },
+    // Permission-denied here means the link expired before it was submitted.
+    () => setState((s) => (s === 'submitted' ? s : 'notFound')))
   }, [token])
 
   const locked = (key) => hasValue(app?.prefill?.[key])
@@ -84,8 +93,6 @@ export default function MembershipApply() {
     if (!nameConfirmed) { setError('Please confirm that your name matches your government ID.'); return }
     if (addressMissing.length) { setError(`Please complete your address: ${addressMissing.join(', ')}`); return }
     if (missingRequired.length) { setError(`Please fill: ${missingRequired.map((f) => f.label).join(', ')}`); return }
-    const famIssues = familyProblems(family)
-    if (famIssues.length) { setError(`Please enter ${famIssues.join(', ')}.`); return }
     if (!photo) { setError('Please add a recent photograph.'); return }
     if (missingDocs.length) { setError(`Please confirm you have handed over: ${missingDocs.map((d) => d.label).join(', ')}`); return }
     if (!signature) { setError('Please sign, or upload a signature image.'); return }
@@ -161,15 +168,17 @@ export default function MembershipApply() {
     </div>
 
     {state === 'submitted' ? (
-      <div className="p-6 text-center space-y-3">
-        <div className="w-14 h-14 mx-auto rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-2xl">✓</div>
-        <p className="text-lg font-bold text-slate-800">Membership form submitted</p>
-        <p className="text-sm text-slate-500">Thank you{fullName ? `, ${fullName}` : ''}. Your application is now under review by the Pastoral Office.</p>
-        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{MEMBERSHIP_FOOTER_NOTE}</p>
-        <button type="button" onClick={() => openMembershipFormPrint(app)} className="px-4 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-          Print / Save as PDF
-        </button>
-      </div>
+      <>
+        {/* Live 8-stage progress dashboard (same stages as the PCS tracker) */}
+        <MembershipProgressPublic app={app} />
+        <div className="px-5 pb-6 space-y-3 text-center">
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{MEMBERSHIP_FOOTER_NOTE}</p>
+          <button type="button" onClick={() => openMembershipFormPrint(app)} className="px-4 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Print / Save as PDF
+          </button>
+          <p className="text-[11px] text-slate-400">Bookmark this page — it updates automatically as your application moves forward.</p>
+        </div>
+      </>
     ) : (
       <div className="p-5 space-y-6">
         {/* Photo */}
@@ -218,7 +227,7 @@ export default function MembershipApply() {
           </div>
         </section>
 
-        <FamilyDetailsSection value={family} onChange={setFamily} showSpouse={showSpouse} idPrefix="membership-family" />
+        <FamilyDetailsSection value={family} showSpouse={showSpouse} />
 
         {/* Talents */}
         <section>

@@ -103,6 +103,7 @@ import {
   updatePCSEntry,
   deletePCSEntry,
   deactivatePCSEntry,
+  startMembershipPipeline,
   createPCSRemovalNotice,
   addPCSFollowUp,
   subscribeMembershipApplicationsForEntry,
@@ -161,6 +162,9 @@ import MembershipApplicationModal from '../components/caring/MembershipApplicati
 import CaringEventsTab from '../components/caring/CaringEventsTab'
 import DedicationApplicationModal from '../components/caring/DedicationApplicationModal'
 import MarriageApplicationModal from '../components/caring/MarriageApplicationModal'
+import MembershipPipelineTracker from '../components/caring/MembershipPipelineTracker'
+import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
+import { hasMembershipPipeline, resolveMembershipStages } from '../utils/membershipPipeline'
 import { buildFamilyPrefill, childDisplayName, childAgeText } from '../utils/familyDetails'
 import { canRevealSurpriseNames } from '../constants/dedicationForm'
 import { MEMBERSHIP_DECISIONS } from '../constants/membershipForm'
@@ -629,7 +633,7 @@ export default function DepartmentHub() {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder, isCellDirector, isSundayMinistryDirector } = useAuth()
+  const { userProfile, user, canManageDepartment, isDepartmentHead, hasAccess, hasPermission, isFounder, isSeniorPastor, isCellDirector, isSundayMinistryDirector } = useAuth()
   const { isSeniorPastorName, title: SENIOR_PASTOR_TITLE, fullTitle: SENIOR_PASTOR_FULL_TITLE, name: seniorPastorName } = useSeniorPastor()
   const department = getDepartmentBySlug(slug)
 
@@ -931,6 +935,17 @@ export default function DepartmentHub() {
     mq.addEventListener('change', update)
     return () => mq.removeEventListener('change', update)
   }, [])
+
+  // Membership pipeline updates from the tracker/widget: patch the local PCS list
+  // (pipeline via fn, plus any plain entry fields) so the UI follows without a reload.
+  const onPipelineChanged = useCallback((id, fn, patch) => {
+    setPcsEntries(prev => prev.map(e => e.id !== id ? e : {
+      ...e,
+      ...(fn ? { membershipPipeline: fn(e.membershipPipeline || {}) } : {}),
+      ...(patch || {}),
+    }))
+  }, [])
+  const [pcsPipelineStarting, setPcsPipelineStarting] = useState(false)
 
   const closePcsProfile = useCallback(() => {
     setPcsExpandedId(null); setPcsExpandedVisitor(null); setPcsExpandedProfile(null); setPcsExpandedContext(null); setPcsExpandedForm({})
@@ -3283,6 +3298,17 @@ export default function DepartmentHub() {
                     canEdit={!!canEdit}
                     savedBy={userProfile?.displayName || userProfile?.email || ''}
                     onOpenEvents={() => { setActiveTab('events'); setSearchParams({ tab: 'events' }, { replace: true }) }}
+                  />
+                  {/* Membership Onboarding Pipeline — everyone in the 8-stage membership process */}
+                  <MembershipPipelineWidget
+                    pcsEntries={pcsEntries}
+                    allCellMembers={allCellMembers}
+                    cellGroups={cellGroups}
+                    canCaring={!!canEdit}
+                    canPastor={!!(isFounder || isSeniorPastor)}
+                    by={userProfile?.displayName || userProfile?.email || ''}
+                    onChanged={onPipelineChanged}
+                    onOpenProfile={(e) => { setPcsSearchQuery(e.name || ''); setActiveTab('pcs'); setSearchParams({ tab: 'pcs' }) }}
                   />
                   {loadingPCS ? (
                     <div className="py-10 text-center text-slate-400 text-sm">Loading insights…</div>
@@ -7711,6 +7737,7 @@ export default function DepartmentHub() {
                             dateOfJoin: f.attendedDate || '',
                             baptismDate: f.baptismDate || '', baptismChurch: f.baptismChurch || '',
                             cellName: _cg?.cellName || '', cellGroupId: _cg?.id || '',
+                            cellLeader: _cg?.leader || '',
                             family: buildFamilyPrefill(f),
                           }}
                         />
@@ -8014,7 +8041,41 @@ export default function DepartmentHub() {
 
                           {(f.membershipStatus || pcsMembershipApp || canEdit) && (
                             <Section title="Membership" color="#92400e">
-                              {f.membershipStatus && row('Status', f.membershipStatus === 'member' ? 'Member' : 'Applying')}
+                              {f.membershipStatus && row('Status', f.membershipStatus === 'member' ? 'Member' : 'Membership – In Progress')}
+                              {/* Membership Onboarding Pipeline — 8 stages (utils/membershipPipeline.js) */}
+                              {hasMembershipPipeline(entry) ? (
+                                <div className="col-span-2 pt-2 pb-1">
+                                  <MembershipPipelineTracker
+                                    entry={entry}
+                                    stages={resolveMembershipStages(entry, { hasCell: !!_cg, baptised: baptismRecorded, application: pcsMembershipApp })}
+                                    application={pcsMembershipApp}
+                                    cellLeaderName={_cg?.leader || ''}
+                                    canCaring={!!canEdit}
+                                    canPastor={!!(isFounder || isSeniorPastor)}
+                                    by={userProfile?.displayName || userProfile?.email || ''}
+                                    onChanged={(id, fn, patch) => {
+                                      onPipelineChanged(id, fn, patch)
+                                      if (patch?.membershipNumber) setF(p => ({ ...p, membershipNumber: patch.membershipNumber, membershipStatus: 'member' }))
+                                    }}
+                                  />
+                                </div>
+                              ) : canEdit && !isPendingDiscard && f.membershipStatus !== 'member' && (
+                                <div className="col-span-2 pt-2">
+                                  <button type="button" disabled={pcsPipelineStarting}
+                                    onClick={async () => {
+                                      setPcsPipelineStarting(true)
+                                      try {
+                                        const pipeline = await startMembershipPipeline(entry, userProfile?.displayName || userProfile?.email || '')
+                                        onPipelineChanged(entry.id, () => pipeline)
+                                        setF(p => ({ ...p, membershipStatus: 'applying' }))
+                                      } catch (e) { console.error('startMembershipPipeline', e); alert('Could not start the membership process. Please try again.') }
+                                      setPcsPipelineStarting(false)
+                                    }}
+                                    className="w-full min-h-[40px] rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-60">
+                                    {pcsPipelineStarting ? 'Starting…' : '+ Initiate Membership Process'}
+                                  </button>
+                                </div>
+                              )}
                               {f.membershipStatus && row('Membership No.', f.membershipNumber)}
                               {pcsMembershipApp && row('Membership Application',
                                 pcsMembershipApp.status === 'pending' ? 'Sent · waiting for applicant' : MEMBERSHIP_DECISIONS[pcsMembershipApp.status] || pcsMembershipApp.status,

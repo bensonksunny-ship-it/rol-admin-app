@@ -3447,6 +3447,8 @@ function mapPCSDoc(d) {
     awayUntil: data.awayUntil || '',
     awayNote: data.awayNote || '',
     awayPeriods: Array.isArray(data.awayPeriods) ? data.awayPeriods : [],
+    // Membership onboarding pipeline — see utils/membershipPipeline.js
+    membershipPipeline: data.membershipPipeline && typeof data.membershipPipeline === 'object' ? data.membershipPipeline : null,
     // Relocated / Moved Out — see utils/relocation.js
     relocated: !!data.relocated,
     relocatedLastDate: data.relocatedLastDate || '',
@@ -3547,6 +3549,55 @@ export async function completeMinistryRolesForRelocation({ visitorId, phone, las
   const failed = results.filter((r) => r.status === 'rejected')
   failed.forEach((r) => console.error('completeMinistryRolesForRelocation:', r.reason))
   return { completed: results.length - failed.length, failed: failed.length }
+}
+
+// ─── Membership Onboarding Pipeline (utils/membershipPipeline.js) ─────────────
+const nowIso = () => new Date().toISOString()
+
+/** "+ Initiate Membership Process": opens the pipeline and marks the person
+ *  "Membership – In Progress" (membershipStatus 'applying' on their profile). */
+export async function startMembershipPipeline(entry, by = '') {
+  if (!db || !entry?.id) return null
+  const pipeline = { status: 'in_progress', startedAt: nowIso(), startedBy: by || 'unknown', stages: {} }
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, entry.id), { membershipPipeline: pipeline })
+  if (entry.visitorId) {
+    const profile = await getMemberProfile(entry.visitorId).catch(() => null)
+    if (profile?.membershipStatus !== 'member') {
+      await upsertMemberProfile(entry.visitorId, { membershipStatus: 'applying' }, by).catch((err) => console.error('membershipStatus applying:', err))
+    }
+  }
+  return pipeline
+}
+
+/** Complete (rec) or undo (rec = null) one manual stage. Returns the field patch. */
+export async function setMembershipStage(entryId, stageKey, rec, by = '') {
+  if (!db || !entryId || !stageKey) return
+  const value = rec ? { status: 'completed', completedAt: nowIso(), by: by || 'unknown', ...rec } : deleteField()
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, entryId), {
+    [`membershipPipeline.stages.${stageKey}`]: value,
+    // Undoing the last stage reopens a completed pipeline.
+    ...(rec ? {} : { 'membershipPipeline.status': 'in_progress', 'membershipPipeline.completedAt': deleteField() }),
+  })
+  return value
+}
+
+/** Stage 8: certificate & card issued → pipeline complete, person becomes a Member
+ *  (membershipStatus 'member' + membership number on PCS and their profile). */
+export async function completeMembershipPipeline(entry, { membershipNumber, by = '' }) {
+  if (!db || !entry?.id) return
+  const num = String(membershipNumber || '').trim()
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, entry.id), {
+    'membershipPipeline.stages.certificateAndCardIssued': { status: 'completed', completedAt: nowIso(), issuedAt: nowIso(), by: by || 'unknown' },
+    'membershipPipeline.status': 'completed',
+    'membershipPipeline.completedAt': nowIso(),
+    ...(num ? { membershipNumber: num } : {}),
+  })
+  if (entry.visitorId) {
+    await upsertMemberProfile(entry.visitorId, { membershipStatus: 'member' }, by).catch((err) => console.error('membershipStatus member:', err))
+  }
+  if (entry.personId && num) {
+    updateDoc(doc(db, 'people', entry.personId), { membershipNumber: num, membershipStatus: 'member', stage: 'member' }).catch(() => {})
+  }
 }
 
 export async function setPCSAwayStatus(id, patch, updatedBy = '') {
@@ -7777,6 +7828,15 @@ export async function getMembershipApplicationByToken(token) {
   if (!db || !token) return null
   const snap = await getDoc(doc(db, MEMBERSHIP_APPLICATIONS, token))
   return snap.exists() ? mapMembershipApplication(snap) : null
+}
+
+/** Public live view of one application by its token — the applicant's progress
+ *  tracker after submission (staff mirror pipelineProgress onto the doc). */
+export function subscribeMembershipApplicationByToken(token, onChange, onError) {
+  if (!db || !token) { onChange(null); return () => {} }
+  return onSnapshot(doc(db, MEMBERSHIP_APPLICATIONS, token),
+    (snap) => onChange(snap.exists() ? mapMembershipApplication(snap) : null),
+    (err) => { console.error('subscribeMembershipApplicationByToken:', err); onError?.(err) })
 }
 
 /** Caring: live list of applications for one PCS entry, newest first. */

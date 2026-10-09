@@ -10,7 +10,7 @@ import { openBaptismFormPrint } from '../utils/baptismFormPrint'
 import SignaturePad from '../components/SignaturePad'
 import LegalNameInputGroup from '../components/LegalNameInputGroup'
 import FamilyDetailsSection from '../components/FamilyDetailsSection'
-import { initialFamilyState, familyPayload, familyProblems } from '../utils/familyDetails'
+import { initialFamilyState, familyPayload } from '../utils/familyDetails'
 import { LEGAL_NAME_KEYS, legalFullName, legalNamePayload, isLegalNameComplete, splitName } from '../utils/legalName'
 
 // Shrink an uploaded image to a small JPEG data URL so it fits inside the
@@ -55,6 +55,7 @@ export default function BaptismApply() {
   const [agreed, setAgreed] = useState(false)
   const [legal, setLegal] = useState({ firstName: '', middleName: '', lastName: '' })
   const [nameConfirmed, setNameConfirmed] = useState(false)
+  // Read-only snapshot of the PCS family (spouse / children) — shown and submitted as-is.
   const [family, setFamily] = useState({ spouse: {}, children: [] })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -92,8 +93,6 @@ export default function BaptismApply() {
     if (!isLegalNameComplete(legal)) { setError('Please enter your first and last name as on your government ID.'); return }
     if (!nameConfirmed) { setError('Please confirm that your name matches your government ID.'); return }
     if (missingRequired.length) { setError(`Please fill: ${missingRequired.map((f) => f.label).join(', ')}`); return }
-    const famIssues = familyProblems(family)
-    if (famIssues.length) { setError(`Please enter ${famIssues.join(', ')}.`); return }
     if (!agreed) { setError('Please tick the declaration.'); return }
     if (!signature) { setError('Please sign, or upload a signature image.'); return }
     setSubmitting(true)
@@ -105,8 +104,6 @@ export default function BaptismApply() {
       }
       const fam = familyPayload(family, { includeSpouse: showSpouse })
       applicant.family = fam
-      // The form's Spouse Name (print / office view) follows the Family Details boxes.
-      if (showSpouse && fam.spouseName && fam.spouseName !== app.prefill?.spouseName) applicant.spouseName = fam.spouseName
       await submitBaptismApplication(token, { applicant, photoDataUrl: photo, signatureDataUrl: signature })
       setApp((a) => ({ ...a, applicant, photoDataUrl: photo, signatureDataUrl: signature, status: 'submitted', submittedAt: new Date() }))
       setState('submitted')
@@ -214,7 +211,7 @@ export default function BaptismApply() {
           </div>
         </section>
 
-        <FamilyDetailsSection value={family} onChange={setFamily} showSpouse={showSpouse} idPrefix="baptism-family" />
+        <FamilyDetailsSection value={family} showSpouse={showSpouse} />
 
         {/* Declaration + signature */}
         <section>

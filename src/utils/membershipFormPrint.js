@@ -91,9 +91,16 @@ export function openMembershipFormPrint(app) {
       <p style="font-size:10px;font-weight:700;color:#7c2d12;border:1px dashed #c2410c;padding:5px 8px">${esc(MEMBERSHIP_FOOTER_NOTE)}</p>
       <table style="margin-top:8px">
         <tr>
-          <td style="border:1px solid #334155;padding:6px 8px;width:50%;vertical-align:bottom">
-            <div style="height:14mm"></div>
-            <div style="font-size:8.5px;color:#475569;border-top:1px solid #334155;padding-top:2px;text-align:center">Signature of Cell Co-ordinator</div>
+          <td style="border:1px solid #334155;padding:6px 8px;width:50%;vertical-align:top">
+            <div style="font-size:8px;font-weight:700;color:#475569">Cell Leader Approval</div>
+            <div style="font-size:9.5px;color:#0f172a;margin-top:2px">Cell: <b>${esc(membershipFieldValue(app, 'cellName') || '________________')}</b></div>
+            <div style="font-size:9.5px;color:#0f172a;margin-top:2px">Cell Leader: <b>${esc(app.prefill?.cellLeader || '________________')}</b></div>
+            <div style="font-size:9.5px;color:#0f172a;margin-top:4px">&#9744; Approved &nbsp;&nbsp; &#9744; Not approved</div>
+            <div style="height:9mm"></div>
+            <div style="display:flex;gap:6px">
+              <div style="flex:2;font-size:8.5px;color:#475569;border-top:1px solid #334155;padding-top:2px;text-align:center">Signature of Cell Leader</div>
+              <div style="flex:1;font-size:8.5px;color:#475569;border-top:1px solid #334155;padding-top:2px;text-align:center">Date</div>
+            </div>
           </td>
           <td style="border:1px solid #334155;padding:6px 8px;width:50%;vertical-align:top">
             <div style="font-size:8px;font-weight:700;color:#475569">Pastoral Approval</div>

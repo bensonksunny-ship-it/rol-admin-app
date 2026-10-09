@@ -8,7 +8,7 @@ import {
 } from '../constants/dedicationForm'
 import LegalNameInputGroup from '../components/LegalNameInputGroup'
 import FamilyDetailsSection from '../components/FamilyDetailsSection'
-import { initialFamilyState, familyPayload, familyProblems } from '../utils/familyDetails'
+import { initialFamilyState, familyPayload } from '../utils/familyDetails'
 import { legalNamePayload, isLegalNameComplete } from '../utils/legalName'
 
 const fmtDate = (d) => {
@@ -29,6 +29,7 @@ export default function DedicationApply() {
   const [childLegal, setChildLegal] = useState({ firstName: '', middleName: '', lastName: '' })
   const [nameConfirmed, setNameConfirmed] = useState(false)
   const [surprise, setSurprise] = useState(false)
+  // Read-only snapshot of the PCS family (spouse / children) — shown and submitted as-is.
   const [family, setFamily] = useState({ spouse: {}, children: [] })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -58,8 +59,6 @@ export default function DedicationApply() {
     if (!isLegalNameComplete(childLegal)) { setError("Please enter the child's first and last name."); return }
     if (!nameConfirmed) { setError("Please confirm that the child's name matches the birth certificate."); return }
     if (missing.length) { setError(`Please fill: ${missing.map((f) => f.label).join(', ')}`); return }
-    const famIssues = familyProblems(family)
-    if (famIssues.length) { setError(`Please enter ${famIssues.join(', ')}.`); return }
     setSubmitting(true)
     try {
       const applicant = Object.fromEntries([...askParent, ...DEDICATION_BABY_FIELDS]
@@ -171,10 +170,7 @@ export default function DedicationApply() {
           {hasValue(answers.preferredDate) && <p className="text-xs text-slate-400 mt-2">Preferred: {fmtDate(answers.preferredDate)}</p>}
         </section>
 
-        <div>
-          <FamilyDetailsSection value={family} onChange={setFamily} showSpouse={false} idPrefix="dedication-family" title="Other children in your family" />
-          <p className="text-[11px] text-slate-400 mt-2">Please don't list the baby being dedicated here — especially if you're keeping the name a surprise.</p>
-        </div>
+        <FamilyDetailsSection value={family} showSpouse={false} title="Children on record" />
 
         {error && <p className="text-sm font-medium text-red-600">{error}</p>}
         <button type="button" disabled={submitting} onClick={submit}

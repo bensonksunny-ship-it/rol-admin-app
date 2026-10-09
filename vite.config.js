@@ -42,7 +42,9 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        // Main bundle passed 4 MiB (Oct 2026). Raised so it is still precached for
+        // offline use; code-splitting the big pages (DepartmentHub) is the real fix.
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [

@@ -11,7 +11,7 @@ import SignaturePad from '../components/SignaturePad'
 import LegalNameInputGroup from '../components/LegalNameInputGroup'
 import FamilyDetailsSection from '../components/FamilyDetailsSection'
 import { LEGAL_NAME_KEYS, legalFullName, legalNamePayload, isLegalNameComplete, splitName } from '../utils/legalName'
-import { initialFamilyState, familyPayload, familyProblems } from '../utils/familyDetails'
+import { initialFamilyState, familyPayload } from '../utils/familyDetails'
 
 const fmtDate = (d) => {
   if (!d) return ''
@@ -38,6 +38,7 @@ export default function MarriageApply() {
   const [nameConfirmed, setNameConfirmed] = useState(false)
   const [partner, setPartner] = useState({ firstName: '', middleName: '', lastName: '' })
   const [partnerConfirmed, setPartnerConfirmed] = useState(false)
+  // Read-only snapshot of the PCS family (spouse / children) — shown and submitted as-is.
   const [family, setFamily] = useState({ spouse: {}, children: [] })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -73,8 +74,6 @@ export default function MarriageApply() {
     if (!isLegalNameComplete(partner)) { setError("Please enter your partner's first and last name as on their government ID."); return }
     if (!partnerConfirmed) { setError("Please confirm that your partner's name matches their government ID."); return }
     if (missingRequired.length) { setError(`Please fill: ${missingRequired.map((f) => f.label).join(', ')}`); return }
-    const famIssues = familyProblems(family)
-    if (famIssues.length) { setError(`Please enter ${famIssues.join(', ')}.`); return }
     if (!agreed) { setError('Please tick the declaration.'); return }
     if (!signature) { setError('Please sign, or upload a signature image.'); return }
     if ((photo?.length || 0) + (signature?.length || 0) > MAX_TOTAL_CHARS) { setError('The photo or signature image is too large. Please use a smaller image.'); return }
@@ -208,7 +207,7 @@ export default function MarriageApply() {
           {fieldGrid(MARRIAGE_WEDDING_FIELDS)}
         </section>
 
-        <FamilyDetailsSection value={family} onChange={setFamily} showSpouse={false} idPrefix="marriage-family" title="Your children (if any)" />
+        <FamilyDetailsSection value={family} showSpouse={false} title="Your children (if any)" />
 
         <section>
           {sectionTitle('Declaration', 'text-emerald-800 border-emerald-800')}

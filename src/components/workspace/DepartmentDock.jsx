@@ -73,6 +73,7 @@ export default function DepartmentDock() {
 
   return (
     <nav
+      data-dock
       className="flex lg:hidden fixed left-1/2 -translate-x-1/2 z-40"
       style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
       aria-label="Department shortcuts"
