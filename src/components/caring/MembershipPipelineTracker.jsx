@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { setMembershipStage, completeMembershipPipeline, updateApplication } from '../../services/firestore'
 import { advanceBlockReason, currentStage, stageSummary, undoableStageKey, progressMirror } from '../../utils/membershipPipeline'
 import { downloadMembershipCertificate, membershipCertificateData } from '../../utils/membershipCertificate'
-
-const todayIso = () => new Date().toISOString().slice(0, 10)
+import MembershipStageModal, { InterviewStatusLine } from './MembershipStageModal'
 const fmt = (d) => {
   if (!d) return ''
   const dt = new Date(d)
@@ -24,7 +23,7 @@ export default function MembershipPipelineTracker({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [form, setForm] = useState(null) // { key, ...inputs } while a stage's inputs are open
+  const [openStageKey, setOpenStageKey] = useState(null) // stage whose window is open (click its number)
   const cur = currentStage(stages)
   const undoKey = undoableStageKey(stages)
   const doneCount = stages.filter((s) => s.done).length
@@ -49,7 +48,7 @@ export default function MembershipPipelineTracker({
 
   const run = async (fn) => {
     setBusy(true); setError('')
-    try { await fn(); setForm(null) } catch (e) { console.error('Membership pipeline', e); setError('Could not save. Please try again.') }
+    try { await fn() } catch (e) { console.error('Membership pipeline', e); setError('Could not save. Please try again.') }
     setBusy(false)
   }
 
@@ -77,52 +76,12 @@ export default function MembershipPipelineTracker({
   }
 
   const block = cur ? advanceBlockReason(cur, stages, { canCaring, canPastor, canFirstLady }) : ''
-  const inp = 'px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200'
   const btn = 'px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap'
 
-  // Inputs for the stages that record something beyond "done".
+  // The current stage's action opens the same window as clicking its number.
   const stageInputs = () => {
     if (!cur || block) return null
-    if (form?.key !== cur.key) {
-      const open = () => {
-        if (cur.key === 'cellLeaderApproval') setForm({ key: cur.key, approvedBy: cellLeaderName, signedOn: todayIso() })
-        else if (cur.key === 'membershipInterview') setForm({ key: cur.key, interviewDate: todayIso() })
-        else if (cur.key === 'certificateAndCardIssued') setForm({ key: cur.key, membershipNumber: entry.membershipNumber || '' })
-        else if (cur.key === 'verification') complete(cur, { verifiedBy: by })
-        else if (cur.key === 'pastoralApproval') complete(cur, { approvedBy: by })
-      }
-      return <button type="button" disabled={busy} onClick={open} className={btn}>{busy ? 'Saving…' : cur.action}</button>
-    }
-    if (cur.key === 'cellLeaderApproval') return (
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="text-[10px] text-slate-500">Cell leader (as signed)<br />
-          <input value={form.approvedBy} onChange={(e) => setForm({ ...form, approvedBy: e.target.value })} className={inp} /></label>
-        <label className="text-[10px] text-slate-500">Signed on<br />
-          <input type="date" value={form.signedOn} onChange={(e) => setForm({ ...form, signedOn: e.target.value })} className={inp} /></label>
-        <button type="button" disabled={busy || !form.approvedBy.trim()} onClick={() => complete(cur, { approvedBy: form.approvedBy.trim(), signedOn: form.signedOn })} className={btn}>Save</button>
-        <button type="button" onClick={() => setForm(null)} className="text-xs text-slate-500">Cancel</button>
-      </div>
-    )
-    if (cur.key === 'membershipInterview') return (
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="text-[10px] text-slate-500">Interview date<br />
-          <input type="date" value={form.interviewDate} onChange={(e) => setForm({ ...form, interviewDate: e.target.value })} className={inp} /></label>
-        <button type="button" disabled={busy || !form.interviewDate} onClick={() => complete(cur, { interviewDate: form.interviewDate })} className={btn}>Save</button>
-        <button type="button" onClick={() => setForm(null)} className="text-xs text-slate-500">Cancel</button>
-      </div>
-    )
-    if (cur.key === 'certificateAndCardIssued') return (
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="text-[10px] text-slate-500">Membership No.<br />
-          <input value={form.membershipNumber} onChange={(e) => setForm({ ...form, membershipNumber: e.target.value })} placeholder="e.g. 1024" className={inp} /></label>
-        <button type="button" disabled={busy || !form.membershipNumber.trim()} onClick={() => issue(form.membershipNumber)} className={btn}>
-          {busy ? 'Issuing…' : 'Issue & Download Certificate'}
-        </button>
-        <button type="button" onClick={() => setForm(null)} className="text-xs text-slate-500">Cancel</button>
-        <p className="w-full text-[10px] text-slate-400">Also marks the membership card as issued (made outside the app) and sets them to Member.</p>
-      </div>
-    )
-    return null
+    return <button type="button" disabled={busy} onClick={() => setOpenStageKey(cur.key)} className={btn}>{busy ? 'Saving…' : cur.action}</button>
   }
 
   return (
@@ -133,12 +92,15 @@ export default function MembershipPipelineTracker({
           const isCur = cur?.key === s.key
           return (
             <div key={s.key} className="flex items-center flex-1 last:flex-none" role="listitem">
-              <span
-                title={`${s.n}. ${s.label}${s.done ? ' ✓' : isCur ? ' (current)' : ''}`}
-                className={`flex-shrink-0 ${compact ? 'w-5 h-5 text-[9px]' : 'w-6 h-6 text-[10px]'} rounded-full flex items-center justify-center font-bold border-2 ${
+              <button
+                type="button"
+                onClick={() => setOpenStageKey(s.key)}
+                title={`${s.n}. ${s.label}${s.done ? ' ✓' : isCur ? ' (current)' : ''} — open`}
+                aria-label={`Stage ${s.n}: ${s.label}${s.done ? ', done' : isCur ? ', current' : ''}`}
+                className={`flex-shrink-0 ${compact ? 'w-5 h-5 text-[9px]' : 'w-6 h-6 text-[10px]'} rounded-full flex items-center justify-center font-bold border-2 cursor-pointer hover:scale-105 transition-transform ${
                   s.done ? 'bg-emerald-500 border-emerald-500 text-white' : isCur ? 'bg-amber-50 border-amber-400 text-amber-700' : 'bg-white border-slate-200 text-slate-400'}`}>
                 {s.done ? '✓' : s.n}
-              </span>
+              </button>
               {i < stages.length - 1 && <span className={`h-0.5 flex-1 mx-0.5 rounded ${s.done ? 'bg-emerald-400' : 'bg-slate-200'}`} />}
             </div>
           )
@@ -152,7 +114,23 @@ export default function MembershipPipelineTracker({
         {!compact && <span className="text-[10px] text-slate-400">{doneCount}/8 done</span>}
       </div>
 
+      <InterviewStatusLine interview={entry.membershipPipeline?.interview} />
       {cur && (block ? <p className="text-[11px] text-slate-400">{block}</p> : stageInputs())}
+
+      {openStageKey && (() => {
+        const stage = stages.find((x) => x.key === openStageKey)
+        return stage ? (
+          <MembershipStageModal
+            stage={stage} stages={stages} entry={entry} cellLeaderName={cellLeaderName}
+            canCaring={canCaring} canPastor={canPastor} canFirstLady={canFirstLady} by={by} busy={busy} undoKey={undoKey}
+            onComplete={(st, rec) => complete(st, rec)}
+            onIssue={(num) => issue(num)}
+            onUndo={(key) => undo(key)}
+            onInterviewSaved={(interview) => onChanged?.(entry.id, (p) => ({ ...p, interview }))}
+            onClose={() => setOpenStageKey(null)}
+          />
+        ) : null
+      })()}
 
       {!compact && (
         <ol className="space-y-1 pt-1">

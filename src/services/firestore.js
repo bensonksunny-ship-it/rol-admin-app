@@ -8456,3 +8456,109 @@ export async function syncApplicationToProfile(type, app, by = '') {
   ;['gender', 'fatherName', 'motherName'].forEach((k) => { if (v(k)) patch[k] = v(k) })
   if (Object.keys(patch).length) await upsertMemberProfile(app.visitorId, patch, by || 'baptism application')
 }
+
+// ─── Membership interview requests → Deacon workspace ribbon ─────────────────
+// Stage 6 of the Membership Onboarding Pipeline: Caring / First Lady assign an
+// active Deacon (a PCS person with deaconOffice.status 'Active') to interview a
+// candidate. The request lives in two places:
+//   • caring_pcs/<candidate>.membershipPipeline.interview — what the stepper shows;
+//   • workspace_notifications/<id> — what puts the ribbon on the Deacon's My
+//     Workspace, addressed to their app account (user_directory by email, then name).
+// The Deacon answers from the ribbon; firestore.rules let only them change the
+// status fields of both. Everything is onSnapshot-driven, so all workspaces update live.
+const WORKSPACE_NOTIFICATIONS = 'workspace_notifications'
+
+/** App account for a PCS person: user_directory by email, else exact name. */
+export async function findAccountForPerson({ email, name } = {}) {
+  if (!db) return null
+  const em = String(email || '').trim().toLowerCase()
+  if (em) {
+    const snap = await getDocs(query(collection(db, USER_DIRECTORY), where('email', '==', em), limit(1))).catch(() => null)
+    if (snap && !snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() }
+  }
+  const nm = String(name || '').trim()
+  if (nm) return getUserByName(nm).catch(() => null)
+  return null
+}
+
+/**
+ * Assign a Deacon to interview a candidate. Cancels any earlier pending request
+ * for this candidate. Returns { interview, account } (account null = no app login).
+ */
+export async function requestMembershipInterview({ candidate, deacon, scheduledAt, notes = '', by = '' }) {
+  if (!db || !candidate?.id || !deacon?.id) throw new Error('Missing candidate or deacon')
+  const account = await findAccountForPerson({ email: deacon.email, name: deacon.name })
+  const prev = candidate.membershipPipeline?.interview
+  if (prev?.notificationId && prev.status === 'Requested') {
+    await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, prev.notificationId), { status: 'cancelled', respondedAt: nowIso() }).catch(() => {})
+  }
+  const notifRef = doc(collection(db, WORKSPACE_NOTIFICATIONS))
+  const interview = {
+    status: 'Requested',
+    deaconPcsId: deacon.id,
+    deaconName: deacon.name || '',
+    recipientUid: account?.id || '',
+    recipientEmail: String(account?.email || deacon.email || '').trim().toLowerCase(),
+    scheduledAt: scheduledAt || '',
+    notes: String(notes || '').trim(),
+    requestedBy: by || 'unknown',
+    requestedAt: nowIso(),
+    notificationId: notifRef.id,
+    respondedAt: '', respondedBy: '', responseNote: '',
+  }
+  await setDoc(notifRef, {
+    type: 'membership_interview',
+    status: 'pending',
+    candidatePcsId: candidate.id,
+    candidateName: candidate.name || '',
+    deaconPcsId: deacon.id,
+    deaconName: deacon.name || '',
+    recipientUid: interview.recipientUid,
+    recipientEmail: interview.recipientEmail,
+    scheduledAt: interview.scheduledAt,
+    notes: interview.notes,
+    createdBy: interview.requestedBy,
+    createdAt: Timestamp.now(),
+    respondedAt: '', respondedBy: '', responseNote: '',
+  })
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, candidate.id), { 'membershipPipeline.interview': interview })
+  return { interview, account }
+}
+
+/** The signed-in Deacon's pending interview invitations (by uid and by email), live. */
+export function subscribeMyInterviewRequests({ uid, email }, onChange) {
+  if (!db || (!uid && !email)) { onChange([]); return () => {} }
+  const lists = { uid: [], email: [] }
+  const emit = () => {
+    const seen = new Set()
+    onChange([...lists.uid, ...lists.email].filter((n) => !seen.has(n.id) && seen.add(n.id))
+      .sort((a, b) => String(a.scheduledAt || '').localeCompare(String(b.scheduledAt || ''))))
+  }
+  const map = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) }))
+  const base = [where('type', '==', 'membership_interview'), where('status', '==', 'pending')]
+  const unsubs = []
+  if (uid) unsubs.push(onSnapshot(query(collection(db, WORKSPACE_NOTIFICATIONS), where('recipientUid', '==', uid), ...base),
+    (s) => { lists.uid = map(s); emit() }, (e) => console.error('subscribeMyInterviewRequests(uid):', e)))
+  const em = String(email || '').trim().toLowerCase()
+  if (em) unsubs.push(onSnapshot(query(collection(db, WORKSPACE_NOTIFICATIONS), where('recipientEmail', '==', em), ...base),
+    (s) => { lists.email = map(s); emit() }, (e) => console.error('subscribeMyInterviewRequests(email):', e)))
+  return () => unsubs.forEach((u) => u())
+}
+
+/** Deacon's answer from the ribbon: accept / decline (+ optional note). */
+export async function respondToInterviewRequest(notif, accepted, { by = '', note = '' } = {}) {
+  if (!db || !notif?.id) return
+  const status = accepted ? 'Accepted' : 'Declined'
+  const at = nowIso()
+  await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), {
+    status: accepted ? 'accepted' : 'declined', respondedAt: at, respondedBy: by, responseNote: String(note || '').trim(),
+  })
+  if (notif.candidatePcsId) {
+    await updateDoc(doc(db, CARING_PCS_COLLECTION, notif.candidatePcsId), {
+      'membershipPipeline.interview.status': status,
+      'membershipPipeline.interview.respondedAt': at,
+      'membershipPipeline.interview.respondedBy': by,
+      'membershipPipeline.interview.responseNote': String(note || '').trim(),
+    })
+  }
+}

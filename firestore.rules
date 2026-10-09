@@ -587,6 +587,18 @@ service cloud.firestore {
       // even without Caring access — only the membershipPipeline field.
       allow update: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady')) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipPipeline']);
+      // Membership interview (pipeline stage 6): the Deacon it was sent to may accept /
+      // decline it — only membershipPipeline.interview's response fields, nothing else.
+      allow update: if isSignedIn()
+        && resource.data.get('membershipPipeline', {}).get('interview', {}).get('status', '') == 'Requested'
+        && (resource.data.membershipPipeline.interview.get('recipientUid', '') == request.auth.uid
+            || (request.auth.token.email_verified == true
+                && resource.data.membershipPipeline.interview.get('recipientEmail', '') == request.auth.token.email.lower()))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipPipeline'])
+        && request.resource.data.membershipPipeline.diff(resource.data.membershipPipeline).affectedKeys().hasOnly(['interview'])
+        && request.resource.data.membershipPipeline.interview.diff(resource.data.membershipPipeline.interview).affectedKeys()
+             .hasOnly(['status', 'respondedAt', 'respondedBy', 'responseNote'])
+        && request.resource.data.membershipPipeline.interview.status in ['Accepted', 'Declined'];
       // Auto-return from Away: marking an Away person present on a Cell or Sunday
       // attendance sheet flips them back to Active (returnPCSEntryFromAway). Only
       // Away -> Active, and only the away* fields — nothing else on the entry.
@@ -713,6 +725,26 @@ service cloud.firestore {
     // Caring can already write.
     match /caring_events/{eventId} {
       allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+    }
+
+    // Workspace ribbon notifications (e.g. Membership interview requests to a Deacon).
+    // Pipeline managers create and see all; a recipient (by uid, or verified email)
+    // reads theirs and may only answer it (status / response fields).
+    function isPipelineManager() {
+      return isSignedIn() && (isFullAccess() || canAccessDept('Caring')
+        || getUserRole() == 'Senior Pastor' || canAccessDept('First Lady'));
+    }
+    function isNotificationRecipient(data) {
+      return isSignedIn() && (data.get('recipientUid', '') == request.auth.uid
+        || (request.auth.token.email_verified == true && data.get('recipientEmail', '') == request.auth.token.email.lower()));
+    }
+    match /workspace_notifications/{notifId} {
+      allow read: if isPipelineManager() || isNotificationRecipient(resource.data);
+      allow create, delete: if isPipelineManager();
+      allow update: if isPipelineManager()
+        || (isNotificationRecipient(resource.data) && resource.data.status == 'pending'
+            && request.resource.data.status in ['accepted', 'declined']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt', 'respondedBy', 'responseNote']));
     }
 
     match /pcs_lookup/{docId} {

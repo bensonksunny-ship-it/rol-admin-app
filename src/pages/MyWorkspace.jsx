@@ -8,6 +8,7 @@ import WorshipWorkspaceWidget from '../components/workspace/WorshipWorkspaceWidg
 import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWorkspaceWidget'
 import ApprovalsCard from '../components/workspace/ApprovalsCard'
 import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
+import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
 
 function greeting() {
   const h = new Date().getHours()
@@ -33,7 +34,7 @@ function greeting() {
 // single unified surface (ToDoListCard's own soft glass panel) with no outer box,
 // so content rests directly on the page background instead.
 export default function MyWorkspace() {
-  const { userProfile, isFounder, isSeniorPastor, isCellDirector, canManageDepartment } = useAuth()
+  const { user, userProfile, isFounder, isSeniorPastor, isCellDirector, canManageDepartment } = useAuth()
   // Membership Onboarding Pipeline: Caring staff + Founder / Senior Pastor manage it;
   // the First Lady (anyone holding a First Lady department position) signs off the
   // pastoral-oversight stages — Membership Interview + Pastoral Approval; Cell
@@ -76,6 +77,13 @@ export default function MyWorkspace() {
           />
         </div>
       </div>
+
+      {/* Membership interview invitations addressed to this account (Deacons) */}
+      <DeaconInterviewRibbon
+        uid={user?.uid || userProfile?.id || ''}
+        email={userProfile?.email || user?.email || ''}
+        myName={userProfile?.displayName || userProfile?.email || ''}
+      />
 
       {isFounder && (
         <>
