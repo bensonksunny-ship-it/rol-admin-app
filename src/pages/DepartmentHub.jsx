@@ -106,6 +106,8 @@ import {
   createPCSRemovalNotice,
   addPCSFollowUp,
   subscribeMembershipApplicationsForEntry,
+  subscribeApplicationsForEntry,
+  subscribeCaringEvents,
   requestPCSDiscard,
   approvePCSDiscard,
   dismissInactiveCellAlert,
@@ -149,9 +151,18 @@ import {
 } from '../services/firestore'
 import { getMemberDisplayName } from '../utils/displayName'
 import ReferrerCombobox from '../components/caring/ReferrerCombobox'
+import PcsDuplicatesModal from '../components/caring/PcsDuplicatesModal'
+import { dedupeProfiles } from '../utils/pcsDedupe'
+import ApplicationsQueueCard from '../components/caring/ApplicationsQueueCard'
+import SubmittedApplicationViewer from '../components/caring/SubmittedApplicationViewer'
+import { APPLICATION_TYPES, APPLICATION_TYPE_KEYS, applicationStatus } from '../utils/pastoralApplications'
 import BaptismApplicationModal from '../components/caring/BaptismApplicationModal'
 import MembershipApplicationModal from '../components/caring/MembershipApplicationModal'
 import CaringEventsTab from '../components/caring/CaringEventsTab'
+import DedicationApplicationModal from '../components/caring/DedicationApplicationModal'
+import MarriageApplicationModal from '../components/caring/MarriageApplicationModal'
+import { buildFamilyPrefill, childDisplayName, childAgeText } from '../utils/familyDetails'
+import { canRevealSurpriseNames } from '../constants/dedicationForm'
 import { MEMBERSHIP_DECISIONS } from '../constants/membershipForm'
 import { ROLES } from '../constants/roles'
 import { SAVINGS_FUNDS } from '../constants/savingsFunds'
@@ -165,6 +176,8 @@ import { isCurrentlyAway, isProfileAwayOn, awaySummary, awayReturnHistoryLabel, 
 import PcsAwayControl from '../components/caring/PcsAwayControl'
 import AppreciationSummaryModal from '../components/caring/AppreciationSummaryModal'
 import { downloadPastoralClosureLetter } from '../utils/pastoralClosureLetter'
+import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo, baptismCertificateEligibility } from '../utils/baptismCertificate'
+import { downloadMembershipCertificate, membershipCertificateData } from '../utils/membershipCertificate'
 import { isRelocated, churchTillDate, RELOCATED_BADGE_CLS } from '../utils/relocation'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
@@ -925,6 +938,27 @@ export default function DepartmentHub() {
     setPcsEditingId(null)
   }, [])
 
+  // Desktop inline profile: a click anywhere outside it collapses it. "Inside" is
+  // judged on the React tree (pcsProfileClickInsideRef, set by the wrapper's capture
+  // handler) so clicks in the profile's own portalled modals still count as inside.
+  // Also ignored: member cards (their own click opens/switches/toggles), any open
+  // dialog/overlay (e.g. the Discard confirmation), and an edit with unsaved changes.
+  const pcsProfileClickInsideRef = useRef(false)
+  useEffect(() => {
+    if (!pcsExpandedId || pcsIsMobile) return
+    const onPointerDown = (e) => {
+      const inside = pcsProfileClickInsideRef.current
+      pcsProfileClickInsideRef.current = false
+      if (inside) return
+      const t = e.target
+      if (t instanceof Element && t.closest('[id^="pcs-entry-"], [role="dialog"], [aria-modal="true"], .fixed')) return
+      if (pcsEditingId && pcsFormDirty) return
+      closePcsProfile()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [pcsExpandedId, pcsIsMobile, pcsEditingId, pcsFormDirty, closePcsProfile])
+
   // Mobile: the open profile panel owns one history entry, so the phone's
   // hardware/gesture Back closes the panel instead of leaving the page.
   const pcsMobilePanelOpen = pcsIsMobile && !!pcsExpandedId && slug === 'caring' && activeTab === 'pcs' && !pcsShowFormer
@@ -1046,6 +1080,8 @@ export default function DepartmentHub() {
   const [pcsFormerForRec, setPcsFormerForRec] = useState([])       // removed PCS entries — never re-recommended
   const [pcsBaptismOpenFor, setPcsBaptismOpenFor] = useState(null)
   const [pcsMembershipOpenFor, setPcsMembershipOpenFor] = useState(null) // PCS entry id whose Membership Application modal is open
+  const [pcsDedicationOpenFor, setPcsDedicationOpenFor] = useState(null) // PCS entry id whose Baby Dedication Application modal is open
+  const [pcsMarriageOpenFor, setPcsMarriageOpenFor] = useState(null) // PCS entry id whose Marriage Application modal is open
   // Latest membership application of the open PCS profile — its status shows in the
   // profile's Membership section ("Membership Application: Under Review").
   const [pcsMembershipApp, setPcsMembershipApp] = useState(null)
@@ -1055,6 +1091,23 @@ export default function DepartmentHub() {
     return subscribeMembershipApplicationsForEntry(pcsExpandedId, (apps) => setPcsMembershipApp(apps[0] || null), () => setPcsMembershipApp(null))
   }, [slug, pcsExpandedId])
   const [pcsClosureLetterBusy, setPcsClosureLetterBusy] = useState(false)
+  const [pcsCertBusy, setPcsCertBusy] = useState(false)
+  // Submitted digital forms for the open PCS profile + Caring events (for their status)
+  const [pcsEntryApps, setPcsEntryApps] = useState({})
+  const [pcsCaringEvents, setPcsCaringEvents] = useState([])
+  const [pcsAppViewing, setPcsAppViewing] = useState(null) // { type, app }
+  const [pcsDupesSnapshot, setPcsDupesSnapshot] = useState(null) // duplicate groups shown in the merge modal
+  useEffect(() => {
+    setPcsEntryApps({})
+    if (!pcsExpandedId) return
+    const unsubs = APPLICATION_TYPE_KEYS.map(type => subscribeApplicationsForEntry(type, pcsExpandedId,
+      list => setPcsEntryApps(prev => ({ ...prev, [type]: list })), () => setPcsEntryApps(prev => ({ ...prev, [type]: [] }))))
+    return () => unsubs.forEach(u => u())
+  }, [pcsExpandedId])
+  useEffect(() => {
+    if (slug !== 'caring' || activeTab !== 'pcs') return
+    return subscribeCaringEvents(setPcsCaringEvents, () => setPcsCaringEvents([]))
+  }, [slug, activeTab])
   const [pcsAppreciationOpenFor, setPcsAppreciationOpenFor] = useState(null) // PCS entry id whose Appreciation Summary is open  // PCS entry id whose Baptism Application modal is open
 
   const [cellVisitorProposals, setCellVisitorProposals] = useState([])
@@ -3222,6 +3275,15 @@ export default function DepartmentHub() {
               {/* ── Caring Hub ── */}
               {slug === 'caring' && (
                 <div className="space-y-4">
+                  {/* Submitted Baptism / Dedication / Membership applications awaiting review */}
+                  <ApplicationsQueueCard
+                    pcsEntries={pcsEntries}
+                    allCellMembers={allCellMembers}
+                    cellGroups={cellGroups}
+                    canEdit={!!canEdit}
+                    savedBy={userProfile?.displayName || userProfile?.email || ''}
+                    onOpenEvents={() => { setActiveTab('events'); setSearchParams({ tab: 'events' }, { replace: true }) }}
+                  />
                   {loadingPCS ? (
                     <div className="py-10 text-center text-slate-400 text-sm">Loading insights…</div>
                   ) : (() => {
@@ -6616,16 +6678,21 @@ export default function DepartmentHub() {
           {activeTab === 'events' && slug === 'caring' && (
             <CaringEventsTab
               canEdit={!!canEdit}
+              canReveal={canRevealSurpriseNames(userProfile, isFounder)}
               savedBy={userProfile?.displayName || userProfile?.email || ''}
               defaultOfficiant={seniorPastorName || ''}
             />
           )}
 
           {activeTab === 'pcs' && slug === 'caring' && (() => {
-            const pcsYears = [...new Set(pcsEntries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a)
-            const noYearEntries = pcsEntries.filter(e => !e.year)
+            // One card per person: duplicate entries (same visitor, or same name + phone /
+            // email) collapse onto the most complete one — see utils/pcsDedupe.js.
+            const { list: pcsVisibleEntries, hiddenByMaster: pcsHiddenDupes } = dedupeProfiles(pcsEntries)
+            const pcsDuplicateGroups = [...pcsHiddenDupes.entries()].map(([masterId, dupes]) => ({ master: pcsEntries.find(e => e.id === masterId), dupes }))
+            const pcsYears = [...new Set(pcsVisibleEntries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a)
+            const noYearEntries = pcsVisibleEntries.filter(e => !e.year)
             const grouped = [
-              ...pcsYears.map(yr => ({ year: yr, entries: pcsEntries.filter(e => e.year === yr) })),
+              ...pcsYears.map(yr => ({ year: yr, entries: pcsVisibleEntries.filter(e => e.year === yr) })),
               ...(noYearEntries.length ? [{ year: null, entries: noYearEntries }] : []),
             ]
 
@@ -7182,19 +7249,22 @@ export default function DepartmentHub() {
               // Baptism already on record — answered Yes, or any baptism detail filled in
               // (older profiles can have a date/church without the Yes/No answer). Gates the
               // Baptism Application button and modal: never offered to someone baptised.
+              const DEDICATION_MARRIED_ONLY_MSG = 'Baby Dedication application is available for married members.'
               const baptismRecorded = String(f.baptised || '').toLowerCase() === 'yes'
                 || !!(f.baptismDate || f.baptismChurch || f.baptismPlace)
               // Water baptism is a prerequisite for membership: a *new* membership
               // application can only be started once baptism is recorded. Anyone who
               // already has an application or a membership status keeps access to it.
               const membershipBlocked = !baptismRecorded && !pcsMembershipApp && !f.membershipStatus
+              // Baby Dedication is for married members only — the trigger and the modal both use this.
+              const canApplyDedication = f.maritalStatus === 'Married'
               const membershipBlockedMsg = `Cannot generate Membership Application. ${getMemberDisplayName(f) || entry.name} must have a recorded baptism in PCS before applying for membership.`
               const MembershipPrereqNotice = ({ compact = false }) => (
                 <div className={`rounded-xl border border-amber-300 bg-amber-50 ${compact ? 'px-3 py-2' : 'px-3 py-2.5'}`}>
                   <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">Prerequisite Pending</span>
                   <p className="text-xs text-amber-900 mt-1.5 leading-snug">Water Baptism is required before applying for official Church Membership. Complete Baptism Application first.</p>
                   {!compact && (
-                    <button type="button" onClick={() => setPcsBaptismOpenFor(entry.id)} className="mt-2 text-xs font-bold text-violet-700 hover:underline">
+                    <button type="button" {...appTriggerGuard} onClick={() => openApplication(setPcsBaptismOpenFor)} className="mt-2 text-xs font-bold text-violet-700 hover:underline">
                       Open Baptism Application →
                     </button>
                   )}
@@ -7309,7 +7379,11 @@ export default function DepartmentHub() {
               // optionally linked to their own PCS entry via linkedChildMemberId). Rows saved
               // before childType existed have none and are treated as minors.
               const addChildRow = () => setF(p => ({ ...p, children: [...(p.children || []), { id: Date.now().toString(), childType: 'minor', name: '', inRiverKids: '', riverKidsChildId: '', linkedChildMemberId: '' }] }))
-              const updateChildRow = (id, patch) => setF(p => ({ ...p, children: (p.children || []).map(c => c.id === id ? { ...c, ...patch } : c) }))
+              // Editing a child's name here drops any legal-name parts from an application
+              // (utils/familyDetails childDisplayName prefers them) so the new name shows.
+              const updateChildRow = (id, patch) => setF(p => ({ ...p, children: (p.children || []).map(c => c.id === id
+                ? { ...c, ...patch, ...('name' in patch ? { firstName: '', middleName: '', lastName: '' } : {}) }
+                : c) }))
               const removeChildRow = (id) => setF(p => ({ ...p, children: (p.children || []).filter(c => c.id !== id) }))
 
               const sectionHead = (label, color = 'text-slate-600') => (
@@ -7366,6 +7440,92 @@ export default function DepartmentHub() {
                 )
               )
               const _cg = _cellMember ? cellGroups.find(g => g.id === _cellMember.cellId) : null
+
+              // "Notify Cell Director to assign a cell" — a pending Cell-department task
+              // (pcsReferral). The task itself is the persisted status: matched by personId,
+              // then visitorId, then phone, so "sent" survives a reload. Shared by the
+              // read-only profile (Church Journey) and the edit form's Cell Group block.
+              const _refPhone = (entry.phone || '').replace(/\s+/g, '')
+              const cellReferral = pcsCellReferralTasks.find(t =>
+                (entry.personId && t.memberId && t.memberId === entry.personId) ||
+                (entry.visitorId && t.pcsPersonVisitorId && t.pcsPersonVisitorId === entry.visitorId) ||
+                (_refPhone && t.memberPhone && t.memberPhone.replace(/\s+/g, '') === _refPhone)
+              )
+              const cellReferralSent = pcsNotifiedIds.has(entry.id) || !!cellReferral
+              const cellReferralSending = pcsNotifyingId === entry.id
+              const cellReferralAt = (() => {
+                const v = cellReferral?.createdAt
+                const d = typeof v?.toDate === 'function' ? v.toDate() : v ? new Date(v) : null
+                return d && !isNaN(d.getTime()) ? d : null
+              })()
+              // Church applications (Membership, Baptism, Baby Dedication) require an active
+              // cell group — the same roster lookup as the "Cell Group" line (_cg). The
+              // Senior Pastor is exempt (no cell assignment, as elsewhere). Gates every
+              // application button and modal; the QR pages also lock without a cell (the
+              // application records the cell it was created under in prefill.cellGroupId).
+              const hasActiveCellGroup = !!_cg || isSeniorPastorName(entry.name)
+              const openApplication = (setter) => { if (hasActiveCellGroup) setter(entry.id) }
+              const appTriggerGuard = hasActiveCellGroup ? {} : {
+                disabled: true, 'aria-disabled': true,
+                title: 'Assign a Cell Group first (Church Journey)',
+                style: { opacity: 0.45, cursor: 'not-allowed' },
+              }
+              // `flush` — a full-width strip directly under the card's navy header (profile
+              // view), instead of a separate rounded box (edit form).
+              const CellPrereqBanner = ({ flush = false } = {}) => (hasActiveCellGroup || !canEdit || isPendingDiscard || entry.departed) ? null : (
+                <div role="alert" className={flush
+                  ? 'px-5 @xl:px-8 py-3 bg-amber-50 border-b border-amber-200 text-amber-900'
+                  : 'rounded-xl border border-amber-400 bg-amber-50 px-3.5 py-3 text-amber-900'}>
+                  <p className="text-xs leading-relaxed">
+                    <span className="font-extrabold tracking-wide">PREREQUISITE REQUIRED:</span>{' '}
+                    Active Cell Group membership is required before applying for Church Applications (Membership, Baptism, Marriage, or Baby Dedication). Please assign a Cell Group under Church Journey first.
+                  </p>
+                  <div className="mt-2">
+                    {cellReferralSent
+                      ? <span className="inline-flex text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">✓ Notification sent to Cell Director</span>
+                      : <button type="button" disabled={cellReferralSending} onClick={sendCellReferral}
+                          className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-md font-medium transition-colors disabled:opacity-50">
+                          {cellReferralSending ? 'Sending…' : '+ Notify Cell Director / Assign Cell'}
+                        </button>}
+                  </div>
+                </div>
+              )
+              const sendCellReferral = async () => {
+                if (cellReferral) { setPcsNotifiedIds(prev => new Set([...prev, entry.id])); return }
+                setPcsNotifyingId(entry.id)
+                try {
+                  await createTask({
+                    taskTitle: `Add ${entry.name} to a cell group`,
+                    department: 'Cell',
+                    assignedPerson: '',
+                    priority: 'Medium',
+                    deadline: '',
+                    status: 'Pending',
+                    notes: `Referred from PCS by ${userProfile?.name || userProfile?.email || 'Caring Director'}. ${entry.name} is under personal care but has no cell group.${entry.phone ? ` Phone: ${entry.phone}` : ''}`,
+                    createdBy: userProfile?.email || '',
+                    pcsReferral: true,
+                    memberId: entry.personId || entry.id,
+                    memberName: entry.name,
+                    memberPhone: entry.phone || '',
+                    // Legacy field names CellDirectorCockpit.jsx's pcsReferrals mapping already reads.
+                    pcsPersonName: entry.name,
+                    pcsPersonPhone: entry.phone || '',
+                    pcsPersonVisitorId: entry.visitorId || '',
+                    // Identity + action-kind pair the To-Do List dedupes on (ToDoListCard.jsx)
+                    // so re-sending this referral never shows as a second row.
+                    personId: entry.personId || entry.visitorId || entry.id,
+                    taskType: 'addToCellGroup',
+                    // This is a placement decision, not a specific leader's action — only the
+                    // Cell Director should see it, never every Cell Leader in the department
+                    // (ToDoListCard.jsx filters on this against getDepartmentRole()).
+                    visibleToRole: 'DIRECTOR',
+                  })
+                  setPcsNotifiedIds(prev => new Set([...prev, entry.id]))
+                  setPcsToast(`Notification sent to Cell Director to assign ${entry.name}`)
+                  setTimeout(() => setPcsToast(null), 3500)
+                } catch { alert('Failed to send notification') }
+                setPcsNotifyingId(null)
+              }
 
               // ── Stamp view (read-only A4 document) ──────────────────
               // Laid out on the same A4 grid as downloadProfileAsPDF (794px = 210mm,
@@ -7483,8 +7643,11 @@ export default function DepartmentHub() {
                 ].filter(Boolean)
 
                 return (
-                  <div className="border-t-2 border-indigo-500 bg-slate-100 px-2 py-4 sm:px-4">
+                  <div className="px-2 py-3 sm:px-4 sm:py-4">
                     {pcsExpandedLoading && <p className="text-xs text-slate-400 text-center pb-3">Loading profile…</p>}
+                    {pcsAppViewing && (
+                      <SubmittedApplicationViewer type={pcsAppViewing.type} app={pcsAppViewing.app} events={pcsCaringEvents} onClose={() => setPcsAppViewing(null)} />
+                    )}
                     {pcsAppreciationOpenFor === entry.id && (
                       <AppreciationSummaryModal
                         entry={entry}
@@ -7495,7 +7658,28 @@ export default function DepartmentHub() {
                         onClose={() => setPcsAppreciationOpenFor(null)}
                       />
                     )}
-                    {pcsMembershipOpenFor === entry.id && membershipBlocked && createPortal(
+                    {pcsDedicationOpenFor === entry.id && hasActiveCellGroup && canApplyDedication && (() => {
+                      // Parents from this profile + their spouse; which is father/mother follows gender.
+                      const self = String(f.name || '').trim()
+                      const spouse = f.maritalStatus === 'Married' ? String(f.spouseName || '').trim() : ''
+                      const isMother = f.gender === 'Female'
+                      return (
+                        <DedicationApplicationModal
+                          entry={entry}
+                          userEmail={userProfile?.email || ''}
+                          canReveal={canRevealSurpriseNames(userProfile, isFounder)}
+                          onClose={() => setPcsDedicationOpenFor(null)}
+                          prefill={{
+                            fatherName: isMother ? spouse : self,
+                            motherName: isMother ? self : spouse,
+                            phone: f.phone || '', email: f.email || '',
+                            cellName: _cg?.cellName || '', cellGroupId: _cg?.id || '',
+                            family: buildFamilyPrefill(f),
+                          }}
+                        />
+                      )
+                    })()}
+                    {pcsMembershipOpenFor === entry.id && hasActiveCellGroup && membershipBlocked && createPortal(
                       <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={() => setPcsMembershipOpenFor(null)}>
                         <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
                           <p className="text-base font-bold text-slate-900">Baptism required</p>
@@ -7508,9 +7692,9 @@ export default function DepartmentHub() {
                       </div>,
                       document.body
                     )}
-                    {pcsMembershipOpenFor === entry.id && !membershipBlocked && (() => {
+                    {pcsMembershipOpenFor === entry.id && hasActiveCellGroup && !membershipBlocked && (() => {
                       // Pre-fill from what PCS already knows; blanks are asked of the applicant.
-                      const [firstName, ...rest] = String(f.name || '').trim().split(/\s+/)
+                      const [firstName, ...rest] = String(entry.legalName || f.name || '').trim().split(/\s+/)
                       return (
                         <MembershipApplicationModal
                           entry={entry}
@@ -7526,14 +7710,15 @@ export default function DepartmentHub() {
                             permanentAddress: f.permanentAddress || '',
                             dateOfJoin: f.attendedDate || '',
                             baptismDate: f.baptismDate || '', baptismChurch: f.baptismChurch || '',
-                            cellName: _cg?.cellName || '',
+                            cellName: _cg?.cellName || '', cellGroupId: _cg?.id || '',
+                            family: buildFamilyPrefill(f),
                           }}
                         />
                       )
                     })()}
-                    {pcsBaptismOpenFor === entry.id && !baptismRecorded && (() => {
+                    {pcsBaptismOpenFor === entry.id && hasActiveCellGroup && !baptismRecorded && (() => {
                       // Pre-fill from what PCS already knows; blanks are asked of the applicant.
-                      const [firstName, ...rest] = String(f.name || '').trim().split(/\s+/)
+                      const [firstName, ...rest] = String(entry.legalName || f.name || '').trim().split(/\s+/)
                       return (
                         <BaptismApplicationModal
                           entry={entry}
@@ -7546,12 +7731,35 @@ export default function DepartmentHub() {
                             street: f.permanentAddress || '', city: f.currentPlace || '',
                             state: '', zip: '', country: '',
                             phone: f.phone || '', altPhone: '', email: f.email || '',
-                            cellName: _cg?.cellName || '',
+                            cellName: _cg?.cellName || '', cellGroupId: _cg?.id || '',
+                            family: buildFamilyPrefill(f),
                           }}
                         />
                       )
                     })()}
-                    <div className="@container w-full max-w-[794px] mx-auto bg-white rounded-xl shadow-lg overflow-hidden border border-slate-200">
+                    {pcsMarriageOpenFor === entry.id && hasActiveCellGroup && (() => {
+                      // Pre-fill the applicant from PCS; the partner and wedding details are asked.
+                      const [firstName, ...rest] = String(entry.legalName || f.name || '').trim().split(/\s+/)
+                      return (
+                        <MarriageApplicationModal
+                          entry={entry}
+                          userEmail={userProfile?.email || ''}
+                          onClose={() => setPcsMarriageOpenFor(null)}
+                          prefill={{
+                            firstName: firstName || '', lastName: rest.join(' '),
+                            gender: f.gender || '', dob: f.dob || '',
+                            maritalStatus: f.maritalStatus && f.maritalStatus !== 'Married' ? f.maritalStatus : '',
+                            phone: f.phone || '', email: f.email || '',
+                            currentAddress: f.currentPlace || '',
+                            baptismDate: f.baptismDate || '', baptismChurch: f.baptismChurch || '',
+                            fatherName: '', motherName: '',
+                            cellName: _cg?.cellName || '', cellGroupId: _cg?.id || '',
+                            family: buildFamilyPrefill(f),
+                          }}
+                        />
+                      )
+                    })()}
+                    <div className="@container w-full max-w-[794px] mx-auto bg-white rounded-xl shadow-sm overflow-hidden">
 
                       {/* ── Navy band: title + actions ── */}
                       <div className="bg-[#1e3a5f] px-5 @xl:px-8 py-4 flex flex-wrap items-center justify-between gap-3">
@@ -7581,6 +7789,7 @@ export default function DepartmentHub() {
                           <p className="text-xs text-slate-500 mt-0.5">Recorded by a burial service in Caring → Events. Absence and removal warnings are switched off.</p>
                         </div>
                       )}
+                      <CellPrereqBanner flush />
                       {isPendingDiscard && (
                         <div className="px-5 @xl:px-8 py-3 bg-amber-50 border-b border-amber-200 text-amber-900">
                           <p className="text-sm font-bold">Under Review of the Pastoral Office</p>
@@ -7630,6 +7839,7 @@ export default function DepartmentHub() {
                           </div>
 
                           <Section title="Contact & Personal" color="#1d4ed8">
+                            {entry.legalName && entry.legalName !== f.name && row('Legal Name', `${entry.legalName} ✓`, { wide: true })}
                             {row('Phone', f.phone)}
                             {row('Email', f.email)}
                             {row('Date of Birth', fmtD(f.dob))}
@@ -7639,14 +7849,51 @@ export default function DepartmentHub() {
                             {row('Address', f.permanentAddress, { wide: true })}
                           </Section>
 
-                          {(f.maritalStatus || kids.length > 0 || familyParents.length > 0) && (
+                          {(f.maritalStatus || kids.length > 0 || familyParents.length > 0 || canEdit) && (
                             <Section title="Personal" color="#0f766e">
-                              {row('Marital Status', f.maritalStatus, { optional: true })}
+                              {row('Marital Status', f.maritalStatus)}
                               {f.maritalStatus === 'Married' && row('Marriage Date', fmtD(f.marriageDate), { optional: true })}
-                              {f.maritalStatus === 'Married' && row('Spouse', f.spouseName, { optional: true })}
-                              {minorKids.length > 0 && row('Kids', minorKids.map(c => `${c.name}${c.riverKidsChildId ? ' (River Kids)' : ''}`).join(', '), { wide: true })}
+                              {f.maritalStatus === 'Married' && row('Spouse Name', f.spouseName || 'Not recorded')}
+                              {/* Children — one line each with age / DOB; quick "+ Add Child" opens the
+                                  edit form with a new blank child row (hidden for Single, like the form). */}
+                              <div className="col-span-2 min-w-0 py-1.5 border-b border-slate-100">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Children</p>
+                                  {canEdit && !isPendingDiscard && f.maritalStatus !== 'Single' && (
+                                    <button type="button"
+                                      onClick={() => {
+                                        setPcsExpandedForm(p => ({ ...p, hasKids: 'yes', children: [...(p.children || []), { id: Date.now().toString(), childType: 'minor', name: '', inRiverKids: '', riverKidsChildId: '', linkedChildMemberId: '' }] }))
+                                        setPcsEditingId(entry.id)
+                                      }}
+                                      className="text-[11px] font-semibold text-teal-700 hover:underline">
+                                      + Add Child
+                                    </button>
+                                  )}
+                                </div>
+                                {minorKids.length > 0 ? (
+                                  <ul className="mt-0.5 space-y-0.5">
+                                    {minorKids.map(c => (
+                                      <li key={c.id || c.name} className="text-[13px] font-medium text-slate-800 leading-snug">
+                                        • {childDisplayName(c)}
+                                        {childAgeText(c) && <span className="font-normal text-slate-500"> ({childAgeText(c)})</span>}
+                                        {c.riverKidsChildId && <span className="ml-1 text-[10px] font-bold text-teal-600">River Kids</span>}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-[13px] text-slate-400 leading-snug">{adultKids.length ? 'No minor children recorded' : 'None / Not recorded'}</p>
+                                )}
+                              </div>
                               {familyLinks('Linked Adult Child', adultKids.map(c => ({ key: c.id, name: c.name, pcsId: c.linkedChildMemberId })))}
                               {familyLinks(familyParents.length === 1 ? 'Parent' : 'Parents', familyParents.map(p => ({ key: p.pcsEntryId, name: p.name, pcsId: p.pcsEntryId })))}
+                              {canEdit && !isPendingDiscard && !pcsExpandedLoading && f.maritalStatus !== 'Married' && (
+                                <div className="col-span-2 pt-2">
+                                  <button type="button" {...appTriggerGuard} onClick={() => openApplication(setPcsMarriageOpenFor)}
+                                    className="w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-colors">
+                                    + Marriage Application
+                                  </button>
+                                </div>
+                              )}
                             </Section>
                           )}
 
@@ -7682,14 +7929,84 @@ export default function DepartmentHub() {
                               {row('First Church', f.isFirstChurch === 'yes' ? 'Yes' : f.isFirstChurch === 'no' ? 'No' : null, { optional: true })}
                               {f.isFirstChurch !== 'yes' && row('Previous Church', f.previousChurchName, { optional: true })}
                               {f.isFirstChurch !== 'yes' && row('Previous Church Location', f.previousChurchPlace, { optional: true })}
+                              {baptismRecorded && !pcsExpandedLoading && (() => {
+                                // Certificate of Baptism on the official template (utils/baptismCertificate.js).
+                                // Only for ROLCC in-house baptisms — external ones get an info badge instead.
+                                // Parents come from linked parent profiles (adult-child links), birthplace
+                                // from Native Place; blanks stay as lines to fill by hand.
+                                const elig = baptismCertificateEligibility({
+                                  baptised: f.baptised, baptismChurch: f.baptismChurch,
+                                  baptismBatch: f.baptismBatch, baptismEventId: pcsExpandedProfile?.baptismEventId,
+                                })
+                                if (!elig.ok) {
+                                  if (elig.reason === 'not_baptised') return null
+                                  return (
+                                    <div className="col-span-2 pt-2">
+                                      <span className="inline-block text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                        {elig.reason === 'external'
+                                          ? `Baptized Externally: ${elig.church}`
+                                          : 'Baptism church not recorded'}
+                                      </span>
+                                      <p className="text-[11px] text-slate-400 mt-1">
+                                        {elig.reason === 'external'
+                                          ? 'Baptized at another church (Certificate not issued by ROLCC).'
+                                          : 'Set the Baptism Church to River of Life Christian Church to issue a ROLCC certificate.'}
+                                      </p>
+                                    </div>
+                                  )
+                                }
+                                const cert = () => [{
+                                  inHouse: true,
+                                  name: f.name || entry.name,
+                                  parents: (pcsExpandedProfile?.parents || []).map(x => x?.name).filter(Boolean).join(' & '),
+                                  birthplace: f.nativity || '',
+                                  baptismDate: f.baptismDate || '',
+                                  officiant: pcsExpandedProfile?.baptismOfficiant || '',
+                                  regNo: baptismRegNo(f.baptismBatch, f.baptismSerialNo),
+                                }]
+                                const run = async (fn) => {
+                                  setPcsCertBusy(true)
+                                  try { await fn(cert()) } catch (e) { console.error('Baptism certificate', e); alert('Could not create the certificate. Please try again.') }
+                                  setPcsCertBusy(false)
+                                }
+                                return (
+                                  <div className="col-span-2 pt-2 flex gap-2">
+                                    <button type="button" disabled={pcsCertBusy} onClick={() => run(downloadBaptismCertificates)}
+                                      className="flex-1 min-h-[40px] rounded-xl bg-[#1e3a5f] text-white text-sm font-bold hover:bg-[#16304f] disabled:opacity-60">
+                                      {pcsCertBusy ? 'Preparing…' : 'Download Baptism Certificate'}
+                                    </button>
+                                    <button type="button" disabled={pcsCertBusy} onClick={() => run(printBaptismCertificates)}
+                                      className="min-h-[40px] px-4 rounded-xl border-2 border-[#1e3a5f] text-[#1e3a5f] text-sm font-bold hover:bg-slate-50 disabled:opacity-60">
+                                      Print
+                                    </button>
+                                  </div>
+                                )
+                              })()}
                               {!baptismRecorded && !pcsExpandedLoading && (
                                 <div className="col-span-2 pt-2">
-                                  <button type="button" onClick={() => setPcsBaptismOpenFor(entry.id)}
+                                  <button type="button" {...appTriggerGuard} onClick={() => openApplication(setPcsBaptismOpenFor)}
                                     className={`w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold transition-colors ${f.baptised === 'no'
                                       ? 'bg-violet-600 text-white hover:bg-violet-700 shadow-sm'
                                       : 'bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100'}`}>
                                     {f.baptised === 'no' ? 'Baptism Application & QR' : '+ Baptism Application'}
                                   </button>
+                                </div>
+                              )}
+                              {/* Baby Dedication — married members only (same check guards the modal) */}
+                              {canEdit && !isPendingDiscard && !pcsExpandedLoading && (
+                                <div className="col-span-2 pt-2">
+                                  {canApplyDedication ? (
+                                    <button type="button" {...appTriggerGuard} onClick={() => openApplication(setPcsDedicationOpenFor)}
+                                      className="w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 transition-colors">
+                                      + Baby Dedication Application
+                                    </button>
+                                  ) : (
+                                    <button type="button" disabled title={DEDICATION_MARRIED_ONLY_MSG} aria-describedby={`ded-note-${entry.id}`}
+                                      className="w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed">
+                                      + Baby Dedication Application
+                                    </button>
+                                  )}
+                                  {!canApplyDedication && <p id={`ded-note-${entry.id}`} className="text-[10px] text-slate-400 mt-1 text-center">{DEDICATION_MARRIED_ONLY_MSG}</p>}
                                 </div>
                               )}
                             </Section>
@@ -7702,12 +8019,29 @@ export default function DepartmentHub() {
                               {pcsMembershipApp && row('Membership Application',
                                 pcsMembershipApp.status === 'pending' ? 'Sent · waiting for applicant' : MEMBERSHIP_DECISIONS[pcsMembershipApp.status] || pcsMembershipApp.status,
                                 { wide: true })}
+                              {/* Certificate of Membership — for members / approved applications */}
+                              {(f.membershipStatus === 'member' || pcsMembershipApp?.status === 'approved') && (
+                                <div className="col-span-2 pt-2">
+                                  <button type="button" disabled={pcsCertBusy}
+                                    onClick={async () => {
+                                      setPcsCertBusy(true)
+                                      try {
+                                        await downloadMembershipCertificate(membershipCertificateData(
+                                          { name: f.name || entry.name, membershipNumber: f.membershipNumber, serviceAttended: f.serviceAttended }, pcsMembershipApp))
+                                      } catch (e) { console.error('Membership certificate', e); alert('Could not create the certificate. Please try again.') }
+                                      setPcsCertBusy(false)
+                                    }}
+                                    className="w-full min-h-[40px] rounded-xl bg-[#0d5c46] text-white text-sm font-bold hover:bg-[#168a68] disabled:opacity-60">
+                                    {pcsCertBusy ? 'Preparing…' : 'Download Membership Certificate (PDF)'}
+                                  </button>
+                                </div>
+                              )}
                               {canEdit && !isPendingDiscard && membershipBlocked && !pcsExpandedLoading && (
                                 <div className="col-span-2 pt-2"><MembershipPrereqNotice /></div>
                               )}
                               {canEdit && !isPendingDiscard && !membershipBlocked && (
                                 <div className="col-span-2 pt-2">
-                                  <button type="button" onClick={() => setPcsMembershipOpenFor(entry.id)}
+                                  <button type="button" {...appTriggerGuard} onClick={() => openApplication(setPcsMembershipOpenFor)}
                                     className="w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors">
                                     {pcsMembershipApp ? 'Membership Application & QR' : 'Generate QR Code for Applicant'}
                                   </button>
@@ -7727,6 +8061,19 @@ export default function DepartmentHub() {
                             {row('Service', f.serviceAttended)}
                             {row('Engagement', engagementLabel(entry.engagementType))}
                             {row('Cell Group', _cg ? (_cg.cellName || 'Unnamed Cell') : null)}
+                            {!_cg && !isPastor && canEdit && !isPendingDiscard && !entry.departed && (
+                              <div className="col-span-2 pb-1.5">
+                                {cellReferralSent
+                                  ? <span title={cellReferralAt ? `Sent ${formatTimestampFull(cellReferralAt)}` : 'Sent'}
+                                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
+                                      ✓ Notification sent to Cell Director{cellReferralAt ? ` · ${formatShortDate(cellReferralAt)}` : ''}
+                                    </span>
+                                  : <button type="button" disabled={cellReferralSending} onClick={sendCellReferral}
+                                      className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-md font-medium transition-colors disabled:opacity-50">
+                                      {cellReferralSending ? 'Sending…' : '+ Notify Cell Director / Assign Cell'}
+                                    </button>}
+                              </div>
+                            )}
                             {row('Cell Leader', _cg?.leader, { optional: true })}
                             {row('PCS Year', f.year ? String(f.year) : null, { optional: true })}
                             {isRelocated(entry) && row('Status', `Relocated / Moved Out${entry.relocatedDestination ? ` · ${entry.relocatedDestination}` : ''}`, { wide: true })}
@@ -7806,6 +8153,37 @@ export default function DepartmentHub() {
                                 </ul>
                               )}
                           </Section>
+
+                          {/* Submitted Applications & Forms — every digital form this person
+                              has completed (Baptism, Baby Dedication, Membership). */}
+                          {(() => {
+                            const submitted = APPLICATION_TYPE_KEYS.flatMap(type =>
+                              (pcsEntryApps[type] || []).filter(a => a.status && a.status !== 'pending').map(app => ({ type, app })))
+                            if (!submitted.length) return null
+                            return (
+                              <Section title="Submitted Applications & Forms" color="#0f766e" grid={false}>
+                                <ul className="space-y-2 pt-1">
+                                  {submitted.map(({ type, app }) => {
+                                    const st = applicationStatus(app, pcsCaringEvents)
+                                    const sub = app.submittedAt ? new Date(app.submittedAt) : null
+                                    return (
+                                      <li key={`${type}-${app.id}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-[13px] font-semibold text-slate-800 leading-snug">{APPLICATION_TYPES[type].label}</p>
+                                          <p className="text-[10px] text-slate-400">
+                                            Submitted {sub && !isNaN(sub.getTime()) ? fmtD(sub) : '—'}{type === 'dedication' && APPLICATION_TYPES.dedication.title(app) ? ` · ${APPLICATION_TYPES.dedication.title(app)}` : ''}
+                                          </p>
+                                        </div>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
+                                        <button type="button" onClick={() => setPcsAppViewing({ type, app })}
+                                          className="text-[11px] font-bold text-indigo-700 hover:underline">View Submitted Form</button>
+                                      </li>
+                                    )
+                                  })}
+                                </ul>
+                              </Section>
+                            )
+                          })()}
                         </div>
                       </div>
 
@@ -7829,6 +8207,7 @@ export default function DepartmentHub() {
                     <span className="text-xs font-bold text-amber-700 bg-amber-100 border border-amber-300 px-2.5 py-1 rounded-full">Editing profile</span>
                     <button type="button" onClick={() => { setPcsEditingId(null); setPcsFormDirty(false) }} className="text-xs text-slate-500 hover:text-slate-700 font-medium">← Back to stamp</button>
                   </div>
+                  <div className="mb-2 empty:hidden"><CellPrereqBanner /></div>
 
                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
 
@@ -8204,6 +8583,20 @@ export default function DepartmentHub() {
                               </div>
                               <button type="button" onClick={() => removeChildRow(child.id)} className="mt-4 w-7 h-7 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors">×</button>
                             </div>
+                            <div className="grid grid-cols-2 gap-2 sm:max-w-sm">
+                              <div className="space-y-0.5">
+                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Date of Birth</p>
+                                <input type="date" value={child.dob || ''} onChange={e => updateChildRow(child.id, { dob: e.target.value })} className={`${inp} text-xs`} />
+                              </div>
+                              <div className="space-y-0.5">
+                                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Gender</p>
+                                <select value={child.gender || ''} onChange={e => updateChildRow(child.id, { gender: e.target.value })} className={`${inp} text-xs`}>
+                                  <option value="">— Select —</option>
+                                  <option value="Male">Male</option>
+                                  <option value="Female">Female</option>
+                                </select>
+                              </div>
+                            </div>
                             </div>
                           ))}
                           <button type="button" onClick={addChildRow} className="text-xs text-teal-600 hover:text-teal-800 flex items-center gap-1 py-1 transition-colors">
@@ -8272,17 +8665,8 @@ export default function DepartmentHub() {
                       {(() => {
                         const cellMember = _cellMember
                         const cg = _cg
-                        const _np0 = (entry.phone || '').replace(/\s+/g, '')
-                        // Persisted referral for this person, if Caring already sent one —
-                        // matched by personId, then visitorId, then normalized phone, so the
-                        // "sent" state survives a reload instead of resetting to the button.
-                        const existingReferral = pcsCellReferralTasks.find(t =>
-                          (entry.personId && t.memberId && t.memberId === entry.personId) ||
-                          (entry.visitorId && t.pcsPersonVisitorId && t.pcsPersonVisitorId === entry.visitorId) ||
-                          (_np0 && t.memberPhone && t.memberPhone.replace(/\s+/g, '') === _np0)
-                        )
-                        const notified = pcsNotifiedIds.has(entry.id) || !!existingReferral
-                        const notifying = pcsNotifyingId === entry.id
+                        const notified = cellReferralSent
+                        const notifying = cellReferralSending
 
                         // All memberships for this person (history)
                         const _np = (entry.phone || '').replace(/\s+/g, '')
@@ -8304,42 +8688,7 @@ export default function DepartmentHub() {
                                   ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                                       <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>Notification Sent
                                     </span>
-                                  : <button type="button" disabled={notifying} onClick={async () => {
-                                      if (existingReferral) { setPcsNotifiedIds(prev => new Set([...prev, entry.id])); return }
-                                      setPcsNotifyingId(entry.id)
-                                      try {
-                                        await createTask({
-                                          taskTitle: `Add ${entry.name} to a cell group`,
-                                          department: 'Cell',
-                                          assignedPerson: '',
-                                          priority: 'Medium',
-                                          deadline: '',
-                                          status: 'Pending',
-                                          notes: `Referred from PCS by ${userProfile?.name || userProfile?.email || 'Caring Director'}. ${entry.name} is under personal care but has no cell group.${entry.phone ? ` Phone: ${entry.phone}` : ''}`,
-                                          createdBy: userProfile?.email || '',
-                                          pcsReferral: true,
-                                          memberId: entry.personId || entry.id,
-                                          memberName: entry.name,
-                                          memberPhone: entry.phone || '',
-                                          // Legacy field names CellDirectorCockpit.jsx's pcsReferrals mapping already reads.
-                                          pcsPersonName: entry.name,
-                                          pcsPersonPhone: entry.phone || '',
-                                          pcsPersonVisitorId: entry.visitorId || '',
-                                          // Identity + action-kind pair the To-Do List dedupes on (ToDoListCard.jsx)
-                                          // so re-sending this referral never shows as a second row.
-                                          personId: entry.personId || entry.visitorId || entry.id,
-                                          taskType: 'addToCellGroup',
-                                          // This is a placement decision, not a specific leader's action — only the
-                                          // Cell Director should see it, never every Cell Leader in the department
-                                          // (ToDoListCard.jsx filters on this against getDepartmentRole()).
-                                          visibleToRole: 'DIRECTOR',
-                                        })
-                                        setPcsNotifiedIds(prev => new Set([...prev, entry.id]))
-                                        setPcsToast(`Notification sent to Cell Director to assign ${entry.name}`)
-                                        setTimeout(() => setPcsToast(null), 3500)
-                                      } catch { alert('Failed to send notification') }
-                                      setPcsNotifyingId(null)
-                                    }} className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-100 transition-colors disabled:opacity-50">
+                                  : <button type="button" disabled={notifying} onClick={sendCellReferral} className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-100 transition-colors disabled:opacity-50">
                                       <svg width="9" height="9" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                                       {notifying ? 'Sending…' : 'Notify Cell Director to Assign Cell'}
                                     </button>
@@ -8541,7 +8890,7 @@ export default function DepartmentHub() {
                         <p className="text-sm font-bold tracking-tight text-amber-700">Membership</p>
                         <div className="ml-auto flex-shrink-0 flex items-center gap-2">
                           {!membershipBlocked && (
-                          <button type="button" onClick={() => setPcsMembershipOpenFor(entry.id)}
+                          <button type="button" {...appTriggerGuard} onClick={() => openApplication(setPcsMembershipOpenFor)}
                             className="text-xs font-bold text-amber-800 bg-white border border-amber-300 px-2.5 py-1 rounded-full hover:bg-amber-100 transition-colors">
                             {pcsMembershipApp ? 'Application & QR' : 'QR for Applicant'}
                           </button>
@@ -9066,7 +9415,7 @@ export default function DepartmentHub() {
                   howKnown: v.howKnown || '', stage: 'pcs',
                 }, userProfile?.email || '')
                 const realId = await addPCSEntry({ visitorId: v.id, personId, name: v.name || rec.name, phone: v.phone || rec.phone, attendedDate: v.attendedDate, year: v.year || new Date().getFullYear(), addedBy: userProfile?.email || 'unknown' })
-                if (realId) setPcsEntries(prev => prev.map(e => e.id === tempId ? { ...e, id: realId, personId } : e))
+                if (realId) setPcsEntries(prev => prev.some(e => e.id === realId) ? prev.filter(e => e.id !== tempId) : prev.map(e => e.id === tempId ? { ...e, id: realId, personId } : e))
                 setPcsToast(`${rec.name} added to PCS`)
                 setTimeout(() => setPcsToast(null), 2500)
               } catch {
@@ -9170,10 +9519,10 @@ export default function DepartmentHub() {
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="inline-flex items-center gap-1.5 pl-1.5 pr-3.5 py-1.5 rounded-full bg-indigo-600 text-white shadow-sm">
                       <span className="min-w-[1.75rem] h-7 px-1.5 rounded-full bg-white/20 flex items-center justify-center text-sm font-black tabular-nums">
-                        {loadingPCS ? '…' : pcsEntries.length}
+                        {loadingPCS ? '…' : pcsVisibleEntries.length}
                       </span>
                       <span className="text-xs font-bold tracking-wide">
-                        Total PCS{!loadingPCS && <span className="font-medium text-indigo-100"> · {pcsEntries.length === 1 ? 'person' : 'people'}</span>}
+                        Total PCS{!loadingPCS && <span className="font-medium text-indigo-100"> · {pcsVisibleEntries.length === 1 ? 'person' : 'people'}</span>}
                       </span>
                     </span>
                     {pcsIsFiltering && !pcsShowFormer && !loadingPCS && (
@@ -9219,6 +9568,27 @@ export default function DepartmentHub() {
                   </button>
                   </div>
                 </div>
+
+                {/* Duplicate PCS records (same person added twice) — review & merge */}
+                {canEdit && pcsDuplicateGroups.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2">
+                    <p className="flex-1 min-w-0 text-xs text-amber-900">
+                      <b>{pcsDuplicateGroups.length} duplicate profile{pcsDuplicateGroups.length === 1 ? '' : 's'}</b> found
+                      {' '}({pcsDuplicateGroups.map(g => g.master?.name).filter(Boolean).slice(0, 3).join(', ')}{pcsDuplicateGroups.length > 3 ? '…' : ''}).
+                      {' '}Showing one card each.
+                    </p>
+                    <button type="button" onClick={() => setPcsDupesSnapshot(pcsDuplicateGroups.filter(g => g.master))}
+                      className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Review &amp; Merge</button>
+                  </div>
+                )}
+                {pcsDupesSnapshot && (
+                  <PcsDuplicatesModal
+                    groups={pcsDupesSnapshot}
+                    mergedBy={userProfile?.displayName || userProfile?.email || ''}
+                    onClose={() => setPcsDupesSnapshot(null)}
+                    onMerged={() => { getPCSEntries().then(setPcsEntries).catch(() => {}) }}
+                  />
+                )}
 
                 {/* ── Search + Filter chips ── */}
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
@@ -9292,7 +9662,8 @@ export default function DepartmentHub() {
                       }, userProfile?.email || '')
                         .then(personId =>
                           addPCSEntry({ visitorId: v.id, personId, name: v.name, phone: v.phone, attendedDate: v.attendedDate, year: v.year, addedBy: userProfile?.email || 'unknown' })
-                            .then((realId) => { if (realId) setPcsEntries((prev) => prev.map((e) => e.id === tempId ? { ...e, id: realId, personId } : e)) })
+                            // addPCSEntry returns the existing entry's id when this person is already in PCS
+                            .then((realId) => { if (realId) setPcsEntries((prev) => prev.some((e) => e.id === realId) ? prev.filter((e) => e.id !== tempId) : prev.map((e) => e.id === tempId ? { ...e, id: realId, personId } : e)) })
                         )
                         .catch(() => { setPcsEntries((prev) => prev.filter((e) => e.id !== tempId)) })
                     }}
@@ -9954,7 +10325,7 @@ export default function DepartmentHub() {
                                 <Fragment key={entry.id}>
                                   <Chip entry={entry} />
                                   {pcsExpandedId === entry.id && !pcsIsMobile && (
-                                    <div className="col-span-full -mx-4">
+                                    <div className="col-span-full -mx-4" onPointerDownCapture={() => { pcsProfileClickInsideRef.current = true }}>
                                       {PCSInlineProfile({ entry })}
                                     </div>
                                   )}
@@ -9970,7 +10341,7 @@ export default function DepartmentHub() {
                   {/* Footer */}
                   {!loadingPCS && pcsEntries.length > 0 && (
                     <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 text-center">
-                      {pcsEntries.length} {pcsEntries.length === 1 ? 'person' : 'people'} · {grouped.length} {grouped.length === 1 ? 'year' : 'years'}
+                      {pcsVisibleEntries.length} {pcsVisibleEntries.length === 1 ? 'person' : 'people'} · {grouped.length} {grouped.length === 1 ? 'year' : 'years'}
                     </div>
                   )}
                 </div>}

@@ -14,17 +14,18 @@ function certificateBody(event, p) {
   const date = esc(longDate(event.date))
   const venue = esc(event.venue || `${CARING_EVENT_CHURCH_NAME}, ${CARING_EVENT_CHURCH_PLACE}`)
   const name = (n) => `<span class="name">${esc(n)}</span>`
+  const legal = (person) => person?.legalName || person?.name || ''
   switch (event.type) {
     case 'marriage':
-      return `This is to certify that ${name(p.name)} and ${name(p.spouse?.name || '')} were united in Holy Matrimony on ${date} at ${venue}, in the presence of God and these witnesses.`
+      return `This is to certify that ${name(legal(p))} and ${name(legal(p.spouse))} were united in Holy Matrimony on ${date} at ${venue}, in the presence of God and these witnesses.`
     case 'dedication': {
-      const parents = (p.parents || []).map((x) => x.name).filter(Boolean).join(' and ')
+      const parents = (p.parents || []).map(legal).filter(Boolean).join(' and ')
       return `This is to certify that ${name(p.childName)}${parents ? `, child of ${esc(parents)},` : ''} was dedicated to the Lord on ${date} at ${venue}.`
     }
     case 'burial':
-      return `This records that ${name(p.name)} was Promoted to Glory and laid to rest with a Christian burial service held on ${date} at ${venue}.`
+      return `This records that ${name(legal(p))} was Promoted to Glory and laid to rest with a Christian burial service held on ${date} at ${venue}.`
     default:
-      return `This is to certify that ${name(p.name)}, having confessed faith in the Lord Jesus Christ, was baptised by immersion in the name of the Father, the Son and the Holy Spirit on ${date} at ${venue}.`
+      return `This is to certify that ${name(legal(p))}, having confessed faith in the Lord Jesus Christ, was baptised by immersion in the name of the Father, the Son and the Holy Spirit on ${date} at ${venue}.`
   }
 }
 

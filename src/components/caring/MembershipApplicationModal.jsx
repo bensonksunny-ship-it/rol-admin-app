@@ -6,9 +6,10 @@ import {
 } from '../../services/firestore'
 import {
   MEMBERSHIP_PREFILL_FIELDS, MEMBERSHIP_APPLICANT_FIELDS, MEMBERSHIP_DOCUMENTS, MEMBERSHIP_DECISIONS,
-  membershipFieldValue, membershipFullName, hasValue,
+  membershipFieldValue, membershipFullName, membershipDocumentProvided, hasValue,
 } from '../../constants/membershipForm'
 import { openMembershipFormPrint } from '../../utils/membershipFormPrint'
+import { downloadMembershipCertificate, membershipCertificateData } from '../../utils/membershipCertificate'
 
 const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
 
@@ -35,6 +36,7 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [loadNote, setLoadNote] = useState('')
+  const [certBusy, setCertBusy] = useState(false)
 
   useEffect(() => subscribeMembershipApplicationsForEntry(entry.id, setApps, (err) => {
     setApps([])
@@ -168,13 +170,15 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
                   <div className="p-3">
                     <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Documents</p>
                     <div className="flex flex-wrap gap-3">
-                      {MEMBERSHIP_DOCUMENTS.map(d => app.documents?.[d.key] ? (
-                        <a key={d.key} href={app.documents[d.key]} target="_blank" rel="noreferrer" className="text-center">
-                          <img src={app.documents[d.key]} alt={d.label} className="w-20 h-20 object-cover rounded-lg border border-slate-200" />
+                      {MEMBERSHIP_DOCUMENTS.map(d => app.documents?.[d.legacyKey] ? (
+                        <a key={d.key} href={app.documents[d.legacyKey]} target="_blank" rel="noreferrer" className="text-center">
+                          <img src={app.documents[d.legacyKey]} alt={d.label} className="w-20 h-20 object-cover rounded-lg border border-slate-200" />
                           <span className="block text-[10px] text-slate-500 mt-0.5 max-w-20 truncate">{d.label}</span>
                         </a>
                       ) : (
-                        <span key={d.key} className="text-xs text-slate-400">{d.label}: not provided</span>
+                        <span key={d.key} className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${membershipDocumentProvided(app, d) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                          {membershipDocumentProvided(app, d) ? '✓' : '—'} {d.label}{membershipDocumentProvided(app, d) ? ' handed over (check received)' : ': not confirmed'}
+                        </span>
                       ))}
                     </div>
                   </div>
@@ -203,6 +207,20 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
                       className="px-4 min-h-[44px] rounded-xl border border-slate-300 text-slate-600 text-sm font-semibold">Back to Under Review</button>
                   )}
                 </div>
+              )}
+              {app.status === 'approved' && (
+                <button type="button" disabled={certBusy}
+                  onClick={async () => {
+                    setCertBusy(true)
+                    try {
+                      await downloadMembershipCertificate(membershipCertificateData(
+                        { name: entry.name, membershipNumber: entry.membershipNumber, serviceAttended: entry.serviceAttended }, app))
+                    } catch { setError('Could not create the certificate.') }
+                    setCertBusy(false)
+                  }}
+                  className="w-full min-h-[44px] rounded-xl bg-[#0d5c46] text-white text-sm font-bold hover:bg-[#168a68] disabled:opacity-60">
+                  {certBusy ? 'Preparing…' : 'Download Membership Certificate (PDF)'}
+                </button>
               )}
 
               <div className="flex flex-wrap gap-2 pt-1">

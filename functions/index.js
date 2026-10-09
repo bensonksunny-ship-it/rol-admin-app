@@ -739,3 +739,31 @@ exports.archiveStaleOnlyVisitVisitors = onSchedule(
 )
 
 
+
+// ─── Legal name → PCS ─────────────────────────────────────────────────────────
+// The public application pages (baptism / membership) run signed-out, so they
+// can't write PCS themselves. When an application moves pending → submitted with
+// a confirmed legal name, copy it onto the linked caring_pcs entry as `legalName`
+// (the day-to-day `name` / `displayName` are left alone).
+const { onDocumentUpdated } = require('firebase-functions/v2/firestore')
+
+async function syncLegalNameToPcs(event, source) {
+  const before = event.data?.before?.data() || {}
+  const after = event.data?.after?.data() || {}
+  if (before.status !== 'pending' || after.status !== 'submitted') return
+  const a = after.applicant || {}
+  const legalName = String(a.legalFullName || '').trim()
+  if (!legalName || a.legalNameConfirmed !== true || !after.pcsEntryId) return
+  const ref = admin.firestore().collection('caring_pcs').doc(after.pcsEntryId)
+  const snap = await ref.get()
+  if (!snap.exists) return
+  await ref.update({
+    legalName,
+    legalNameParts: { firstName: a.firstName || '', middleName: a.middleName || '', lastName: a.lastName || '' },
+    legalNameSource: source,
+    legalNameVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+  })
+}
+
+exports.syncBaptismLegalName = onDocumentUpdated('baptism_applications/{token}', (event) => syncLegalNameToPcs(event, 'Baptism application'))
+exports.syncMembershipLegalName = onDocumentUpdated('membership_applications/{token}', (event) => syncLegalNameToPcs(event, 'Membership application'))

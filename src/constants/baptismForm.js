@@ -24,6 +24,7 @@ export const BAPTISM_PASTOR_SIGNOFF = ['S/d Pr. Benson K Sunny', 'Senior Pastor,
 // PCS are highlighted on the applicant's page; filled ones are shown locked.
 export const BAPTISM_FIELDS = [
   { key: 'firstName',     label: 'First Name',      required: true },
+  { key: 'middleName',    label: 'Middle Name',     required: false },
   { key: 'lastName',      label: 'Last Name',       required: true },
   { key: 'dob',           label: 'Date of Birth',   required: true, type: 'date' },
   { key: 'gender',        label: 'Gender',          required: true, options: ['Male', 'Female'] },

@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   subscribeCaringEvents, saveCaringEvent, deleteCaringEvent, getPCSEntries, getDepartmentChildren,
+  setCaringEventStatus, subscribeSubmittedDedicationApplications, revealDedicationApplication, getDedicationSecretName,
+  getMemberProfile,
 } from '../../services/firestore'
+import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo } from '../../utils/baptismCertificate'
+import { dedicationFieldValue } from '../../constants/dedicationForm'
 import {
   CARING_EVENT_TYPES, caringEventType, suggestBatchCode, serialLabel, participantTitle, CARING_EVENT_DEFAULT_VENUE,
 } from '../../constants/caringEvents'
@@ -23,7 +27,7 @@ const todayISO = () => {
 const newKey = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 const personFromEntry = (e) => ({
   pcsEntryId: e.id, visitorId: e.visitorId || '', personId: e.personId || '',
-  name: e.name || '', membershipNumber: e.membershipNumber || '',
+  name: e.name || '', legalName: e.legalName || '', membershipNumber: e.membershipNumber || '',
 })
 const pcsIdLabel = (p) => p?.membershipNumber ? `#${p.membershipNumber}` : p?.pcsEntryId ? `PCS-${p.pcsEntryId.slice(0, 6)}` : '—'
 
@@ -64,11 +68,11 @@ function PcsPersonPicker({ entries, exclude = [], onPick, placeholder = 'Search 
   )
 }
 
-function EventFormModal({ initial, events, pcsEntries, riverKids, defaultOfficiant, savedBy, onClose }) {
+function EventFormModal({ initial, events, pcsEntries, riverKids, dedicationApps, defaultOfficiant, savedBy, onClose }) {
   const isEdit = !!initial?.id
   const [form, setForm] = useState(() => initial || {
     type: 'baptism', date: todayISO(), time: '', batchCode: '', venue: CARING_EVENT_DEFAULT_VENUE,
-    officiant: defaultOfficiant || '', notes: '', participants: [],
+    officiant: defaultOfficiant || '', notes: '', participants: [], status: 'scheduled',
   })
   const [codeTouched, setCodeTouched] = useState(isEdit)
   const [saving, setSaving] = useState(false)
@@ -120,10 +124,40 @@ function EventFormModal({ initial, events, pcsEntries, riverKids, defaultOfficia
   const inp = 'w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200'
   const label = (t) => <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">{t}</span>
 
+  // Submitted dedication applications not yet on any event (or already on this one).
+  const usedAppIds = new Set(events.filter((e) => e.id !== initial?.id).flatMap((e) => (e.participants || []).map((p) => p.applicationId).filter(Boolean)))
+  const thisAppIds = new Set(participants.map((p) => p.applicationId).filter(Boolean))
+  const openApps = (dedicationApps || []).filter((a) => !usedAppIds.has(a.id) && !thisAppIds.has(a.id))
+  const addFromApplication = (a) => {
+    const hidden = a.isSurpriseName && !a.revealed
+    const parentEntry = pcsEntries.find((e) => e.id === a.pcsEntryId)
+    setParticipants((l) => [...l, {
+      key: newKey(),
+      childName: hidden ? a.publicDisplayName : (a.childName || ''),
+      riverKidsChildId: '', applicationId: a.id, isSurprise: hidden,
+      parents: parentEntry ? [personFromEntry(parentEntry)] : [],
+    }])
+  }
+
   const addPicker = (() => {
     if (form.type === 'dedication') {
       return (
         <div className="space-y-2">
+          {openApps.length > 0 && (
+            <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-2 space-y-1">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-teal-800 px-1">From submitted applications</p>
+              {openApps.map((a) => (
+                <button key={a.id} type="button" onClick={() => addFromApplication(a)}
+                  className="w-full text-left px-2 py-1.5 rounded-lg text-sm hover:bg-white flex justify-between gap-2">
+                  <span className="text-slate-800">
+                    {a.isSurpriseName && !a.revealed ? `${a.publicDisplayName} 🔒` : a.childName}
+                    <span className="text-xs text-slate-400"> · {[dedicationFieldValue(a, 'fatherName'), dedicationFieldValue(a, 'motherName')].filter(Boolean).join(' & ')}</span>
+                  </span>
+                  <span className="text-xs font-bold text-teal-700 flex-shrink-0">+ Add</span>
+                </button>
+              ))}
+            </div>
+          )}
           <PcsChildAdder riverKids={riverKids} onAdd={(child) => setParticipants((l) => [...l, { key: newKey(), ...child, parents: [] }])} />
         </div>
       )
@@ -172,7 +206,9 @@ function EventFormModal({ initial, events, pcsEntries, riverKids, defaultOfficia
                   <span className="text-xs font-black text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-md px-1.5 py-0.5 mt-0.5">{serialLabel(i + 1)}</span>
                   <div className="flex-1 min-w-0">
                     {form.type === 'dedication' ? (
-                      <input value={p.childName || ''} onChange={(e) => updateRow(p.key, { childName: e.target.value })} placeholder="Child's name" className={inp} />
+                      p.isSurprise
+                        ? <p className="text-sm font-semibold text-slate-800">{p.childName} <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">🔒 Surprise name</span></p>
+                        : <input value={p.childName || ''} onChange={(e) => updateRow(p.key, { childName: e.target.value })} placeholder="Child's name" className={inp} />
                     ) : (
                       <p className="text-sm font-semibold text-slate-800">{p.name} <span className="text-xs font-normal text-slate-400">{pcsIdLabel(p)}</span></p>
                     )}
@@ -267,7 +303,7 @@ function PcsChildAdder({ riverKids, onAdd }) {
 }
 
 /** Caring → Events: pastoral lifecycle registry that syncs into PCS profiles. */
-export default function CaringEventsTab({ canEdit, savedBy, defaultOfficiant }) {
+export default function CaringEventsTab({ canEdit, canReveal, savedBy, defaultOfficiant }) {
   const [events, setEvents] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [pcsEntries, setPcsEntries] = useState([])
@@ -276,6 +312,38 @@ export default function CaringEventsTab({ canEdit, savedBy, defaultOfficiant }) 
   const [openId, setOpenId] = useState(null)
   const [editing, setEditing] = useState(null) // null | 'new' | event
   const [busyId, setBusyId] = useState(null)
+  const [dedicationApps, setDedicationApps] = useState([])
+  const [revealedNames, setRevealedNames] = useState({}) // participant key → name (this viewer only)
+  const [certBusy, setCertBusy] = useState('') // event id or participant key being generated
+
+  // Certificate of Baptism data for baptism-event participants: name/serial from the
+  // event, Native Place from PCS, parents from linked parent profiles (adult-child
+  // links on member_profiles). Unknown values leave the template's line blank.
+  const baptismCerts = async (ev, list) => Promise.all(list.map(async (p) => {
+    const pcs = pcsEntries.find((e) => e.id === p.pcsEntryId)
+    const profile = pcs?.visitorId ? await getMemberProfile(pcs.visitorId).catch(() => null) : null
+    return {
+      inHouse: true, // a Caring Events baptism service is performed by ROLCC
+      name: p.name || pcs?.name || '',
+      parents: (profile?.parents || []).map((x) => x?.name).filter(Boolean).join(' & '),
+      birthplace: pcs?.nativity || '',
+      baptismDate: ev.date,
+      officiant: ev.officiant || '',
+      regNo: baptismRegNo(ev.batchCode, p.serialNo),
+    }
+  }))
+  const runCerts = async (busyKey, ev, list, action) => {
+    setCertBusy(busyKey)
+    try {
+      const certs = await baptismCerts(ev, list)
+      if (action === 'print') await printBaptismCertificates(certs)
+      else await downloadBaptismCertificates(certs, list.length > 1 ? `${ev.batchCode || 'Baptism'}_Baptism_Certificates.pdf` : undefined)
+    } catch (e) {
+      console.error('Baptism certificates', e)
+      alert('Could not create the certificate. Please try again.')
+    }
+    setCertBusy('')
+  }
 
   useEffect(() => subscribeCaringEvents(setEvents, (err) => {
     setEvents([])
@@ -285,6 +353,7 @@ export default function CaringEventsTab({ canEdit, savedBy, defaultOfficiant }) 
     getPCSEntries().then(setPcsEntries).catch(() => setPcsEntries([]))
     getDepartmentChildren('River Kids').then((kids) => setRiverKids(kids.filter((k) => k.active !== false))).catch(() => setRiverKids([]))
   }, [])
+  useEffect(() => subscribeSubmittedDedicationApplications(setDedicationApps, () => setDedicationApps([])), [])
 
   const shown = useMemo(() => (events || []).filter((e) => filter === 'all' || e.type === filter), [events, filter])
 
@@ -294,6 +363,39 @@ export default function CaringEventsTab({ canEdit, savedBy, defaultOfficiant }) 
     setBusyId(event.id)
     try { await deleteCaringEvent(event) } catch (err) { console.error(err); alert('Could not delete the event.') }
     setBusyId(null)
+  }
+
+  // Mark Completed. For a dedication this also reveals surprise names: the event is
+  // completed first (rules only allow revealing for a completed dedication event),
+  // then each surprise application is revealed and the event is re-saved with the
+  // real names, which rewrites them into the parents' PCS profiles.
+  const complete = async (ev) => {
+    const surprises = (ev.participants || []).filter((p) => p.isSurprise && p.applicationId)
+    if (!window.confirm(`Mark ${ev.batchCode || 'this event'} as completed?${surprises.length ? ` The ${surprises.length} surprise name(s) will be revealed in PCS.` : ''}`)) return
+    setBusyId(ev.id)
+    try {
+      await setCaringEventStatus(ev.id, 'completed', savedBy)
+      if (surprises.length) {
+        const names = {}
+        for (const p of surprises) names[p.key] = await revealDedicationApplication(p.applicationId, ev.id, savedBy)
+        const participants = ev.participants.map((p) => names[p.key] ? { ...p, childName: names[p.key], isSurprise: false } : p)
+        await saveCaringEvent({ ...ev, participants, status: 'completed', completedAt: new Date().toISOString(), completedBy: savedBy }, { previous: ev, savedBy })
+      }
+    } catch (err) {
+      console.error('complete event failed:', err)
+      alert('Could not complete the event. Please try again.')
+    }
+    setBusyId(null)
+  }
+  const reopen = async (ev) => {
+    setBusyId(ev.id)
+    try { await setCaringEventStatus(ev.id, 'scheduled') } catch { alert('Could not reopen the event.') }
+    setBusyId(null)
+  }
+  const revealFor = async (p) => {
+    const name = await getDedicationSecretName(p.applicationId).catch(() => null)
+    if (name) setRevealedNames((m) => ({ ...m, [p.key]: name }))
+    else alert('The confidential name could not be read.')
   }
 
   return (
@@ -339,6 +441,9 @@ export default function CaringEventsTab({ canEdit, savedBy, defaultOfficiant }) 
                   className="w-full text-left px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-slate-50">
                   <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${TYPE_CLS[ev.type] || TYPE_CLS.burial}`}>{t.short}</span>
                   <span className="text-sm font-black text-slate-800">{ev.batchCode || '—'}</span>
+                  {ev.status === 'completed'
+                    ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">Completed</span>
+                    : <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">Scheduled</span>}
                   <span className="text-sm text-slate-600">{formatShortDate(ev.date)}{ev.time ? ` · ${ev.time}` : ''}</span>
                   <span className="text-xs text-slate-400 truncate min-w-0 flex-1">{ev.venue}</span>
                   <span className="text-xs font-semibold text-slate-500">{ev.participants?.length || 0} participant{ev.participants?.length === 1 ? '' : 's'}</span>
@@ -358,6 +463,7 @@ export default function CaringEventsTab({ canEdit, savedBy, defaultOfficiant }) 
                             <th className="py-1.5 pr-3">PCS ID</th>
                             <th className="py-1.5 pr-3">Batch</th>
                             <th className="py-1.5">Status</th>
+                            {ev.type === 'baptism' && <th className="py-1.5 pl-3">Certificate</th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -365,7 +471,11 @@ export default function CaringEventsTab({ canEdit, savedBy, defaultOfficiant }) 
                             <tr key={p.key} className="border-b border-slate-100 last:border-0">
                               <td className="py-2 pr-3 font-bold text-indigo-700">{serialLabel(p.serialNo)}</td>
                               <td className="py-2 pr-3 text-slate-800">
-                                {participantTitle(ev.type, p)}
+                                {revealedNames[p.key] || participantTitle(ev.type, p)}
+                                {p.isSurprise && !revealedNames[p.key] && <span className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">🔒 Surprise name</span>}
+                                {p.isSurprise && canReveal && !revealedNames[p.key] && (
+                                  <button type="button" onClick={() => revealFor(p)} className="ml-2 text-xs font-bold text-violet-700 hover:underline">Reveal Confidential Name</button>
+                                )}
                                 {ev.type === 'dedication' && (p.parents || []).length > 0 && <span className="block text-xs text-slate-400">Parents: {p.parents.map((x) => x.name).join(', ')}</span>}
                               </td>
                               <td className="py-2 pr-3 text-slate-500">
@@ -379,17 +489,43 @@ export default function CaringEventsTab({ canEdit, savedBy, defaultOfficiant }) 
                                   ? <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">No profile record</span>
                                   : <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">PCS updated</span>}
                               </td>
+                              {ev.type === 'baptism' && (
+                                <td className="py-2 pl-3 whitespace-nowrap">
+                                  <button type="button" disabled={!!certBusy} onClick={() => runCerts(p.key, ev, [p], 'download')}
+                                    className="text-xs font-bold text-[#1e3a5f] hover:underline disabled:opacity-50">{certBusy === p.key ? '…' : 'Download PDF'}</button>
+                                  <span className="text-slate-300 mx-1.5">|</span>
+                                  <button type="button" disabled={!!certBusy} onClick={() => runCerts(p.key, ev, [p], 'print')}
+                                    className="text-xs font-bold text-[#1e3a5f] hover:underline disabled:opacity-50">Print</button>
+                                </td>
+                              )}
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => openCaringEventCertificates(ev)} className="min-h-[40px] px-4 rounded-xl bg-[#92400e] text-white text-sm font-bold hover:bg-[#7c3510]">
-                        Print Event Certificates
-                      </button>
+                      {ev.type === 'baptism' && (ev.participants || []).length > 0 ? (
+                        <>
+                          {/* Official Certificate of Baptism template — one page per participant */}
+                          <button type="button" disabled={!!certBusy} onClick={() => runCerts(ev.id, ev, ev.participants, 'download')}
+                            className="min-h-[40px] px-4 rounded-xl bg-[#1e3a5f] text-white text-sm font-bold hover:bg-[#16304f] disabled:opacity-60">
+                            {certBusy === ev.id ? 'Preparing…' : 'Download Baptism Certificates (PDF)'}
+                          </button>
+                          <button type="button" disabled={!!certBusy} onClick={() => runCerts(ev.id, ev, ev.participants, 'print')}
+                            className="min-h-[40px] px-4 rounded-xl border-2 border-[#1e3a5f] text-[#1e3a5f] text-sm font-bold hover:bg-slate-50 disabled:opacity-60">
+                            Print Certificates
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={() => openCaringEventCertificates(ev)} className="min-h-[40px] px-4 rounded-xl bg-[#92400e] text-white text-sm font-bold hover:bg-[#7c3510]">
+                          Print Event Certificates
+                        </button>
+                      )}
                       {canEdit && (
                         <>
+                          {ev.status === 'completed'
+                            ? <button type="button" disabled={busyId === ev.id} onClick={() => reopen(ev)} className="min-h-[40px] px-4 rounded-xl border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">Reopen</button>
+                            : <button type="button" disabled={busyId === ev.id} onClick={() => complete(ev)} className="min-h-[40px] px-4 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 disabled:opacity-50">{busyId === ev.id ? 'Working…' : 'Mark Completed'}</button>}
                           <button type="button" onClick={() => setEditing(ev)} className="min-h-[40px] px-4 rounded-xl border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
                           <button type="button" disabled={busyId === ev.id} onClick={() => remove(ev)} className="min-h-[40px] px-4 rounded-xl border border-red-200 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">
                             {busyId === ev.id ? 'Deleting…' : 'Delete'}
@@ -411,6 +547,7 @@ export default function CaringEventsTab({ canEdit, savedBy, defaultOfficiant }) 
           events={events || []}
           pcsEntries={pcsEntries}
           riverKids={riverKids}
+          dedicationApps={dedicationApps}
           defaultOfficiant={defaultOfficiant}
           savedBy={savedBy}
           onClose={() => setEditing(null)}

@@ -1,7 +1,7 @@
 import {
   MEMBERSHIP_CHURCH_NAME, MEMBERSHIP_FORM_TITLE, MEMBERSHIP_FOOTER_NOTE,
   MEMBERSHIP_PREFILL_FIELDS, MEMBERSHIP_APPLICANT_FIELDS, MEMBERSHIP_DOCUMENTS, MEMBERSHIP_DECISIONS,
-  membershipFieldValue, membershipFullName, hasValue,
+  membershipFieldValue, membershipFullName, membershipDocumentProvided, hasValue,
 } from '../constants/membershipForm'
 
 const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -48,7 +48,7 @@ export function openMembershipFormPrint(app) {
 
   const talents = [...(app.applicant?.talents || []), app.applicant?.talentsOther].filter(hasValue).join(', ')
   const docs = MEMBERSHIP_DOCUMENTS.map((d) =>
-    `<span style="margin-right:16px">${app.documents?.[d.key] ? '☑' : '☐'} ${esc(d.label)}</span>`).join('')
+    `<span style="margin-right:16px">${membershipDocumentProvided(app, d) ? '☑' : '☐'} ${esc(d.label)}</span>`).join('')
   const decision = MEMBERSHIP_DECISIONS[app.status] || 'Awaiting applicant'
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Membership Form — ${esc(membershipFullName(app) || '')}</title>

@@ -17,6 +17,8 @@ import WorshipApplicationsPage from './pages/worship/WorshipApplicationsPage'
 import SundayReport from './pages/SundayReport'
 import BaptismApply from './pages/BaptismApply'
 import MembershipApply from './pages/MembershipApply'
+import DedicationApply from './pages/DedicationApply'
+import MarriageApply from './pages/MarriageApply'
 import SundayProgram from './pages/SundayProgram'
 import SundayCrew from './pages/SundayCrew'
 import Sunday from './pages/Sunday'
@@ -51,6 +53,10 @@ function App() {
             <Route path="/baptism-apply" element={<BaptismApply />} />
             {/* Public — PCS membership QR code; same token model (firestore.rules → membership_applications). */}
             <Route path="/membership-apply" element={<MembershipApply />} />
+            {/* Public — PCS baby dedication QR code (firestore.rules → dedication_applications). */}
+            <Route path="/dedication-apply" element={<DedicationApply />} />
+            {/* Public — PCS marriage (Holy Matrimony) QR code (firestore.rules → marriage_applications). */}
+            <Route path="/marriage-apply" element={<MarriageApply />} />
             <Route
               path="/board-present/:meetingId"
               element={

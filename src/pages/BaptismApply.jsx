@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getBaptismApplicationByToken, submitBaptismApplication } from '../services/firestore'
+import { applicationHasCell, APPLICATION_LOCKED_TITLE, APPLICATION_LOCKED_TEXT } from '../utils/applicationCellGuard'
 import {
   BAPTISM_CHURCH_NAME, BAPTISM_FORM_TITLE, BAPTISM_DECLARATION_POINTS, BAPTISM_DECLARATION_TEXT,
   BAPTISM_PASTOR_SIGNOFF, BAPTISM_FIELDS, hasValue,
 } from '../constants/baptismForm'
 import { openBaptismFormPrint } from '../utils/baptismFormPrint'
 import SignaturePad from '../components/SignaturePad'
+import LegalNameInputGroup from '../components/LegalNameInputGroup'
+import FamilyDetailsSection from '../components/FamilyDetailsSection'
+import { initialFamilyState, familyPayload, familyProblems } from '../utils/familyDetails'
+import { LEGAL_NAME_KEYS, legalFullName, legalNamePayload, isLegalNameComplete, splitName } from '../utils/legalName'
 
 // Shrink an uploaded image to a small JPEG data URL so it fits inside the
 // Firestore doc (no Storage upload — this page runs signed-out).
@@ -48,6 +53,9 @@ export default function BaptismApply() {
   const [photo, setPhoto] = useState('')
   const [signature, setSignature] = useState('')
   const [agreed, setAgreed] = useState(false)
+  const [legal, setLegal] = useState({ firstName: '', middleName: '', lastName: '' })
+  const [nameConfirmed, setNameConfirmed] = useState(false)
+  const [family, setFamily] = useState({ spouse: {}, children: [] })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -58,7 +66,10 @@ export default function BaptismApply() {
         if (!a) { setState('notFound'); return }
         setApp(a)
         setPhoto(a.photoDataUrl || '')
-        setState(a.status === 'pending' ? 'ready' : 'submitted')
+        // Start the three name boxes from the PCS name; the applicant corrects it to their ID.
+        setLegal(splitName([a.prefill?.firstName, a.prefill?.middleName, a.prefill?.lastName].filter(Boolean).join(' ')))
+        setFamily(initialFamilyState(a.prefill))
+        setState(a.status === 'pending' ? (applicationHasCell(a) ? 'ready' : 'locked') : 'submitted')
       })
       // Permission-denied here means the link expired (rules stop serving it).
       .catch(() => setState('notFound'))
@@ -69,21 +80,33 @@ export default function BaptismApply() {
   const fields = useMemo(() => {
     if (!app) return []
     const values = Object.fromEntries(BAPTISM_FIELDS.map((f) => [f.key, locked(f.key) ? app.prefill[f.key] : (answers[f.key] || '')]))
-    return BAPTISM_FIELDS.filter((f) => !f.onlyIf || f.onlyIf(values))
+    return BAPTISM_FIELDS.filter((f) => !LEGAL_NAME_KEYS.includes(f.key) && f.key !== 'spouseName' && (!f.onlyIf || f.onlyIf(values)))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app, answers])
   const missingRequired = fields.filter((f) => f.required && !hasValue(value(f.key)))
-  const fullName = [value('firstName'), value('lastName')].filter(hasValue).join(' ')
+  const fullName = legalFullName(legal)
+  const showSpouse = value('maritalStatus') === 'Married'
 
   const submit = async () => {
     setError('')
+    if (!isLegalNameComplete(legal)) { setError('Please enter your first and last name as on your government ID.'); return }
+    if (!nameConfirmed) { setError('Please confirm that your name matches your government ID.'); return }
     if (missingRequired.length) { setError(`Please fill: ${missingRequired.map((f) => f.label).join(', ')}`); return }
+    const famIssues = familyProblems(family)
+    if (famIssues.length) { setError(`Please enter ${famIssues.join(', ')}.`); return }
     if (!agreed) { setError('Please tick the declaration.'); return }
     if (!signature) { setError('Please sign, or upload a signature image.'); return }
     setSubmitting(true)
     try {
       // Only the applicant's own answers are sent; pre-filled PCS values stay as they are.
-      const applicant = Object.fromEntries(fields.filter((f) => !locked(f.key) && hasValue(answers[f.key])).map((f) => [f.key, String(answers[f.key]).trim()]))
+      const applicant = {
+        ...Object.fromEntries(fields.filter((f) => !locked(f.key) && hasValue(answers[f.key])).map((f) => [f.key, String(answers[f.key]).trim()])),
+        ...legalNamePayload(legal), legalNameConfirmed: true,
+      }
+      const fam = familyPayload(family, { includeSpouse: showSpouse })
+      applicant.family = fam
+      // The form's Spouse Name (print / office view) follows the Family Details boxes.
+      if (showSpouse && fam.spouseName && fam.spouseName !== app.prefill?.spouseName) applicant.spouseName = fam.spouseName
       await submitBaptismApplication(token, { applicant, photoDataUrl: photo, signatureDataUrl: signature })
       setApp((a) => ({ ...a, applicant, photoDataUrl: photo, signatureDataUrl: signature, status: 'submitted', submittedAt: new Date() }))
       setState('submitted')
@@ -101,6 +124,13 @@ export default function BaptismApply() {
   )
 
   if (state === 'loading') return shell(<p className="p-10 text-center text-slate-400 text-sm">Loading your application…</p>)
+  if (state === 'locked') return shell(
+    <div className="p-10 text-center">
+      <div className="w-12 h-12 mx-auto rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xl">🔒</div>
+      <p className="text-lg font-bold text-slate-800 mt-3">{APPLICATION_LOCKED_TITLE}</p>
+      <p className="text-sm text-slate-500 mt-2">{APPLICATION_LOCKED_TEXT}</p>
+    </div>
+  )
   if (state === 'notFound') return shell(
     <div className="p-10 text-center">
       <p className="text-lg font-bold text-slate-800">This link isn't available</p>
@@ -151,7 +181,10 @@ export default function BaptismApply() {
         {/* Candidate information */}
         <section>
           <h2 className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-blue-700 border-b-2 border-blue-700 pb-1">Candidate Information</h2>
-          <p className="text-xs text-slate-500 mt-2">Details we already have are shown with ✓. Please fill in the highlighted ones.</p>
+          <div className="mt-3">
+            <LegalNameInputGroup value={legal} onChange={setLegal} confirmed={nameConfirmed} onConfirm={setNameConfirmed} idPrefix="baptism-name" />
+          </div>
+          <p className="text-xs text-slate-500 mt-4">Details we already have are shown with ✓. Please fill in the highlighted ones.</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             {fields.map((f) => {
               if (locked(f.key)) {
@@ -180,6 +213,8 @@ export default function BaptismApply() {
             })}
           </div>
         </section>
+
+        <FamilyDetailsSection value={family} onChange={setFamily} showSpouse={showSpouse} idPrefix="baptism-family" />
 
         {/* Declaration + signature */}
         <section>

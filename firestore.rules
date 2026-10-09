@@ -597,6 +597,22 @@ service cloud.firestore {
                  .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'declarationAccepted', 'status', 'submittedAt']));
     }
 
+    // Marriage (Holy Matrimony) applications — same token model as
+    // baptism_applications above: signed-out holders of the QR link may read an
+    // unexpired doc and submit the applicant's part exactly once.
+    match /marriage_applications/{token} {
+      allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+        || resource.data.expiresAt > request.time;
+      allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+        || (resource.data.status == 'pending'
+            && resource.data.expiresAt > request.time
+            && request.resource.data.status == 'submitted'
+            && request.resource.data.declarationAccepted == true
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'declarationAccepted', 'status', 'submittedAt']));
+    }
+
     // Membership applications — same token model as baptism_applications above: the
     // doc id is the unguessable QR token. Signed-out holders of the link may read an
     // unexpired doc and submit the applicant's part exactly once; listing, creating,
@@ -611,6 +627,49 @@ service cloud.firestore {
             && request.resource.data.status == 'submitted'
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'documents', 'status', 'submittedAt']));
+    }
+
+    // Founder / Senior Pastor / Admin — may see a baby dedication "surprise" name
+    // before the service.
+    function canRevealSurpriseName() {
+      return isSignedIn() && (isFullAccess() || getUserRole() == 'Senior Pastor' || getUserRole() == 'Admin');
+    }
+
+    // Baby dedication applications — same QR token model as baptism_applications.
+    // A surprise child name is never on this doc (see dedication_secret_names), and
+    // `revealed` (which opens the secret to Caring) may only be set by a revealer or
+    // once the dedication event named in `revealEventId` is marked completed.
+    match /dedication_applications/{token} {
+      allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName()))
+        || resource.data.expiresAt > request.time;
+      allow list: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName());
+      allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName())
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['revealed'])
+              || canRevealSurpriseName()
+              || (request.resource.data.get('revealEventId', '') != ''
+                  && get(/databases/$(database)/documents/caring_events/$(request.resource.data.revealEventId)).data.get('status', '') == 'completed'
+                  && get(/databases/$(database)/documents/caring_events/$(request.resource.data.revealEventId)).data.get('type', '') == 'dedication')))
+        || (resource.data.status == 'pending'
+            && resource.data.expiresAt > request.time
+            && request.resource.data.status == 'submitted'
+            && (request.resource.data.isSurpriseName == false || request.resource.data.childName == '')
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['applicant', 'isSurpriseName', 'publicDisplayName', 'childName', 'status', 'submittedAt']));
+    }
+
+    // The confidential name of a surprise dedication. Written once by the parents'
+    // submission (while the application is still pending); readable only by a
+    // revealer, or by Caring after the application has been revealed.
+    match /dedication_secret_names/{token} {
+      allow create: if get(/databases/$(database)/documents/dedication_applications/$(token)).data.status == 'pending'
+        && get(/databases/$(database)/documents/dedication_applications/$(token)).data.expiresAt > request.time
+        && request.resource.data.keys().hasOnly(['name', 'firstName', 'middleName', 'lastName', 'createdAt']);
+      allow read: if canRevealSurpriseName()
+        || (isSignedIn() && canAccessDept('Caring')
+            && get(/databases/$(database)/documents/dedication_applications/$(token)).data.get('revealed', false) == true);
+      allow update: if canRevealSurpriseName();
+      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
     // Caring → Events: pastoral lifecycle registry (baptism, marriage, dedication,

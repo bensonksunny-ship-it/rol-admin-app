@@ -11,7 +11,8 @@ const fmtDate = (d) => {
 }
 
 export function applicantFullName(app) {
-  return [baptismFieldValue(app, 'firstName'), baptismFieldValue(app, 'lastName')].filter(hasValue).join(' ')
+  return app?.applicant?.legalFullName
+    || [baptismFieldValue(app, 'firstName'), baptismFieldValue(app, 'middleName'), baptismFieldValue(app, 'lastName')].filter(hasValue).join(' ')
 }
 
 /** A4 print sheet for one application — opened in a new window and printed / saved as PDF. */

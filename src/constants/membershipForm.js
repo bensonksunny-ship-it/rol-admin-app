@@ -18,6 +18,7 @@ export const MEMBERSHIP_FOOTER_NOTE =
 // PCS already has a value; left blank → the applicant is asked for it.
 export const MEMBERSHIP_PREFILL_FIELDS = [
   { key: 'firstName',      label: 'First Name',                      required: true },
+  { key: 'middleName',     label: 'Middle Name',                     required: false },
   { key: 'lastName',       label: 'Last Name',                       required: true },
   { key: 'gender',         label: 'Gender',                          required: true, options: ['Male', 'Female'] },
   { key: 'dob',            label: 'Date of Birth',                   required: true, type: 'date' },
@@ -42,18 +43,25 @@ export const MEMBERSHIP_TALENTS = [
   'Technical / Sound', 'Hospitality', 'Prayer / Intercession', 'Administration', 'Art / Design',
 ]
 
-// Documents presented with the form. `required` ones must be uploaded on the QR page.
+// Documents are handed over in person, not uploaded: the applicant ticks a
+// confirmation for each (both required). Saved on applicant as booleans.
+// `legacyKey` = the uploaded-scan key older applications used in `documents`.
 export const MEMBERSHIP_DOCUMENTS = [
-  { key: 'baptismCertificate', label: 'Baptism Certificate', required: true },
-  { key: 'idProof',            label: 'ID Proof (Aadhaar / Passport / Voter ID)', required: false },
+  { key: 'hasSubmittedPhysicalBaptismCertificate', legacyKey: 'baptismCertificate', label: 'Baptism Certificate',
+    confirm: 'I have physically submitted my original/copy of Water Baptism Certificate to the church office.' },
+  { key: 'hasSubmittedPhysicalIdProof', legacyKey: 'idProof', label: 'ID Proof (Aadhaar / Passport / Voter ID)',
+    confirm: 'I have physically submitted my official Government ID Proof (Aadhaar / Passport / Voter ID) to the church office.' },
 ]
+
+/** Was this document handed over (new tick) or uploaded (older applications)? */
+export const membershipDocumentProvided = (app, d) => app?.applicant?.[d.key] === true || !!app?.documents?.[d.legacyKey]
 
 /** Effective value: the applicant's entry wins over the PCS pre-fill. */
 export const membershipFieldValue = (app, key) =>
   hasValue(app?.applicant?.[key]) ? app.applicant[key] : (app?.prefill?.[key] || '')
 
-export const membershipFullName = (app) =>
-  [membershipFieldValue(app, 'firstName'), membershipFieldValue(app, 'lastName')].filter(hasValue).join(' ')
+export const membershipFullName = (app) => app?.applicant?.legalFullName
+  || [membershipFieldValue(app, 'firstName'), membershipFieldValue(app, 'middleName'), membershipFieldValue(app, 'lastName')].filter(hasValue).join(' ')
 
 /** Office decision on a submitted application. */
 export const MEMBERSHIP_DECISIONS = {

@@ -20,12 +20,14 @@ import {
   getDocsFromServer,
   arrayUnion,
   deleteField,
+  runTransaction,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage, functions, httpsCallable } from '../lib/firebase'
 import { ROLES, deriveRoleFromPositions } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
 import { normalizeEngagementType } from '../utils/pcsEngagement'
+import { mergeFamilyIntoProfile } from '../utils/familyDetails'
 
 // Firestore's writes reject any `undefined` field value, including ones nested inside
 // array elements (e.g. one row of a dynamically-built assignments array). Recursively
@@ -3431,6 +3433,11 @@ function mapPCSDoc(d) {
     removedBy: data.removedBy || '',
     inactiveCellAlertDismissed: !!data.inactiveCellAlertDismissed,
     engagementType: normalizeEngagementType(data.engagementType),
+    // Verified legal name (as per government ID) — set from a submitted baptism /
+    // membership application by the syncBaptismLegalName / syncMembershipLegalName functions.
+    legalName: data.legalName || '',
+    legalNameParts: data.legalNameParts || null,
+    legalNameSource: data.legalNameSource || '',
     displayName: data.displayName || '',
     // Linked "Referred by" D Light record ("<source>:<docId>"); text stays in howKnown
     howKnownRefId: data.howKnownRefId || '',
@@ -3452,6 +3459,11 @@ function mapPCSDoc(d) {
     },
     // Pastoral follow-up log — [{ at: ISO timestamp, by, note }], oldest first
     followUps: Array.isArray(data.followUps) ? data.followUps : [],
+    // Duplicate merge (utils/pcsDedupe.js, mergePCSEntries): a merged duplicate is
+    // archived (status inactive) and points at the profile it was merged into.
+    mergedInto: data.mergedInto || '',
+    mergedVisitorIds: Array.isArray(data.mergedVisitorIds) ? data.mergedVisitorIds : [],
+    updatedAt: toDate(data.updatedAt),
     // Promoted to Glory — set by a Caring Events burial record (kept in PCS, out of
     // every absence / removal warning).
     departed: !!data.departed,
@@ -3597,7 +3609,7 @@ export async function getInactivePCSEntries() {
   if (!db) return []
   const q = query(collection(db, CARING_PCS_COLLECTION), orderBy('addedAt', 'desc'))
   const snap = await getDocs(q)
-  return snap.docs.map(mapPCSDoc).filter(e => e.status === 'inactive')
+  return snap.docs.map(mapPCSDoc).filter(e => e.status === 'inactive' && !e.mergedInto)
 }
 
 // Silence the "Removed from Cell — still in PCS" alert for one entry without removing
@@ -3617,11 +3629,40 @@ export async function deactivatePCSEntry(id, removedBy = '') {
   deleteDoc(doc(db, PCS_LOOKUP_COLLECTION, id)).catch(() => {})
 }
 
+/** Active PCS entry for the same person: same visitorId, or same name + phone. */
+async function findActivePCSEntryFor(data) {
+  const live = (snap) => snap.docs.map(mapPCSDoc).filter(e => e.status !== 'inactive')
+  const byVisitor = live(await getDocs(query(collection(db, CARING_PCS_COLLECTION), where('visitorId', '==', data.visitorId))))
+  if (byVisitor.length) return byVisitor[0]
+  const normName = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  const ph = String(data.phone || '').replace(/\D/g, '').slice(-10)
+  const nm = normName(data.name)
+  if (ph.length !== 10 || !nm) return null
+  const byPhone = live(await getDocs(query(collection(db, CARING_PCS_COLLECTION), where('phone', '==', data.phone))))
+  return byPhone.find(e => normName(e.name) === nm) || null
+}
+
 export async function addPCSEntry(data) {
   if (!db) return null
   // A PCS entry must be linked to a D-Light visitor record — no freeform/unlinked adds.
   if (!data.visitorId) throw new Error('A linked visitor record is required to add someone to PCS.')
-  const ref = await addDoc(collection(db, CARING_PCS_COLLECTION), {
+
+  // Duplicate guard (two windows / double clicks adding the same person):
+  // 1) an active entry already exists for this visitor, or for the same name + phone
+  //    → reuse it (fill any blanks) instead of creating another;
+  // 2) otherwise create with a deterministic id ("v_<visitorId>") inside a
+  //    transaction, so two simultaneous adds resolve to the same document.
+  const existing = await findActivePCSEntryFor(data)
+  if (existing) {
+    const fill = {}
+    ;['phone', 'email', 'dob', 'nativity', 'currentPlace', 'serviceAttended', 'howKnown', 'attendedDate'].forEach(k => {
+      if (!existing[k] && data[k]) fill[k] = String(data[k])
+    })
+    if (Object.keys(fill).length) await updateDoc(doc(db, CARING_PCS_COLLECTION, existing.id), { ...fill, updatedAt: Timestamp.now() })
+    return existing.id
+  }
+  const ref = doc(db, CARING_PCS_COLLECTION, `v_${data.visitorId}`)
+  const payload = {
     visitorId: data.visitorId || '',
     name: data.name || '',
     phone: data.phone || '',
@@ -3637,6 +3678,12 @@ export async function addPCSEntry(data) {
     leadershipPosition: data.leadershipPosition || '',
     addedAt: Timestamp.now(),
     addedBy: data.addedBy || 'unknown',
+  }
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    // An archived/removed doc at this id is reused (re-adding the person); a live one wins.
+    if (snap.exists() && snap.data().status !== 'inactive') return
+    tx.set(ref, payload)
   })
   setDoc(doc(db, PCS_LOOKUP_COLLECTION, ref.id), {
     visitorId: data.visitorId || '',
@@ -3665,7 +3712,7 @@ export async function updatePCSEntry(id, data) {
   if (data.engagementType !== undefined) payload.engagementType = normalizeEngagementType(data.engagementType)
   if (data.displayName !== undefined) payload.displayName = String(data.displayName).trim()
   if (data.howKnownRefId !== undefined) payload.howKnownRefId = String(data.howKnownRefId)
-  if (Object.keys(payload).length) await updateDoc(doc(db, CARING_PCS_COLLECTION, id), payload)
+  if (Object.keys(payload).length) await updateDoc(doc(db, CARING_PCS_COLLECTION, id), { ...payload, updatedAt: Timestamp.now() })
   // pcs_lookup is a denormalized name/phone/visitorId index for fast search elsewhere —
   // without this it only catches up the next time someone runs the manual bulk sync.
   if (payload.name !== undefined || payload.phone !== undefined || payload.visitorId !== undefined) {
@@ -7952,4 +7999,365 @@ export async function deleteCaringEvent(event) {
   if (!db || !event?.id) return
   await undoCaringEventSync(event)
   await deleteDoc(doc(db, CARING_EVENTS, event.id))
+}
+
+/** Set a Caring event's status ('scheduled' | 'completed') without re-syncing PCS. */
+export async function setCaringEventStatus(eventId, status, by = '') {
+  if (!db || !eventId) return
+  await updateDoc(doc(db, CARING_EVENTS, eventId), {
+    status, ...(status === 'completed' ? { completedAt: Timestamp.now(), completedBy: by } : { completedAt: null, completedBy: '' }),
+  })
+}
+
+// ─── Baby Dedication Applications ─────────────────────────────────────────────
+// Same token/QR model as baptism_applications. A "surprise" child name is never
+// written to the application doc: it goes to dedication_secret_names/{token},
+// readable only by Founder / Senior Pastor / Admin — and by Caring once the
+// application is `revealed`, which rules only allow after its dedication event is
+// marked Completed. See firestore.rules → dedication_applications.
+
+const DEDICATION_APPLICATIONS = 'dedication_applications'
+const DEDICATION_SECRET_NAMES = 'dedication_secret_names'
+const DEDICATION_LINK_DAYS = 30
+
+function mapDedicationApplication(d) {
+  const data = d.data()
+  return {
+    id: d.id, ...data,
+    createdAt: toDate(data.createdAt), expiresAt: toDate(data.expiresAt),
+    submittedAt: toDate(data.submittedAt), revealedAt: toDate(data.revealedAt),
+  }
+}
+
+export async function createDedicationApplication({ pcsEntryId, visitorId, personId, prefill }, createdBy = '') {
+  if (!db || !pcsEntryId) throw new Error('Missing PCS entry')
+  const token = randomToken()
+  const payload = {
+    pcsEntryId, visitorId: visitorId || '', personId: personId || '',
+    prefill: prefill || {}, applicant: {},
+    isSurpriseName: false, childName: '', publicDisplayName: '',
+    revealed: false, revealEventId: '',
+    status: 'pending', officeNotes: '',
+    createdAt: Timestamp.now(), createdBy,
+    expiresAt: Timestamp.fromDate(new Date(Date.now() + DEDICATION_LINK_DAYS * 24 * 60 * 60 * 1000)),
+    submittedAt: null,
+  }
+  await setDoc(doc(db, DEDICATION_APPLICATIONS, token), payload)
+  return { id: token, ...payload, createdAt: new Date(), expiresAt: payload.expiresAt.toDate() }
+}
+
+export async function getDedicationApplicationByToken(token) {
+  if (!db || !token) return null
+  const snap = await getDoc(doc(db, DEDICATION_APPLICATIONS, token))
+  return snap.exists() ? mapDedicationApplication(snap) : null
+}
+
+const sortNewest = (list) => list.sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))
+
+export function subscribeDedicationApplicationsForEntry(pcsEntryId, onChange, onError) {
+  if (!db || !pcsEntryId) { onChange([]); return () => {} }
+  return onSnapshot(query(collection(db, DEDICATION_APPLICATIONS), where('pcsEntryId', '==', pcsEntryId)),
+    (snap) => onChange(sortNewest(snap.docs.map(mapDedicationApplication))),
+    (err) => { console.error('subscribeDedicationApplicationsForEntry:', err); onError?.(err) })
+}
+
+/** Caring Events: submitted applications, for adding children to a dedication event. */
+export function subscribeSubmittedDedicationApplications(onChange, onError) {
+  if (!db) { onChange([]); return () => {} }
+  return onSnapshot(query(collection(db, DEDICATION_APPLICATIONS), where('status', '==', 'submitted')),
+    (snap) => onChange(sortNewest(snap.docs.map(mapDedicationApplication))),
+    (err) => { console.error('subscribeSubmittedDedicationApplications:', err); onError?.(err) })
+}
+
+/** Parents' submission from the public page (signed-out). */
+export async function submitDedicationApplication(token, { applicant, childNameParts, isSurpriseName, publicDisplayName }) {
+  if (!db || !token) throw new Error('Missing link')
+  const parts = childNameParts || {}
+  const childName = parts.legalFullName || ''
+  // Legal name parts travel with the name: on the application, or in the secret doc.
+  const partFields = { firstName: parts.firstName || '', middleName: parts.middleName || '', lastName: parts.lastName || '' }
+  const batch = writeBatch(db)
+  batch.update(doc(db, DEDICATION_APPLICATIONS, token), {
+    applicant: isSurpriseName ? (applicant || {}) : { ...(applicant || {}), childFirstName: partFields.firstName, childMiddleName: partFields.middleName, childLastName: partFields.lastName },
+    isSurpriseName: !!isSurpriseName,
+    publicDisplayName: publicDisplayName || '',
+    childName: isSurpriseName ? '' : String(childName || '').trim(),
+    status: 'submitted',
+    submittedAt: Timestamp.now(),
+  })
+  if (isSurpriseName) {
+    batch.set(doc(db, DEDICATION_SECRET_NAMES, token), { name: childName, ...partFields, createdAt: Timestamp.now() })
+  }
+  await batch.commit()
+}
+
+/** Founder / Senior Pastor / Admin: read a surprise name. null when not allowed / none. */
+export async function getDedicationSecretName(token) {
+  if (!db || !token) return null
+  try {
+    const snap = await getDoc(doc(db, DEDICATION_SECRET_NAMES, token))
+    return snap.exists() ? (snap.data().name || '') : null
+  } catch (err) {
+    if (err?.code === 'permission-denied') return null
+    throw err
+  }
+}
+
+/**
+ * Reveal a surprise name after its dedication event is completed: marks the
+ * application revealed (rules require `eventId` to be a completed dedication
+ * event), then copies the secret name onto the application. Returns the name.
+ */
+export async function revealDedicationApplication(token, eventId, by = '') {
+  if (!db || !token) return ''
+  await updateDoc(doc(db, DEDICATION_APPLICATIONS, token), {
+    revealed: true, revealEventId: eventId || '', revealedAt: Timestamp.now(), revealedBy: by,
+  })
+  const name = (await getDedicationSecretName(token)) || ''
+  if (name) await updateDoc(doc(db, DEDICATION_APPLICATIONS, token), { childName: name })
+  return name
+}
+
+export async function updateDedicationApplication(token, data) {
+  if (!db || !token) return
+  await updateDoc(doc(db, DEDICATION_APPLICATIONS, token), data)
+}
+
+export async function deleteDedicationApplication(token) {
+  if (!db || !token) return
+  await deleteDoc(doc(db, DEDICATION_SECRET_NAMES, token)).catch(() => {})
+  await deleteDoc(doc(db, DEDICATION_APPLICATIONS, token))
+}
+
+// ─── Pastoral applications: cross-type queue (Caring Hub) ─────────────────────
+// Live list of baptism / membership / dedication applications in the given
+// statuses — the "Applications & Form Requests" card and PCS profile list.
+// ─── Marriage (Holy Matrimony) Applications ───────────────────────────────────
+// Same token model as baptism / membership: the doc id is the unguessable QR
+// token (/marriage-apply?token=…); signed-out holders of the link may read an
+// unexpired doc and submit the applicant's part once. See firestore.rules →
+// marriage_applications. Wording / fields: constants/marriageForm.js.
+
+const MARRIAGE_APPLICATIONS = 'marriage_applications'
+const MARRIAGE_LINK_DAYS = 30
+
+function mapMarriageApplication(d) {
+  const data = d.data()
+  return {
+    id: d.id, ...data,
+    createdAt: toDate(data.createdAt), expiresAt: toDate(data.expiresAt),
+    submittedAt: toDate(data.submittedAt), decidedAt: toDate(data.decidedAt),
+  }
+}
+
+export async function createMarriageApplication({ pcsEntryId, visitorId, personId, prefill }, createdBy = '') {
+  if (!db || !pcsEntryId) throw new Error('Missing PCS entry')
+  const token = randomToken()
+  const payload = {
+    pcsEntryId, visitorId: visitorId || '', personId: personId || '',
+    prefill: prefill || {}, applicant: {},
+    photoDataUrl: '', signatureDataUrl: '', declarationAccepted: false,
+    status: 'pending', officeNotes: '',
+    createdAt: Timestamp.now(), createdBy,
+    expiresAt: Timestamp.fromDate(new Date(Date.now() + MARRIAGE_LINK_DAYS * 24 * 60 * 60 * 1000)),
+    submittedAt: null,
+  }
+  await setDoc(doc(db, MARRIAGE_APPLICATIONS, token), payload)
+  return { id: token, ...payload, createdAt: new Date(), expiresAt: payload.expiresAt.toDate() }
+}
+
+export async function getMarriageApplicationByToken(token) {
+  if (!db || !token) return null
+  const snap = await getDoc(doc(db, MARRIAGE_APPLICATIONS, token))
+  return snap.exists() ? mapMarriageApplication(snap) : null
+}
+
+export function subscribeMarriageApplicationsForEntry(pcsEntryId, onChange, onError) {
+  if (!db || !pcsEntryId) { onChange([]); return () => {} }
+  return onSnapshot(query(collection(db, MARRIAGE_APPLICATIONS), where('pcsEntryId', '==', pcsEntryId)),
+    (snap) => onChange(sortNewest(snap.docs.map(mapMarriageApplication))),
+    (err) => { console.error('subscribeMarriageApplicationsForEntry:', err); onError?.(err) })
+}
+
+/** Applicant submission from the public page (signed-out). */
+export async function submitMarriageApplication(token, { applicant, photoDataUrl, signatureDataUrl }) {
+  if (!db || !token) throw new Error('Missing link')
+  await updateDoc(doc(db, MARRIAGE_APPLICATIONS, token), {
+    applicant: applicant || {},
+    photoDataUrl: photoDataUrl || '',
+    signatureDataUrl: signatureDataUrl || '',
+    declarationAccepted: true,
+    status: 'submitted',
+    submittedAt: Timestamp.now(),
+  })
+}
+
+export async function updateMarriageApplication(token, data) {
+  if (!db || !token) return
+  await updateDoc(doc(db, MARRIAGE_APPLICATIONS, token), data)
+}
+
+export async function deleteMarriageApplication(token) {
+  if (!db || !token) return
+  await deleteDoc(doc(db, MARRIAGE_APPLICATIONS, token))
+}
+
+const APPLICATION_COLLECTIONS = {
+  marriage: [MARRIAGE_APPLICATIONS, mapMarriageApplication],
+  baptism: [BAPTISM_APPLICATIONS, mapBaptismApplication],
+  membership: [MEMBERSHIP_APPLICATIONS, (d) => {
+    const data = d.data()
+    return { id: d.id, ...data, createdAt: toDate(data.createdAt), expiresAt: toDate(data.expiresAt), submittedAt: toDate(data.submittedAt), decidedAt: toDate(data.decidedAt) }
+  }],
+  dedication: [DEDICATION_APPLICATIONS, mapDedicationApplication],
+}
+
+export function subscribeApplicationsByStatus(type, statuses, onChange, onError) {
+  const cfg = APPLICATION_COLLECTIONS[type]
+  if (!db || !cfg) { onChange([]); return () => {} }
+  const [name, map] = cfg
+  return onSnapshot(query(collection(db, name), where('status', 'in', statuses)),
+    (snap) => onChange(snap.docs.map(map).sort((a, b) => (b.submittedAt?.getTime?.() || 0) - (a.submittedAt?.getTime?.() || 0))),
+    (err) => { console.error(`subscribeApplicationsByStatus(${type}):`, err); onError?.(err) })
+}
+
+/** Office decision on any application type (status, notes, linked event, …).
+ *  Approving also syncs the applicant's Family Details back to their profile. */
+export async function updateApplication(type, token, data) {
+  const cfg = APPLICATION_COLLECTIONS[type]
+  if (!db || !cfg || !token) return
+  await updateDoc(doc(db, cfg[0], token), data)
+  if (data?.status === 'approved') await syncApplicationFamilyToProfile(type, token)
+}
+
+/**
+ * On approval: merge the applicant's submitted spouse / children (applicant.family,
+ * see utils/familyDetails.js) into member_profiles/{visitorId}. Marriage
+ * applications sync children only — the partner becomes the spouse when the
+ * wedding is recorded as a Caring > Events marriage, not at approval. Best-effort:
+ * a failure is recorded on the application (familySyncError), never thrown, so it
+ * can't undo or block the approval itself.
+ */
+async function syncApplicationFamilyToProfile(type, token) {
+  const ref = doc(db, APPLICATION_COLLECTIONS[type][0], token)
+  try {
+    const snap = await getDoc(ref)
+    const app = snap.exists() ? snap.data() : null
+    const family = app?.applicant?.family
+    if (!family || !app.visitorId) return
+    const profile = await getMemberProfile(app.visitorId)
+    const patch = mergeFamilyIntoProfile(profile || {}, family, { includeSpouse: type !== 'marriage' })
+    if (!patch) return
+    await upsertMemberProfile(app.visitorId, patch, 'application-approval')
+    await updateDoc(ref, { familySyncedAt: Timestamp.now(), familySyncError: '' })
+  } catch (err) {
+    console.error('syncApplicationFamilyToProfile:', err)
+    updateDoc(ref, { familySyncError: String(err?.message || err) }).catch(() => {})
+  }
+}
+
+/** One PCS person's applications of a type, newest first (any status). */
+export function subscribeApplicationsForEntry(type, pcsEntryId, onChange, onError) {
+  const cfg = APPLICATION_COLLECTIONS[type]
+  if (!db || !cfg || !pcsEntryId) { onChange([]); return () => {} }
+  const [name, map] = cfg
+  return onSnapshot(query(collection(db, name), where('pcsEntryId', '==', pcsEntryId)),
+    (snap) => onChange(snap.docs.map(map).sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0))),
+    (err) => { console.error(`subscribeApplicationsForEntry(${type}):`, err); onError?.(err) })
+}
+
+// ─── PCS duplicate merge ──────────────────────────────────────────────────────
+// Folds duplicate PCS entries into one master profile (see utils/pcsDedupe.js):
+//  • blank master fields are filled from the duplicates; follow-ups, Away
+//    periods and manual ministries are combined;
+//  • Baptism / Membership / Dedication applications and Caring Events participant
+//    rows that pointed at a duplicate now point at the master;
+//  • the duplicate's member_profiles details fill blanks on the master's;
+//  • the duplicate is archived (status inactive, mergedInto = master id) — never
+//    hard-deleted — and its visitorId is kept on the master (mergedVisitorIds).
+// Attendance is recorded by name / visitor id on the attendance sheets, so it is
+// not moved; the master's own records carry on as before.
+const PCS_MERGE_FILL_FIELDS = ['phone', 'email', 'dob', 'nativity', 'currentPlace', 'serviceAttended', 'howKnown',
+  'attendedDate', 'membershipNumber', 'leadershipPosition', 'displayName', 'personId', 'year']
+const MEMBER_PROFILE_FILL_FIELDS = ['phone', 'email', 'dob', 'nativity', 'currentPlace', 'gender', 'baptised', 'baptismDate',
+  'baptismPlace', 'baptismChurch', 'maritalStatus', 'marriageDate', 'spouseName', 'spouseVisitorId', 'previousChurchName',
+  'previousChurchPlace', 'membershipStatus', 'permanentAddress', 'photoUrl', 'hasKids']
+
+export async function mergePCSEntries(masterId, duplicateIds, mergedBy = '') {
+  if (!db || !masterId || !duplicateIds?.length) return { moved: 0 }
+  const load = async (id) => { const s = await getDoc(doc(db, CARING_PCS_COLLECTION, id)); return s.exists() ? { id: s.id, raw: s.data() } : null }
+  const master = await load(masterId)
+  if (!master) throw new Error('Master profile not found')
+  const dups = (await Promise.all(duplicateIds.filter((id) => id !== masterId).map(load))).filter(Boolean)
+  const blank = (v) => v === undefined || v === null || String(v).trim() === ''
+
+  // 1. Master fields + combined lists
+  const patch = {}
+  const followUps = [...(master.raw.followUps || [])]
+  const awayPeriods = [...(master.raw.awayPeriods || [])]
+  const ministries = [...(master.raw.ministries || [])]
+  const mergedVisitorIds = new Set(master.raw.mergedVisitorIds || [])
+  dups.forEach(({ raw }) => {
+    PCS_MERGE_FILL_FIELDS.forEach((k) => { if (blank(patch[k] ?? master.raw[k]) && !blank(raw[k])) patch[k] = raw[k] })
+    ;(raw.followUps || []).forEach((f) => { if (!followUps.some((x) => x.at === f.at && x.note === f.note)) followUps.push(f) })
+    ;(raw.awayPeriods || []).forEach((a) => { if (!awayPeriods.some((x) => x.from === a.from && x.to === a.to)) awayPeriods.push(a) })
+    ;(raw.ministries || []).forEach((m) => {
+      const key = String(m?.ministry || '').toLowerCase()
+      if (key && !ministries.some((x) => String(x?.ministry || '').toLowerCase() === key)) ministries.push(m)
+    })
+    if (raw.visitorId && raw.visitorId !== master.raw.visitorId) mergedVisitorIds.add(raw.visitorId)
+  })
+  followUps.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')))
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, masterId), {
+    ...plain({ ...patch, followUps, awayPeriods, ministries, mergedVisitorIds: [...mergedVisitorIds] }),
+    updatedAt: Timestamp.now(),
+  })
+
+  // 2. Applications → master
+  let moved = 0
+  const dupIds = dups.map((d) => d.id)
+  for (const coll of [BAPTISM_APPLICATIONS, MEMBERSHIP_APPLICATIONS, DEDICATION_APPLICATIONS, MARRIAGE_APPLICATIONS]) {
+    for (const id of dupIds) {
+      const snap = await getDocs(query(collection(db, coll), where('pcsEntryId', '==', id))).catch(() => null)
+      for (const d of snap?.docs || []) {
+        await updateDoc(d.ref, { pcsEntryId: masterId, visitorId: master.raw.visitorId || '', personId: master.raw.personId || '' })
+        moved++
+      }
+    }
+  }
+
+  // 3. Caring Events participant references → master
+  const evSnap = await getDocs(collection(db, CARING_EVENTS)).catch(() => null)
+  const swap = (p) => (p && dupIds.includes(p.pcsEntryId) ? { ...p, pcsEntryId: masterId, visitorId: master.raw.visitorId || p.visitorId || '' } : p)
+  for (const d of evSnap?.docs || []) {
+    const parts = d.data().participants || []
+    const touched = parts.some((p) => dupIds.includes(p.pcsEntryId) || dupIds.includes(p.spouse?.pcsEntryId) || (p.parents || []).some((x) => dupIds.includes(x.pcsEntryId)))
+    if (!touched) continue
+    const next = parts.map((p) => ({ ...swap(p), ...(p.spouse ? { spouse: swap(p.spouse) } : {}), ...(p.parents ? { parents: p.parents.map(swap) } : {}) }))
+    await updateDoc(d.ref, { participants: plain(next) })
+    moved++
+  }
+
+  // 4. member_profiles: duplicate's details fill blanks on the master's
+  if (master.raw.visitorId) {
+    const masterProfile = (await getMemberProfile(master.raw.visitorId).catch(() => null)) || {}
+    const fill = {}
+    for (const { raw } of dups) {
+      if (!raw.visitorId || raw.visitorId === master.raw.visitorId) continue
+      const p = await getMemberProfile(raw.visitorId).catch(() => null)
+      if (!p) continue
+      MEMBER_PROFILE_FILL_FIELDS.forEach((k) => { if (blank(fill[k] ?? masterProfile[k]) && !blank(p[k])) fill[k] = p[k] })
+      if (!(masterProfile.children || []).length && (p.children || []).length && !fill.children) fill.children = p.children
+    }
+    if (Object.keys(fill).length) await upsertMemberProfile(master.raw.visitorId, fill, mergedBy)
+  }
+
+  // 5. Archive the duplicates
+  for (const id of dupIds) {
+    await updateDoc(doc(db, CARING_PCS_COLLECTION, id), {
+      status: 'inactive', mergedInto: masterId, removedAt: Timestamp.now(), removedBy: `merge: ${mergedBy || 'unknown'}`,
+    })
+    deleteDoc(doc(db, PCS_LOOKUP_COLLECTION, id)).catch(() => {})
+  }
+  return { moved, archived: dupIds.length }
 }
