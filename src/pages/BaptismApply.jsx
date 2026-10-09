@@ -114,9 +114,12 @@ export default function BaptismApply() {
       <p className="text-[11px] font-black tracking-[0.12em] text-blue-200">{BAPTISM_CHURCH_NAME}</p>
       <h1 className="text-xl font-extrabold mt-1">{BAPTISM_FORM_TITLE}</h1>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-xs text-blue-100">
-        <span>Place: <b className="text-white">{app.place}</b></span>
+        {(app.place || answers.baptismPlace || app.applicant?.baptismPlace) && (
+          <span>Place: <b className="text-white">{app.place || answers.baptismPlace || app.applicant?.baptismPlace}</b></span>
+        )}
         <span>Date: <b className="text-white">{fmtDate(app.submittedAt || new Date())}</b></span>
-        <span className="font-black text-white border border-white/40 rounded-md px-2 py-0.5">{app.formId}</span>
+        {/* Form ID (B-<batch> / <serial>) appears once the church office assigns it. */}
+        {app.formId && <span className="font-black text-white border border-white/40 rounded-md px-2 py-0.5">{app.formId}</span>}
       </div>
     </div>
 
@@ -170,7 +173,7 @@ export default function BaptismApply() {
                       {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
                     </select>
                   ) : (
-                    <input type={f.type || 'text'} value={answers[f.key] || ''} onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))} className={cls} />
+                    <input type={f.type || 'text'} placeholder={f.placeholder || ''} value={answers[f.key] || ''} onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))} className={cls} />
                   )}
                 </div>
               )

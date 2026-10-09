@@ -3432,6 +3432,8 @@ function mapPCSDoc(d) {
     inactiveCellAlertDismissed: !!data.inactiveCellAlertDismissed,
     engagementType: normalizeEngagementType(data.engagementType),
     displayName: data.displayName || '',
+    // Linked "Referred by" D Light record ("<source>:<docId>"); text stays in howKnown
+    howKnownRefId: data.howKnownRefId || '',
     // Travel / vacation availability — see utils/awayStatus.js
     away: !!data.away,
     awayFrom: data.awayFrom || '',
@@ -3662,6 +3664,7 @@ export async function updatePCSEntry(id, data) {
   if (data.leadershipPosition !== undefined) payload.leadershipPosition = String(data.leadershipPosition)
   if (data.engagementType !== undefined) payload.engagementType = normalizeEngagementType(data.engagementType)
   if (data.displayName !== undefined) payload.displayName = String(data.displayName).trim()
+  if (data.howKnownRefId !== undefined) payload.howKnownRefId = String(data.howKnownRefId)
   if (Object.keys(payload).length) await updateDoc(doc(db, CARING_PCS_COLLECTION, id), payload)
   // pcs_lookup is a denormalized name/phone/visitorId index for fast search elsewhere —
   // without this it only catches up the next time someone runs the manual bulk sync.
@@ -7596,17 +7599,17 @@ function mapBaptismApplication(d) {
 }
 
 /** Create an application for a PCS entry; returns the new doc (its id is the token). */
-export async function createBaptismApplication({ pcsEntryId, visitorId, personId, batch, place, prefill }, createdBy = '') {
+/** Create an application for a PCS entry in one click; returns the new doc (its id is
+ *  the token). Batch No. / Serial No. (the Form ID) are assigned later by Caring when
+ *  reviewing (assignBaptismBatch); the applicant gives their preferred baptism place
+ *  and batch / service date on the form itself. */
+export async function createBaptismApplication({ pcsEntryId, visitorId, personId, prefill }, createdBy = '') {
   if (!db || !pcsEntryId) throw new Error('Missing PCS entry')
-  // Running number across all applications — the "42" in "B-9 / 42".
-  const all = await getDocs(collection(db, BAPTISM_APPLICATIONS))
-  const seq = all.docs.reduce((max, d) => Math.max(max, Number(d.data().seq) || 0), 0) + 1
   const token = randomToken()
-  const batchStr = String(batch || '').trim()
   const payload = {
     pcsEntryId, visitorId: visitorId || '', personId: personId || '',
-    batch: batchStr, seq, formId: `B-${batchStr || '?'} / ${seq}`,
-    place: place || 'Bangalore',
+    batch: '', seq: null, formId: '',
+    place: '',
     prefill: prefill || {},
     applicant: {},
     photoDataUrl: '', signatureDataUrl: '', declarationAccepted: false,
@@ -7617,6 +7620,26 @@ export async function createBaptismApplication({ pcsEntryId, visitorId, personId
   }
   await setDoc(doc(db, BAPTISM_APPLICATIONS, token), payload)
   return { id: token, ...payload, createdAt: new Date(), expiresAt: payload.expiresAt.toDate() }
+}
+
+/** Next free Serial No. — one more than the highest assigned across all applications. */
+export async function getNextBaptismSerial() {
+  if (!db) return 1
+  const all = await getDocs(collection(db, BAPTISM_APPLICATIONS))
+  return all.docs.reduce((max, d) => Math.max(max, Number(d.data().seq) || 0), 0) + 1
+}
+
+/** Caring: assign the formal Batch No. + Serial No. → Form ID "B-<batch> / <serial>". */
+export async function assignBaptismBatch(token, { batch, seq, place }) {
+  if (!db || !token) return null
+  const batchStr = String(batch || '').trim()
+  const serial = Number(seq) || null
+  const formId = batchStr && serial ? `B-${batchStr} / ${serial}` : ''
+  await updateDoc(doc(db, BAPTISM_APPLICATIONS, token), {
+    batch: batchStr, seq: serial, formId,
+    ...(place !== undefined ? { place: String(place || '').trim() } : {}),
+  })
+  return formId
 }
 
 /** Public read by token (works signed-out while the link is unexpired). */

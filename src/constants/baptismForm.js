@@ -38,6 +38,10 @@ export const BAPTISM_FIELDS = [
   { key: 'altPhone',      label: 'Alternate Phone', required: false, type: 'tel' },
   { key: 'email',         label: 'Email',           required: false, type: 'email' },
   { key: 'cellName',      label: 'Cell Group',      required: false },
+  // Asked of the applicant (never pre-filled). Caring assigns the formal Batch No. /
+  // Serial No. when reviewing the submitted application.
+  { key: 'baptismPlace',  label: 'Baptism Place',   required: false, placeholder: 'e.g. Church baptistry, Bangalore' },
+  { key: 'preferredBatchDate', label: 'Preferred Batch / Service Date', required: false, type: 'date' },
 ]
 
 export const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== ''

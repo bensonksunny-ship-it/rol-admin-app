@@ -357,6 +357,8 @@ service cloud.firestore {
 
     match /dlight_members/{docId} {
       allow read, write: if isSignedIn() && (isFullAccess() || getUserRole() == 'Admin' || canAccessDept('D Light'));
+      // Caring reads (never writes) the list for the PCS "How Known / Referred By" picker.
+      allow read: if isSignedIn() && canAccessDept('Caring');
     }
 
     match /sunday_program/{docId} {

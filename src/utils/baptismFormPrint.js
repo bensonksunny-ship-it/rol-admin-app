@@ -28,7 +28,8 @@ export function openBaptismFormPrint(app) {
       <div style="font-size:11px;color:#0f172a;min-height:14px">${esc(val(f)) || '&nbsp;'}</div>
     </div>`).join('')
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Baptism Application — ${esc(app.formId || '')}</title>
+  const place = app.place || baptismFieldValue(app, 'baptismPlace')
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Baptism Application — ${esc(app.formId || applicantFullName(app) || '')}</title>
   <style>
     * { box-sizing:border-box; margin:0; padding:0; }
     @page { size:A4 portrait; margin:0; }
@@ -40,9 +41,9 @@ export function openBaptismFormPrint(app) {
         <div style="font-size:15px;font-weight:900;letter-spacing:.04em;color:#1e3a5f">${esc(BAPTISM_CHURCH_NAME)}</div>
         <div style="font-size:13px;font-weight:700;color:#334155;margin-top:4px">${esc(BAPTISM_FORM_TITLE)}</div>
         <div style="display:flex;gap:18px;margin-top:10px;font-size:10px;color:#334155">
-          <span><b>Place:</b> ${esc(app.place || '')}</span>
+          <span><b>Place:</b> ${esc(place || '')}</span>
           <span><b>Date:</b> ${esc(fmtDate(app.submittedAt || new Date()))}</span>
-          <span style="font-weight:800;color:#1e3a5f;border:1.5px solid #1e3a5f;border-radius:6px;padding:1px 8px">${esc(app.formId || '')}</span>
+          <span style="font-weight:800;color:#1e3a5f;border:1.5px solid #1e3a5f;border-radius:6px;padding:1px 8px">${esc(app.formId || 'B- ____ / ____')}</span>
         </div>
       </div>
       <div style="width:30mm;height:36mm;border:1.5px dashed #94a3b8;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">

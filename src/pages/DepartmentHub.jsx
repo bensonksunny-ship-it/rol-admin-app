@@ -148,6 +148,7 @@ import {
   subscribeToRecentSundayAttendanceWeeks,
 } from '../services/firestore'
 import { getMemberDisplayName } from '../utils/displayName'
+import ReferrerCombobox from '../components/caring/ReferrerCombobox'
 import BaptismApplicationModal from '../components/caring/BaptismApplicationModal'
 import MembershipApplicationModal from '../components/caring/MembershipApplicationModal'
 import CaringEventsTab from '../components/caring/CaringEventsTab'
@@ -6630,15 +6631,15 @@ export default function DepartmentHub() {
 
             // ── Search + filter chips — matches name (search) and every active filter
             // group (cell / status / year), OR'd within a group, AND'd across groups.
-            const getEntryCellName = (entry) => {
-              const np = (entry.phone || '').replace(/\s+/g, '')
-              const cm = allCellMembers.find(m => m.status !== 'inactive' && (
-                (entry.visitorId && m.visitorId && m.visitorId === entry.visitorId) ||
-                (np && m.phone && m.phone.replace(/\s+/g, '') === np)
-              ))
-              const cg = cm ? cellGroups.find(g => g.id === cm.cellId) : null
-              return (cg?.cellName || '').trim().toLowerCase()
+            // The person's active cell group — the single lookup shared by the list card,
+            // the Cell filter chips and the profile's "Cell Group" line (visitorId first,
+            // then phone; see findPcsCellMember). Cell membership lives on the cell
+            // roster, not on the PCS doc, so there is no stored field to fall out of sync.
+            const getEntryCellGroup = (entry) => {
+              const cm = findPcsCellMember(entry, allCellMembers)
+              return cm ? (cellGroups.find(g => g.id === cm.cellId) || { id: cm.cellId, cellName: '' }) : null
             }
+            const getEntryCellName = (entry) => (getEntryCellGroup(entry)?.cellName || '').trim().toLowerCase()
             const activePcsChips = PCS_FILTER_CHIPS.filter(c => pcsActiveFilters.has(c.key))
             const pcsChipsByGroup = activePcsChips.reduce((acc, c) => {
               (acc[c.group] ||= []).push(c)
@@ -6684,7 +6685,7 @@ export default function DepartmentHub() {
                 .map(k => ({ id: `rk_${k.id}`, name: k.name, inRiverKids: 'yes', riverKidsChildId: k.id }))
               setPcsExpandedForm({
                 personId: entry.personId || '',
-                name: entry.name || '', displayName: entry.displayName || '', phone: entry.phone || '', attendedDate: entry.attendedDate || '',
+                name: entry.name || '', displayName: entry.displayName || '', howKnownRefId: entry.howKnownRefId || '', phone: entry.phone || '', attendedDate: entry.attendedDate || '',
                 membershipNumber: entry.membershipNumber || '', leadershipPosition: entry.leadershipPosition || '',
                 year: entry.year || '', email: entry.email || '', dob: entry.dob || '', nativity: entry.nativity || '',
                 currentPlace: entry.currentPlace || '', serviceAttended: entry.serviceAttended || '', howKnown: entry.howKnown || '',
@@ -6781,14 +6782,6 @@ export default function DepartmentHub() {
                 }).catch(() => {}).finally(() => setPcsExpandedLoading(false))
               }
             }
-
-            const cellVisitorIds = new Set(allCellMembers.filter(m => m.status !== 'inactive' && m.visitorId).map(m => m.visitorId))
-            const cellNameByVisitorId = new Map()
-            allCellMembers.filter(m => m.status !== 'inactive' && m.visitorId).forEach(m => {
-              if (!cellNameByVisitorId.has(m.visitorId)) {
-                cellNameByVisitorId.set(m.visitorId, cellGroups.find(g => g.id === m.cellId)?.cellName || '')
-              }
-            })
 
             // Discard Profile — for a wrong record (duplicate / entered by mistake), not for
             // someone who stopped attending (that is Remove from PCS). Non-Founders file a
@@ -7012,7 +7005,10 @@ export default function DepartmentHub() {
               const hasMember = !!entry.membershipNumber
               const hasLeadership = !!entry.leadershipPosition
               const isExpanded = pcsExpandedId === entry.id
-              const isInCell = !!(entry.visitorId && cellVisitorIds.has(entry.visitorId))
+              // Same visitorId-or-phone match as the profile's Cell Group line — matching by
+              // visitorId alone showed "Not a member" for people linked to their cell by phone.
+              const entryCell = getEntryCellGroup(entry)
+              const isInCell = !!entryCell
               const menuOpen = pcsMenuOpenId === entry.id
               const isPastor = isSeniorPastorName(entry.name)
               const absentWeeks = getSundayAbsentWeeks(entry)
@@ -7130,7 +7126,7 @@ export default function DepartmentHub() {
                       {hasMember
                         ? <p className={`text-xs font-medium leading-tight truncate ${isExpanded ? 'text-indigo-200' : isPastor ? 'text-amber-700' : 'text-amber-600'}`}>#{entry.membershipNumber}</p>
                         : isInCell
-                          ? <p className={`text-xs font-medium leading-tight truncate ${isExpanded ? 'text-indigo-200' : 'text-emerald-600'}`}>{cellNameByVisitorId.get(entry.visitorId) || 'Cell member'}</p>
+                          ? <p className={`text-xs font-medium leading-tight truncate ${isExpanded ? 'text-indigo-200' : 'text-emerald-600'}`}>{entryCell?.cellName || 'Cell member'}</p>
                           : <p className={`text-xs leading-tight truncate ${isExpanded ? 'text-indigo-300' : 'text-blue-400'}`}>Not a member</p>
                       }
                       {String(entry.displayName || '').trim() && (
@@ -7668,6 +7664,12 @@ export default function DepartmentHub() {
                                       <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
                                       {on || at ? `Baptised${on ? ` on ${on}` : ''}${at ? ` at ${at}` : ''}` : 'Baptised: Yes'}
                                     </p>
+                                    {/* Written by a Caring Events baptism record */}
+                                    {(f.baptismBatch || f.baptismSerialNo) && (
+                                      <p className="text-[11px] text-slate-500 mt-0.5">
+                                        Batch {f.baptismBatch || '—'}{f.baptismSerialNo ? ` · Serial #${String(f.baptismSerialNo).padStart(2, '0')}` : ''}
+                                      </p>
+                                    )}
                                     {partial && !isPendingDiscard && (
                                       <p className="text-[11px] text-slate-400 mt-0.5">
                                         Baptism {!on && !at ? 'date and church are' : !on ? 'date is' : 'church is'} not recorded.{' '}
@@ -7949,7 +7951,18 @@ export default function DepartmentHub() {
                         {fld('Nativity / Hometown', 'nativity')}
                         {fld('Current Place', 'currentPlace')}
                         {fld('Service Attended', 'serviceAttended')}
-                        {fld('How Known / Referred by', 'howKnown')}
+                        {/* How Known / Referred By — searchable: standard answers + D Light people.
+                            Saves the text to howKnown (as before) and the linked D Light record
+                            to howKnownRefId; older free-text answers still display. */}
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">How Known / Referred by</p>
+                          <ReferrerCombobox
+                            value={f.howKnown || ''}
+                            refId={f.howKnownRefId || ''}
+                            onChange={({ name, refId }) => setF(p => ({ ...p, howKnown: name, howKnownRefId: refId }))}
+                            className={inp}
+                          />
+                        </div>
                         <div className="space-y-0.5">
                           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">First Visit Date</p>
                           <input type="date" value={f.attendedDate || ''} onChange={e => { const val = e.target.value; const yr = val ? new Date(val).getFullYear() : null; setF(p => ({ ...p, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) })) }} className={inp} />
@@ -8609,7 +8622,7 @@ export default function DepartmentHub() {
                           setPcsExpandedSaving(true)
                           try {
                             const { personId, name, phone, attendedDate, membershipNumber, leadershipPosition, year, email, dob, nativity, currentPlace, serviceAttended, howKnown,
-                              ministries, gender, engagementType, displayName,
+                              ministries, gender, engagementType, displayName, howKnownRefId,
                               baptised, baptismDate, baptismPlace, baptismChurch, maritalStatus, marriageDate, spouseName, spouseVisitorId,
                               hasKids, children, isFirstChurch, previousChurchName, previousChurchPlace,
                               membershipStatus, membershipDocs, permanentAddress } = f
@@ -8640,8 +8653,8 @@ export default function DepartmentHub() {
                               resolvedPersonId = await addPerson(personData, userProfile?.email || '')
                             }
 
-                            await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear, ministries: ministries || [], personId: resolvedPersonId, engagementType, displayName: displayName || '' })
-                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear ? Number(resolvedYear) : null, ministries: ministries || [], personId: resolvedPersonId, engagementType: normalizeEngagementType(engagementType), displayName: String(displayName || '').trim() } : e))
+                            await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear, ministries: ministries || [], personId: resolvedPersonId, engagementType, displayName: displayName || '', howKnownRefId: howKnownRefId || '' })
+                            setPcsEntries(prev => prev.map(e => e.id === entry.id ? { ...e, name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear ? Number(resolvedYear) : null, ministries: ministries || [], personId: resolvedPersonId, engagementType: normalizeEngagementType(engagementType), displayName: String(displayName || '').trim(), howKnownRefId: howKnownRefId || '' } : e))
                             if (entry.visitorId) {
                               updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }).catch(() => {})
                               // displayName rides along so every other department's roster copy
