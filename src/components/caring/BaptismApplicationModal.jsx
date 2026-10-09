@@ -5,6 +5,7 @@ import {
   createBaptismApplication, subscribeBaptismApplicationsForEntry, updateBaptismApplication, deleteBaptismApplication,
   assignBaptismBatch, getNextBaptismSerial,
 } from '../../services/firestore'
+import useRefreshPendingApplication from '../../hooks/useRefreshPendingApplication'
 import { baptismFieldValue, visibleBaptismFields, hasValue } from '../../constants/baptismForm'
 import { openBaptismFormPrint, applicantFullName } from '../../utils/baptismFormPrint'
 
@@ -44,6 +45,8 @@ export default function BaptismApplicationModal({ entry, prefill, userEmail, onC
   }), [entry.id])
 
   const app = apps?.[0] || null
+  // A pending link created before this person had a cell stays locked on the QR page — re-stamp it.
+  useRefreshPendingApplication(app, prefill, updateBaptismApplication)
   const link = app ? `${window.location.origin}/baptism-apply?token=${app.id}` : ''
   const expired = app && app.status === 'pending' && app.expiresAt && app.expiresAt < new Date()
 

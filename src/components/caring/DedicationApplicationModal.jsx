@@ -5,6 +5,7 @@ import {
   createDedicationApplication, subscribeDedicationApplicationsForEntry, updateDedicationApplication,
   deleteDedicationApplication, getDedicationSecretName,
 } from '../../services/firestore'
+import useRefreshPendingApplication from '../../hooks/useRefreshPendingApplication'
 import {
   DEDICATION_PARENT_FIELDS, DEDICATION_BABY_FIELDS, dedicationFieldValue, dedicationDisplayName, hasValue,
 } from '../../constants/dedicationForm'
@@ -33,6 +34,8 @@ export default function DedicationApplicationModal({ entry, prefill, userEmail, 
   }), [entry.id])
 
   const app = apps?.[0] || null
+  // A pending link created before this person had a cell stays locked on the QR page — re-stamp it.
+  useRefreshPendingApplication(app, prefill, updateDedicationApplication)
   const link = app ? `${window.location.origin}/dedication-apply?token=${app.id}` : ''
   const expired = app && app.status === 'pending' && app.expiresAt && app.expiresAt < new Date()
 

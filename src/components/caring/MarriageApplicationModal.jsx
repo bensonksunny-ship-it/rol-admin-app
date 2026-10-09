@@ -4,6 +4,7 @@ import QRCode from 'qrcode'
 import {
   createMarriageApplication, subscribeMarriageApplicationsForEntry, updateMarriageApplication, deleteMarriageApplication,
 } from '../../services/firestore'
+import useRefreshPendingApplication from '../../hooks/useRefreshPendingApplication'
 import {
   MARRIAGE_APPLICANT_FIELDS, MARRIAGE_PARTNER_FIELDS, MARRIAGE_WEDDING_FIELDS,
   marriageFieldValue, marriageCoupleName, marriagePartnerName, hasValue,
@@ -36,6 +37,8 @@ export default function MarriageApplicationModal({ entry, prefill, userEmail, on
   }), [entry.id])
 
   const app = apps?.[0] || null
+  // A pending link created before this person had a cell stays locked on the QR page — re-stamp it.
+  useRefreshPendingApplication(app, prefill, updateMarriageApplication)
   const link = app ? `${window.location.origin}/marriage-apply?token=${app.id}` : ''
   const expired = app && app.status === 'pending' && app.expiresAt && app.expiresAt < new Date()
 

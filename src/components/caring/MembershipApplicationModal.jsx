@@ -4,6 +4,7 @@ import QRCode from 'qrcode'
 import {
   createMembershipApplication, subscribeMembershipApplicationsForEntry, updateMembershipApplication, deleteMembershipApplication,
 } from '../../services/firestore'
+import useRefreshPendingApplication from '../../hooks/useRefreshPendingApplication'
 import {
   MEMBERSHIP_PREFILL_FIELDS, MEMBERSHIP_APPLICANT_FIELDS, MEMBERSHIP_DOCUMENTS, MEMBERSHIP_DECISIONS,
   membershipFieldValue, membershipFullName, membershipDocumentProvided, hasValue,
@@ -46,6 +47,8 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
   }), [entry.id])
 
   const app = apps?.[0] || null
+  // A pending link created before this person had a cell stays locked on the QR page — re-stamp it.
+  useRefreshPendingApplication(app, prefill, updateMembershipApplication)
   const link = app ? `${window.location.origin}/membership-apply?token=${app.id}` : ''
   const expired = app && app.status === 'pending' && app.expiresAt && app.expiresAt < new Date()
 
