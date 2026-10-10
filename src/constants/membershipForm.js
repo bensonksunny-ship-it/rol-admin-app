@@ -14,6 +14,22 @@ export const MEMBERSHIP_FORM_TITLE = 'Membership Form'
 // One line under the form on the applicant's page.
 export const MEMBERSHIP_SHORT_NOTE = '₹500 refundable deposit for the membership card.'
 
+// Stage 4 security deposit receipt: the amount pre-filled for the office (they can
+// change it per receipt). NOTE: the applicant texts above still say ₹500.
+export const MEMBERSHIP_DEPOSIT_AMOUNT = 50
+
+// Stage 4 verification is done by the Department of Caring; its head is named on
+// the Full Application Record ("Verified … by Department of Caring (Head: …)").
+export const CARING_DEPARTMENT_HEAD = { name: 'Prasad', email: 'varaprasad.gbrv@gmail.com' }
+
+/** "REC-2026-1010" from a date (YYYY-MM-DD or Date): the default receipt number. */
+export const depositReceiptNo = (d = new Date()) => {
+  const dt = typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T12:00:00`) : new Date(d)
+  if (isNaN(dt.getTime())) return ''
+  const p = (n) => String(n).padStart(2, '0')
+  return `REC-${dt.getFullYear()}-${p(dt.getMonth() + 1)}${p(dt.getDate())}`
+}
+
 export const MEMBERSHIP_FOOTER_NOTE =
   'Kindly deposit Rs.500/- for the membership card which will be refunded later. Baptism certificate is mandatory with form.'
 

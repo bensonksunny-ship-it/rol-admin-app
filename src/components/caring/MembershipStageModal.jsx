@@ -7,7 +7,7 @@ import MembershipApplicationPreview from './MembershipApplicationPreview'
 import BaptismProofStatus from './BaptismProofStatus'
 import IdProofAttachment from './IdProofAttachment'
 import { VERIFICATION_CHECKLIST, revisionItem, flaggedItemsText, membershipRevisionLink } from '../../constants/membershipRevision'
-import { membershipFieldValue } from '../../constants/membershipForm'
+import { membershipFieldValue, MEMBERSHIP_DEPOSIT_AMOUNT, depositReceiptNo } from '../../constants/membershipForm'
 import { advanceBlockReason, currentStage } from '../../utils/membershipPipeline'
 import { deaconStatusOf } from '../../utils/deaconOffice'
 import { getMemberDisplayName } from '../../utils/displayName'
@@ -376,7 +376,7 @@ export default function MembershipStageModal({
   const [interviewDate, setInterviewDate] = useState(String(entry.membershipPipeline?.interview?.scheduledAt || '').slice(0, 10) || todayIso())
   const [memberNo, setMemberNo] = useState(entry.membershipNumber || '')
   // Stage 4 item 4: security deposit receipt (shown on the Full Application Record).
-  const [deposit, setDeposit] = useState({ receiptNo: '', amount: '500', mode: 'Cash', date: todayIso(), receivedBy: by || '' })
+  const [deposit, setDeposit] = useState({ receiptNo: depositReceiptNo(), amount: String(MEMBERSHIP_DEPOSIT_AMOUNT), mode: 'Cash', date: todayIso(), receivedBy: by || '' })
   const allChecked = VERIFICATION_CHECKLIST.every((c) => isChecked(c.key))
   const btn = 'w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50'
   const inp = 'w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white'

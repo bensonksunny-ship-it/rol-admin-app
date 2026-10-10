@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import MembershipApplicationPreview from './MembershipApplicationPreview'
 import { getMemberDisplayName } from '../../utils/displayName'
 import { INTERVIEW_QUESTIONS, INTERVIEW_ANSWERS } from '../../constants/membershipInterview'
-import { membershipWaterBaptism } from '../../constants/membershipForm'
+import { membershipWaterBaptism, MEMBERSHIP_DEPOSIT_AMOUNT, CARING_DEPARTMENT_HEAD, depositReceiptNo } from '../../constants/membershipForm'
 
 const fmt = (d) => {
   const dt = d ? (typeof d?.toDate === 'function' ? d.toDate() : new Date(d)) : null
@@ -18,7 +18,7 @@ const fmtDateTime = (d) => {
 const VERIFICATION_ITEMS = [
   ['infoVerified', 'All information checked and verified'],
   ['idCopy', 'ID card copy submitted'],
-  ['baptismProof', 'Baptism certificate / self-declaration'],
+  ['baptismProof', 'Baptism certificate / self-declaration form'],
   ['securityDeposit', 'Security deposit paid'],
   ['photo', 'Physical photo provided'],
 ]
@@ -40,7 +40,7 @@ function Field({ label, value }) {
 function AddOn({ letter, title, stageText, done, cls, children }) {
   return (
     <section className={done ? `${cls} rounded-xl p-4 my-3` : 'rounded-xl border border-dashed border-slate-300 p-4 my-3 text-slate-400'} style={{ breakInside: 'avoid' }}>
-      <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] opacity-70">Section {letter} · {stageText}</p>
+      <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] opacity-70">Section {letter} • {stageText}:</p>
       <p className="font-bold mb-2">{title}</p>
       {done ? children : <p className="text-sm">Pending: added here once this stage is completed.</p>}
     </section>
@@ -98,6 +98,13 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
   const st = mp.stages || {}
   const ver = st.verification
   const dep = ver?.deposit || {}
+  // Section B receipt: what the office recorded, else the standard deposit (older
+  // verifications saved no receipt details).
+  const verifiedAt = ver?.verifiedAt || ver?.completedAt
+  const depositPaid = !!ver?.checklist?.securityDeposit
+  const amountNum = Number(dep.amount) || MEMBERSHIP_DEPOSIT_AMOUNT
+  const amountText = `₹ ${amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const receiptNo = dep.receiptNo || depositReceiptNo(dep.date || verifiedAt)
   const cl = st.cellLeaderApproval
   const iv = mp.interview || {}
   const ivDone = !!st.membershipInterview || iv.status === 'Completed'
@@ -106,6 +113,7 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
   const wb = membershipWaterBaptism(application) || {}
   const legacyDecl = mp.baptismSelfDeclaration?.isDeclared ? mp.baptismSelfDeclaration : null
   const declaredAt = wb.selfDeclarationSigned ? (wb.signedAt || application?.declarationResponse?.signedAt) : legacyDecl ? (legacyDecl.signedAt || legacyDecl.declaredAt) : null
+  const answerOf = (a) => (a && typeof a === 'object' ? a.answer : a)
   const answerLabel = (v) => INTERVIEW_ANSWERS.find((a) => a.value === v)?.label || '—'
 
   const exportPdf = async () => {
@@ -144,24 +152,36 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
             )}
 
             <AddOn letter="B" stageText="Stage 4" title="Office Verification & Security Deposit" done={!!ver} cls="bg-emerald-50 border border-emerald-200 text-emerald-950">
-              <p className="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-600 text-white mb-2">
-                ✔ Verified {fmt(ver?.verifiedAt || ver?.completedAt)} · {ver?.verifiedBy || ver?.by || '—'}
-              </p>
+              <div className="mb-3 space-y-0.5">
+                <p className="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-600 text-white">
+                  ✔ Verified on {fmt(verifiedAt) || '—'} by Department of Caring (Head: {CARING_DEPARTMENT_HEAD.name})
+                </p>
+                <p className="text-xs text-emerald-800 pl-1 break-all">{ver?.verifiedBy || ver?.by || CARING_DEPARTMENT_HEAD.email}</p>
+              </div>
               <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm mb-3">
-                {VERIFICATION_ITEMS.map(([k, label]) => (
-                  <li key={k}>{ver?.checklist?.[k] ? '✔' : '○'} {label}</li>
-                ))}
+                {VERIFICATION_ITEMS.map(([k, label]) => {
+                  const ok = !!ver?.checklist?.[k]
+                  return (
+                    <li key={k} className={ok ? 'text-emerald-800 font-medium' : 'text-slate-500'}>
+                      {ok ? '✔' : '○'} {label}{k === 'securityDeposit' ? ` (${amountText})` : ''}
+                    </li>
+                  )
+                })}
               </ul>
-              <div className="bg-white/70 border border-emerald-200 rounded-xl p-3">
-                <p className="text-xs font-extrabold uppercase tracking-wider mb-2">Security Deposit Receipt</p>
-                <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <Field label="Receipt No." value={dep.receiptNo} />
-                  <Field label="Amount Received" value={dep.amount ? `₹${dep.amount}` : ''} />
-                  <Field label="Payment Mode" value={dep.mode} />
-                  <Field label="Date" value={fmt(dep.date)} />
-                  <Field label="Received By" value={dep.receivedBy} />
+              <div className="bg-emerald-50/70 border border-emerald-200/90 rounded-xl p-4 my-3 space-y-3">
+                <p className="text-xs font-extrabold uppercase tracking-wider text-emerald-900">Security Deposit Receipt</p>
+                <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-slate-900">
+                  <Field label="Receipt No." value={receiptNo} />
+                  <Field label="Amount Received" value={amountText} />
+                  <Field label="Payment Mode" value={dep.mode || 'Cash'} />
+                  <Field label="Date" value={fmt(dep.date || verifiedAt)} />
+                  <Field label="Received By" value={dep.receivedBy || ver?.verifiedBy || ver?.by} />
                 </dl>
-                {!dep.receiptNo && !dep.amount && <p className="text-[11px] mt-2 opacity-70">Receipt details were not recorded at verification.</p>}
+                {depositPaid && (
+                  <p className="text-xs font-medium text-emerald-800">
+                    ✔ Mandatory membership security deposit received in full. Application cleared to move to Stage 5 (Cell Leader Approval).
+                  </p>
+                )}
               </div>
             </AddOn>
 
@@ -187,7 +207,9 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
               {iv.part1Answers && Object.keys(iv.part1Answers).length > 0 && (
                 <ul className="text-sm space-y-0.5 mb-3">
                   {INTERVIEW_QUESTIONS.map((q) => (
-                    <li key={q.key}>{iv.part1Answers[q.key] === 'positive' ? '✔' : '•'} {q.title}: {answerLabel(iv.part1Answers[q.key])}</li>
+                    // Saved as { question, answer, note } (older records: the answer string).
+                    <li key={q.key}>{answerOf(iv.part1Answers[q.key]) === 'positive' ? '✔' : '•'} {q.title}: {answerLabel(answerOf(iv.part1Answers[q.key]))}
+                      {iv.part1Answers[q.key]?.note ? <span className="opacity-70"> · {iv.part1Answers[q.key].note}</span> : null}</li>
                   ))}
                 </ul>
               )}
