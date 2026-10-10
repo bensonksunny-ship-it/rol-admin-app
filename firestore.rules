@@ -683,10 +683,11 @@ service cloud.firestore {
     // unexpired doc and submit the applicant's part exactly once; listing, creating,
     // deciding and deleting stay Caring-only.
     match /membership_applications/{token} {
-      // Once submitted, the QR link stays readable past expiry: it becomes the
-      // applicant's live progress tracker (pipelineProgress mirrored by staff).
+      // The link never expires on time: it stays open until the application is closed
+      // (closedAt — set when the membership card is issued, or manually by the office).
+      // Once submitted it stays readable as the applicant's live progress tracker.
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
-        || resource.data.expiresAt > request.time
+        || resource.data.get('closedAt', null) == null
         || resource.data.status != 'pending';
       allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
       // Senior Pastor / First Lady read applications for the Membership Onboarding
@@ -695,23 +696,23 @@ service cloud.firestore {
       // Senior Pastor / First Lady (Pastoral Approval, stage 7): mirror progress + approve only.
       allow update: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady'))
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['pipelineProgress', 'status', 'decidedBy', 'decidedAt', 'familySyncedAt', 'familySyncError']);
+             .hasOnly(['pipelineProgress', 'status', 'decidedBy', 'decidedAt', 'familySyncedAt', 'familySyncError', 'closedAt', 'closedBy', 'closedReason']);
       allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || (resource.data.status == 'pending'
-            && resource.data.expiresAt > request.time
+            && resource.data.get('closedAt', null) == null
             && request.resource.data.status == 'submitted'
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'documents', 'status', 'submittedAt']))
         // Baptism self-declaration sent back from Stage 4: only the declaration.
         || (resource.data.status == 'declaration_requested'
-            && resource.data.expiresAt > request.time
+            && resource.data.get('closedAt', null) == null
             && request.resource.data.status == 'submitted'
             && request.resource.data.declarationResponse.selfDeclarationSigned == true
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'declarationResponse']))
         // Revisions requested from Stage 4: the flagged parts (form answers, photo,
         // ID / certificate scans, declaration) + the response stamp.
         || (resource.data.status == 'revision_requested'
-            && resource.data.expiresAt > request.time
+            && resource.data.get('closedAt', null) == null
             && request.resource.data.status == 'submitted'
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'documents', 'declarationResponse', 'status', 'revisionResponse']));

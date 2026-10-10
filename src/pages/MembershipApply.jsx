@@ -126,7 +126,7 @@ export default function MembershipApply() {
         : a.status === 'revision_requested' ? 'revise'
         : 'submitted')
     },
-    // Permission-denied here means the link expired before it was submitted.
+    // Permission-denied here means the office closed the link before it was submitted.
     () => setState((s) => (s === 'submitted' ? s : 'notFound')))
   }, [token])
 
@@ -199,7 +199,7 @@ export default function MembershipApply() {
       setApp((a) => ({ ...a, applicant, photoDataUrl: photo, signatureDataUrl: signature, documents: {}, status: 'submitted', submittedAt: new Date() }))
       setState('submitted')
     } catch {
-      setError('Could not submit. The link may have expired. Please contact the church office.')
+      setError('Could not submit. This application may have been closed. Please contact the church office.')
     } finally {
       setSubmitting(false)
     }
@@ -230,7 +230,7 @@ export default function MembershipApply() {
           signedAt: new Date().toISOString(), declarationText: BAPTISM_SELF_DECLARATION_TEXT,
         })
       } catch {
-        setError('Could not submit. The link may have expired. Please contact the church office.')
+        setError('Could not submit. This application may have been closed. Please contact the church office.')
       } finally { setSubmitting(false) }
     }
     return shell(<>
@@ -258,7 +258,7 @@ export default function MembershipApply() {
   if (state === 'notFound') return shell(
     <div className="p-10 text-center">
       <p className="text-lg font-bold text-slate-800">This link isn't available</p>
-      <p className="text-sm text-slate-500 mt-2">It may have expired or been withdrawn. Please contact the church office for a new link.</p>
+      <p className="text-sm text-slate-500 mt-2">This application has been closed or withdrawn. Please contact the church office.</p>
     </div>
   )
 
@@ -532,7 +532,7 @@ export default function MembershipApply() {
       // The live listener moves the page back to the progress tracker.
     } catch (e) {
       console.error('submitMembershipRevision', e)
-      setError('Could not submit. The link may have expired. Please contact the church office.')
+      setError('Could not submit. This application may have been closed. Please contact the church office.')
     } finally { setSubmitting(false) }
   }
 

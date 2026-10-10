@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ChevronDown } from 'lucide-react'
 import {
   subscribeApplicationsByStatus, getMemberProfile, subscribeMembershipPipelineEntries,
   getCellGroups, getCellGroupMembers,
@@ -8,6 +9,19 @@ import { hasMembershipPipeline, resolveMembershipStages, currentStage } from '..
 import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { getMemberDisplayName } from '../../utils/displayName'
 import MembershipPipelineTracker from './MembershipPipelineTracker'
+
+/** The one status worth surfacing on a collapsed row (most urgent first), or null. */
+function priorityBadge(entry, application, cur) {
+  const mp = entry.membershipPipeline || {}
+  if (application?.status === 'revision_requested') return { label: 'Returned for revisions', cls: 'bg-orange-100 text-orange-800 border-orange-200' }
+  if (application?.status === 'declaration_requested') return { label: 'Declaration requested', cls: 'bg-orange-100 text-orange-800 border-orange-200' }
+  if (cur?.key === 'verification' && application?.status === 'submitted' && application.revisionResponse?.submittedAt) return { label: 'Revisions resubmitted', cls: 'bg-sky-100 text-sky-800 border-sky-200' }
+  if (cur?.key === 'cellLeaderApproval' && mp.cellLeaderRequest?.status === 'Requested') return { label: 'Cell Leader Approval Requested', cls: 'bg-sky-100 text-sky-800 border-sky-200' }
+  if (cur?.key === 'membershipInterview' && mp.interview?.status === 'Declined') return { label: 'Interview Declined', cls: 'bg-red-100 text-red-700 border-red-200' }
+  if (cur?.key === 'membershipInterview' && mp.interview?.status === 'Requested') return { label: 'Interview Requested', cls: 'bg-amber-100 text-amber-800 border-amber-200' }
+  if (cur?.key === 'membershipInterview' && mp.interview?.status === 'Accepted') return { label: 'Interview Accepted', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
+  return null
+}
 
 const isBaptised = (p) => String(p?.baptised || '').toLowerCase() === 'yes' || !!(p?.baptismDate || p?.baptismChurch || p?.baptismPlace)
 
@@ -30,6 +44,9 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
   const [apps, setApps] = useState([])
   const [profiles, setProfiles] = useState({}) // visitorId → member profile
   const [showDone, setShowDone] = useState(false)
+  // Rows start collapsed to one summary line; clicking a row opens its full tracker.
+  const [expandedApplicantIds, setExpandedApplicantIds] = useState([])
+  const toggleRow = (id) => setExpandedApplicantIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
 
   useEffect(() => subscribeApplicationsByStatus('membership', ['pending', 'submitted', 'info_requested', 'declaration_requested', 'revision_requested', 'approved', 'rejected'], setApps, () => setApps([])), [])
   useEffect(() => subscribeMembershipPipelineEntries(setPcsEntries, () => setPcsEntries([])), [])
@@ -91,21 +108,54 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
           No one in the membership process. Start it from a PCS profile with “+ Initiate Membership Process”.
         </p>
       ) : (
-        <ul className="divide-y divide-slate-100">
-          {rows.map(({ e, cg, application, stages }) => (
-            <li key={e.id} className="px-4 py-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => onOpenProfile(e)} className="text-sm font-semibold text-slate-800 hover:text-indigo-700 hover:underline truncate">
-                  {getMemberDisplayName(e)}
-                </button>
-                <span className="text-xs text-slate-400 truncate">{cg ? cg.cellName : 'No cell group'}</span>
-              </div>
-              <MembershipPipelineTracker
-                compact entry={e} stages={stages} application={application} cellLeaderName={cg?.leader || ''}
-                canCaring={canCaring} canPastor={canPastor} canFirstLady={canFirstLady} by={by}
-              />
-            </li>
-          ))}
+        <ul className="px-3 py-1">
+          {rows.map(({ e, cg, application, stages, cur }) => {
+            const open = expandedApplicantIds.includes(e.id)
+            const badge = priorityBadge(e, application, cur)
+            return (
+              <li key={e.id}
+                className="bg-white border border-slate-200/80 hover:border-slate-300 rounded-xl px-4 py-3 shadow-sm hover:shadow transition-all cursor-pointer my-2"
+                onClick={() => toggleRow(e.id)}>
+                {/* Collapsed summary: name + cell · mini progress + stage · priority badge · chevron */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 sm:w-[34%] flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-800 text-sm truncate">{getMemberDisplayName(e)}</span>
+                    <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md font-normal truncate">{cg ? cg.cellName : 'No cell group'}</span>
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="flex items-center gap-0.5 flex-shrink-0" aria-hidden="true">
+                        {stages.map((s) => (
+                          <span key={s.key} className={`w-1.5 h-1.5 rounded-full ${s.done ? 'bg-emerald-500' : cur?.key === s.key ? 'bg-amber-400 ring-2 ring-amber-100' : 'bg-slate-200'}`} />
+                        ))}
+                      </span>
+                      <span className={`text-xs truncate ${cur ? 'text-slate-600' : 'text-emerald-700 font-semibold'}`}>
+                        {cur ? `Stage ${cur.n} of 8 • ${cur.label} Pending` : 'All 8 stages complete'}
+                      </span>
+                    </div>
+                    {badge && <span className={`self-start sm:self-auto text-[11px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${badge.cls}`}>{badge.label}</span>}
+                  </div>
+                  <button type="button" aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${getMemberDisplayName(e)}`}
+                    className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100">
+                    <ChevronDown size={18} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+                {/* Expanded drawer: full tracker. Clicks inside (incl. its portal
+                    modals, which bubble through React) don't collapse the row. */}
+                {open && (
+                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-4 rol-accordion-slide-open cursor-default" onClick={(ev) => ev.stopPropagation()}>
+                    <MembershipPipelineTracker
+                      entry={e} stages={stages} application={application} cellLeaderName={cg?.leader || ''}
+                      canCaring={canCaring} canPastor={canPastor} canFirstLady={canFirstLady} by={by}
+                    />
+                    <button type="button" onClick={() => onOpenProfile(e)} className="text-xs font-semibold text-indigo-700 hover:underline">
+                      Open PCS profile →
+                    </button>
+                  </div>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

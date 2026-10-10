@@ -7829,6 +7829,7 @@ function mapMembershipApplication(d) {
     expiresAt: toDate(data.expiresAt),
     submittedAt: toDate(data.submittedAt),
     decidedAt: toDate(data.decidedAt),
+    closedAt: toDate(data.closedAt),
   }
 }
 
@@ -7986,6 +7987,15 @@ export async function purgeMembershipIdProof(token, url = '', by = '') {
 export async function updateMembershipApplication(token, data) {
   if (!db || !token) return
   await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), data)
+}
+
+/** Close the application link (it does not expire on time): when the membership
+ *  card is issued, or manually from the office. reopen=true opens it again. */
+export async function closeMembershipApplication(token, { by = '', reason = '', reopen = false } = {}) {
+  if (!db || !token) return
+  await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), reopen
+    ? { closedAt: deleteField(), closedBy: deleteField(), closedReason: deleteField() }
+    : { closedAt: Timestamp.now(), closedBy: by || 'unknown', closedReason: reason || 'Closed manually' })
 }
 
 export async function deleteMembershipApplication(token) {

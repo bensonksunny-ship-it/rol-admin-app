@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import QRCode from 'qrcode'
 import {
-  createMembershipApplication, subscribeMembershipApplicationsForEntry, updateMembershipApplication, deleteMembershipApplication,
+  createMembershipApplication, subscribeMembershipApplicationsForEntry, updateMembershipApplication, deleteMembershipApplication, closeMembershipApplication,
 } from '../../services/firestore'
 import useRefreshPendingApplication from '../../hooks/useRefreshPendingApplication'
 import {
@@ -50,7 +50,8 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
   // A pending link created before this person had a cell stays locked on the QR page — re-stamp it.
   useRefreshPendingApplication(app, prefill, updateMembershipApplication)
   const link = app ? `${window.location.origin}/membership-apply?token=${app.id}` : ''
-  const expired = app && app.status === 'pending' && app.expiresAt && app.expiresAt < new Date()
+  // The link has no time limit: it stays open until the card is issued or it is closed here.
+  const closed = !!app?.closedAt
 
   useEffect(() => {
     if (!link) { setQr(''); return }
@@ -79,7 +80,12 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
     try { await updateMembershipApplication(app.id, data) } catch { setError(failMsg) }
     setSaving(false)
   }
-  const extend = () => save({ expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }, 'Could not extend the link.')
+  const toggleClosed = async () => {
+    if (!closed && !window.confirm("Close this application? The applicant's link stops accepting changes until you reopen it.")) return
+    setSaving(true)
+    try { await closeMembershipApplication(app.id, { by: userName || userEmail || '', reopen: closed }) } catch { setError(closed ? 'Could not reopen.' : 'Could not close.') }
+    setSaving(false)
+  }
   const decide = (status) => {
     const label = MEMBERSHIP_DECISIONS[status]
     if (!window.confirm(`Mark this membership application as "${label}"?`)) return
@@ -91,7 +97,7 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
   }
 
   const missing = MEMBERSHIP_PREFILL_FIELDS.filter((f) => f.required && !hasValue(prefill?.[f.key]))
-  const statusLabel = !app ? '' : expired ? 'Link expired' : app.status === 'pending' ? 'Waiting for applicant' : `${MEMBERSHIP_DECISIONS[app.status] || app.status}${app.submittedAt ? ` · submitted ${fmt(app.submittedAt)}` : ''}`
+  const statusLabel = !app ? '' : closed ? `Closed${app.closedReason ? ` · ${app.closedReason}` : ''}` : app.status === 'pending' ? 'Waiting for applicant' : `${MEMBERSHIP_DECISIONS[app.status] || app.status}${app.submittedAt ? ` · submitted ${fmt(app.submittedAt)}` : ''}`
   const talents = app ? [...(app.applicant?.talents || []), app.applicant?.talentsOther].filter(hasValue) : []
 
   return createPortal(
@@ -112,7 +118,7 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
           ) : (!app || showCreate) ? (
             <div className="space-y-3">
               <p className="text-sm text-slate-600">
-                Creates a membership form pre-filled from this PCS profile. {entry.name} scans the QR code on their phone, fills only what's missing, uploads their documents, signs and submits. The link works for 30 days.
+                Creates a membership form pre-filled from this PCS profile. {entry.name} scans the QR code on their phone, fills only what's missing, uploads their documents, signs and submits. The link stays open until the membership card is issued or the application is closed.
               </p>
               {missing.length > 0 && (
                 <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
@@ -129,9 +135,9 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${expired ? 'bg-red-100 text-red-700 border-red-200' : STATUS_CLS[app.status] || STATUS_CLS.pending}`}>{statusLabel}</span>
-                {app.status === 'pending' && !expired && <span className="text-xs text-slate-400">Link valid till {fmt(app.expiresAt)}</span>}
+                <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${closed ? 'bg-slate-200 text-slate-700 border-slate-300' : STATUS_CLS[app.status] || STATUS_CLS.pending}`}>{statusLabel}</span>
                 {app.decidedBy && app.status !== 'submitted' && <span className="text-xs text-slate-400">by {app.decidedBy} · {fmt(app.decidedAt)}</span>}
+                <button type="button" disabled={saving} onClick={toggleClosed} className="ml-auto text-xs font-bold text-slate-500 hover:text-slate-800">{closed ? 'Reopen application' : 'Close application'}</button>
               </div>
 
               {app.status === 'pending' && (
@@ -143,7 +149,6 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
                     <button type="button" onClick={copy} className="text-xs font-bold text-blue-700 whitespace-nowrap">{copied ? 'Copied ✓' : 'Copy Link'}</button>
                   </div>
                   {qr && <a href={qr} download={`membership-${entry.name.replace(/[^\w-]+/g, '-')}-qr.png`} className="text-xs font-semibold text-slate-500 hover:text-slate-700">Download QR image</a>}
-                  {expired && <button type="button" disabled={saving} onClick={extend} className="text-xs font-bold text-amber-700">Extend link by 30 days</button>}
                 </div>
               )}
 

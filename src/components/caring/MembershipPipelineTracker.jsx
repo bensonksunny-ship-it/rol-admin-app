@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { setMembershipStage, completeMembershipPipeline, updateApplication, markMembershipRevisionResubmitted } from '../../services/firestore'
+import { setMembershipStage, completeMembershipPipeline, updateApplication, markMembershipRevisionResubmitted, closeMembershipApplication } from '../../services/firestore'
 import { advanceBlockReason, currentStage, stageSummary, undoableStageKey, progressMirror } from '../../utils/membershipPipeline'
 import { downloadMembershipCertificate, membershipCertificateData } from '../../utils/membershipCertificate'
 import MembershipStageModal, { InterviewStatusLine, CellLeaderRequestLine } from './MembershipStageModal'
@@ -76,6 +76,10 @@ export default function MembershipPipelineTracker({
 
   const issue = (membershipNumber) => run(async () => {
     await completeMembershipPipeline(entry, { membershipNumber, by })
+    // Card issued → the application is finished: close its link.
+    if (application?.id && !application.closedAt) {
+      await closeMembershipApplication(application.id, { by, reason: 'Membership card issued' }).catch((e) => console.error('closeMembershipApplication', e))
+    }
     const now = new Date().toISOString()
     local('certificateAndCardIssued', { status: 'completed', completedAt: now, issuedAt: now, by }, { status: 'completed', completedAt: now })
     onChanged?.(entry.id, null, { membershipNumber: String(membershipNumber || '').trim() || entry.membershipNumber })
