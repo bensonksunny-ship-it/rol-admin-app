@@ -7859,11 +7859,14 @@ export async function getMembershipApplicationByToken(token) {
 }
 
 /** Public live view of one application by its token — the applicant's progress
- *  tracker after submission (staff mirror pipelineProgress onto the doc). */
+ *  tracker after submission (staff mirror pipelineProgress onto the doc).
+ *  Snapshots of the page's own not-yet-confirmed writes are skipped: Firestore
+ *  shows a local write at once, so a submit the server then refuses would flash
+ *  the page to 'submitted' and back (losing the scroll position). */
 export function subscribeMembershipApplicationByToken(token, onChange, onError) {
   if (!db || !token) { onChange(null); return () => {} }
   return onSnapshot(doc(db, MEMBERSHIP_APPLICATIONS, token),
-    (snap) => onChange(snap.exists() ? mapMembershipApplication(snap) : null),
+    (snap) => { if (!snap.metadata.hasPendingWrites) onChange(snap.exists() ? mapMembershipApplication(snap) : null) },
     (err) => { console.error('subscribeMembershipApplicationByToken:', err); onError?.(err) })
 }
 
@@ -8881,7 +8884,10 @@ export async function submitCellLeaderApproval(notif, { answers, notes = '', by 
   if (!db || !notif?.id || !notif.candidatePcsId) throw new Error('Missing request')
   const at = nowIso()
   const cleanNotes = String(notes || '').trim()
-  await updateDoc(doc(db, CARING_PCS_COLLECTION, notif.candidatePcsId), {
+  // One atomic batch: the stage and the ribbon close together, so a failed save
+  // never leaves stage 5 done with the ribbon still open (or the reverse).
+  const batch = writeBatch(db)
+  batch.update(doc(db, CARING_PCS_COLLECTION, notif.candidatePcsId), {
     'membershipPipeline.stages.cellLeaderApproval': {
       status: 'completed', completedAt: at, by: by || 'Cell Leader', approvedBy: by || notif.cellLeaderName || 'Cell Leader',
       enjoyingCellGroup: !!answers?.enjoyingCellGroup,
@@ -8893,9 +8899,10 @@ export async function submitCellLeaderApproval(notif, { answers, notes = '', by 
     'membershipPipeline.cellLeaderRequest.status': 'Completed',
     'membershipPipeline.cellLeaderRequest.respondedAt': at,
   })
-  await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), {
+  batch.update(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), {
     status: 'completed', respondedAt: at, respondedBy: by, responseNote: cleanNotes,
   })
+  await batch.commit()
 }
 
 /** Recipient closes a workspace notification that needs no pipeline update

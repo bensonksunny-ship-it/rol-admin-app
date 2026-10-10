@@ -37,7 +37,7 @@ function Section({ title, rows, children }) {
  * Application values come first; the PCS record and member profile fill what the
  * form doesn't hold (native place, marriage date, previous church, baptism place).
  */
-export default function MembershipApplicationPreview({ application, entry }) {
+export default function MembershipApplicationPreview({ application, entry, scroll = true }) {
   const [profile, setProfile] = useState(null)
   useEffect(() => {
     if (!entry?.visitorId) return
@@ -62,7 +62,7 @@ export default function MembershipApplicationPreview({ application, entry }) {
   const talents = application.applicant?.talents || []
 
   return (
-    <div className="overflow-y-auto max-h-[70vh] p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+    <div className={`${scroll ? 'overflow-y-auto max-h-[70vh] ' : ''}p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4`}>
       {/* Profile header */}
       <div className="flex items-start gap-3">
         {application.photoDataUrl

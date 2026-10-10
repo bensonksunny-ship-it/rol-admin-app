@@ -77,13 +77,28 @@ export default function MembershipApply() {
   // Read-only snapshot of the PCS family (spouse / children) — shown and submitted as-is.
   const [family, setFamily] = useState({ spouse: {}, children: [] })
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setErrorText] = useState('')
+  // Bumped on every error shown, so pressing Submit again with the same problem
+  // still scrolls it into view.
+  const [errorNonce, setErrorNonce] = useState(0)
+  const setError = (msg) => { setErrorText(msg); if (msg) setErrorNonce((n) => n + 1) }
   // Revisions returned from Stage 4 (state 'revise'): new uploads and answers.
   const [idCard, setIdCard] = useState('')
   const [certImage, setCertImage] = useState('')
   const [revDeclared, setRevDeclared] = useState(false)
   const [deposit, setDeposit] = useState('') // 'paid' | 'office'
   const revSeeded = useRef('')
+  // Errors are shown just above the submit button and scrolled into view there
+  // (never a jump to the top of the form).
+  const errorRef = useRef(null)
+  const successRef = useRef(null)
+  const [revisionSent, setRevisionSent] = useState(false)
+  useEffect(() => {
+    if (errorNonce) errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [errorNonce])
+  useEffect(() => {
+    if (revisionSent && state === 'submitted') successRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [revisionSent, state])
 
   // Live listener (not a one-time read): after submission this page is the
   // applicant's progress tracker, and it follows staff advancing their stages.
@@ -529,10 +544,14 @@ export default function MembershipApply() {
     setSubmitting(true)
     try {
       await submitMembershipRevision(token, fields, { items: flagged, ...(isFlagged('ITEM_4') ? { deposit } : {}) })
-      // The live listener moves the page back to the progress tracker.
+      // The live listener moves the page back to the progress tracker, which
+      // shows the confirmation (revisionSent).
+      setRevisionSent(true)
     } catch (e) {
       console.error('submitMembershipRevision', e)
-      setError('Could not submit. This application may have been closed. Please contact the church office.')
+      setError(e?.code === 'permission-denied'
+        ? 'Could not submit. This application is not open for changes right now. Please contact the church office.'
+        : 'Could not submit. Please check your internet connection and try again. Your changes are still here.')
     } finally { setSubmitting(false) }
   }
 
@@ -551,7 +570,11 @@ export default function MembershipApply() {
             ✓ Baptism self-declaration received{app.declarationResponse.signedAt ? ` on ${new Date(app.declarationResponse.signedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}. Your application continues below.
           </p>
         )}
-        {app?.revisionResponse?.submittedAt && (
+        {revisionSent ? (
+          <p ref={successRef} role="status" className="mx-5 mt-5 text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+            ✔ Revisions submitted successfully! Your application is now back with the church office for verification.
+          </p>
+        ) : app?.revisionResponse?.submittedAt && (
           <p role="status" className="mx-5 mt-5 text-sm font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
             ✓ Your revisions were received on {new Date(app.revisionResponse.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}. The church office will check them again.
           </p>
@@ -581,7 +604,7 @@ export default function MembershipApply() {
 
         <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{MEMBERSHIP_FOOTER_NOTE}</p>
 
-        {error && <p className="text-sm font-medium text-red-600">{error}</p>}
+        {error && <p ref={errorRef} role="alert" className="text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 scroll-mt-24">{error}</p>}
         <button type="button" disabled={submitting} onClick={revising ? submitRevision : submit}
           className="w-full min-h-[48px] rounded-xl bg-[#1e3a5f] text-white font-bold text-sm hover:bg-[#16304f] disabled:opacity-60">
           {submitting ? 'Submitting…' : revising ? 'Resubmit Application Revisions' : 'Submit Membership Form'}

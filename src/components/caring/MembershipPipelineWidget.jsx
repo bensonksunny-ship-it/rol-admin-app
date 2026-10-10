@@ -9,6 +9,7 @@ import { hasMembershipPipeline, resolveMembershipStages, currentStage } from '..
 import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { getMemberDisplayName } from '../../utils/displayName'
 import MembershipPipelineTracker from './MembershipPipelineTracker'
+import ApplicationMasterDocumentModal from './ApplicationMasterDocumentModal'
 
 /** The one status worth surfacing on a collapsed row (most urgent first), or null. */
 function priorityBadge(entry, application, cur) {
@@ -46,6 +47,7 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
   const [showDone, setShowDone] = useState(false)
   // Rows start collapsed to one summary line; clicking a row opens its full tracker.
   const [expandedApplicantIds, setExpandedApplicantIds] = useState([])
+  const [masterDocId, setMasterDocId] = useState(null) // PCS id whose Full Application Record is open
   const toggleRow = (id) => setExpandedApplicantIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
 
   useEffect(() => subscribeApplicationsByStatus('membership', ['pending', 'submitted', 'info_requested', 'declaration_requested', 'revision_requested', 'approved', 'rejected'], setApps, () => setApps([])), [])
@@ -148,9 +150,14 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
                       entry={e} stages={stages} application={application} cellLeaderName={cg?.leader || ''}
                       canCaring={canCaring} canPastor={canPastor} canFirstLady={canFirstLady} by={by}
                     />
-                    <button type="button" onClick={() => onOpenProfile(e)} className="text-xs font-semibold text-indigo-700 hover:underline">
-                      Open PCS profile →
-                    </button>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <button type="button" onClick={() => setMasterDocId(e.id)} className="text-xs font-semibold text-indigo-700 hover:underline">
+                        📄 Full Application Record →
+                      </button>
+                      <button type="button" onClick={() => onOpenProfile(e)} className="text-xs font-semibold text-indigo-700 hover:underline">
+                        Open PCS profile →
+                      </button>
+                    </div>
                   </div>
                 )}
               </li>
@@ -158,6 +165,11 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
           })}
         </ul>
       )}
+      {(() => {
+        // Live: rebuilt from the onSnapshot feed, so stage add-ons appear while it is open.
+        const r = masterDocId && rows.find((x) => x.e.id === masterDocId)
+        return r ? <ApplicationMasterDocumentModal entry={r.e} application={r.application} cellName={r.cg?.cellName || ''} onClose={() => setMasterDocId(null)} /> : null
+      })()}
     </div>
   )
 }

@@ -39,7 +39,9 @@ function ReviewModal({ r, myName, uid, onClose }) {
       onClose() // the live feed drops the ribbon once it's completed
     } catch (e) {
       console.error('submitCellLeaderApproval', e)
-      setError('Could not submit. Please try again.')
+      setError(e?.code === 'permission-denied'
+        ? 'This request is no longer open (it may have been re-sent or completed by the Caring team). Please refresh, or contact the Caring team.'
+        : 'Could not submit. Please check your connection and try again.')
     }
     setBusy(false)
   }
