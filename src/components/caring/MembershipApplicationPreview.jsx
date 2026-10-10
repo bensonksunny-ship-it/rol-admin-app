@@ -117,8 +117,10 @@ export default function MembershipApplicationPreview({ application, entry }) {
               <li key={d.key} className="flex items-center gap-2">
                 <span className={ok ? 'text-emerald-600' : 'text-amber-600'}>{ok ? '✓' : '○'}</span>
                 <span className="text-slate-700 flex-1">{d.label}</span>
-                {typeof scan === 'string' && scan.startsWith('data:image')
+                {typeof scan === 'string' && (scan.startsWith('data:image') || /^https?:\/\//.test(scan))
                   ? <a href={scan} target="_blank" rel="noreferrer" className="text-xs font-semibold text-indigo-700 hover:underline">View scan</a>
+                  : application.attachments?.[`${d.legacyKey}DeletedFromStorage`]
+                  ? <span className="text-xs font-semibold text-slate-600">Downloaded &amp; Printed (Deleted from Storage)</span>
                   : <span className="text-xs text-slate-400">{ok ? 'Handed in (physical)' : 'Not confirmed'}</span>}
               </li>
             )

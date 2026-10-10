@@ -31,7 +31,7 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
   const [profiles, setProfiles] = useState({}) // visitorId → member profile
   const [showDone, setShowDone] = useState(false)
 
-  useEffect(() => subscribeApplicationsByStatus('membership', ['pending', 'submitted', 'info_requested', 'approved', 'rejected'], setApps, () => setApps([])), [])
+  useEffect(() => subscribeApplicationsByStatus('membership', ['pending', 'submitted', 'info_requested', 'declaration_requested', 'revision_requested', 'approved', 'rejected'], setApps, () => setApps([])), [])
   useEffect(() => subscribeMembershipPipelineEntries(setPcsEntries, () => setPcsEntries([])), [])
   // Cell rosters for stage 1 (and the cell leader's name for stage 5).
   useEffect(() => {

@@ -707,7 +707,14 @@ service cloud.firestore {
             && resource.data.expiresAt > request.time
             && request.resource.data.status == 'submitted'
             && request.resource.data.declarationResponse.selfDeclarationSigned == true
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'declarationResponse']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'declarationResponse']))
+        // Revisions requested from Stage 4: the flagged parts (form answers, photo,
+        // ID / certificate scans, declaration) + the response stamp.
+        || (resource.data.status == 'revision_requested'
+            && resource.data.expiresAt > request.time
+            && request.resource.data.status == 'submitted'
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'documents', 'declarationResponse', 'status', 'revisionResponse']));
     }
 
     // Founder / Senior Pastor / Admin — may see a baby dedication "surprise" name

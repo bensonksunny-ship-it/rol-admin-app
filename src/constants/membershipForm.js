@@ -53,8 +53,10 @@ export const MEMBERSHIP_DOCUMENTS = [
     confirm: 'I have physically submitted my official Government ID Proof (Aadhaar / Passport / Voter ID) to the church office.' },
 ]
 
-/** Was this document handed over (new tick) or uploaded (older applications)? */
+/** Was this document handed over (new tick), uploaded (older applications / a
+ *  revision), or uploaded and since downloaded + deleted from storage (ID proof)? */
 export const membershipDocumentProvided = (app, d) => app?.applicant?.[d.key] === true || !!app?.documents?.[d.legacyKey]
+  || app?.attachments?.[`${d.legacyKey}DeletedFromStorage`] === true
 
 /** Effective value: the applicant's entry wins over the PCS pre-fill. */
 export const membershipFieldValue = (app, key) =>

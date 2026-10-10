@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { setMembershipStage, completeMembershipPipeline, updateApplication } from '../../services/firestore'
+import { setMembershipStage, completeMembershipPipeline, updateApplication, markMembershipRevisionResubmitted } from '../../services/firestore'
 import { advanceBlockReason, currentStage, stageSummary, undoableStageKey, progressMirror } from '../../utils/membershipPipeline'
 import { downloadMembershipCertificate, membershipCertificateData } from '../../utils/membershipCertificate'
 import MembershipStageModal, { InterviewStatusLine, CellLeaderRequestLine } from './MembershipStageModal'
+import { flaggedItemsText } from '../../constants/membershipRevision'
 const fmt = (d) => {
   if (!d) return ''
   const dt = new Date(d)
@@ -41,6 +42,18 @@ export default function MembershipPipelineTracker({
       .catch((e) => { console.error('Mirroring membership progress failed:', e); mirroring.current = '' })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [application?.id, application?.status, application?.pipelineProgress?.sig, mirror.sig, canCaring, canPastor, canFirstLady])
+
+  // Applicant resubmitted the returned items → the PCS revision note goes back to
+  // 'In Progress' (Stage 4 is current again for re-verification).
+  const revStatus = entry.membershipPipeline?.revision?.status
+  const resubmittedAt = application?.status === 'submitted' ? application.revisionResponse?.submittedAt : ''
+  useEffect(() => {
+    if (revStatus !== 'Returned For Revision' || !resubmittedAt || !(canCaring || canPastor || canFirstLady)) return
+    markMembershipRevisionResubmitted(entry.id, resubmittedAt)
+      .then(() => onChanged?.(entry.id, (p) => ({ ...p, revision: { ...(p?.revision || {}), status: 'In Progress', resubmittedAt } })))
+      .catch((e) => console.error('markMembershipRevisionResubmitted', e))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.id, revStatus, resubmittedAt, canCaring, canPastor, canFirstLady])
 
   const local = (key, value, extra = {}) => onChanged?.(entry.id, (p) => ({
     ...p, ...extra, stages: { ...(p?.stages || {}), [key]: value },
@@ -114,6 +127,17 @@ export default function MembershipPipelineTracker({
         {!compact && <span className="text-[10px] text-slate-400">{doneCount}/8 done</span>}
       </div>
 
+      {/* Stage 4 returned flagged items to the applicant / they resubmitted them */}
+      {application?.status === 'revision_requested' && (
+        <p className="text-xs text-orange-800 bg-orange-50 border border-orange-200 rounded-lg px-2.5 py-1.5">
+          <b>↩ Returned for revisions</b>{application.revisionRequest?.requestedAt ? ` · ${fmt(application.revisionRequest.requestedAt)}` : ''} · {flaggedItemsText(application.revisionRequest?.flaggedItems)}
+        </p>
+      )}
+      {cur?.key === 'verification' && application?.status === 'submitted' && application.revisionResponse?.submittedAt && (
+        <p className="text-xs text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-2.5 py-1.5">
+          <b>🔄 Revisions resubmitted</b> · {fmt(application.revisionResponse.submittedAt)} · re-verify {flaggedItemsText(application.revisionRequest?.flaggedItems)}
+        </p>
+      )}
       {cur?.key === 'cellLeaderApproval' && <CellLeaderRequestLine request={entry.membershipPipeline?.cellLeaderRequest} />}
       <InterviewStatusLine interview={entry.membershipPipeline?.interview} />
       {cur && (block ? <p className="text-[11px] text-slate-400">{block}</p> : stageInputs())}

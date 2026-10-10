@@ -22,7 +22,7 @@ import {
   deleteField,
   runTransaction,
 } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, functions, httpsCallable } from '../lib/firebase'
 import { ROLES, deriveRoleFromPositions } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
@@ -7909,6 +7909,76 @@ export async function submitMembershipDeclaration(token, response) {
   await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), {
     status: 'submitted',
     declarationResponse: response,
+  })
+}
+
+/**
+ * Stage 4 → "Return Application for Revisions": the flagged checklist items
+ * (['ITEM_1', …], see constants/membershipRevision.js) go back to the applicant on
+ * the same token (/membership-application/edit?token=…). Status
+ * 'revision_requested' puts the pipeline back on Stage 3 until they resubmit; the
+ * link is renewed for 30 days. Also noted on the PCS pipeline (membershipPipeline.revision).
+ */
+export async function returnMembershipApplicationForRevision({ token, pcsEntryId, flaggedItems, notes = {}, by = '' }) {
+  if (!db || !token || !flaggedItems?.length) throw new Error('Nothing flagged')
+  const revisionRequest = {
+    flaggedItems,
+    notes: Object.fromEntries(Object.entries(notes).filter(([k, v]) => flaggedItems.includes(k) && String(v || '').trim()).map(([k, v]) => [k, String(v).trim()])),
+    requestedAt: nowIso(),
+    requestedBy: by || 'unknown',
+  }
+  await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), {
+    status: 'revision_requested',
+    revisionRequest,
+    revisionResponse: deleteField(),
+    expiresAt: Timestamp.fromDate(new Date(Date.now() + MEMBERSHIP_LINK_DAYS * 24 * 60 * 60 * 1000)),
+  })
+  if (pcsEntryId) {
+    await updateDoc(doc(db, CARING_PCS_COLLECTION, pcsEntryId), {
+      'membershipPipeline.revision': { status: 'Returned For Revision', flaggedItems, requestedAt: revisionRequest.requestedAt, requestedBy: revisionRequest.requestedBy },
+    }).catch((e) => console.error('returnMembershipApplicationForRevision (PCS note):', e))
+  }
+  return revisionRequest
+}
+
+/**
+ * Applicant resubmits the requested revisions (public page) → back to 'submitted',
+ * so Stage 3 completes again and Stage 4 re-verifies the flagged items.
+ * `fields` holds only what the revision touched (applicant, photoDataUrl,
+ * signatureDataUrl, 'documents.<key>' scans, declarationResponse).
+ */
+export async function submitMembershipRevision(token, fields, response = {}) {
+  if (!db || !token) throw new Error('Missing link')
+  await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), {
+    ...fields,
+    status: 'submitted',
+    revisionResponse: { ...response, submittedAt: nowIso() },
+  })
+}
+
+/** Staff screens: once the applicant has resubmitted, the PCS pipeline's revision
+ *  note goes back to 'In Progress' (the signed-out applicant can't write PCS). */
+export async function markMembershipRevisionResubmitted(pcsEntryId, resubmittedAt) {
+  if (!db || !pcsEntryId) return
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, pcsEntryId), {
+    'membershipPipeline.revision.status': 'In Progress',
+    'membershipPipeline.revision.resubmittedAt': resubmittedAt || nowIso(),
+  })
+}
+
+/**
+ * Stage 4 → ID proof: after the office downloads / prints the uploaded ID card,
+ * delete the stored copy (an in-doc scan, or a Storage file for any URL-based one)
+ * and leave the badge "Downloaded & Printed (Deleted from Storage)".
+ */
+export async function purgeMembershipIdProof(token, url = '', by = '') {
+  if (!db || !token) throw new Error('Missing application')
+  if (storage && /^https?:\/\//.test(url)) await deleteObject(ref(storage, url))
+  await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), {
+    'documents.idProof': deleteField(),
+    'attachments.idProofDeletedFromStorage': true,
+    'attachments.idProofPurgedAt': nowIso(),
+    'attachments.idProofPurgedBy': by || 'unknown',
   })
 }
 

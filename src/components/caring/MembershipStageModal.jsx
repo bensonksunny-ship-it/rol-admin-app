@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { getPCSEntries, requestMembershipInterview, getAllCellGroupMembers, getCellGroups, requestCellLeaderApproval, getMemberProfile } from '../../services/firestore'
+import { getPCSEntries, requestMembershipInterview, getAllCellGroupMembers, getCellGroups, requestCellLeaderApproval, getMemberProfile, returnMembershipApplicationForRevision } from '../../services/firestore'
 import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { auth } from '../../lib/firebase'
 import MembershipApplicationPreview from './MembershipApplicationPreview'
 import BaptismProofStatus from './BaptismProofStatus'
+import IdProofAttachment from './IdProofAttachment'
+import { VERIFICATION_CHECKLIST, revisionItem, flaggedItemsText, membershipRevisionLink } from '../../constants/membershipRevision'
+import { membershipFieldValue } from '../../constants/membershipForm'
 import { advanceBlockReason, currentStage } from '../../utils/membershipPipeline'
 import { deaconStatusOf } from '../../utils/deaconOffice'
 import { getMemberDisplayName } from '../../utils/displayName'
@@ -19,14 +22,37 @@ const fmtDateTime = (s) => {
   return dt && !isNaN(dt.getTime()) ? dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
 }
 
-// Stage 4 — every item must be ticked before verification can be completed.
-const VERIFICATION_CHECKLIST = [
-  { key: 'infoVerified', label: 'All information given checked and verified' },
-  { key: 'idCopy', label: 'Submitted ID card copy' },
-  { key: 'baptismProof', label: 'Submitted baptism certificate / self-declaration form' },
-  { key: 'securityDeposit', label: 'Payment of security deposit is done' },
-  { key: 'photo', label: 'Physical photo is provided' },
-]
+// Stage 4 — every item (constants/membershipRevision.js) must be ticked before
+// verification can be completed; any can be flagged and returned to the applicant.
+
+/** The applicant's application link (it opens in revision mode): copy it, or send it on WhatsApp with the flagged items. */
+export function RevisionLinkActions({ application, entry }) {
+  const [copied, setCopied] = useState(false)
+  if (!application?.id) return null
+  const link = membershipRevisionLink(application.id)
+  const flagged = application.revisionRequest?.flaggedItems || []
+  const first = String(membershipFieldValue(application, 'firstName') || entry?.name || '').trim().split(/\s+/)[0]
+  const phone = String(membershipFieldValue(application, 'phone') || entry?.phone || '').replace(/\D/g, '').slice(-10)
+  const message = `Hello ${first || 'there'}, the River of Life church office needs a few updates on your membership application:\n`
+    + flagged.map((code) => `• ${revisionItem(code)?.applicantTitle || code}`).join('\n')
+    + `\n\nPlease open this link to complete them:\n${link}`
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2500) } catch { window.prompt('Copy this link:', link) }
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button type="button" onClick={copy} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">
+        {copied ? '✓ Link copied' : '🔗 Copy application link'}
+      </button>
+      {phone.length === 10 && (
+        <a href={`https://wa.me/91${phone}?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer"
+          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700">
+          Send on WhatsApp
+        </a>
+      )}
+    </div>
+  )
+}
 
 const TITLES = {
   verification: 'Stage 4: Document & Information Verification',
@@ -314,6 +340,32 @@ export default function MembershipStageModal({
     : ''
 
   const [checks, setChecks] = useState({})
+  const [flags, setFlags] = useState({}) // ITEM_n → true when flagged as incomplete
+  const [flagNotes, setFlagNotes] = useState({}) // ITEM_n → note shown to the applicant
+  const [returning, setReturning] = useState(false)
+  const [returnError, setReturnError] = useState('')
+  const [returned, setReturned] = useState(false)
+  const flaggedCodes = VERIFICATION_CHECKLIST.filter((c) => flags[c.code]).map((c) => c.code)
+  const toggleFlag = (c) => {
+    setFlags((f) => ({ ...f, [c.code]: !f[c.code] }))
+    setChecks((s) => ({ ...s, [c.key]: false }))
+  }
+  // The last revision the applicant resubmitted — Stage 4 re-verifies those items.
+  const resubmitted = application?.status === 'submitted' && application?.revisionResponse?.submittedAt
+    ? (application.revisionRequest?.flaggedItems || []) : []
+  const returnForRevision = async () => {
+    if (!application?.id || !flaggedCodes.length) return
+    if (!window.confirm(`Return the application to ${getMemberDisplayName(entry)} for revisions?\n\n${flaggedItemsText(flaggedCodes)}\n\nThe pipeline goes back to Stage 3 until they resubmit.`)) return
+    setReturning(true); setReturnError('')
+    try {
+      await returnMembershipApplicationForRevision({ token: application.id, pcsEntryId: entry.id, flaggedItems: flaggedCodes, notes: flagNotes, by })
+      setReturned(true)
+    } catch (e) {
+      console.error('returnMembershipApplicationForRevision', e)
+      setReturnError(e?.code === 'permission-denied' ? "You don't have permission to return this application." : 'Could not return the application. Please try again.')
+    }
+    setReturning(false)
+  }
   const [leader, setLeader] = useState({ approvedBy: cellLeaderName, signedOn: todayIso() })
   const [interviewDate, setInterviewDate] = useState(String(entry.membershipPipeline?.interview?.scheduledAt || '').slice(0, 10) || todayIso())
   const [memberNo, setMemberNo] = useState(entry.membershipNumber || '')
@@ -366,6 +418,18 @@ export default function MembershipStageModal({
             <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">{block}</p>
           ) : null}
 
+          {/* Stage 3 is open again while Stage 4's returned revisions wait on the applicant. */}
+          {stage.key === 'applicationSubmitted' && application?.status === 'revision_requested' && (
+            <div className="rounded-xl border border-orange-300 bg-orange-50 px-3 py-2.5 text-sm text-orange-900 space-y-2">
+              <p>
+                <b>Returned for revisions</b>{application.revisionRequest?.requestedAt ? ` on ${fmt(application.revisionRequest.requestedAt)}` : ''}
+                {application.revisionRequest?.requestedBy ? ` by ${application.revisionRequest.requestedBy}` : ''}. This stage completes again once the applicant resubmits.
+              </p>
+              <p className="text-xs">{flaggedItemsText(application.revisionRequest?.flaggedItems)}</p>
+              <RevisionLinkActions application={application} entry={entry} />
+            </div>
+          )}
+
           {/* Stage 3 is open again while a baptism self-declaration sent back from
               Stage 4 waits on the applicant (same application link). */}
           {stage.key === 'applicationSubmitted' && application?.status === 'declaration_requested' && (
@@ -383,26 +447,54 @@ export default function MembershipStageModal({
           )}
 
           {/* Stage 4 — verification checklist */}
-          {canAct && stage.key === 'verification' && (
+          {canAct && stage.key === 'verification' && resubmitted.length > 0 && (
+            <div className="rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+              <b>🔄 Revisions resubmitted</b> on {fmt(application.revisionResponse.submittedAt)}. Re-verify the items marked below.
+            </div>
+          )}
+          {canAct && stage.key === 'verification' && !returned && (
             <div className="space-y-2">
-              {VERIFICATION_CHECKLIST.map((c, i) => (
-                <div key={c.key} className="rounded-xl border border-slate-200">
-                  <label className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50 rounded-xl">
-                    <input type="checkbox" checked={!!checks[c.key]} onChange={(e) => setChecks((s) => ({ ...s, [c.key]: e.target.checked }))} className="mt-0.5 w-4 h-4 accent-indigo-600" />
-                    <span className="text-sm text-slate-700">{i + 1}. {c.label}</span>
-                  </label>
-                  {/* Item 3: certificate, or a signed baptism self-declaration (ticks itself once signed) */}
-                  {c.key === 'baptismProof' && (
-                    <BaptismProofStatus
-                      entry={entry}
-                      application={application}
-                      requestedBy={by}
-                      canRequest={canCaring || canPastor || canFirstLady}
-                      onDeclared={() => setChecks((s) => ({ ...s, baptismProof: true }))}
-                    />
-                  )}
-                </div>
-              ))}
+              {VERIFICATION_CHECKLIST.map((c, i) => {
+                const flagged = !!flags[c.code]
+                return (
+                  <div key={c.key} className={`rounded-xl border ${flagged ? 'border-rose-300 bg-rose-50/50' : 'border-slate-200'}`}>
+                    <div className="flex items-start gap-2 pr-2">
+                      <label className={`flex-1 flex items-start gap-3 px-3 py-2.5 rounded-xl ${flagged ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}>
+                        <input type="checkbox" disabled={flagged} checked={!!checks[c.key]} onChange={(e) => setChecks((s) => ({ ...s, [c.key]: e.target.checked }))} className="mt-0.5 w-4 h-4 accent-indigo-600" />
+                        <span className={`text-sm ${flagged ? 'text-rose-800 line-through decoration-rose-300' : 'text-slate-700'}`}>
+                          {i + 1}. {c.label}
+                          {resubmitted.includes(c.code) && <span className="ml-1.5 align-middle text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200 no-underline">Re-verify</span>}
+                        </span>
+                      </label>
+                      <button type="button" aria-pressed={flagged} onClick={() => toggleFlag(c)} title={flagged ? 'Remove flag' : `Flag as incomplete: ${c.flagLabel}`}
+                        className={`mt-2 flex-shrink-0 text-[11px] font-semibold px-2 py-1 rounded-lg border ${flagged ? 'bg-rose-600 text-white border-rose-600' : 'text-slate-500 border-slate-200 hover:text-rose-700 hover:border-rose-300'}`}>
+                        {flagged ? '⚑ Flagged' : '⚑ Flag'}
+                      </button>
+                    </div>
+                    {flagged && (
+                      <div className="px-3 pb-2.5 space-y-1">
+                        <p className="text-[11px] font-semibold text-rose-700">{c.flagLabel}</p>
+                        <input value={flagNotes[c.code] || ''} onChange={(e) => setFlagNotes((n) => ({ ...n, [c.code]: e.target.value }))}
+                          placeholder="Note for the applicant (optional)" className="w-full px-2.5 py-1.5 rounded-lg border border-rose-200 bg-white text-xs" />
+                      </div>
+                    )}
+                    {/* Item 2: an uploaded ID card → view, download & print, then delete the stored copy */}
+                    {c.key === 'idCopy' && !flagged && (
+                      <IdProofAttachment application={application} by={by} canPurge={canCaring || canPastor} />
+                    )}
+                    {/* Item 3: certificate, or a signed baptism self-declaration (ticks itself once signed) */}
+                    {c.key === 'baptismProof' && !flagged && (
+                      <BaptismProofStatus
+                        entry={entry}
+                        application={application}
+                        requestedBy={by}
+                        canRequest={canCaring || canPastor || canFirstLady}
+                        onDeclared={() => setChecks((s) => ({ ...s, baptismProof: true }))}
+                      />
+                    )}
+                  </div>
+                )
+              })}
               <button type="button" disabled={busy || !allChecked} onClick={() => done({
                 verifiedBy: by,
                 verifierUid: auth?.currentUser?.uid || '',
@@ -411,7 +503,28 @@ export default function MembershipStageModal({
               })} className={btn}>
                 Mark Verification Complete
               </button>
-              {!allChecked && <p className="text-[11px] text-slate-400 text-center">Tick all {VERIFICATION_CHECKLIST.length} items to continue.</p>}
+              {!allChecked && (
+                <>
+                  <button type="button" disabled={returning || !flaggedCodes.length || !application?.id || application.status === 'pending'} onClick={returnForRevision}
+                    className="w-full min-h-[44px] rounded-xl border-2 border-rose-300 text-rose-700 bg-white text-sm font-bold hover:bg-rose-50 disabled:opacity-50">
+                    {returning ? 'Returning…' : '↩ Return Application for Revisions'}
+                  </button>
+                  <p className="text-[11px] text-slate-400 text-center">
+                    {!application?.id || application.status === 'pending'
+                      ? 'No online application to return. Follow up with the applicant directly.'
+                      : flaggedCodes.length ? `${flaggedCodes.length} item${flaggedCodes.length > 1 ? 's' : ''} flagged.` : `Tick all ${VERIFICATION_CHECKLIST.length} items to continue, or ⚑ flag what needs fixing and return it.`}
+                  </p>
+                  {returnError && <p className="text-xs text-red-600 text-center">{returnError}</p>}
+                </>
+              )}
+            </div>
+          )}
+          {stage.key === 'verification' && returned && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900 space-y-2">
+              <p><b>✔ Returned to {getMemberDisplayName(entry)} for revisions.</b> Their application link now asks only for:</p>
+              <ul className="text-xs list-disc pl-5">{flaggedCodes.map((code) => <li key={code}>{revisionItem(code)?.applicantTitle}</li>)}</ul>
+              <p className="text-xs">Send them the link. The pipeline shows Stage 3 until they resubmit, then Stage 4 again for re-verification.</p>
+              <RevisionLinkActions application={{ ...application, revisionRequest: { flaggedItems: flaggedCodes } }} entry={entry} />
             </div>
           )}
 

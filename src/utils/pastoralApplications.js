@@ -90,6 +90,7 @@ export function applicationStatus(app, events) {
     case 'approved': return { label: 'Approved', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
     case 'rejected': return { label: 'Not Approved', cls: 'bg-red-100 text-red-700 border-red-200' }
     case 'info_requested': return { label: 'Info Requested', cls: 'bg-orange-100 text-orange-700 border-orange-200' }
+    case 'revision_requested': return { label: 'Returned for Revisions', cls: 'bg-orange-100 text-orange-700 border-orange-200' }
     case 'pending': return { label: 'Link sent', cls: 'bg-slate-50 text-slate-500 border-slate-200' }
     default: return { label: 'Pending Review', cls: 'bg-amber-100 text-amber-800 border-amber-200' }
   }
