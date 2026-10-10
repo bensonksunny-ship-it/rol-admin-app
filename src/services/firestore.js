@@ -8211,6 +8211,67 @@ export async function deleteDedicationApplication(token) {
   await deleteDoc(doc(db, DEDICATION_APPLICATIONS, token))
 }
 
+// ─── Baptism Self-Declarations ────────────────────────────────────────────────
+// Stage 4 Verification, item 3: a candidate without a baptism certificate signs a
+// self-declaration on /baptism-declaration?token=… (signed-out, token model like
+// the application forms). The syncBaptismSelfDeclaration Cloud Function copies
+// the signed declaration onto caring_pcs.membershipPipeline.baptismSelfDeclaration.
+
+const BAPTISM_SELF_DECLARATIONS = 'baptism_self_declarations'
+const BAPTISM_DECLARATION_LINK_DAYS = 30
+
+function mapBaptismDeclaration(d) {
+  const data = d.data()
+  return { id: d.id, ...data, requestedAt: toDate(data.requestedAt), expiresAt: toDate(data.expiresAt) }
+}
+
+/** Caring: create (or reuse the pending) self-declaration request for a candidate. */
+export async function requestBaptismSelfDeclaration(entry, { requestedBy = '', declarationText = '' } = {}) {
+  if (!db || !entry?.id) throw new Error('Missing PCS entry')
+  const existing = await getDocs(query(collection(db, BAPTISM_SELF_DECLARATIONS), where('pcsEntryId', '==', entry.id)))
+  const pending = existing.docs.map(mapBaptismDeclaration)
+    .find((r) => r.status === 'pending' && r.expiresAt && r.expiresAt > new Date())
+  if (pending) return pending
+  const token = randomToken()
+  const payload = {
+    pcsEntryId: entry.id,
+    candidateName: entry.legalName || entry.name || '',
+    declarationText,
+    status: 'pending',
+    requestedBy: requestedBy || 'unknown',
+    requestedAt: Timestamp.now(),
+    expiresAt: Timestamp.fromDate(new Date(Date.now() + BAPTISM_DECLARATION_LINK_DAYS * 24 * 60 * 60 * 1000)),
+    agreed: false, signatureDataUrl: '', signedName: '', declaredAt: '',
+  }
+  await setDoc(doc(db, BAPTISM_SELF_DECLARATIONS, token), payload)
+  return { id: token, ...payload, requestedAt: new Date(), expiresAt: payload.expiresAt.toDate() }
+}
+
+/** Caring: live list of a candidate's declaration requests, newest first. */
+export function subscribeBaptismDeclarationsForEntry(pcsEntryId, onChange, onError) {
+  if (!db || !pcsEntryId) { onChange([]); return () => {} }
+  return onSnapshot(query(collection(db, BAPTISM_SELF_DECLARATIONS), where('pcsEntryId', '==', pcsEntryId)),
+    (snap) => onChange(snap.docs.map(mapBaptismDeclaration).sort((a, b) => (b.requestedAt?.getTime() || 0) - (a.requestedAt?.getTime() || 0))),
+    (err) => { console.error('subscribeBaptismDeclarationsForEntry:', err); onError?.(err) })
+}
+
+/** Public read by token (signed-out, while the link is unexpired). */
+export async function getBaptismDeclarationByToken(token) {
+  if (!db || !token) return null
+  const snap = await getDoc(doc(db, BAPTISM_SELF_DECLARATIONS, token))
+  return snap.exists() ? mapBaptismDeclaration(snap) : null
+}
+
+/** Candidate signs on the public page — the only update rules allow signed-out. */
+export async function signBaptismDeclaration(token, { signatureDataUrl, signedName }) {
+  if (!db || !token) throw new Error('Missing link')
+  await updateDoc(doc(db, BAPTISM_SELF_DECLARATIONS, token), {
+    status: 'signed', agreed: true,
+    signatureDataUrl: signatureDataUrl || '', signedName: String(signedName || '').trim(),
+    declaredAt: new Date().toISOString(),
+  })
+}
+
 // ─── Pastoral applications: cross-type queue (Caring Hub) ─────────────────────
 // Live list of baptism / membership / dedication applications in the given
 // statuses — the "Applications & Form Requests" card and PCS profile list.
@@ -8551,6 +8612,98 @@ export function subscribeMyInterviewRequests({ uid, email, statuses = ['pending'
   if (em) unsubs.push(onSnapshot(query(collection(db, WORKSPACE_NOTIFICATIONS), where('recipientEmail', '==', em), ...base),
     (s) => { lists.email = map(s); emit() }, (e) => console.error('subscribeMyInterviewRequests(email):', e)))
   return () => unsubs.forEach((u) => u())
+}
+
+// ─── Stage 5: Cell Leader Approval request ───────────────────────────────────
+// Caring presses "Notify Cell Leader" on stage 5: the cell's leader gets a blue
+// ribbon on My Workspace (type 'cell_leader_approval'), calls the applicant, ticks
+// the 3-question checklist and submits — which completes stage 5 on the candidate
+// (membershipPipeline.stages.cellLeaderApproval) so the pipeline moves to stage 6.
+
+/** Send the request to the cell leader's app account. Returns { request, account }. */
+export async function requestCellLeaderApproval({ candidate, cellName, cellLeaderName, leaderPersonId = '', phone = '', photoUrl = '', attendingSince = '', by = '' }) {
+  if (!db || !candidate?.id) throw new Error('Missing candidate')
+  let leaderEmail = ''
+  if (leaderPersonId) {
+    const p = await getDoc(doc(db, 'people', leaderPersonId)).catch(() => null)
+    leaderEmail = p?.exists() ? String(p.data().email || '') : ''
+  }
+  const account = await findAccountForPerson({ email: leaderEmail, name: cellLeaderName })
+  const prev = candidate.membershipPipeline?.cellLeaderRequest
+  if (prev?.notificationId && prev.status === 'Requested') {
+    await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, prev.notificationId), { status: 'cancelled', respondedAt: nowIso() }).catch(() => {})
+  }
+  const notifRef = doc(collection(db, WORKSPACE_NOTIFICATIONS))
+  const request = {
+    status: 'Requested',
+    cellName: cellName || '',
+    cellLeaderName: cellLeaderName || '',
+    recipientUid: account?.id || '',
+    recipientEmail: String(account?.email || leaderEmail || '').trim().toLowerCase(),
+    notificationId: notifRef.id,
+    requestedBy: by || 'unknown',
+    requestedAt: nowIso(),
+    respondedAt: '',
+  }
+  await setDoc(notifRef, {
+    type: 'cell_leader_approval',
+    status: 'pending',
+    candidatePcsId: candidate.id,
+    candidateName: candidate.name || '',
+    candidateCell: cellName || '',
+    candidatePhone: phone || candidate.phone || '',
+    candidatePhotoUrl: photoUrl || '',
+    attendingSince: attendingSince || '',
+    cellLeaderName: cellLeaderName || '',
+    recipientUid: request.recipientUid,
+    recipientEmail: request.recipientEmail,
+    createdBy: request.requestedBy,
+    createdAt: Timestamp.now(),
+    respondedAt: '', respondedBy: '', responseNote: '',
+  })
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, candidate.id), { 'membershipPipeline.cellLeaderRequest': request })
+  return { request, account }
+}
+
+/** The signed-in cell leader's pending approval requests (by uid and by email), live. */
+export function subscribeMyCellLeaderApprovals({ uid, email }, onChange) {
+  if (!db || (!uid && !email)) { onChange([]); return () => {} }
+  const lists = { uid: [], email: [] }
+  const emit = () => {
+    const seen = new Set()
+    onChange([...lists.uid, ...lists.email].filter((n) => !seen.has(n.id) && seen.add(n.id)))
+  }
+  const map = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) }))
+  const base = [where('type', '==', 'cell_leader_approval'), where('status', '==', 'pending')]
+  const unsubs = []
+  if (uid) unsubs.push(onSnapshot(query(collection(db, WORKSPACE_NOTIFICATIONS), where('recipientUid', '==', uid), ...base),
+    (s) => { lists.uid = map(s); emit() }, (e) => console.error('subscribeMyCellLeaderApprovals(uid):', e)))
+  const em = String(email || '').trim().toLowerCase()
+  if (em) unsubs.push(onSnapshot(query(collection(db, WORKSPACE_NOTIFICATIONS), where('recipientEmail', '==', em), ...base),
+    (s) => { lists.email = map(s); emit() }, (e) => console.error('subscribeMyCellLeaderApprovals(email):', e)))
+  return () => unsubs.forEach((u) => u())
+}
+
+/** Cell leader's submission: 3 answers (+ notes) → stage 5 complete on the candidate. */
+export async function submitCellLeaderApproval(notif, { answers, notes = '', by = '', uid = '' }) {
+  if (!db || !notif?.id || !notif.candidatePcsId) throw new Error('Missing request')
+  const at = nowIso()
+  const cleanNotes = String(notes || '').trim()
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, notif.candidatePcsId), {
+    'membershipPipeline.stages.cellLeaderApproval': {
+      status: 'completed', completedAt: at, by: by || 'Cell Leader', approvedBy: by || notif.cellLeaderName || 'Cell Leader',
+      enjoyingCellGroup: !!answers?.enjoyingCellGroup,
+      acceptedJesus: !!answers?.acceptedJesus,
+      desireToGrowAtROL: !!answers?.desireToGrowAtROL,
+      cellLeaderId: uid || '',
+      ...(cleanNotes ? { notes: cleanNotes } : {}),
+    },
+    'membershipPipeline.cellLeaderRequest.status': 'Completed',
+    'membershipPipeline.cellLeaderRequest.respondedAt': at,
+  })
+  await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), {
+    status: 'completed', respondedAt: at, respondedBy: by, responseNote: cleanNotes,
+  })
 }
 
 /** Deacon's answer from the ribbon: accept / decline (+ optional note). */

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { setMembershipStage, completeMembershipPipeline, updateApplication } from '../../services/firestore'
 import { advanceBlockReason, currentStage, stageSummary, undoableStageKey, progressMirror } from '../../utils/membershipPipeline'
 import { downloadMembershipCertificate, membershipCertificateData } from '../../utils/membershipCertificate'
-import MembershipStageModal, { InterviewStatusLine } from './MembershipStageModal'
+import MembershipStageModal, { InterviewStatusLine, CellLeaderRequestLine } from './MembershipStageModal'
 const fmt = (d) => {
   if (!d) return ''
   const dt = new Date(d)
@@ -114,6 +114,7 @@ export default function MembershipPipelineTracker({
         {!compact && <span className="text-[10px] text-slate-400">{doneCount}/8 done</span>}
       </div>
 
+      {cur?.key === 'cellLeaderApproval' && <CellLeaderRequestLine request={entry.membershipPipeline?.cellLeaderRequest} />}
       <InterviewStatusLine interview={entry.membershipPipeline?.interview} />
       {cur && (block ? <p className="text-[11px] text-slate-400">{block}</p> : stageInputs())}
 
@@ -121,12 +122,13 @@ export default function MembershipPipelineTracker({
         const stage = stages.find((x) => x.key === openStageKey)
         return stage ? (
           <MembershipStageModal
-            stage={stage} stages={stages} entry={entry} cellLeaderName={cellLeaderName}
+            stage={stage} stages={stages} entry={entry} application={application} cellLeaderName={cellLeaderName}
             canCaring={canCaring} canPastor={canPastor} canFirstLady={canFirstLady} by={by} busy={busy} undoKey={undoKey}
             onComplete={(st, rec) => complete(st, rec)}
             onIssue={(num) => issue(num)}
             onUndo={(key) => undo(key)}
             onInterviewSaved={(interview) => onChanged?.(entry.id, (p) => ({ ...p, interview }))}
+            onCellLeaderRequested={(cellLeaderRequest) => onChanged?.(entry.id, (p) => ({ ...p, cellLeaderRequest }))}
             onClose={() => setOpenStageKey(null)}
           />
         ) : null

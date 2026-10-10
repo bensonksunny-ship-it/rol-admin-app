@@ -599,6 +599,17 @@ service cloud.firestore {
         && request.resource.data.membershipPipeline.interview.diff(resource.data.membershipPipeline.interview).affectedKeys()
              .hasOnly(['status', 'respondedAt', 'respondedBy', 'responseNote'])
         && request.resource.data.membershipPipeline.interview.status in ['Accepted', 'Declined'];
+      // Stage 5 (Cell Leader Approval): the cell leader the request was sent to may
+      // complete stage 5 — only stages.cellLeaderApproval + the request's status.
+      allow update: if isSignedIn()
+        && resource.data.get('membershipPipeline', {}).get('cellLeaderRequest', {}).get('status', '') == 'Requested'
+        && (resource.data.membershipPipeline.cellLeaderRequest.get('recipientUid', '') == request.auth.uid
+            || (request.auth.token.email_verified == true
+                && resource.data.membershipPipeline.cellLeaderRequest.get('recipientEmail', '') == request.auth.token.email.lower()))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipPipeline'])
+        && request.resource.data.membershipPipeline.diff(resource.data.membershipPipeline).affectedKeys().hasOnly(['stages', 'cellLeaderRequest'])
+        && request.resource.data.membershipPipeline.get('stages', {}).diff(resource.data.membershipPipeline.get('stages', {})).affectedKeys().hasOnly(['cellLeaderApproval'])
+        && request.resource.data.membershipPipeline.cellLeaderRequest.status == 'Completed';
       // Auto-return from Away: marking an Away person present on a Cell or Sunday
       // attendance sheet flips them back to Active (returnPCSEntryFromAway). Only
       // Away -> Active, and only the away* fields — nothing else on the entry.
@@ -720,6 +731,22 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
     }
 
+    // Baptism self-declarations (membership Stage 4, item 3) — token model like the
+    // application forms: signed-out holders of the link may read it while unexpired
+    // and sign it once (pending → signed); everything else is Caring-only.
+    match /baptism_self_declarations/{token} {
+      allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+        || resource.data.expiresAt > request.time;
+      allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+        || (resource.data.status == 'pending'
+            && resource.data.expiresAt > request.time
+            && request.resource.data.status == 'signed'
+            && request.resource.data.agreed == true
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'agreed', 'signatureDataUrl', 'signedName', 'declaredAt']));
+    }
+
     // Caring → Events: pastoral lifecycle registry (baptism, marriage, dedication,
     // burial). Saving one also writes member_profiles / people / caring_pcs, which
     // Caring can already write.
@@ -743,7 +770,7 @@ service cloud.firestore {
       allow create, delete: if isPipelineManager();
       allow update: if isPipelineManager()
         || (isNotificationRecipient(resource.data) && resource.data.status == 'pending'
-            && request.resource.data.status in ['accepted', 'declined']
+            && request.resource.data.status in ['accepted', 'declined', 'completed']
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt', 'respondedBy', 'responseNote']));
     }
 

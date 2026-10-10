@@ -18,6 +18,7 @@ import SundayReport from './pages/SundayReport'
 import BaptismApply from './pages/BaptismApply'
 import MembershipApply from './pages/MembershipApply'
 import DedicationApply from './pages/DedicationApply'
+import BaptismDeclarationSign from './pages/BaptismDeclarationSign'
 import MarriageApply from './pages/MarriageApply'
 import SundayProgram from './pages/SundayProgram'
 import SundayCrew from './pages/SundayCrew'
@@ -55,6 +56,8 @@ function App() {
             <Route path="/membership-apply" element={<MembershipApply />} />
             {/* Public — PCS baby dedication QR code (firestore.rules → dedication_applications). */}
             <Route path="/dedication-apply" element={<DedicationApply />} />
+            {/* Public — membership Stage 4 baptism self-declaration (firestore.rules → baptism_self_declarations). */}
+            <Route path="/baptism-declaration" element={<BaptismDeclarationSign />} />
             {/* Public — PCS marriage (Holy Matrimony) QR code (firestore.rules → marriage_applications). */}
             <Route path="/marriage-apply" element={<MarriageApply />} />
             <Route

@@ -9,6 +9,7 @@ import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWor
 import ApprovalsCard from '../components/workspace/ApprovalsCard'
 import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
+import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
 
 function greeting() {
   const h = new Date().getHours()
@@ -86,6 +87,12 @@ export default function MyWorkspace() {
         </>
       )}
       <ToDoListCard />
+      {/* Stage 5 membership review requests addressed to this account (Cell Leaders) */}
+      <CellLeaderApprovalRibbon
+        uid={user?.uid || userProfile?.id || ''}
+        email={userProfile?.email || user?.email || ''}
+        myName={userProfile?.displayName || userProfile?.email || ''}
+      />
       {/* Membership interview invitations addressed to this account (Deacons) */}
       <DeaconInterviewRibbon
         uid={user?.uid || userProfile?.id || ''}

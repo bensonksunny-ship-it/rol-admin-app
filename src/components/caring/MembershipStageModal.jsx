@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { getPCSEntries, requestMembershipInterview, getAllCellGroupMembers, getCellGroups } from '../../services/firestore'
+import { getPCSEntries, requestMembershipInterview, getAllCellGroupMembers, getCellGroups, requestCellLeaderApproval, getMemberProfile } from '../../services/firestore'
 import { findPcsCellMember } from '../../utils/pcsEngagement'
+import { auth } from '../../lib/firebase'
+import MembershipApplicationPreview from './MembershipApplicationPreview'
+import BaptismProofStatus from './BaptismProofStatus'
 import { advanceBlockReason, currentStage } from '../../utils/membershipPipeline'
 import { deaconStatusOf } from '../../utils/deaconOffice'
 import { getMemberDisplayName } from '../../utils/displayName'
@@ -50,7 +53,88 @@ export function InterviewStatusLine({ interview }) {
   )
 }
 
-/** Stage 5/6: pick an active Deacon, a date & time and notes, then send the request. */
+/** Stage 5 request summary, e.g. "Requested · A Joyson Jeibadurai · 10 Oct 2026". */
+export function CellLeaderRequestLine({ request }) {
+  if (!request?.cellLeaderName) return null
+  const done = request.status === 'Completed'
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      <span className={`font-bold px-2 py-0.5 rounded-full border ${done ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-sky-100 text-sky-800 border-sky-200'}`}>
+        {done ? 'Cell Leader Approved' : 'Cell Leader Approval Requested'}
+      </span>
+      <span className="text-slate-600">{request.cellLeaderName}{request.requestedAt ? ` · ${fmt(done ? request.respondedAt : request.requestedAt)}` : ''}</span>
+    </div>
+  )
+}
+
+/** Stage 5: the candidate's cell + its leader, and "Notify Cell Leader" — a blue
+ *  ribbon on the leader's My Workspace (CellLeaderApprovalRibbon) that opens the
+ *  call checklist; their submission completes this stage. */
+function CellLeaderNotify({ entry, by, canNotify, onRequested }) {
+  const existing = entry.membershipPipeline?.cellLeaderRequest
+  const [cell, setCell] = useState(null) // { cellName, leader, leaderPersonId, since } | false (no cell)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([getAllCellGroupMembers().catch(() => []), getCellGroups('Cell').catch(() => [])]).then(([members, groups]) => {
+      if (cancelled) return
+      const own = findPcsCellMember(entry, members)
+      const g = own ? groups.find((x) => x.id === own.cellId) : null
+      setCell(g ? { cellName: g.cellName || '', leader: g.leader || '', leaderPersonId: g.leaderPersonId || '', since: own.since || own.createdAt || '' } : false)
+    })
+    return () => { cancelled = true }
+  }, [entry.id]) // eslint-disable-line react-hooks/exhaustive-deps -- reload only when the candidate changes
+
+  const sinceText = (() => {
+    const d = cell?.since ? (typeof cell.since?.toDate === 'function' ? cell.since.toDate() : new Date(cell.since)) : null
+    return d && !isNaN(d.getTime()) ? `Attending since ${d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}` : ''
+  })()
+
+  const notify = async () => {
+    setBusy(true); setMsg('')
+    try {
+      const profile = entry.visitorId ? await getMemberProfile(entry.visitorId).catch(() => null) : null
+      const { request, account } = await requestCellLeaderApproval({
+        candidate: entry, cellName: cell.cellName, cellLeaderName: cell.leader, leaderPersonId: cell.leaderPersonId,
+        phone: entry.phone || profile?.phone || '', photoUrl: profile?.photoUrl || '', attendingSince: sinceText, by,
+      })
+      onRequested?.(request)
+      setMsg(account
+        ? `✓ Sent. ${cell.leader} will see it on their My Workspace.`
+        : `Saved, but ${cell.leader} has no app account matching their email or name, so no workspace notification can reach them. Please tell them directly.`)
+    } catch (e) {
+      console.error('requestCellLeaderApproval', e)
+      setMsg('Could not notify the cell leader. Please try again.')
+    }
+    setBusy(false)
+  }
+
+  const box = 'rounded-xl bg-slate-50 border border-slate-200 px-3 py-2'
+  return (
+    <div className="space-y-3">
+      {cell === null ? <p className="text-xs text-slate-400">Loading cell group…</p>
+        : cell === false ? <p className="text-sm text-amber-700">{getMemberDisplayName(entry)} is not on any cell group roster.</p>
+        : (
+          <div className="grid grid-cols-2 gap-2">
+            <div className={box}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cell Group</p><p className="text-sm font-semibold text-slate-800">{cell.cellName || '—'}</p></div>
+            <div className={box}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cell Leader</p><p className="text-sm font-semibold text-slate-800">{cell.leader || 'Not set'}</p></div>
+          </div>
+        )}
+      <CellLeaderRequestLine request={existing} />
+      {canNotify && cell && cell.leader && (
+        <button type="button" disabled={busy} onClick={notify}
+          className="w-full min-h-[44px] rounded-xl bg-sky-600 text-white text-sm font-bold hover:bg-sky-700 disabled:opacity-50">
+          {busy ? 'Notifying…' : existing?.status === 'Requested' ? '🔔 Re-send to Cell Leader' : '🔔 Notify Cell Leader'}
+        </button>
+      )}
+      {msg && <p className={`text-xs ${msg.startsWith('✓') ? 'text-emerald-700' : 'text-amber-700'}`}>{msg}</p>}
+    </div>
+  )
+}
+
+/** Stage 6: pick an active Deacon, a date & time and notes, then send the request. */
 function InterviewAssign({ entry, by, onSaved }) {
   const existing = entry.membershipPipeline?.interview
   const [deacons, setDeacons] = useState(null)
@@ -142,8 +226,8 @@ function InterviewAssign({ entry, by, onSaved }) {
  * action for it (checklist, sign-off, deacon interview, approval, issue).
  */
 export default function MembershipStageModal({
-  stage, stages, entry, cellLeaderName = '', canCaring, canPastor, canFirstLady, by, busy, undoKey,
-  onComplete, onIssue, onUndo, onInterviewSaved, onClose,
+  stage, stages, entry, application = null, cellLeaderName = '', canCaring, canPastor, canFirstLady, by, busy, undoKey,
+  onComplete, onIssue, onUndo, onInterviewSaved, onCellLeaderRequested, onClose,
 }) {
   const cur = currentStage(stages)
   const isCur = cur?.key === stage.key
@@ -152,7 +236,7 @@ export default function MembershipStageModal({
   const verificationDone = stages.find((s) => s.key === 'verification')?.done
   const applicationDone = stages.find((s) => s.key === 'applicationSubmitted')?.done
   const interviewDone = stages.find((s) => s.key === 'membershipInterview')?.done
-  const isInterviewStage = ['cellLeaderApproval', 'membershipInterview'].includes(stage.key)
+  const isInterviewStage = stage.key === 'membershipInterview'
   // Interview assignment: Caring / First Lady once the Application (3) and
   // Verification (4) are complete; the Founder / Senior Pastor may schedule it any
   // time (pastoral bypass).
@@ -170,10 +254,12 @@ export default function MembershipStageModal({
   const btn = 'w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50'
   const inp = 'w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white'
   const done = (rec) => { onComplete(stage, rec); onClose() }
+  // Stage 4 opens wide: the submitted application (left, 60%) beside the checklist (right, 40%).
+  const isVerification = stage.key === 'verification'
 
   return createPortal(
     <div className="fixed inset-0 z-[85] bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div className="w-full sm:max-w-[480px] max-h-[92vh] overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className={`w-full ${isVerification ? 'sm:max-w-4xl max-h-[92vh] sm:max-h-[85vh]' : 'sm:max-w-[480px] max-h-[92vh]'} overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl`} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-3 flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{getMemberDisplayName(entry)} · Stage {stage.n} of 8</p>
@@ -182,7 +268,14 @@ export default function MembershipStageModal({
           <button type="button" onClick={onClose} aria-label="Close" className="w-9 h-9 rounded-full hover:bg-slate-100 flex items-center justify-center text-lg text-slate-500">×</button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className={isVerification ? 'p-5 grid grid-cols-1 lg:grid-cols-5 gap-4' : 'p-5'}>
+          {isVerification && (
+            <div className="lg:col-span-3 min-w-0">
+              <MembershipApplicationPreview application={application} entry={entry} />
+            </div>
+          )}
+          <div className={isVerification ? 'lg:col-span-2 p-4 space-y-4 flex flex-col rounded-xl border border-slate-200 bg-white min-w-0' : 'space-y-4'}>
+          {isVerification && <p className="text-sm font-bold text-slate-800">Verification Checklist</p>}
           <p className="text-sm text-slate-600">{stage.detail}</p>
 
           {/* Status of this stage */}
@@ -190,6 +283,7 @@ export default function MembershipStageModal({
             <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-800">
               ✓ Completed{stage.completedAt ? ` on ${fmt(stage.completedAt)}` : ''}{stage.by ? ` by ${stage.by}` : ''}
               {stage.extra?.approvedBy && <div className="text-xs">Signed by {stage.extra.approvedBy}{stage.extra.signedOn ? ` · ${fmt(stage.extra.signedOn)}` : ''}</div>}
+              {stage.extra?.acceptedJesus && <div className="text-xs">Cell leader's call checklist: all 3 confirmed{stage.extra.notes ? ` · "${stage.extra.notes}"` : ''}</div>}
               {stage.extra?.interviewDate && <div className="text-xs">Interview held {fmt(stage.extra.interviewDate)}{stage.extra.interviewer ? ` · Deacon ${stage.extra.interviewer}` : ''}</div>}
               {stage.extra?.checklist && <div className="text-xs">All {VERIFICATION_CHECKLIST.length} verification checks ticked</div>}
             </div>
@@ -209,29 +303,55 @@ export default function MembershipStageModal({
           {canAct && stage.key === 'verification' && (
             <div className="space-y-2">
               {VERIFICATION_CHECKLIST.map((c, i) => (
-                <label key={c.key} className="flex items-start gap-3 rounded-xl border border-slate-200 px-3 py-2.5 cursor-pointer hover:bg-slate-50">
-                  <input type="checkbox" checked={!!checks[c.key]} onChange={(e) => setChecks((s) => ({ ...s, [c.key]: e.target.checked }))} className="mt-0.5 w-4 h-4 accent-indigo-600" />
-                  <span className="text-sm text-slate-700">{i + 1}. {c.label}</span>
-                </label>
+                <div key={c.key} className="rounded-xl border border-slate-200">
+                  <label className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50 rounded-xl">
+                    <input type="checkbox" checked={!!checks[c.key]} onChange={(e) => setChecks((s) => ({ ...s, [c.key]: e.target.checked }))} className="mt-0.5 w-4 h-4 accent-indigo-600" />
+                    <span className="text-sm text-slate-700">{i + 1}. {c.label}</span>
+                  </label>
+                  {/* Item 3: certificate, or a signed baptism self-declaration (ticks itself once signed) */}
+                  {c.key === 'baptismProof' && (
+                    <BaptismProofStatus
+                      entry={entry}
+                      application={application}
+                      requestedBy={by}
+                      canRequest={canCaring || canPastor}
+                      onDeclared={() => setChecks((s) => ({ ...s, baptismProof: true }))}
+                    />
+                  )}
+                </div>
               ))}
-              <button type="button" disabled={busy || !allChecked} onClick={() => done({ verifiedBy: by, checklist: Object.fromEntries(VERIFICATION_CHECKLIST.map((c) => [c.key, true])) })} className={btn}>
+              <button type="button" disabled={busy || !allChecked} onClick={() => done({
+                verifiedBy: by,
+                verifierUid: auth?.currentUser?.uid || '',
+                verifiedAt: new Date().toISOString(),
+                checklist: Object.fromEntries(VERIFICATION_CHECKLIST.map((c) => [c.key, true])),
+              })} className={btn}>
                 Mark Verification Complete
               </button>
               {!allChecked && <p className="text-[11px] text-slate-400 text-center">Tick all {VERIFICATION_CHECKLIST.length} items to continue.</p>}
             </div>
           )}
 
-          {/* Stage 5 — cell leader sign-off */}
+          {/* Stage 5 — cell group, its leader, and "Notify Cell Leader" (their
+              workspace ribbon + call checklist completes the stage) */}
+          {stage.key === 'cellLeaderApproval' && !stage.done && (
+            <CellLeaderNotify entry={entry} by={by} canNotify={canAct} onRequested={onCellLeaderRequested} />
+          )}
+          {/* Fallback when the cell leader has no app login: record their paper sign-off */}
           {canAct && stage.key === 'cellLeaderApproval' && (
-            <div className="space-y-2">
-              <label className="block"><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Cell leader (as signed)</span>
-                <input value={leader.approvedBy} onChange={(e) => setLeader({ ...leader, approvedBy: e.target.value })} className={inp} /></label>
-              <label className="block"><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Signed on</span>
-                <input type="date" value={leader.signedOn} onChange={(e) => setLeader({ ...leader, signedOn: e.target.value })} className={inp} /></label>
-              <button type="button" disabled={busy || !leader.approvedBy.trim()} onClick={() => done({ approvedBy: leader.approvedBy.trim(), signedOn: leader.signedOn })} className={btn}>
-                Record Cell Leader Sign-off
-              </button>
-            </div>
+            <details className="text-xs text-slate-500">
+              <summary className="cursor-pointer hover:text-slate-700">Cell leader has no app login? Record their sign-off manually</summary>
+              <div className="space-y-2 mt-2">
+                <label className="block"><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Cell leader (as signed)</span>
+                  <input value={leader.approvedBy} onChange={(e) => setLeader({ ...leader, approvedBy: e.target.value })} className={inp} /></label>
+                <label className="block"><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Signed on</span>
+                  <input type="date" value={leader.signedOn} onChange={(e) => setLeader({ ...leader, signedOn: e.target.value })} className={inp} /></label>
+                <button type="button" disabled={busy || !leader.approvedBy.trim()} onClick={() => done({ approvedBy: leader.approvedBy.trim(), signedOn: leader.signedOn })}
+                  className="w-full min-h-[40px] rounded-xl border-2 border-slate-300 text-slate-700 text-sm font-bold disabled:opacity-50">
+                  Record Sign-off
+                </button>
+              </div>
+            </details>
           )}
 
           {assignWaitingNote && <p className="text-xs text-slate-500">{assignWaitingNote}</p>}
@@ -275,6 +395,7 @@ export default function MembershipStageModal({
           {canCaring && undoKey === stage.key && (
             <button type="button" disabled={busy} onClick={() => { onUndo(stage.key); onClose() }} className="text-xs font-semibold text-slate-500 hover:text-red-600">Undo this stage</button>
           )}
+          </div>
         </div>
       </div>
     </div>,

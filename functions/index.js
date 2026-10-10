@@ -767,3 +767,28 @@ async function syncLegalNameToPcs(event, source) {
 
 exports.syncBaptismLegalName = onDocumentUpdated('baptism_applications/{token}', (event) => syncLegalNameToPcs(event, 'Baptism application'))
 exports.syncMembershipLegalName = onDocumentUpdated('membership_applications/{token}', (event) => syncLegalNameToPcs(event, 'Membership application'))
+
+// ─── Baptism self-declaration → membership pipeline ───────────────────────────
+// A candidate without a baptism certificate signs a self-declaration on the
+// signed-out /baptism-declaration page. When it moves pending → signed, record it
+// on their PCS entry for Stage 4 Verification (item 3). set+merge so it works even
+// before the pipeline object exists.
+exports.syncBaptismSelfDeclaration = onDocumentUpdated('baptism_self_declarations/{token}', async (event) => {
+  const before = event.data?.before?.data() || {}
+  const after = event.data?.after?.data() || {}
+  if (before.status !== 'pending' || after.status !== 'signed' || after.agreed !== true || !after.pcsEntryId) return
+  const ref = admin.firestore().collection('caring_pcs').doc(after.pcsEntryId)
+  const snap = await ref.get()
+  if (!snap.exists) return
+  await ref.set({
+    membershipPipeline: {
+      baptismSelfDeclaration: {
+        isDeclared: true,
+        declaredAt: after.declaredAt || new Date().toISOString(),
+        declarationText: after.declarationText || '',
+        signedName: after.signedName || '',
+        declarationId: event.params.token,
+      },
+    },
+  }, { merge: true })
+})
