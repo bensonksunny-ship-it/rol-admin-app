@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { subscribeMyInterviewRequests, respondToInterviewRequest } from '../../services/firestore'
 import useClickOutside from '../../hooks/useClickOutside'
+import ConductInterviewModal from './ConductInterviewModal'
 
 const fmtDateTime = (s) => {
   const dt = s ? new Date(s) : null
@@ -15,12 +16,13 @@ const isUpcoming = (s) => { const t = s ? new Date(s).getTime() : NaN; return is
 
 /** One invitation — Worship-ribbon style banner ("Hello …, you are assigned …  More →");
  *  More toggles the details and Accept / Decline just below it. */
-function InterviewInvite({ r, myName }) {
+function InterviewInvite({ r, myName, onRecorded }) {
   const [expanded, setExpanded] = useState(false)
   const [declining, setDeclining] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [conducting, setConducting] = useState(false)
   const cardRef = useRef(null)
   const collapse = useCallback(() => { setExpanded(false); setDeclining(false) }, [])
   useClickOutside(cardRef, collapse, expanded)
@@ -68,7 +70,13 @@ function InterviewInvite({ r, myName }) {
           {r.notes && <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">Notes: {r.notes}</p>}
 
           {accepted ? (
-            <p className="text-sm font-semibold text-emerald-700">✔ Accepted — this interview is on your workspace schedule.</p>
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-emerald-700">✔ Accepted. This interview is on your workspace schedule.</p>
+              <button type="button" onClick={() => setConducting(true)}
+                className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-lg text-sm shadow-sm">
+                Conduct Membership Interview
+              </button>
+            </div>
           ) : declining ? (
             <div className="flex flex-wrap items-center gap-2">
               <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason / suggest another time or deacon (optional)"
@@ -92,6 +100,14 @@ function InterviewInvite({ r, myName }) {
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       )}
+      {conducting && (
+        <ConductInterviewModal
+          request={r}
+          myName={myName}
+          onClose={() => setConducting(false)}
+          onSubmitted={(advanced) => onRecorded?.(advanced ? '✓ Interview recorded. The application moves to Pastoral Approval.' : '✓ Interview recorded with a follow-up. The Caring team will be in touch.')}
+        />
+      )}
     </div>
   )
 }
@@ -105,12 +121,17 @@ function InterviewInvite({ r, myName }) {
  */
 export default function DeaconInterviewRibbon({ uid, email, myName }) {
   const [requests, setRequests] = useState([])
+  // Confirmation after an interview is recorded (its request leaves the list).
+  const [recorded, setRecorded] = useState('')
   useEffect(() => subscribeMyInterviewRequests({ uid, email }, setRequests), [uid, email])
   const shown = requests.filter((r) => r.status === 'pending' || (r.status === 'accepted' && isUpcoming(r.scheduledAt)))
-  if (!shown.length) return null
+  if (!shown.length && !recorded) return null
   return (
     <div>
-      {shown.map((r) => <InterviewInvite key={r.id} r={r} myName={myName} />)}
+      {recorded && (
+        <p role="status" className="w-full max-w-xl mx-auto my-3 text-sm font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">{recorded}</p>
+      )}
+      {shown.map((r) => <InterviewInvite key={r.id} r={r} myName={myName} onRecorded={setRecorded} />)}
     </div>
   )
 }

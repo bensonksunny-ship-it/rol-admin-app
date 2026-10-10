@@ -28,6 +28,7 @@ import { ROLES, deriveRoleFromPositions } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
 import { normalizeEngagementType } from '../utils/pcsEngagement'
 import { mergeFamilyIntoProfile } from '../utils/familyDetails'
+import { userLinksToCellGroup } from '../utils/cellReportPermissions'
 
 // Firestore's writes reject any `undefined` field value, including ones nested inside
 // array elements (e.g. one row of a dynamically-built assignments array). Recursively
@@ -7234,7 +7235,7 @@ export async function getCellVisitorProposalsByReport(reportId) {
 const USER_DIRECTORY = 'user_directory'
 const CONVERSATIONS = 'conversations'
 
-export async function upsertUserDirectoryEntry(uid, { name, email, role, department, departments, status } = {}) {
+export async function upsertUserDirectoryEntry(uid, { name, email, role, department, departments, status, cellId, cellGroup, isCellLeader } = {}) {
   if (!db || !uid) return
   await setDoc(doc(db, USER_DIRECTORY, uid), {
     uid,
@@ -7244,6 +7245,10 @@ export async function upsertUserDirectoryEntry(uid, { name, email, role, departm
     department: department || '',
     departments: Array.isArray(departments) ? departments : [],
     status: status || 'active',
+    // Cell link, so a cell group's leader can be found for workspace notifications.
+    cellId: cellId || '',
+    cellGroup: cellGroup || '',
+    isCellLeader: !!isCellLeader,
     updatedAt: Timestamp.now(),
   }, { merge: true })
 }
@@ -8667,15 +8672,73 @@ export function subscribeMyInterviewRequests({ uid, email, statuses = ['pending'
 // the 3-question checklist and submits — which completes stage 5 on the candidate
 // (membershipPipeline.stages.cellLeaderApproval) so the pipeline moves to stage 6.
 
+// Name tokens for loose matching: lowercase letters only, single-letter initials
+// dropped — "A. Joyson Jebadurai" → ['joyson', 'jebadurai'].
+const nameTokens = (s) => String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((t) => t.length > 1)
+// Same token, allowing one typo in longer words (Jebadurai / Jeibadurai).
+const tokenMatches = (a, b) => {
+  if (a === b) return true
+  if (a.length < 5 || b.length < 5 || Math.abs(a.length - b.length) > 1) return false
+  let i = 0, j = 0, edits = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue }
+    if (++edits > 1) return false
+    if (a.length > b.length) i++
+    else if (b.length > a.length) j++
+    else { i++; j++ }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1
+}
+// Every token of the shorter name appears in the longer one.
+const namesMatch = (x, y) => {
+  const a = nameTokens(x), b = nameTokens(y)
+  if (!a.length || !b.length) return false
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a]
+  return short.every((t) => long.some((u) => tokenMatches(t, u)))
+}
+const looksLikeCellLeader = (u) => /cell/i.test(`${u.role || ''} ${u.department || ''} ${(u.departments || []).join(' ')}`)
+
+/**
+ * App account for a cell group's leader, tried in order:
+ *  1. the leader's People record email → user_directory;
+ *  2. a Cell Leader account linked to this cell group (user_directory cell link);
+ *  3. exact name;
+ *  4. loose name match (case, punctuation, initials, one-letter typos ignored),
+ *     preferring Cell accounts — only when it points to exactly one account.
+ */
+export async function findCellLeaderAccount({ cellGroup = null, cellLeaderName = '', leaderEmail = '' } = {}) {
+  if (!db) return null
+  const em = String(leaderEmail || '').trim().toLowerCase()
+  if (em) {
+    const snap = await getDocs(query(collection(db, USER_DIRECTORY), where('email', '==', em), limit(1))).catch(() => null)
+    if (snap && !snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() }
+  }
+  if (cellGroup) {
+    const snap = await getDocs(query(collection(db, USER_DIRECTORY), where('isCellLeader', '==', true))).catch(() => null)
+    const linked = (snap?.docs || []).map((d) => ({ id: d.id, ...d.data() })).filter((u) => u.status !== 'inactive' && userLinksToCellGroup(u, cellGroup))
+    const pick = linked.length === 1 ? linked[0] : linked.find((u) => namesMatch(u.name, cellLeaderName))
+    if (pick) return pick
+  }
+  const nm = String(cellLeaderName || '').trim()
+  if (!nm) return null
+  const exact = await getUserByName(nm).catch(() => null)
+  if (exact) return exact
+  const all = await getDocs(collection(db, USER_DIRECTORY)).then((s) => s.docs.map((d) => ({ id: d.id, ...d.data() }))).catch(() => [])
+  const hits = all.filter((u) => u.status !== 'inactive' && namesMatch(u.name, nm))
+  if (hits.length === 1) return hits[0]
+  const cellHits = hits.filter(looksLikeCellLeader)
+  return cellHits.length === 1 ? cellHits[0] : null
+}
+
 /** Send the request to the cell leader's app account. Returns { request, account }. */
-export async function requestCellLeaderApproval({ candidate, cellName, cellLeaderName, leaderPersonId = '', phone = '', photoUrl = '', attendingSince = '', by = '' }) {
+export async function requestCellLeaderApproval({ candidate, cellName, cellGroup = null, cellLeaderName, leaderPersonId = '', phone = '', photoUrl = '', attendingSince = '', by = '' }) {
   if (!db || !candidate?.id) throw new Error('Missing candidate')
   let leaderEmail = ''
   if (leaderPersonId) {
     const p = await getDoc(doc(db, 'people', leaderPersonId)).catch(() => null)
     leaderEmail = p?.exists() ? String(p.data().email || '') : ''
   }
-  const account = await findAccountForPerson({ email: leaderEmail, name: cellLeaderName })
+  const account = await findCellLeaderAccount({ cellGroup, cellLeaderName, leaderEmail })
   const prev = candidate.membershipPipeline?.cellLeaderRequest
   if (prev?.notificationId && prev.status === 'Requested') {
     await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, prev.notificationId), { status: 'cancelled', respondedAt: nowIso() }).catch(() => {})
@@ -8685,6 +8748,7 @@ export async function requestCellLeaderApproval({ candidate, cellName, cellLeade
     status: 'Requested',
     cellName: cellName || '',
     cellLeaderName: cellLeaderName || '',
+    recipientName: account?.name || '',
     recipientUid: account?.id || '',
     recipientEmail: String(account?.email || leaderEmail || '').trim().toLowerCase(),
     notificationId: notifRef.id,
@@ -8702,6 +8766,7 @@ export async function requestCellLeaderApproval({ candidate, cellName, cellLeade
     candidatePhotoUrl: photoUrl || '',
     attendingSince: attendingSince || '',
     cellLeaderName: cellLeaderName || '',
+    recipientName: request.recipientName,
     recipientUid: request.recipientUid,
     recipientEmail: request.recipientEmail,
     createdBy: request.requestedBy,
@@ -8761,6 +8826,49 @@ export async function markWorkspaceNotificationDone(notifId, by = '') {
 }
 
 /** Deacon's answer from the ribbon: accept / decline (+ optional note). */
+/** Deacon: the candidate's PCS entry (+ photo from member_profiles) for the interview form. */
+export async function getInterviewCandidate(pcsEntryId) {
+  if (!db || !pcsEntryId) return null
+  const snap = await getDoc(doc(db, CARING_PCS_COLLECTION, pcsEntryId))
+  if (!snap.exists()) return null
+  const entry = mapPCSDoc(snap)
+  const profile = entry.visitorId ? await getMemberProfile(entry.visitorId).catch(() => null) : null
+  return { ...entry, photoUrl: profile?.photoUrl || '' }
+}
+
+/**
+ * Deacon submits the Stage 6 interview record (after accepting the request):
+ * writes the evaluation onto membershipPipeline.interview, completes Stage 6 when
+ * the interview is Completed and recommends membership (→ Stage 7 Pastoral
+ * Approval), and closes the workspace request. Rules allow only these fields,
+ * and only for the deacon the accepted request was sent to.
+ */
+export async function submitMembershipInterviewRecord(notif, record, { advance, by = '' }) {
+  if (!db || !notif?.candidatePcsId) throw new Error('Missing candidate')
+  const at = nowIso()
+  const patch = {
+    'membershipPipeline.interview.status': record.status,
+    'membershipPipeline.interview.conductedByDeaconId': record.conductedByDeaconId || '',
+    'membershipPipeline.interview.conductedByDeaconName': record.conductedByDeaconName || '',
+    'membershipPipeline.interview.completedAt': at,
+    'membershipPipeline.interview.part1Answers': record.part1Answers || {},
+    'membershipPipeline.interview.connectionLevel': record.connectionLevel || '',
+    'membershipPipeline.interview.deaconRemarks': String(record.deaconRemarks || '').trim(),
+    'membershipPipeline.interview.recommendation': record.recommendation,
+  }
+  if (advance) {
+    patch['membershipPipeline.stages.membershipInterview'] = {
+      status: 'completed', completedAt: at, by: by || record.conductedByDeaconName || 'Deacon',
+      interviewDate: at.slice(0, 10), interviewer: record.conductedByDeaconName || '',
+      recommendation: record.recommendation, connectionLevel: record.connectionLevel || '',
+    }
+  }
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, notif.candidatePcsId), patch)
+  await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), {
+    status: 'completed', respondedAt: at, respondedBy: by, responseNote: record.status,
+  }).catch((e) => console.error('close interview request:', e))
+}
+
 export async function respondToInterviewRequest(notif, accepted, { by = '', note = '' } = {}) {
   if (!db || !notif?.id) return
   const status = accepted ? 'Accepted' : 'Declined'

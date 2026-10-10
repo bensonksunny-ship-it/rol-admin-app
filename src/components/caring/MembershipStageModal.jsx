@@ -82,7 +82,7 @@ function CellLeaderNotify({ entry, by, canNotify, onRequested }) {
       if (cancelled) return
       const own = findPcsCellMember(entry, members)
       const g = own ? groups.find((x) => x.id === own.cellId) : null
-      setCell(g ? { cellName: g.cellName || '', leader: g.leader || '', leaderPersonId: g.leaderPersonId || '', since: own.since || own.createdAt || '' } : false)
+      setCell(g ? { group: { id: g.id, cellId: g.cellId || '', cellName: g.cellName || '' }, cellName: g.cellName || '', leader: g.leader || '', leaderPersonId: g.leaderPersonId || '', since: own.since || own.createdAt || '' } : false)
     })
     return () => { cancelled = true }
   }, [entry.id]) // eslint-disable-line react-hooks/exhaustive-deps -- reload only when the candidate changes
@@ -97,12 +97,12 @@ function CellLeaderNotify({ entry, by, canNotify, onRequested }) {
     try {
       const profile = entry.visitorId ? await getMemberProfile(entry.visitorId).catch(() => null) : null
       const { request, account } = await requestCellLeaderApproval({
-        candidate: entry, cellName: cell.cellName, cellLeaderName: cell.leader, leaderPersonId: cell.leaderPersonId,
+        candidate: entry, cellName: cell.cellName, cellGroup: cell.group, cellLeaderName: cell.leader, leaderPersonId: cell.leaderPersonId,
         phone: entry.phone || profile?.phone || '', photoUrl: profile?.photoUrl || '', attendingSince: sinceText, by,
       })
       onRequested?.(request)
       setMsg(account
-        ? `✓ Sent. ${cell.leader} will see it on their My Workspace.`
+        ? `✔ Notification successfully sent to ${cell.leader}'s My Workspace dashboard.`
         : `Saved, but ${cell.leader} has no app account matching their email or name, so no workspace notification can reach them. Please tell them directly.`)
     } catch (e) {
       console.error('requestCellLeaderApproval', e)
@@ -129,24 +129,87 @@ function CellLeaderNotify({ entry, by, canNotify, onRequested }) {
           {busy ? 'Notifying…' : existing?.status === 'Requested' ? '🔔 Re-send to Cell Leader' : '🔔 Notify Cell Leader'}
         </button>
       )}
-      {msg && <p className={`text-xs ${msg.startsWith('✓') ? 'text-emerald-700' : 'text-amber-700'}`}>{msg}</p>}
+      {msg && (msg.startsWith('✔')
+        ? <p className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">{msg}</p>
+        : <p className="text-xs text-amber-700">{msg}</p>)}
     </div>
   )
 }
 
-/** Stage 6: pick an active Deacon, a date & time and notes, then send the request. */
+/** "📅 Sun, 11 Oct 2026 at 12:01 PM" for a datetime-local value. */
+const scheduleLabel = (at) => {
+  const d = at ? new Date(at) : null
+  if (!d || isNaN(d.getTime())) return ''
+  const day = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+  const time = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase()
+  return `${day} at ${time}`
+}
+const INTERVIEW_TIME_SLOTS = [['10:00', '10:00 AM'], ['11:30', '11:30 AM'], ['14:00', '02:00 PM'], ['16:30', '04:30 PM'], ['18:00', '06:00 PM']]
+
+/** Date + time picker panel: calendar date, quick time slots or a custom time, and
+ *  "Set Time", which locks the choice and closes the panel. */
+function InterviewTimePicker({ value, onChange }) {
+  const [open, setOpen] = useState(!value)
+  const [date, setDate] = useState(String(value || '').slice(0, 10) || todayIso())
+  const [time, setTime] = useState(String(value || '').slice(11, 16) || '')
+  const label = scheduleLabel(value)
+  const set = () => { if (!date || !time) return; onChange(`${date}T${time}`); setOpen(false) }
+  return (
+    <div className="space-y-2">
+      {label && !open && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-full px-3 py-1.5">📅 {label}</span>
+          <button type="button" onClick={() => setOpen(true)} className="text-xs font-semibold text-indigo-700 hover:underline">Change</button>
+        </div>
+      )}
+      {open && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 space-y-3">
+          <label className="block">
+            <span className="block text-xs font-semibold text-slate-600 mb-1.5">Date</span>
+            <input type="date" value={date} min={todayIso()} onChange={(e) => setDate(e.target.value)}
+              className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+          </label>
+          <div>
+            <span className="block text-xs font-semibold text-slate-600 mb-1.5">Time</span>
+            <div className="flex flex-wrap gap-1.5">
+              {INTERVIEW_TIME_SLOTS.map(([v, l]) => (
+                <button key={v} type="button" aria-pressed={time === v} onClick={() => setTime(v)}
+                  className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors ${time === v ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-300 hover:border-indigo-400'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 mt-2">
+              <span className="text-xs text-slate-500">or custom</span>
+              <input type="time" value={time} onChange={(e) => setTime(e.target.value)}
+                className="h-9 px-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+            </label>
+          </div>
+          <div className="flex justify-end gap-2">
+            {value && <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-white">Cancel</button>}
+            <button type="button" disabled={!date || !time} onClick={set}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50">
+              Set Time
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Stage 6: pick an active Deacon and a date & time, then send the request. */
 function InterviewAssign({ entry, by, onSaved }) {
   const existing = entry.membershipPipeline?.interview
   const [deacons, setDeacons] = useState(null)
   const [candidateCell, setCandidateCell] = useState('')
   const [deaconId, setDeaconId] = useState(existing?.status !== 'Declined' ? (existing?.deaconPcsId || '') : '')
   const [at, setAt] = useState(existing?.scheduledAt || '')
-  const [notes, setNotes] = useState(existing?.notes || '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
 
-  // Active deacons (deaconOffice.status 'Active', or isDeacon without an end), each
-  // labelled with their cell group — else their ministry / leadership position.
+  // Active deacons (deaconOffice.status 'Active', or isDeacon without an end). The
+  // candidate's own cell is still looked up — it rides along on the request.
   useEffect(() => {
     let cancelled = false
     Promise.all([
@@ -159,26 +222,25 @@ function InterviewAssign({ entry, by, onSaved }) {
       setCandidateCell(own ? (groups.find((g) => g.id === own.cellId)?.cellName || '') : '')
       const isActiveDeacon = (e) => deaconStatusOf(e.deaconOffice) === 'Active'
         || (e.deaconOffice?.isDeacon === true && e.deaconOffice?.status !== 'Former' && !e.deaconOffice?.endDate)
-      setDeacons(list.filter((e) => isActiveDeacon(e) && e.id !== entry.id).map((e) => {
-        const cm = findPcsCellMember(e, members)
-        const cell = cm ? groups.find((g) => g.id === cm.cellId)?.cellName : ''
-        const ministry = (e.ministries || []).find((m) => !m?.ended)?.ministry || e.leadershipPosition || ''
-        return { ...e, assignment: cell ? `${cell} Cell` : ministry || 'No cell / ministry' }
-      }).sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b))))
+      setDeacons(list.filter((e) => isActiveDeacon(e) && e.id !== entry.id)
+        .sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b))))
     }).catch(() => { if (!cancelled) setDeacons([]) })
     return () => { cancelled = true }
   }, [entry.id]) // eslint-disable-line react-hooks/exhaustive-deps -- reload only when the candidate changes
 
+  const selected = deacons?.find((d) => d.id === deaconId) || null
+  const rescheduling = !!existing?.deaconName && existing.status !== 'Declined'
+
   const send = async () => {
-    const deacon = deacons.find((d) => d.id === deaconId)
-    if (!deacon || !at) return
+    if (!selected || !at) return
     setBusy(true); setMsg('')
     try {
-      const { interview, account } = await requestMembershipInterview({ candidate: entry, deacon, scheduledAt: at, notes, by, candidateCell })
+      // The notes field was removed; any notes already on the request are kept.
+      const { interview, account } = await requestMembershipInterview({ candidate: entry, deacon: selected, scheduledAt: at, notes: existing?.notes || '', by, candidateCell })
       onSaved?.(interview)
       setMsg(account
-        ? `✓ Sent. ${getMemberDisplayName(deacon)} will see it on their My Workspace.`
-        : `Saved, but ${getMemberDisplayName(deacon)} has no app account matching their email or name, so no workspace notification can reach them. Please tell them directly.`)
+        ? `✓ Sent. ${getMemberDisplayName(selected)} will see it on their My Workspace.`
+        : `Saved, but ${getMemberDisplayName(selected)} has no app account matching their email or name, so no workspace notification can reach them. Please tell them directly.`)
     } catch (e) {
       console.error('requestMembershipInterview', e)
       setMsg('Could not send the request. Please try again.')
@@ -186,32 +248,37 @@ function InterviewAssign({ entry, by, onSaved }) {
     setBusy(false)
   }
 
-  const inp = 'w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white'
   return (
-    <div className="space-y-3">
-      <InterviewStatusLine interview={existing} />
+    <div className="space-y-5">
+      {existing?.deaconName && (
+        <div className="bg-amber-50 text-amber-900 border border-amber-200/80 rounded-xl p-3 text-xs flex items-center justify-between gap-3">
+          <span><b>Interview {existing.status || 'Requested'}</b> · Deacon {existing.deaconName}</span>
+          {existing.scheduledAt && <span className="text-right flex-shrink-0">{scheduleLabel(existing.scheduledAt)}</span>}
+        </div>
+      )}
+      {existing?.status === 'Declined' && existing.responseNote && (
+        <p className="text-xs text-red-700">Declined: “{existing.responseNote}”. Choose another deacon or time.</p>
+      )}
       {deacons === null ? <p className="text-xs text-slate-400">Loading deacons…</p>
         : deacons.length === 0 ? <p className="text-sm text-slate-500">No active Deacons yet. Mark someone as Deacon from their PCS profile (Founder / Senior Pastor).</p>
         : (
           <>
             <label className="block">
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Select Interviewing Deacon *</span>
-              <select value={deaconId} onChange={(e) => setDeaconId(e.target.value)} className={inp}>
+              <span className="block text-xs font-semibold text-slate-600 mb-1.5">Deacon</span>
+              <select value={deaconId} onChange={(e) => setDeaconId(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                 <option value="">Select a deacon…</option>
-                {deacons.map((d) => <option key={d.id} value={d.id}>{getMemberDisplayName(d)} - {d.assignment}</option>)}
+                {deacons.map((d) => <option key={d.id} value={d.id}>{getMemberDisplayName(d)}</option>)}
               </select>
+              {selected && <span className="block text-xs text-slate-600 mt-1.5">Conducting Deacon: <b className="text-slate-800">{getMemberDisplayName(selected)}</b> (Deacon)</span>}
             </label>
-            <label className="block">
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Interview Date &amp; Time *</span>
-              <input type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white" />
-            </label>
-            <label className="block">
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Notes for the interviewer (optional)</span>
-              <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className={`${inp} resize-none`} />
-            </label>
-            <button type="button" disabled={busy || !deaconId || !at} onClick={send}
-              className="w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-bold disabled:opacity-50">
-              {busy ? 'Scheduling…' : existing?.deaconName && existing.status !== 'Declined' ? 'Re-schedule Interview & Notify Deacon' : 'Schedule Interview & Notify Deacon'}
+            <div>
+              <span className="block text-xs font-semibold text-slate-600 mb-1.5">Date &amp; time</span>
+              <InterviewTimePicker value={at} onChange={setAt} />
+            </div>
+            <button type="button" disabled={busy || !selected || !at} onClick={send}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl shadow-md transition-all disabled:opacity-50 disabled:shadow-none">
+              {busy ? 'Scheduling…' : rescheduling ? 'Re-schedule Interview & Notify Deacon' : 'Schedule Interview & Notify Deacon'}
             </button>
           </>
         )}
@@ -259,7 +326,7 @@ export default function MembershipStageModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[85] bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div className={`w-full ${isVerification ? 'sm:max-w-4xl max-h-[92vh] sm:max-h-[85vh]' : 'sm:max-w-[480px] max-h-[92vh]'} overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl`} onClick={(e) => e.stopPropagation()}>
+      <div className={`w-full ${isVerification ? 'sm:max-w-4xl max-h-[92vh] sm:max-h-[85vh]' : isInterviewStage ? 'sm:max-w-md max-h-[92vh] border border-indigo-100' : 'sm:max-w-[480px] max-h-[92vh]'} overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl`} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-3 flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{getMemberDisplayName(entry)} · Stage {stage.n} of 8</p>
@@ -276,7 +343,7 @@ export default function MembershipStageModal({
           )}
           <div className={isVerification ? 'lg:col-span-2 p-4 space-y-4 flex flex-col rounded-xl border border-slate-200 bg-white min-w-0' : 'space-y-4'}>
           {isVerification && <p className="text-sm font-bold text-slate-800">Verification Checklist</p>}
-          <p className="text-sm text-slate-600">{stage.detail}</p>
+          <p className="text-sm text-slate-600">{isInterviewStage ? 'Schedule the Membership Interview with an assigned Deacon.' : stage.detail}</p>
 
           {/* Status of this stage */}
           {stage.done ? (

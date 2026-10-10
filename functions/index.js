@@ -458,6 +458,11 @@ exports.syncUserDirectory = onCall(async (request) => {
         department: data.department || '',
         departments: Array.isArray(data.departments) ? data.departments : [],
         status: data.status || 'active',
+        cellId: data.cellGroupId || data.cellId || '',
+        cellGroup: data.cellGroup || '',
+        isCellLeader: (Array.isArray(data.positions) ? data.positions : []).some((p) =>
+          String(p?.department || '').trim().toLowerCase() === 'cell' &&
+          (String(p?.role || '').toUpperCase() === 'LEADER' || p?.position === 'Cell Leader' || String(p?.role || '').toLowerCase() === 'cell leader')),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true })
       synced += 1

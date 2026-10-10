@@ -10,6 +10,7 @@ import { ROLES, ROLE_PERMISSIONS, deriveRoleFromPositions, deriveDepartmentsFrom
 import { getDepartmentBySlug } from '../constants/departments'
 import { GLOBAL_ROLES, hasAccess, getDepartmentRole, isFounder as isFounderGlobal } from '../utils/access'
 import { upsertUserDirectoryEntry, syncAllUsersToDirectory } from '../services/firestore'
+import { isCellLeaderInPositions } from '../utils/cellReportPermissions'
 
 const AuthContext = createContext(null)
 
@@ -127,6 +128,9 @@ export function AuthProvider({ children }) {
               department: merged.department || '',
               departments: merged.departments || [],
               status: merged.status || 'active',
+              cellId: merged.cellGroupId || merged.cellId || '',
+              cellGroup: merged.cellGroup || '',
+              isCellLeader: isCellLeaderInPositions(merged),
             }).catch((e) => console.warn('Failed to sync user_directory entry:', e))
           }
 

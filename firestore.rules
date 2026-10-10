@@ -599,6 +599,22 @@ service cloud.firestore {
         && request.resource.data.membershipPipeline.interview.diff(resource.data.membershipPipeline.interview).affectedKeys()
              .hasOnly(['status', 'respondedAt', 'respondedBy', 'responseNote'])
         && request.resource.data.membershipPipeline.interview.status in ['Accepted', 'Declined'];
+      // …and once accepted, that same Deacon records the interview (3-part form on
+      // My Workspace): only the interview record fields, plus Stage 6
+      // (stages.membershipInterview) when it recommends membership. A follow-up
+      // interview may be recorded again later.
+      allow update: if isSignedIn()
+        && resource.data.get('membershipPipeline', {}).get('interview', {}).get('status', '') in ['Accepted', 'Follow-up Required']
+        && (resource.data.membershipPipeline.interview.get('recipientUid', '') == request.auth.uid
+            || (request.auth.token.email_verified == true
+                && resource.data.membershipPipeline.interview.get('recipientEmail', '') == request.auth.token.email.lower()))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipPipeline'])
+        && request.resource.data.membershipPipeline.diff(resource.data.membershipPipeline).affectedKeys().hasOnly(['interview', 'stages'])
+        && request.resource.data.membershipPipeline.interview.diff(resource.data.membershipPipeline.interview).affectedKeys()
+             .hasOnly(['status', 'conductedByDeaconId', 'conductedByDeaconName', 'completedAt', 'part1Answers', 'connectionLevel', 'deaconRemarks', 'recommendation'])
+        && request.resource.data.membershipPipeline.interview.status in ['Completed', 'Follow-up Required']
+        && request.resource.data.membershipPipeline.get('stages', {}).diff(resource.data.membershipPipeline.get('stages', {})).affectedKeys()
+             .hasOnly(['membershipInterview']);
       // Stage 5 (Cell Leader Approval): the cell leader the request was sent to may
       // complete stage 5 — only stages.cellLeaderApproval + the request's status.
       allow update: if isSignedIn()
@@ -777,7 +793,9 @@ service cloud.firestore {
       allow read: if isPipelineManager() || isNotificationRecipient(resource.data);
       allow create, delete: if isPipelineManager();
       allow update: if isPipelineManager()
-        || (isNotificationRecipient(resource.data) && resource.data.status == 'pending'
+        || (isNotificationRecipient(resource.data)
+            // pending → accepted / declined / completed; accepted → completed (interview recorded)
+            && (resource.data.status == 'pending' || (resource.data.status == 'accepted' && request.resource.data.status == 'completed'))
             && request.resource.data.status in ['accepted', 'declined', 'completed']
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt', 'respondedBy', 'responseNote']));
     }
