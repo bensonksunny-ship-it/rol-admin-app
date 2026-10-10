@@ -106,10 +106,14 @@ export function progressMirror(stages) {
  *  the submitted application itself shows (cell, baptism and the form done). */
 export function stagesForApplicant(app) {
   const mirror = app?.pipelineProgress?.stages
-  const submitted = !!app && app.status !== 'pending'
+  // 'declaration_requested' = Stage 4 sent the baptism self-declaration back: the
+  // form counts as not submitted again until it is signed.
+  const submitted = !!app && app.status !== 'pending' && app.status !== 'declaration_requested'
   return MEMBERSHIP_STAGES.map((s) => {
     const m = mirror?.find((x) => x.key === s.key)
-    if (m) return { ...s, done: !!m.done, completedAt: m.completedAt }
+    // Once the form is (re)submitted, stages 1–3 are done even if the staff mirror
+    // hasn't been refreshed yet (e.g. right after the applicant signs a declaration).
+    if (m) return { ...s, done: !!m.done || (submitted && s.auto), completedAt: m.completedAt || (submitted && s.key === 'applicationSubmitted' ? toIso(app?.submittedAt) : null) }
     if (s.auto) return { ...s, done: submitted, completedAt: s.key === 'applicationSubmitted' ? toIso(app?.submittedAt) : null }
     return { ...s, done: false, completedAt: null }
   })

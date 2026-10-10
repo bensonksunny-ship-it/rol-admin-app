@@ -224,6 +224,12 @@ export default function MembershipApply() {
 
     {state === 'submitted' ? (
       <>
+        {/* After a declaration sent back from Stage 4 is signed, confirm it here. */}
+        {app?.declarationResponse?.selfDeclarationSigned && (
+          <p role="status" className="mx-5 mt-5 text-sm font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+            ✓ Baptism self-declaration received{app.declarationResponse.signedAt ? ` on ${new Date(app.declarationResponse.signedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}. Your application continues below.
+          </p>
+        )}
         {/* Live 8-stage progress dashboard (same stages as the PCS tracker) */}
         <MembershipProgressPublic app={app} />
         <div className="px-5 pb-6 space-y-3 text-center">
