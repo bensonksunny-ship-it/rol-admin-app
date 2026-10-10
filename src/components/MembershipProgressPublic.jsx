@@ -36,17 +36,17 @@ export default function MembershipProgressPublic({ app }) {
       <div className={`rounded-xl px-4 py-3 text-sm ${rejected ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-emerald-50 border border-emerald-200 text-emerald-900'}`}>
         {rejected
           ? 'Your Membership Application could not be approved at this time. Please speak with the Pastoral Office.'
-          : 'Thank you! Your Membership Application has been received. Track your onboarding developments below.'}
+          : '✓ Application received. Thank you!'}
       </div>
       {infoRequested && (
         <p className="rounded-xl px-4 py-3 text-sm bg-amber-50 border border-amber-200 text-amber-900">
-          The church office needs a little more information from you. Please contact the Pastoral Office.
+          The church office needs more information. Please contact them.
         </p>
       )}
 
       {/* Stepper — numbered 1..8, current stage highlighted */}
       <section>
-        <h2 className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-blue-700 border-b-2 border-blue-700 pb-1">Membership Application Progress</h2>
+        <h2 className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-blue-700 border-b-2 border-blue-700 pb-1">Progress</h2>
         <div className="flex items-center mt-4" role="list" aria-label={cur ? `Stage ${cur.n} of 8: ${cur.label}` : 'All stages complete'}>
           {stages.map((s, i) => {
             const isCur = cur?.key === s.key && !rejected
@@ -64,7 +64,7 @@ export default function MembershipProgressPublic({ app }) {
         <p className={`mt-3 text-sm font-bold ${cur ? 'text-amber-800' : 'text-emerald-700'}`}>
           {cur ? `Stage ${cur.n} of 8: ${cur.label}` : 'All 8 stages complete — welcome to the church family!'}
         </p>
-        {cur && !rejected && <p className="text-xs text-slate-500">Stage {cur.n}: {cur.label} — {cur.publicDetail}</p>}
+        {cur && !rejected && <p className="text-xs text-slate-500">{cur.publicDetail}</p>}
 
         <ol className="mt-4 space-y-2">
           {stages.map((s) => {
@@ -74,10 +74,9 @@ export default function MembershipProgressPublic({ app }) {
                 <span className={`mt-0.5 text-sm ${s.done ? 'text-emerald-600' : isCur ? 'text-amber-600' : 'text-slate-300'}`}>{s.done ? '✔' : isCur ? '●' : '○'}</span>
                 <div className="min-w-0 flex-1">
                   <p className={`text-sm font-semibold ${s.done || isCur ? 'text-slate-800' : 'text-slate-400'}`}>{s.n}. {s.label}</p>
-                  <p className="text-xs text-slate-500">{s.publicDetail}</p>
                 </div>
                 <span className={`text-[10px] font-bold whitespace-nowrap ${s.done ? 'text-emerald-700' : isCur ? 'text-amber-700' : 'text-slate-400'}`}>
-                  {s.done ? (fmt(s.completedAt) ? `Completed ${fmt(s.completedAt)}` : 'Completed') : isCur ? 'In progress' : 'Pending'}
+                  {s.done ? (fmt(s.completedAt) || 'Done') : isCur ? 'Now' : ''}
                 </span>
               </li>
             )
@@ -89,7 +88,7 @@ export default function MembershipProgressPublic({ app }) {
       <section className="rounded-xl border border-slate-200 overflow-hidden">
         <button type="button" onClick={() => setSummaryOpen((v) => !v)} aria-expanded={summaryOpen}
           className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 text-sm font-bold text-slate-700">
-          Your application summary
+          Your application
           <span className="text-slate-400">{summaryOpen ? '▲' : '▼'}</span>
         </button>
         {summaryOpen && (

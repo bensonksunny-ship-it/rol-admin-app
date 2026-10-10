@@ -39,8 +39,10 @@ function ReviewModal({ r, myName, uid, onClose }) {
       onClose() // the live feed drops the ribbon once it's completed
     } catch (e) {
       console.error('submitCellLeaderApproval', e)
-      setError(e?.code === 'permission-denied'
-        ? 'This request is no longer open (it may have been re-sent or completed by the Caring team). Please refresh, or contact the Caring team.'
+      setError(e?.code === 'already-approved'
+        ? "This candidate's Cell Leader Approval has already been recorded. Nothing more to do."
+        : e?.code === 'permission-denied'
+        ? 'Could not save your approval: you are not the cell leader this request was sent to. Please contact the Caring team.'
         : 'Could not submit. Please check your connection and try again.')
     }
     setBusy(false)

@@ -53,15 +53,12 @@ export function DepositPaymentCard({ value, onChange }) {
   )
   return (
     <div className="space-y-3">
-      <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
-        <p className="font-bold">⚠ Security Deposit Payment Pending</p>
-        <p className="text-sm mt-1">Please complete payment or contact the church office.</p>
-      </div>
+      <p className="text-sm font-semibold text-slate-800">₹500 deposit pending</p>
       {upiLink && (
         <div className="flex flex-col sm:flex-row items-center gap-3 rounded-xl border border-slate-200 p-3">
           {qr && <img src={qr} alt={`UPI QR code for ${upiId}`} className="w-36 h-36" />}
           <div className="text-sm text-slate-700 space-y-2 text-center sm:text-left">
-            <p>Scan with any UPI app, or tap to pay.</p>
+            <p>Scan or tap to pay.</p>
             <p className="font-mono text-xs text-slate-500">{upiId}</p>
             <a href={upiLink} className="inline-flex min-h-[40px] items-center px-4 rounded-xl bg-emerald-600 text-white text-sm font-bold">Pay by UPI</a>
           </div>
@@ -79,8 +76,8 @@ export function DepositPaymentCard({ value, onChange }) {
       )}
       <p className="text-xs text-slate-600">{officeNote}</p>
       <div className="space-y-2">
-        {opt('paid', 'I have paid the security deposit')}
-        {opt('office', 'I will pay at the church office')}
+        {opt('paid', 'I have paid')}
+        {opt('office', 'I will pay at the office')}
       </div>
     </div>
   )

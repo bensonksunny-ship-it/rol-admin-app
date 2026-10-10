@@ -24,22 +24,26 @@ function downloadAndPrint(url, name) {
 }
 
 /**
- * Stage 4 → item 2 (ID card): an uploaded ID card scan can be viewed, then
- * "⬇ Download & Print ID Card" saves/prints it and deletes the stored copy
- * (purgeMembershipIdProof), leaving "Downloaded & Printed (Deleted from Storage)".
+ * Uploaded ID card (Stage 4 item 2, Stage 8, the application view): view it, then
+ * "⬇ Download & Print ID Card" saves/prints it and only then deletes the stored
+ * copy (purgeMembershipIdProof), leaving "Downloaded & Printed (Deleted from
+ * Storage - date)". Until that button is used the file stays, at every stage.
+ * `indent` lines it up under a checklist item.
  */
-export default function IdProofAttachment({ application, by, canPurge }) {
+export default function IdProofAttachment({ application, by, canPurge, indent = true }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const att = application?.attachments || {}
   const url = application?.documents?.idProof || ''
+  const pad = indent ? 'pl-7 pr-1 pb-1' : ''
+  const purgedAt = att.idProofDownloadedAt || att.idProofPurgedAt
 
   // A newer upload (e.g. a revision after an earlier purge) shows again.
   if (!url && att.idProofDeletedFromStorage) {
     return (
-      <div className="pl-7 pr-1 pb-1">
+      <div className={pad}>
         <span className="inline-flex text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-          Downloaded &amp; Printed (Deleted from Storage){att.idProofPurgedAt ? ` · ${fmt(att.idProofPurgedAt)}` : ''}
+          Downloaded &amp; Printed (Deleted from Storage{purgedAt ? ` - ${fmt(purgedAt)}` : ''})
         </span>
       </div>
     )
@@ -60,7 +64,7 @@ export default function IdProofAttachment({ application, by, canPurge }) {
   }
 
   return (
-    <div className="pl-7 pr-1 pb-1 space-y-1.5">
+    <div className={`${pad} space-y-1.5`}>
       <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-xs font-medium text-indigo-700 hover:underline">
         <img src={url} alt="ID card" className="w-14 h-10 object-cover rounded border border-slate-200" /> View uploaded ID card
       </a>

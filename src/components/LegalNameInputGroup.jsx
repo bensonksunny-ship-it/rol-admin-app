@@ -12,8 +12,7 @@ export default function LegalNameInputGroup({ value, onChange, confirmed, onConf
   return (
     <div className="space-y-3">
       <div>
-        <p className="text-sm font-bold text-slate-800">{isChild ? "Child's Legal Name (As Per Birth Certificate)" : 'Legal Name (As Per Government ID Card)'}</p>
-        <p className="text-xs text-slate-500 mt-0.5">This name will be printed on official certificates, legal registries and membership documents.</p>
+        <p className="text-sm font-bold text-slate-800">{isChild ? "Child's Name (as on birth certificate)" : 'Name (as on government ID)'}</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <label className="block" htmlFor={`${idPrefix}-first`}>
@@ -34,8 +33,8 @@ export default function LegalNameInputGroup({ value, onChange, confirmed, onConf
         <input type="checkbox" checked={!!confirmed} onChange={(e) => onConfirm(e.target.checked)} className="mt-0.5 w-5 h-5 accent-emerald-600 flex-shrink-0" />
         <span className="text-sm text-slate-700 leading-snug">
           {isChild
-            ? "I confirm that the child's name above matches the birth certificate and is spelled correctly for official certificates."
-            : "I confirm that the name above matches my official government ID (Aadhaar / Passport / Driver's License) and is spelled correctly for official certificates."}
+            ? 'Matches the birth certificate'
+            : 'Matches my government ID'}
         </span>
       </label>
     </div>

@@ -7971,17 +7971,23 @@ export async function markMembershipRevisionResubmitted(pcsEntryId, resubmittedA
 }
 
 /**
- * Stage 4 → ID proof: after the office downloads / prints the uploaded ID card,
- * delete the stored copy (an in-doc scan, or a Storage file for any URL-based one)
- * and leave the badge "Downloaded & Printed (Deleted from Storage)".
+ * ID proof (Stage 4, Stage 8 or the application view): only after the office
+ * explicitly downloads / prints the uploaded ID card, delete the stored copy (an
+ * in-doc scan, or a Storage file for any URL-based one) and leave the badge
+ * "Downloaded & Printed (Deleted from Storage)". Nothing purges it automatically.
  */
 export async function purgeMembershipIdProof(token, url = '', by = '') {
   if (!db || !token) throw new Error('Missing application')
-  if (storage && /^https?:\/\//.test(url)) await deleteObject(ref(storage, url))
+  const at = nowIso()
+  if (storage && /^https?:\/\//.test(url)) {
+    // Already gone (e.g. a retry after a half-finished purge) still counts as deleted.
+    try { await deleteObject(ref(storage, url)) } catch (e) { if (e?.code !== 'storage/object-not-found') throw e }
+  }
   await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), {
     'documents.idProof': deleteField(),
     'attachments.idProofDeletedFromStorage': true,
-    'attachments.idProofPurgedAt': nowIso(),
+    'attachments.idProofPurgedAt': at,
+    'attachments.idProofDownloadedAt': at,
     'attachments.idProofPurgedBy': by || 'unknown',
   })
 }
@@ -8884,6 +8890,20 @@ export async function submitCellLeaderApproval(notif, { answers, notes = '', by 
   if (!db || !notif?.id || !notif.candidatePcsId) throw new Error('Missing request')
   const at = nowIso()
   const cleanNotes = String(notes || '').trim()
+  // Validate against the candidate's live Stage 5 state, not the ribbon's
+  // notification: a request Caring re-sent while this window was open is still
+  // the same approval (the newest notification is the one to close).
+  const pcsSnap = await getDoc(doc(db, CARING_PCS_COLLECTION, notif.candidatePcsId))
+  const mp = pcsSnap.exists() ? (pcsSnap.data().membershipPipeline || {}) : {}
+  if (mp.stages?.cellLeaderApproval?.status === 'completed' || mp.cellLeaderRequest?.status === 'Completed') {
+    // Already recorded (e.g. Caring entered a paper sign-off): just close this ribbon.
+    await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), { status: 'completed', respondedAt: at, respondedBy: by || '', responseNote: '' }).catch(() => {})
+    const err = new Error('Stage 5 is already approved'); err.code = 'already-approved'; throw err
+  }
+  // Close every still-open ribbon for this candidate: this one and the current request's.
+  const notifIds = [...new Set([notif.id, mp.cellLeaderRequest?.notificationId].filter(Boolean))]
+  const open = (await Promise.all(notifIds.map((id) => getDoc(doc(db, WORKSPACE_NOTIFICATIONS, id)).catch(() => null))))
+    .filter((s) => s?.exists() && s.data().status === 'pending')
   // One atomic batch: the stage and the ribbon close together, so a failed save
   // never leaves stage 5 done with the ribbon still open (or the reverse).
   const batch = writeBatch(db)
@@ -8899,9 +8919,9 @@ export async function submitCellLeaderApproval(notif, { answers, notes = '', by 
     'membershipPipeline.cellLeaderRequest.status': 'Completed',
     'membershipPipeline.cellLeaderRequest.respondedAt': at,
   })
-  batch.update(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), {
-    status: 'completed', respondedAt: at, respondedBy: by, responseNote: cleanNotes,
-  })
+  for (const s of open) {
+    batch.update(s.ref, { status: 'completed', respondedAt: at, respondedBy: by || '', responseNote: cleanNotes })
+  }
   await batch.commit()
 }
 

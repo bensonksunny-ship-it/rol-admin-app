@@ -353,6 +353,12 @@ export default function MembershipStageModal({
   // The last revision the applicant resubmitted — Stage 4 re-verifies those items.
   const resubmitted = application?.status === 'submitted' && application?.revisionResponse?.submittedAt
     ? (application.revisionRequest?.flaggedItems || []) : []
+  // Item 5: a photo on the application ticks "Physical photo is provided" on load
+  // (once — the office can still untick it). A resubmitted photo is re-verified by hand.
+  const photoUrl = application?.photoDataUrl || application?.attachments?.photoUrl || application?.photoUrl || ''
+  const hasPhoto = typeof photoUrl === 'string' && /^(data:image\/|https?:\/\/)/.test(photoUrl)
+  const photoReverify = resubmitted.includes('ITEM_5')
+  const isChecked = (key) => (key === 'photo' && checks.photo === undefined ? hasPhoto && !photoReverify : !!checks[key])
   const returnForRevision = async () => {
     if (!application?.id || !flaggedCodes.length) return
     if (!window.confirm(`Return the application to ${getMemberDisplayName(entry)} for revisions?\n\n${flaggedItemsText(flaggedCodes)}\n\nThe pipeline goes back to Stage 3 until they resubmit.`)) return
@@ -371,7 +377,7 @@ export default function MembershipStageModal({
   const [memberNo, setMemberNo] = useState(entry.membershipNumber || '')
   // Stage 4 item 4: security deposit receipt (shown on the Full Application Record).
   const [deposit, setDeposit] = useState({ receiptNo: '', amount: '500', mode: 'Cash', date: todayIso(), receivedBy: by || '' })
-  const allChecked = VERIFICATION_CHECKLIST.every((c) => checks[c.key])
+  const allChecked = VERIFICATION_CHECKLIST.every((c) => isChecked(c.key))
   const btn = 'w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50'
   const inp = 'w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white'
   const done = (rec) => { onComplete(stage, rec); onClose() }
@@ -462,7 +468,7 @@ export default function MembershipStageModal({
                   <div key={c.key} className={`rounded-xl border ${flagged ? 'border-rose-300 bg-rose-50/50' : 'border-slate-200'}`}>
                     <div className="flex items-start gap-2 pr-2">
                       <label className={`flex-1 flex items-start gap-3 px-3 py-2.5 rounded-xl ${flagged ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}>
-                        <input type="checkbox" disabled={flagged} checked={!!checks[c.key]} onChange={(e) => setChecks((s) => ({ ...s, [c.key]: e.target.checked }))} className="mt-0.5 w-4 h-4 accent-indigo-600" />
+                        <input type="checkbox" disabled={flagged} checked={isChecked(c.key)} onChange={(e) => setChecks((s) => ({ ...s, [c.key]: e.target.checked }))} className="mt-0.5 w-4 h-4 accent-indigo-600" />
                         <span className={`text-sm ${flagged ? 'text-rose-800 line-through decoration-rose-300' : 'text-slate-700'}`}>
                           {i + 1}. {c.label}
                           {resubmitted.includes(c.code) && <span className="ml-1.5 align-middle text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200 no-underline">Re-verify</span>}
@@ -483,6 +489,15 @@ export default function MembershipStageModal({
                     {/* Item 2: an uploaded ID card → view, download & print, then delete the stored copy */}
                     {c.key === 'idCopy' && !flagged && (
                       <IdProofAttachment application={application} by={by} canPurge={canCaring || canPastor} />
+                    )}
+                    {/* Item 5: the photo uploaded with the application */}
+                    {c.key === 'photo' && !flagged && hasPhoto && (
+                      <div className="pl-7 pr-1 pb-2">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <img src={photoUrl} alt="" className="w-5 h-5 rounded-full object-cover" />
+                          ✔ Candidate photo uploaded on application
+                        </span>
+                      </div>
                     )}
                     {/* Item 4: security deposit receipt details */}
                     {c.key === 'securityDeposit' && !flagged && (
@@ -603,6 +618,13 @@ export default function MembershipStageModal({
           {/* Stage 8 — certificate & card */}
           {canAct && stage.key === 'certificateAndCardIssued' && (
             <div className="space-y-2">
+              {/* The ID card stays in storage until it is explicitly downloaded & printed. */}
+              {(application?.documents?.idProof || application?.attachments?.idProofDeletedFromStorage) && (
+                <div className="rounded-xl border border-slate-200 p-3 space-y-1.5">
+                  <p className="text-xs font-semibold text-slate-600">ID card</p>
+                  <IdProofAttachment application={application} by={by} canPurge={canCaring || canPastor} indent={false} />
+                </div>
+              )}
               <label className="block"><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Membership No.</span>
                 <input value={memberNo} onChange={(e) => setMemberNo(e.target.value)} placeholder="e.g. 1024" className={inp} /></label>
               <button type="button" disabled={busy || !memberNo.trim()} onClick={() => { onIssue(memberNo); onClose() }} className={btn}>Issue &amp; Download Certificate</button>

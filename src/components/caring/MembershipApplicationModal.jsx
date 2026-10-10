@@ -10,6 +10,7 @@ import {
   membershipFieldValue, membershipFullName, membershipDocumentProvided, hasValue,
 } from '../../constants/membershipForm'
 import { openMembershipFormPrint } from '../../utils/membershipFormPrint'
+import IdProofAttachment from './IdProofAttachment'
 import { downloadMembershipCertificate, membershipCertificateData } from '../../utils/membershipCertificate'
 
 const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
@@ -178,7 +179,13 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
                   <div className="p-3">
                     <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Documents</p>
                     <div className="flex flex-wrap gap-3">
-                      {MEMBERSHIP_DOCUMENTS.map(d => app.documents?.[d.legacyKey] ? (
+                      {MEMBERSHIP_DOCUMENTS.map(d => d.legacyKey === 'idProof' && (app.documents?.idProof || app.attachments?.idProofDeletedFromStorage) ? (
+                        // ID card: view, then download & print (which deletes the stored copy)
+                        <div key={d.key} className="space-y-1">
+                          <span className="block text-[10px] text-slate-500">{d.label}</span>
+                          <IdProofAttachment application={app} by={userName || userEmail || ''} canPurge indent={false} />
+                        </div>
+                      ) : app.documents?.[d.legacyKey] ? (
                         <a key={d.key} href={app.documents[d.legacyKey]} target="_blank" rel="noreferrer" className="text-center">
                           <img src={app.documents[d.legacyKey]} alt={d.label} className="w-20 h-20 object-cover rounded-lg border border-slate-200" />
                           <span className="block text-[10px] text-slate-500 mt-0.5 max-w-20 truncate">{d.label}</span>

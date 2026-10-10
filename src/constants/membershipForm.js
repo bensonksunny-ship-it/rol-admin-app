@@ -11,6 +11,9 @@ export { hasValue }
 export const MEMBERSHIP_CHURCH_NAME = 'River of Life Christian Church, Bangalore'
 export const MEMBERSHIP_FORM_TITLE = 'Membership Form'
 
+// One line under the form on the applicant's page.
+export const MEMBERSHIP_SHORT_NOTE = '₹500 refundable deposit for the membership card.'
+
 export const MEMBERSHIP_FOOTER_NOTE =
   'Kindly deposit Rs.500/- for the membership card which will be refunded later. Baptism certificate is mandatory with form.'
 
@@ -48,9 +51,9 @@ export const MEMBERSHIP_TALENTS = [
 // `legacyKey` = the uploaded-scan key older applications used in `documents`.
 export const MEMBERSHIP_DOCUMENTS = [
   { key: 'hasSubmittedPhysicalBaptismCertificate', legacyKey: 'baptismCertificate', label: 'Baptism Certificate',
-    confirm: 'I have physically submitted my original/copy of Water Baptism Certificate to the church office.' },
+    confirm: 'Baptism certificate (original or copy)' },
   { key: 'hasSubmittedPhysicalIdProof', legacyKey: 'idProof', label: 'ID Proof (Aadhaar / Passport / Voter ID)',
-    confirm: 'I have physically submitted my official Government ID Proof (Aadhaar / Passport / Voter ID) to the church office.' },
+    confirm: 'Government ID (Aadhaar / Passport / Voter ID)' },
 ]
 
 /** Was this document handed over (new tick), uploaded (older applications / a

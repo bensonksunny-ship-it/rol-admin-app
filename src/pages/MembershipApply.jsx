@@ -7,7 +7,7 @@ import { BAPTISM_DECLARATION_TITLE, BAPTISM_SELF_DECLARATION_TEXT } from '../con
 import MembershipProgressPublic from '../components/MembershipProgressPublic'
 import { applicationHasCell, APPLICATION_LOCKED_TITLE, APPLICATION_LOCKED_TEXT } from '../utils/applicationCellGuard'
 import {
-  MEMBERSHIP_CHURCH_NAME, MEMBERSHIP_FORM_TITLE, MEMBERSHIP_FOOTER_NOTE,
+  MEMBERSHIP_CHURCH_NAME, MEMBERSHIP_FORM_TITLE, MEMBERSHIP_SHORT_NOTE,
   MEMBERSHIP_PREFILL_FIELDS, MEMBERSHIP_APPLICANT_FIELDS, MEMBERSHIP_TALENTS, MEMBERSHIP_DOCUMENTS,
   hasValue,
 } from '../constants/membershipForm'
@@ -221,12 +221,12 @@ export default function MembershipApply() {
   }
 
   const shell = (children) => (
-    <div className="min-h-screen bg-slate-100 py-6 px-4">
-      <div className="max-w-[640px] mx-auto bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">{children}</div>
+    <div className="min-h-screen bg-white sm:bg-slate-100 sm:py-6 sm:px-4">
+      <div className="max-w-[640px] mx-auto bg-white sm:rounded-2xl sm:shadow-lg sm:border sm:border-slate-200 overflow-hidden">{children}</div>
     </div>
   )
 
-  if (state === 'loading') return shell(<p className="p-10 text-center text-slate-400 text-sm">Loading your membership form…</p>)
+  if (state === 'loading') return shell(<p className="p-10 text-center text-slate-400 text-sm">Loading…</p>)
   if (state === 'locked') return shell(
     <div className="p-10 text-center">
       <div className="w-12 h-12 mx-auto rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xl">🔒</div>
@@ -254,9 +254,8 @@ export default function MembershipApply() {
         <h1 className="text-xl font-extrabold mt-1">{BAPTISM_DECLARATION_TITLE}</h1>
       </div>
       <div className="p-5 space-y-4">
-        <p className="text-sm text-slate-600">The church office could not accept the baptism certificate given with your membership application. If you were baptised but cannot provide a valid certificate, please confirm the declaration below. Your application then continues.</p>
-        <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 my-3 text-amber-950 space-y-3">
-          <p className="font-semibold">{BAPTISM_DECLARATION_TITLE}</p>
+        <p className="text-sm text-slate-600">No valid baptism certificate? Confirm the declaration below.</p>
+        <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 text-amber-950">
           <label className="flex items-start gap-3 cursor-pointer">
             <input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} className="mt-1 w-5 h-5 accent-amber-700 flex-shrink-0" />
             <span className="text-sm leading-relaxed">“{BAPTISM_SELF_DECLARATION_TEXT}”</span>
@@ -273,7 +272,7 @@ export default function MembershipApply() {
   if (state === 'notFound') return shell(
     <div className="p-10 text-center">
       <p className="text-lg font-bold text-slate-800">This link isn't available</p>
-      <p className="text-sm text-slate-500 mt-2">This application has been closed or withdrawn. Please contact the church office.</p>
+      <p className="text-sm text-slate-500 mt-2">This application is closed. Please contact the church office.</p>
     </div>
   )
 
@@ -316,9 +315,9 @@ export default function MembershipApply() {
     const note = app?.revisionRequest?.notes?.[code]
     return (
       <div className="space-y-1.5 mb-3">
-        <p className="text-xs font-extrabold uppercase tracking-wider text-orange-700">⚑ Correction needed: {item?.applicantTitle}</p>
-        <p className="text-sm text-slate-600">{item?.applicantText}</p>
-        {note && <p className="text-sm text-orange-900 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2"><b>Note from the church office:</b> {note}</p>}
+        <p className="text-sm font-bold text-orange-800">⚑ {item?.applicantTitle}</p>
+        {item?.applicantText && <p className="text-xs text-slate-500">{item.applicantText}</p>}
+        {note && <p className="text-sm text-orange-900 bg-white border border-orange-200 rounded-lg px-3 py-2">💬 {note}</p>}
       </div>
     )
   }
@@ -332,16 +331,16 @@ export default function MembershipApply() {
         {correction('ITEM_5')}
         <div className="flex gap-4 items-center">
           <label className={`w-24 h-28 flex-shrink-0 rounded-xl border-2 border-dashed flex items-center justify-center overflow-hidden cursor-pointer ${photo && !(isFlagged('ITEM_5') && photo === app?.photoDataUrl) ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}>
-            {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <span className="text-[11px] text-amber-700 text-center px-2">Tap to add a recent photograph</span>}
+            {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <span className="text-[11px] text-amber-700 text-center px-2">+ Photo</span>}
             <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
               const file = e.target.files?.[0]; if (!file) return
               try { setPhoto(await imageFileToDataUrl(file)) } catch { setError('Could not read that photo.') }
             }} />
           </label>
           <p className="text-sm text-slate-600">
-            {isFlagged('ITEM_5') ? 'Tap the photo to upload a new passport-size photo.'
-              : revising ? 'Your details as submitted are shown below. Only the highlighted sections can be changed.'
-              : 'Details the church already has are shown with ✓. Please fill in the highlighted fields, add a photo, confirm your documents and sign.'}
+            {isFlagged('ITEM_5') ? 'Tap to upload a new photo.'
+              : revising ? 'Only highlighted sections can be changed.'
+              : 'Add a recent passport-size photo.'}
           </p>
         </div>
       </fieldset>
@@ -357,21 +356,21 @@ export default function MembershipApply() {
         {/* Details already on record */}
         {knownFields.length > 0 && (
           <section>
-            {sectionTitle('Your details on record', 'text-emerald-800 border-emerald-800')}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+            {sectionTitle('On record', 'text-slate-600 border-slate-300')}
+            <dl className="mt-2 divide-y divide-slate-100">
               {knownFields.map((f) => (
-                <div key={f.key} className={`rounded-xl bg-emerald-50/60 border border-emerald-200 px-3 py-2 ${f.wide ? 'sm:col-span-2' : ''}`}>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">{f.label} ✓</p>
-                  <p className="text-sm font-medium text-slate-800 break-words whitespace-pre-wrap">{f.type === 'date' ? fmtDate(app.prefill[f.key]) : app.prefill[f.key]}</p>
+                <div key={f.key} className="flex items-baseline justify-between gap-3 py-1.5">
+                  <dt className="text-xs text-slate-500 flex-shrink-0">{f.label}</dt>
+                  <dd className="text-sm font-medium text-slate-800 text-right break-words whitespace-pre-wrap min-w-0">{f.type === 'date' ? fmtDate(app.prefill[f.key]) : app.prefill[f.key]}</dd>
                 </div>
               ))}
-            </div>
+            </dl>
           </section>
         )}
 
         {/* What we still need */}
         <section>
-          {sectionTitle('Please fill in')}
+          {sectionTitle('Your details')}
           <div className="mt-3"><AddressLineGroup value={address} onChange={setAddress} idPrefix="membership-address" /></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             {askFields.map((f) => (
@@ -401,7 +400,7 @@ export default function MembershipApply() {
             })}
           </div>
           <input type="text" value={answers.talentsOther || ''} onChange={(e) => setAnswer('talentsOther', e.target.value)}
-            placeholder="Anything else? (optional)" className="mt-2 w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm" />
+            placeholder="Other (optional)" className="mt-2 w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm" />
         </section>
       </fieldset>
 
@@ -411,11 +410,10 @@ export default function MembershipApply() {
         <section className={highlight}>
           {sectionTitle('Water Baptism', 'text-orange-700 border-orange-700')}
           <div className="mt-3">{correction('ITEM_3')}</div>
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Upload certificate</p>
+          <p className="text-xs font-semibold text-slate-600 mb-2">Upload certificate</p>
           <ImageUploadField value={certImage} onChange={(v) => { setCertImage(v); setRevDeclared(false) }} onError={setError} />
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-4 mb-2">Or, if you have no certificate</p>
-          <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 text-amber-950 space-y-3">
-            <p className="font-semibold">{BAPTISM_DECLARATION_TITLE}</p>
+          <p className="text-xs font-semibold text-slate-600 mt-4 mb-2">Or, without a certificate</p>
+          <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 text-amber-950">
             <label className="flex items-start gap-3 cursor-pointer">
               <input type="checkbox" checked={revDeclared} onChange={(e) => { setRevDeclared(e.target.checked); if (e.target.checked) setCertImage('') }} className="mt-1 w-5 h-5 accent-amber-700 flex-shrink-0" />
               <span className="text-sm leading-relaxed">“{BAPTISM_SELF_DECLARATION_TEXT}”</span>
@@ -428,7 +426,7 @@ export default function MembershipApply() {
             {sectionTitle('Water Baptism', 'text-sky-800 border-sky-800')}
             <div className="space-y-4 mt-3">
               <fieldset>
-                <legend className="text-sm font-semibold text-slate-800 mb-2">Have you received Water Baptism?</legend>
+                <legend className="text-sm font-semibold text-slate-800 mb-2">Baptised in water?</legend>
                 <div className="flex gap-2">
                   {[['yes', 'Yes'], ['no', 'No']].map(([v, l]) => (
                     <button key={v} type="button" aria-pressed={baptized === v} onClick={() => { setBaptized(v); if (v === 'no') { setHasCert(''); setDeclared(false) } }}
@@ -437,25 +435,21 @@ export default function MembershipApply() {
                 </div>
               </fieldset>
               {baptized === 'no' && (
-                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">Water baptism is required for church membership. Please speak to the church office about being baptised.</p>
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">Baptism is required for membership. Please speak to the church office.</p>
               )}
               {baptized === 'yes' && (
                 <fieldset>
-                  <legend className="text-sm font-semibold text-slate-800 mb-2">Do you have a physical Baptism Certificate?</legend>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    {[['yes', 'Yes, I have a certificate'], ['no', 'No, I do not have a certificate']].map(([v, l]) => (
+                  <legend className="text-sm font-semibold text-slate-800 mb-2">Have a baptism certificate?</legend>
+                  <div className="flex gap-2">
+                    {[['yes', 'Yes'], ['no', 'No']].map(([v, l]) => (
                       <button key={v} type="button" aria-pressed={hasCert === v} onClick={() => { setHasCert(v); if (v === 'yes') setDeclared(false) }}
-                        className={`min-h-[44px] px-4 rounded-xl border text-sm font-semibold text-left ${hasCert === v ? 'bg-sky-700 text-white border-sky-700' : 'bg-white text-slate-700 border-slate-300'}`}>{l}</button>
+                        className={`min-h-[44px] px-5 rounded-xl border text-sm font-semibold ${hasCert === v ? 'bg-sky-700 text-white border-sky-700' : 'bg-white text-slate-700 border-slate-300'}`}>{l}</button>
                     ))}
                   </div>
                 </fieldset>
               )}
-              {baptized === 'yes' && hasCert === 'yes' && (
-                <p className="text-xs text-slate-500">Bring the certificate to the church office and confirm it under Documents Submission below.</p>
-              )}
               {baptized === 'yes' && hasCert === 'no' && (
-                <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 my-3 text-amber-950 space-y-3">
-                  <p className="font-semibold">{BAPTISM_DECLARATION_TITLE}</p>
+                <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 text-amber-950">
                   <label className="flex items-start gap-3 cursor-pointer">
                     <input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} className="mt-1 w-5 h-5 accent-amber-700 flex-shrink-0" />
                     <span className="text-sm leading-relaxed">“{BAPTISM_SELF_DECLARATION_TEXT}”</span>
@@ -470,8 +464,7 @@ export default function MembershipApply() {
       {/* Documents — handed over in person */}
       <fieldset disabled={lockInfo} className={lockedCls(lockInfo)}>
         <section>
-          {sectionTitle('Documents Submission', 'text-amber-800 border-amber-800')}
-          <p className="text-xs text-slate-500 mt-2">Bring {docsAsked.length > 1 ? 'these' : 'this'} to the church office. {docsAsked.length > 1 ? 'Both confirmations are required.' : 'The confirmation is required.'}</p>
+          {sectionTitle('Handed to the church office', 'text-amber-800 border-amber-800')}
           <div className="space-y-2 mt-3">
             {docsAsked.map((d) => (
               <label key={d.key} className={`flex items-start gap-3 rounded-xl border px-3 py-3 cursor-pointer ${handover[d.key] ? 'border-emerald-300 bg-emerald-50/60' : 'border-amber-400 bg-amber-50'}`}>
@@ -499,7 +492,7 @@ export default function MembershipApply() {
           {sectionTitle('Security Deposit', 'text-orange-700 border-orange-700')}
           <div className="mt-3"><DepositPaymentCard value={deposit} onChange={setDeposit} /></div>
           {app?.revisionRequest?.notes?.ITEM_4 && (
-            <p className="mt-3 text-sm text-orange-900 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2"><b>Note from the church office:</b> {app.revisionRequest.notes.ITEM_4}</p>
+            <p className="mt-3 text-sm text-orange-900 bg-white border border-orange-200 rounded-lg px-3 py-2">💬 {app.revisionRequest.notes.ITEM_4}</p>
           )}
         </section>
       )}
@@ -507,17 +500,17 @@ export default function MembershipApply() {
       {/* Signature */}
       <fieldset disabled={lockInfo} className={lockedCls(lockInfo)}>
         <section>
-          {sectionTitle('Signature of Applicant', 'text-emerald-800 border-emerald-800')}
+          {sectionTitle('Signature', 'text-emerald-800 border-emerald-800')}
           <div className="mt-3"><SignaturePad onChange={setSignature} /></div>
           <label className="inline-block mt-2 text-xs font-semibold text-blue-700 cursor-pointer hover:underline">
-            Or upload a signature image
+            Or upload an image
             <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
               const file = e.target.files?.[0]; if (!file) return
               try { setSignature(await imageFileToDataUrl(file, 600, 0.85)) } catch { setError('Could not read that image.') }
             }} />
           </label>
           {signature && signature.startsWith('data:image/jpeg') && <img src={signature} alt="Uploaded signature" className="mt-2 max-h-16 border border-slate-200 rounded" />}
-          {signature && signature === app?.signatureDataUrl && <p className="mt-1 text-xs text-emerald-700">✓ Your earlier signature is kept.{lockInfo ? '' : ' Sign above to replace it.'}</p>}
+          {signature && signature === app?.signatureDataUrl && <p className="mt-1 text-xs text-emerald-700">✓ Earlier signature kept{lockInfo ? '' : ' (sign to replace)'}</p>}
         </section>
       </fieldset>
     </>
@@ -567,47 +560,46 @@ export default function MembershipApply() {
         {/* After a declaration sent back from Stage 4 is signed, confirm it here. */}
         {app?.declarationResponse?.selfDeclarationSigned && (
           <p role="status" className="mx-5 mt-5 text-sm font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
-            ✓ Baptism self-declaration received{app.declarationResponse.signedAt ? ` on ${new Date(app.declarationResponse.signedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}. Your application continues below.
+            ✓ Baptism declaration received
           </p>
         )}
         {revisionSent ? (
           <p ref={successRef} role="status" className="mx-5 mt-5 text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
-            ✔ Revisions submitted successfully! Your application is now back with the church office for verification.
+            ✔ Revisions sent to the church office.
           </p>
         ) : app?.revisionResponse?.submittedAt && (
           <p role="status" className="mx-5 mt-5 text-sm font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
-            ✓ Your revisions were received on {new Date(app.revisionResponse.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}. The church office will check them again.
+            ✓ Revisions received {new Date(app.revisionResponse.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
           </p>
         )}
         {/* Live 8-stage progress dashboard (same stages as the PCS tracker) */}
         <MembershipProgressPublic app={app} />
         <div className="px-5 pb-6 space-y-3 text-center">
-          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{MEMBERSHIP_FOOTER_NOTE}</p>
           <button type="button" onClick={() => openMembershipFormPrint(app)} className="px-4 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             Print / Save as PDF
           </button>
-          <p className="text-[11px] text-slate-400">Bookmark this page — it updates automatically as your application moves forward.</p>
+          <p className="text-[11px] text-slate-400">Bookmark this page to track your progress.</p>
         </div>
       </>
     ) : (
       <div className="p-5 space-y-6">
         {revising && (
           <div role="alert" className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-950">
-            <p className="font-bold">⚠️ Revisions Requested by Church Office: Please update the flagged sections below and click Resubmit Application Revisions.</p>
-            <ul className="list-disc pl-5 mt-1.5">
-              {flagged.map((code) => <li key={code}>{revisionItem(code)?.applicantTitle || code}</li>)}
-            </ul>
+            <p className="font-bold">Please update the highlighted parts</p>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {flagged.map((code) => <span key={code} className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white border border-orange-200">{revisionItem(code)?.applicantTitle || code}</span>)}
+            </div>
           </div>
         )}
 
         {formBody()}
 
-        <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{MEMBERSHIP_FOOTER_NOTE}</p>
+        {!revising && <p className="text-xs text-slate-500 text-center">{MEMBERSHIP_SHORT_NOTE}</p>}
 
         {error && <p ref={errorRef} role="alert" className="text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 scroll-mt-24">{error}</p>}
         <button type="button" disabled={submitting} onClick={revising ? submitRevision : submit}
           className="w-full min-h-[48px] rounded-xl bg-[#1e3a5f] text-white font-bold text-sm hover:bg-[#16304f] disabled:opacity-60">
-          {submitting ? 'Submitting…' : revising ? 'Resubmit Application Revisions' : 'Submit Membership Form'}
+          {submitting ? 'Submitting…' : revising ? 'Resubmit' : 'Submit'}
         </button>
       </div>
     )}

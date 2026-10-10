@@ -13,7 +13,7 @@ export default function FamilyDetailsSection({ value, showSpouse = true, title =
   return (
     <section>
       <h2 className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-teal-800 border-b-2 border-teal-800 pb-1">{title}</h2>
-      <p className="text-xs text-slate-500 mt-2">Family details pulled directly from church records. To request an update, please contact the Pastoral Care team.</p>
+      <p className="text-xs text-slate-500 mt-2">From church records. Contact Pastoral Care to update.</p>
       <div className="mt-3 space-y-2" aria-readonly="true">
         {showSpouse && (
           <div className={card}>
