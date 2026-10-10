@@ -7884,6 +7884,29 @@ export async function submitMembershipApplication(token, { applicant, photoDataU
   })
 }
 
+/**
+ * Stage 4 → baptism self-declaration: sends the SAME application link back to the
+ * applicant for just the declaration. Status 'declaration_requested' keeps the
+ * pipeline on Stage 3 until they sign; the link is renewed for 30 days.
+ */
+export async function requestMembershipDeclaration(token, requestedBy = '') {
+  if (!db || !token) return
+  await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), {
+    status: 'declaration_requested',
+    declarationRequest: { requestedAt: new Date().toISOString(), requestedBy: requestedBy || 'unknown' },
+    expiresAt: Timestamp.fromDate(new Date(Date.now() + MEMBERSHIP_LINK_DAYS * 24 * 60 * 60 * 1000)),
+  })
+}
+
+/** Applicant signs the requested declaration (public page) → back to submitted. */
+export async function submitMembershipDeclaration(token, response) {
+  if (!db || !token) throw new Error('Missing link')
+  await updateDoc(doc(db, MEMBERSHIP_APPLICATIONS, token), {
+    status: 'submitted',
+    declarationResponse: response,
+  })
+}
+
 /** Caring: office notes, decision (approved / rejected), extending the link. */
 export async function updateMembershipApplication(token, data) {
   if (!db || !token) return
@@ -8233,6 +8256,30 @@ export async function requestBaptismSelfDeclaration(entry, { requestedBy = '', d
     .find((r) => r.status === 'pending' && r.expiresAt && r.expiresAt > new Date())
   if (pending) return pending
   const token = randomToken()
+  const created = await createBaptismDeclarationDoc(entry, token, { requestedBy, declarationText })
+  // Recorded on the candidate's pipeline too, and — when they have an app account —
+  // a "please sign" ribbon on their My Workspace. Both best-effort: the QR / link
+  // shown to staff works regardless.
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, entry.id), {
+    'membershipPipeline.baptismSelfDeclarationRequest': {
+      token, status: 'pending', requestedBy: requestedBy || 'unknown',
+      requestedAt: nowIso(), expiresAt: created.expiresAt.toISOString(),
+    },
+  }).catch((e) => console.error('baptismSelfDeclarationRequest on pipeline:', e))
+  const account = await findAccountForPerson({ email: entry.email, name: entry.name }).catch(() => null)
+  if (account) {
+    await setDoc(doc(collection(db, WORKSPACE_NOTIFICATIONS)), {
+      type: 'baptism_self_declaration', status: 'pending',
+      recipientUid: account.id, recipientEmail: String(account.email || '').toLowerCase(),
+      candidatePcsId: entry.id, candidateName: entry.name || '', token,
+      createdBy: requestedBy || 'unknown', createdAt: Timestamp.now(),
+      respondedAt: '', respondedBy: '', responseNote: '',
+    }).catch((e) => console.error('baptism declaration notification:', e))
+  }
+  return { ...created, notified: !!account }
+}
+
+async function createBaptismDeclarationDoc(entry, token, { requestedBy = '', declarationText = '' } = {}) {
   const payload = {
     pcsEntryId: entry.id,
     candidateName: entry.legalName || entry.name || '',
@@ -8595,7 +8642,7 @@ export async function requestMembershipInterview({ candidate, deacon, scheduledA
 
 /** The signed-in Deacon's interview invitations (by uid and by email), live —
  *  pending ones, plus accepted ones (their schedule) unless `statuses` says otherwise. */
-export function subscribeMyInterviewRequests({ uid, email, statuses = ['pending', 'accepted'] }, onChange) {
+export function subscribeMyInterviewRequests({ uid, email, statuses = ['pending', 'accepted'], type = 'membership_interview' }, onChange) {
   if (!db || (!uid && !email)) { onChange([]); return () => {} }
   const lists = { uid: [], email: [] }
   const emit = () => {
@@ -8604,7 +8651,7 @@ export function subscribeMyInterviewRequests({ uid, email, statuses = ['pending'
       .sort((a, b) => String(a.scheduledAt || '').localeCompare(String(b.scheduledAt || ''))))
   }
   const map = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) }))
-  const base = [where('type', '==', 'membership_interview'), where('status', 'in', statuses)]
+  const base = [where('type', '==', type), where('status', 'in', statuses)]
   const unsubs = []
   if (uid) unsubs.push(onSnapshot(query(collection(db, WORKSPACE_NOTIFICATIONS), where('recipientUid', '==', uid), ...base),
     (s) => { lists.uid = map(s); emit() }, (e) => console.error('subscribeMyInterviewRequests(uid):', e)))
@@ -8704,6 +8751,13 @@ export async function submitCellLeaderApproval(notif, { answers, notes = '', by 
   await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), {
     status: 'completed', respondedAt: at, respondedBy: by, responseNote: cleanNotes,
   })
+}
+
+/** Recipient closes a workspace notification that needs no pipeline update
+ *  (e.g. their baptism self-declaration has been signed). */
+export async function markWorkspaceNotificationDone(notifId, by = '') {
+  if (!db || !notifId) return
+  await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notifId), { status: 'accepted', respondedAt: nowIso(), respondedBy: by })
 }
 
 /** Deacon's answer from the ribbon: accept / decline (+ optional note). */

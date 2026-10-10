@@ -750,6 +750,25 @@ const { onDocumentUpdated } = require('firebase-functions/v2/firestore')
 async function syncLegalNameToPcs(event, source) {
   const before = event.data?.before?.data() || {}
   const after = event.data?.after?.data() || {}
+  // Membership: water-baptism answers (incl. a self-declaration) → the pipeline,
+  // both on first submission and when a requested declaration comes back.
+  if (source === 'Membership application' && after.status === 'submitted'
+      && (before.status === 'pending' || before.status === 'declaration_requested') && after.pcsEntryId) {
+    const wb = (after.declarationResponse && after.declarationResponse.selfDeclarationSigned)
+      ? after.declarationResponse : (after.applicant || {}).waterBaptism
+    if (wb) {
+      const pcsRef = admin.firestore().collection('caring_pcs').doc(after.pcsEntryId)
+      if ((await pcsRef.get()).exists) {
+        await pcsRef.set({ membershipPipeline: { waterBaptism: {
+          isBaptized: wb.isBaptized !== false,
+          hasCertificate: !!wb.hasCertificate,
+          selfDeclarationSigned: !!wb.selfDeclarationSigned,
+          signedAt: wb.signedAt || '',
+          ...(wb.declarationText ? { declarationText: wb.declarationText } : {}),
+        } } }, { merge: true })
+      }
+    }
+  }
   if (before.status !== 'pending' || after.status !== 'submitted') return
   const a = after.applicant || {}
   const legalName = String(a.legalFullName || '').trim()

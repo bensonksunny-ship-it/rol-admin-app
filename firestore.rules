@@ -685,7 +685,13 @@ service cloud.firestore {
             && resource.data.expiresAt > request.time
             && request.resource.data.status == 'submitted'
             && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'documents', 'status', 'submittedAt']));
+                 .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'documents', 'status', 'submittedAt']))
+        // Baptism self-declaration sent back from Stage 4: only the declaration.
+        || (resource.data.status == 'declaration_requested'
+            && resource.data.expiresAt > request.time
+            && request.resource.data.status == 'submitted'
+            && request.resource.data.declarationResponse.selfDeclarationSigned == true
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'declarationResponse']));
     }
 
     // Founder / Senior Pastor / Admin — may see a baby dedication "surprise" name
@@ -733,12 +739,14 @@ service cloud.firestore {
 
     // Baptism self-declarations (membership Stage 4, item 3) — token model like the
     // application forms: signed-out holders of the link may read it while unexpired
-    // and sign it once (pending → signed); everything else is Caring-only.
+    // and sign it once (pending → signed); everything else is for the membership
+    // pipeline managers — Founder, Caring, Senior Pastor, First Lady — the same people
+    // the Stage 4 window offers "Send Baptism Self-Declaration Request" to.
     match /baptism_self_declarations/{token} {
-      allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+      allow get: if isPipelineManager()
         || resource.data.expiresAt > request.time;
-      allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
-      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+      allow list, create, delete: if isPipelineManager();
+      allow update: if isPipelineManager()
         || (resource.data.status == 'pending'
             && resource.data.expiresAt > request.time
             && request.resource.data.status == 'signed'

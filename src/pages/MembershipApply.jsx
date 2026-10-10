@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { subscribeMembershipApplicationByToken, submitMembershipApplication } from '../services/firestore'
+import { subscribeMembershipApplicationByToken, submitMembershipApplication, submitMembershipDeclaration } from '../services/firestore'
+import { BAPTISM_DECLARATION_TITLE, BAPTISM_SELF_DECLARATION_TEXT } from '../constants/baptismDeclaration'
 import MembershipProgressPublic from '../components/MembershipProgressPublic'
 import { applicationHasCell, APPLICATION_LOCKED_TITLE, APPLICATION_LOCKED_TEXT } from '../utils/applicationCellGuard'
 import {
@@ -40,6 +41,11 @@ export default function MembershipApply() {
   const [talents, setTalents] = useState([])
   const [photo, setPhoto] = useState('')
   const [handover, setHandover] = useState({}) // document key → true once ticked
+  // Water baptism: received? ('yes' | 'no'), certificate? ('yes' | 'no'), and the
+  // self-declaration tick (only when there is no certificate).
+  const [baptized, setBaptized] = useState('')
+  const [hasCert, setHasCert] = useState('')
+  const [declared, setDeclared] = useState(false)
   const [address, setAddress] = useState(EMPTY_ADDRESS)
   const [signature, setSignature] = useState('')
   const [legal, setLegal] = useState({ firstName: '', middleName: '', lastName: '' })
@@ -66,8 +72,9 @@ export default function MembershipApply() {
         setAddress({ ...EMPTY_ADDRESS, line2: a.prefill?.currentAddress || '' })
         setLegal(splitName([a.prefill?.firstName, a.prefill?.middleName, a.prefill?.lastName].filter(Boolean).join(' ')))
         setFamily(initialFamilyState(a.prefill))
+        if (a.prefill?.baptismDate || a.prefill?.baptismChurch) setBaptized('yes')
       }
-      setState(a.status === 'pending' ? (applicationHasCell(a) ? 'ready' : 'locked') : 'submitted')
+      setState(a.status === 'pending' ? (applicationHasCell(a) ? 'ready' : 'locked') : a.status === 'declaration_requested' ? 'declare' : 'submitted')
     },
     // Permission-denied here means the link expired before it was submitted.
     () => setState((s) => (s === 'submitted' ? s : 'notFound')))
@@ -80,7 +87,9 @@ export default function MembershipApply() {
   const askFields = allFields.filter((f) => !locked(f.key))
   const knownFields = allFields.filter((f) => locked(f.key))
   const missingRequired = askFields.filter((f) => f.required && !hasValue(answers[f.key]))
-  const missingDocs = MEMBERSHIP_DOCUMENTS.filter((d) => !handover[d.key])
+  const CERT_KEY = 'hasSubmittedPhysicalBaptismCertificate'
+  const docsAsked = MEMBERSHIP_DOCUMENTS.filter((d) => d.key !== CERT_KEY || hasCert === 'yes')
+  const missingDocs = docsAsked.filter((d) => !handover[d.key])
   const addressMissing = addressProblems(address)
   const fullName = legalFullName(legal)
   const setAnswer = (key, v) => setAnswers((a) => ({ ...a, [key]: v }))
@@ -94,6 +103,9 @@ export default function MembershipApply() {
     if (addressMissing.length) { setError(`Please complete your address: ${addressMissing.join(', ')}`); return }
     if (missingRequired.length) { setError(`Please fill: ${missingRequired.map((f) => f.label).join(', ')}`); return }
     if (!photo) { setError('Please add a recent photograph.'); return }
+    if (baptized !== 'yes') { setError('Water baptism is required for church membership. Please speak to the church office about being baptised.'); return }
+    if (!hasCert) { setError('Please say whether you have a physical baptism certificate.'); return }
+    if (hasCert === 'no' && !declared) { setError('Please tick the Baptism Self-Declaration, since you do not have a certificate.'); return }
     if (missingDocs.length) { setError(`Please confirm you have handed over: ${missingDocs.map((d) => d.label).join(', ')}`); return }
     if (!signature) { setError('Please sign, or upload a signature image.'); return }
     const size = [photo, signature].reduce((n, s) => n + (s?.length || 0), 0)
@@ -106,7 +118,14 @@ export default function MembershipApply() {
       const addr = addressPayload(address)
       applicant.address = addr
       applicant.currentAddress = addr.fullFormattedAddress // one-line copy for staff view / print
-      for (const d of MEMBERSHIP_DOCUMENTS) applicant[d.key] = true
+      for (const d of MEMBERSHIP_DOCUMENTS) applicant[d.key] = d.key === CERT_KEY ? hasCert === 'yes' : true
+      applicant.waterBaptism = {
+        isBaptized: true,
+        hasCertificate: hasCert === 'yes',
+        selfDeclarationSigned: hasCert === 'no' && declared,
+        signedAt: hasCert === 'no' && declared ? new Date().toISOString() : '',
+        ...(hasCert === 'no' ? { declarationText: BAPTISM_SELF_DECLARATION_TEXT } : {}),
+      }
       applicant.family = familyPayload(family, { includeSpouse: showSpouse })
       applicant.talents = talents
       if (hasValue(answers.talentsOther)) applicant.talentsOther = String(answers.talentsOther).trim()
@@ -134,6 +153,42 @@ export default function MembershipApply() {
       <p className="text-sm text-slate-500 mt-2">{APPLICATION_LOCKED_TEXT}</p>
     </div>
   )
+  if (state === 'declare') {
+    const signDeclaration = async () => {
+      setError('')
+      if (!declared) { setError('Please tick the declaration to confirm it.'); return }
+      setSubmitting(true)
+      try {
+        await submitMembershipDeclaration(token, {
+          isBaptized: true, hasCertificate: false, selfDeclarationSigned: true,
+          signedAt: new Date().toISOString(), declarationText: BAPTISM_SELF_DECLARATION_TEXT,
+        })
+      } catch {
+        setError('Could not submit. The link may have expired. Please contact the church office.')
+      } finally { setSubmitting(false) }
+    }
+    return shell(<>
+      <div className="bg-[#1e3a5f] px-5 py-5 text-white">
+        <p className="text-[11px] font-black tracking-[0.08em] text-blue-200">{MEMBERSHIP_CHURCH_NAME}</p>
+        <h1 className="text-xl font-extrabold mt-1">{BAPTISM_DECLARATION_TITLE}</h1>
+      </div>
+      <div className="p-5 space-y-4">
+        <p className="text-sm text-slate-600">The church office could not accept the baptism certificate given with your membership application. If you were baptised but cannot provide a valid certificate, please confirm the declaration below. Your application then continues.</p>
+        <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 my-3 text-amber-950 space-y-3">
+          <p className="font-semibold">{BAPTISM_DECLARATION_TITLE}</p>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} className="mt-1 w-5 h-5 accent-amber-700 flex-shrink-0" />
+            <span className="text-sm leading-relaxed">“{BAPTISM_SELF_DECLARATION_TEXT}”</span>
+          </label>
+        </div>
+        {error && <p className="text-sm font-medium text-red-600">{error}</p>}
+        <button type="button" disabled={submitting} onClick={signDeclaration}
+          className="w-full min-h-[48px] rounded-xl bg-[#1e3a5f] text-white font-bold text-sm hover:bg-[#16304f] disabled:opacity-60">
+          {submitting ? 'Submitting…' : 'Submit Declaration'}
+        </button>
+      </div>
+    </>)
+  }
   if (state === 'notFound') return shell(
     <div className="p-10 text-center">
       <p className="text-lg font-bold text-slate-800">This link isn't available</p>
@@ -248,12 +303,54 @@ export default function MembershipApply() {
             placeholder="Anything else? (optional)" className="mt-2 w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm" />
         </section>
 
+        {/* Water Baptism — certificate, or a self-declaration when there is none */}
+        <section>
+          {sectionTitle('Water Baptism', 'text-sky-800 border-sky-800')}
+          <div className="space-y-4 mt-3">
+            <fieldset>
+              <legend className="text-sm font-semibold text-slate-800 mb-2">Have you received Water Baptism?</legend>
+              <div className="flex gap-2">
+                {[['yes', 'Yes'], ['no', 'No']].map(([v, l]) => (
+                  <button key={v} type="button" aria-pressed={baptized === v} onClick={() => { setBaptized(v); if (v === 'no') { setHasCert(''); setDeclared(false) } }}
+                    className={`min-h-[44px] px-5 rounded-xl border text-sm font-semibold ${baptized === v ? 'bg-sky-700 text-white border-sky-700' : 'bg-white text-slate-700 border-slate-300'}`}>{l}</button>
+                ))}
+              </div>
+            </fieldset>
+            {baptized === 'no' && (
+              <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">Water baptism is required for church membership. Please speak to the church office about being baptised.</p>
+            )}
+            {baptized === 'yes' && (
+              <fieldset>
+                <legend className="text-sm font-semibold text-slate-800 mb-2">Do you have a physical Baptism Certificate?</legend>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  {[['yes', 'Yes, I have a certificate'], ['no', 'No, I do not have a certificate']].map(([v, l]) => (
+                    <button key={v} type="button" aria-pressed={hasCert === v} onClick={() => { setHasCert(v); if (v === 'yes') setDeclared(false) }}
+                      className={`min-h-[44px] px-4 rounded-xl border text-sm font-semibold text-left ${hasCert === v ? 'bg-sky-700 text-white border-sky-700' : 'bg-white text-slate-700 border-slate-300'}`}>{l}</button>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+            {baptized === 'yes' && hasCert === 'yes' && (
+              <p className="text-xs text-slate-500">Bring the certificate to the church office and confirm it under Documents Submission below.</p>
+            )}
+            {baptized === 'yes' && hasCert === 'no' && (
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 my-3 text-amber-950 space-y-3">
+                <p className="font-semibold">{BAPTISM_DECLARATION_TITLE}</p>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} className="mt-1 w-5 h-5 accent-amber-700 flex-shrink-0" />
+                  <span className="text-sm leading-relaxed">“{BAPTISM_SELF_DECLARATION_TEXT}”</span>
+                </label>
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* Documents — handed over in person */}
         <section>
           {sectionTitle('Documents Submission', 'text-amber-800 border-amber-800')}
-          <p className="text-xs text-slate-500 mt-2">Bring these to the church office. Both confirmations are required.</p>
+          <p className="text-xs text-slate-500 mt-2">Bring {docsAsked.length > 1 ? 'these' : 'this'} to the church office. {docsAsked.length > 1 ? 'Both confirmations are required.' : 'The confirmation is required.'}</p>
           <div className="space-y-2 mt-3">
-            {MEMBERSHIP_DOCUMENTS.map((d) => (
+            {docsAsked.map((d) => (
               <label key={d.key} className={`flex items-start gap-3 rounded-xl border px-3 py-3 cursor-pointer ${handover[d.key] ? 'border-emerald-300 bg-emerald-50/60' : 'border-amber-400 bg-amber-50'}`}>
                 <input type="checkbox" checked={!!handover[d.key]} onChange={(e) => setHandover((m) => ({ ...m, [d.key]: e.target.checked }))}
                   className="mt-0.5 w-5 h-5 accent-emerald-600 flex-shrink-0" />

@@ -299,6 +299,22 @@ export default function MembershipStageModal({
             <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">{block}</p>
           ) : null}
 
+          {/* Stage 3 is open again while a baptism self-declaration sent back from
+              Stage 4 waits on the applicant (same application link). */}
+          {stage.key === 'applicationSubmitted' && application?.status === 'declaration_requested' && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 space-y-1.5">
+              <p>
+                Waiting for the applicant to sign the Baptism Self-Declaration
+                {application.declarationRequest?.requestedAt ? ` (requested ${fmt(application.declarationRequest.requestedAt)})` : ''}.
+                This stage completes again once they tick it.
+              </p>
+              <button type="button" onClick={async () => {
+                const link = `${window.location.origin}/membership-apply?token=${application.id}`
+                try { await navigator.clipboard.writeText(link); alert('Application link copied.') } catch { window.prompt('Copy this link:', link) }
+              }} className="text-xs font-semibold text-indigo-700 hover:underline">Copy the application link</button>
+            </div>
+          )}
+
           {/* Stage 4 — verification checklist */}
           {canAct && stage.key === 'verification' && (
             <div className="space-y-2">
@@ -314,7 +330,7 @@ export default function MembershipStageModal({
                       entry={entry}
                       application={application}
                       requestedBy={by}
-                      canRequest={canCaring || canPastor}
+                      canRequest={canCaring || canPastor || canFirstLady}
                       onDeclared={() => setChecks((s) => ({ ...s, baptismProof: true }))}
                     />
                   )}

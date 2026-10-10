@@ -9,6 +9,7 @@ import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWor
 import ApprovalsCard from '../components/workspace/ApprovalsCard'
 import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
+import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
 
 function greeting() {
@@ -95,6 +96,12 @@ export default function MyWorkspace() {
       />
       {/* Membership interview invitations addressed to this account (Deacons) */}
       <DeaconInterviewRibbon
+        uid={user?.uid || userProfile?.id || ''}
+        email={userProfile?.email || user?.email || ''}
+        myName={userProfile?.displayName || userProfile?.email || ''}
+      />
+      {/* Membership applicants: "please sign your Baptism Self-Declaration" */}
+      <DeclarationRequestRibbon
         uid={user?.uid || userProfile?.id || ''}
         email={userProfile?.email || user?.email || ''}
         myName={userProfile?.displayName || userProfile?.email || ''}

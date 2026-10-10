@@ -63,6 +63,14 @@ export const membershipFieldValue = (app, key) =>
 export const membershipFullName = (app) => app?.applicant?.legalFullName
   || [membershipFieldValue(app, 'firstName'), membershipFieldValue(app, 'middleName'), membershipFieldValue(app, 'lastName')].filter(hasValue).join(' ')
 
+/**
+ * Water baptism answers on an application: { isBaptized, hasCertificate,
+ * selfDeclarationSigned, signedAt, declarationText }. A declaration signed later
+ * (after Stage 4 sent it back) wins over the original answers.
+ */
+export const membershipWaterBaptism = (app) =>
+  (app?.declarationResponse?.selfDeclarationSigned ? app.declarationResponse : null) || app?.applicant?.waterBaptism || null
+
 /** Office decision on a submitted application. */
 export const MEMBERSHIP_DECISIONS = {
   submitted: 'Under Review',
