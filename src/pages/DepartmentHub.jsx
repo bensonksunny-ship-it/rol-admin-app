@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle, Trash2, ChevronUp, ChevronDown, ChevronLeft } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { getDepartmentBySlug } from '../constants/departments'
+import { getDepartmentBySlug, getDepartmentIcon } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
 import {
   getTasks,
@@ -65,6 +65,7 @@ import {
   updateDelightVisitor,
   deleteDelightVisitor,
   getDlightSubDepartments,
+  subscribeDlightSubDepartments,
   addDlightSubDepartment,
   updateDlightSubDepartment,
   deleteDlightSubDepartment,
@@ -186,6 +187,8 @@ import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo, ba
 import { downloadMembershipCertificate, membershipCertificateData } from '../utils/membershipCertificate'
 import { isRelocated, churchTillDate, RELOCATED_BADGE_CLS } from '../utils/relocation'
 import useSeniorPastor from '../hooks/useSeniorPastor'
+import useDepartmentAlerts from '../hooks/useDepartmentAlerts'
+import DepartmentNotificationRibbon from '../components/DepartmentNotificationRibbon'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
@@ -535,6 +538,26 @@ const DLIGHT_ASSIGN_ROWS = [
 
 function blankDlightAssignments() {
   return Object.fromEntries(DLIGHT_ASSIGN_ROWS.map((r) => [r.key, []]))
+}
+
+/**
+ * The Assign tab's duty rows, built from the live D Light sub-departments: the four
+ * original sub-departments keep their named duty rows (and saved keys) above; any
+ * other sub-department (e.g. "Offering 1/2") gets one row keyed by its doc id
+ * (`sub_<id>`, stable across renames). Before the list loads — or if it is empty —
+ * the original rows show, so a saved roster is never hidden.
+ */
+function buildDlightAssignRows(subDepts) {
+  const active = (subDepts || []).filter((sd) => sd.active !== false && String(sd.name || '').trim())
+  if (!active.length) return DLIGHT_ASSIGN_ROWS
+  const activeKeys = new Set(active.map((sd) => subDeptMatchKey(sd.name)))
+  const presetKeys = new Set(DLIGHT_ASSIGN_ROWS.map((r) => subDeptMatchKey(r.subDept)))
+  const presets = DLIGHT_ASSIGN_ROWS.filter((r) => activeKeys.has(subDeptMatchKey(r.subDept)))
+  const custom = active
+    .filter((sd) => !presetKeys.has(subDeptMatchKey(sd.name)))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((sd) => ({ key: `sub_${sd.id}`, label: sd.name.trim(), subDept: sd.name.trim(), accent: 'border-l-indigo-400', custom: true }))
+  return [...presets, ...custom]
 }
 
 // Assigned-member chip colours for the Assign tab, one hue per sub-department —
@@ -1424,6 +1447,8 @@ export default function DepartmentHub() {
   // Media's "The Team" tab hosts sub-department management inline (collapsible).
   const [mediaSubDeptPanelOpen, setMediaSubDeptPanelOpen] = useState(true)
   const [dlightTeamSubOpts, setDlightTeamSubOpts] = useState([])
+  // Assign / Archives / shared-image duty rows, following the live sub-department list.
+  const dlightAssignRows = useMemo(() => buildDlightAssignRows(dlightTeamSubOpts), [dlightTeamSubOpts])
   // Team tab's own "+ Add Sub Department" header button (D-Light + Media) — a
   // single create/edit/delete modal that writes straight to whichever sub-dept
   // collection this slug uses (dlightTeamSubOpts for D-Light, subDepartments for
@@ -1792,13 +1817,12 @@ export default function DepartmentHub() {
       setDlightTeamSubOpts([])
       return
     }
-    getDlightSubDepartments()
-      .then((list) =>
-        setDlightTeamSubOpts(
-          list.map((x) => ({ id: x.id, name: x.name || '', servingArea: x.servingArea || '' }))
-        )
-      )
-      .catch(() => setDlightTeamSubOpts([]))
+    // Live: sub-departments created / edited / deleted in the Sub-Departments modal
+    // (here or on another device) update the Assign tab's duty rows straight away.
+    const unsubSubDepts = subscribeDlightSubDepartments(
+      (list) => setDlightTeamSubOpts(list.map((x) => ({ id: x.id, name: x.name || '', servingArea: x.servingArea || '', active: x.active }))),
+      () => setDlightTeamSubOpts([])
+    )
     // Real-time subscription so new/edited team members appear immediately
     if (department?.name) {
       setLoadingTeam(true)
@@ -1807,8 +1831,9 @@ export default function DepartmentHub() {
         setTeamError('')
         setLoadingTeam(false)
       })
-      return unsub
+      return () => { unsub(); unsubSubDepts() }
     }
+    return unsubSubDepts
   }, [slug, activeTab, opsSubTab, department])
 
   // Real-time team subscription for all non-Cell, non-DLight departments
@@ -2811,6 +2836,26 @@ export default function DepartmentHub() {
     [subDeptOptionList]
   )
 
+  // Blue notification ribbon at the top of the workspace (new team members,
+  // overdue tasks, overdue cell reports). Must stay above the early returns below.
+  const hubTabs = getDepartmentHubTabs(slug)
+  const goTab = (tab, sub) => () => {
+    if (sub) setOpsSubTab(sub)
+    setActiveTab(tab)
+    setSearchParams({ tab }, { replace: true })
+  }
+  const deptAlerts = useDepartmentAlerts({
+    department: department?.name,
+    team,
+    tasks,
+    cell: slug === 'cell' ? { viewAll: canViewAllCells, myCellIds: [userProfile?.cellGroupId, userProfile?.cellId] } : null,
+    open: {
+      team: hubTabs.includes('team') ? goTab('team') : hubTabs.includes('operations') ? goTab('operations', 'team') : null,
+      tasks: goTab('summary'),
+      reports: hubTabs.includes('reports') ? goTab('reports') : null,
+    },
+  })
+
   if (!department) {
     return (
       <div className="p-6 text-slate-600">
@@ -3204,6 +3249,8 @@ export default function DepartmentHub() {
         <div className="py-8 text-center text-slate-500">Loading...</div>
       ) : (
         <>
+          <DepartmentNotificationRibbon icon={getDepartmentIcon(department.name)} departmentName={department.name} storageKey={slug} alerts={deptAlerts} />
+
           {/* ── Pending Consultations: Cell Director asking for D-Light input ──
                Rendered above everything else (including the metrics/KPI section) on
                the Hub landing tab, Visitor Entry, and Assign, so a D-Light Director
@@ -5154,7 +5201,7 @@ export default function DepartmentHub() {
             </div>
           )}
 
-          {activeTab === 'upcomingSunday' && ['media', 'worship', 'd-light', 'administration'].includes(slug) && (
+          {activeTab === 'upcomingSunday' && ['media', 'd-light', 'administration'].includes(slug) && (
             <UpcomingSunday slug={slug} />
           )}
 
@@ -5759,7 +5806,7 @@ export default function DepartmentHub() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {DLIGHT_ASSIGN_ROWS.map((row) => {
+                        {dlightAssignRows.map((row) => {
                           const options = team.filter((m) => {
                             if (m.isFormer) return false
                             const memberSubDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
@@ -5772,6 +5819,9 @@ export default function DepartmentHub() {
                             // Fallback: match by role text — covers members with no sub-department
                             // set yet, and members whose custom-named sub-department doesn't line
                             // up with this duty's name at all (rather than excluding them outright).
+                            // A newly added sub-department has no role text to match: offer the
+                            // members not yet placed in any sub-department instead.
+                            if (row.custom) return memberSubDepts.length === 0
                             const roleText = (m.role || m.rolePosition || '').toLowerCase()
                             return roleText.includes((row.subDept || '').toLowerCase().split(' ')[1] || '')
                           })
@@ -5892,7 +5942,7 @@ export default function DepartmentHub() {
                     </div>
                   </div>
                   <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {DLIGHT_ASSIGN_ROWS.map((row) => {
+                    {dlightAssignRows.map((row) => {
                       const ids = Array.isArray(delightAssignments[row.key]) ? delightAssignments[row.key] : []
                       const names = ids.map((id) => team.find((m) => m.id === id)?.name).filter(Boolean)
                       const accent = dlightShareAccent(row.subDept)
@@ -6011,11 +6061,16 @@ export default function DepartmentHub() {
                 <div className="space-y-2">
                   {dlightArchives.map((week) => {
                     const isOpen = !!openDlightArchiveIds[week.id]
-                    const rows = DLIGHT_ASSIGN_ROWS.map((row) => {
-                      const raw = week.assignments?.[row.key]
-                      const ids = Array.isArray(raw) ? raw.filter(Boolean) : (raw ? [raw] : [])
-                      return { ...row, ids }
-                    })
+                    const idsOf = (raw) => (Array.isArray(raw) ? raw.filter(Boolean) : (raw ? [raw] : []))
+                    const shownKeys = new Set(dlightAssignRows.map((r) => r.key))
+                    const rows = [
+                      ...dlightAssignRows,
+                      // a past week's duty whose sub-department was since removed
+                      ...Object.keys(week.assignments || {})
+                        .filter((k) => !shownKeys.has(k) && idsOf(week.assignments[k]).length)
+                        .map((k) => DLIGHT_ASSIGN_ROWS.find((r) => r.key === k)
+                          || { key: k, label: 'Removed sub-department', subDept: '', accent: 'border-l-slate-300' }),
+                    ].map((row) => ({ ...row, ids: idsOf(week.assignments?.[row.key]) }))
                     const assignedCount = rows.reduce((s, r) => s + r.ids.length, 0)
                     const weekVisitors = delightVisitors.filter(
                       (v) => String(v.attendedDate || '').slice(0, 10) === week.serviceDate
@@ -13313,7 +13368,6 @@ export default function DepartmentHub() {
                         { bg: 'bg-rose-500', text: 'text-white' },
                         { bg: 'bg-teal-600', text: 'text-white' },
                       ][idx % 6]
-                      const yearsSince = cell.launchDate ? differenceInYears(new Date(), new Date(cell.launchDate)) : null
                       return (
                       <div key={cell.id} className={`relative ${expandedCellId === cell.id ? 'col-span-full' : ''} ${tileStyle.bg} ${tileStyle.text} rounded-xl overflow-hidden shadow-lg border ${expandedCellId === cell.id ? 'border-white/60 ring-2 ring-white/40' : 'border-white/20'} transition`}>
                         {cell.meetingDay && (
@@ -13328,23 +13382,6 @@ export default function DepartmentHub() {
                         >
                           <p className="text-xl font-semibold">{cell.cellName || 'Unnamed'}</p>
                           <p className="text-xs opacity-90 mt-0.5">{cell.leader || '—'}</p>
-                          {isFounder && (
-                            <p className="text-xs opacity-90 mt-1">
-                              Cell ID: <span className="font-mono">{cell.id}</span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  navigator.clipboard?.writeText?.(cell.id).catch(() => {})
-                                }}
-                                className="ml-2 underline"
-                              >
-                                Copy
-                              </button>
-                            </p>
-                          )}
-                          {yearsSince !== null && <p className="text-sm opacity-90 mt-1">Launched: {yearsSince} year{yearsSince !== 1 ? 's' : ''} ago</p>}
                           <p className="text-2xl font-bold mt-2">{allCellMembers.filter((m) => m.cellId === cell.id && m.status !== 'inactive' && m.memberCategory !== 'former').length} Members</p>
                         </button>
                         {expandedCellId === cell.id && (

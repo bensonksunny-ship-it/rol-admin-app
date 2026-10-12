@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight } from 'lucide-react'
-import { subscribeMyCellLeaderApprovals, submitCellLeaderApproval } from '../../services/firestore'
+import { subscribeMyCellLeaderApprovals, submitCellLeaderApproval, scheduleCellLeaderCall } from '../../services/firestore'
+import ScheduleMeetingModal from './ScheduleMeetingModal'
+import { scheduleSummary, scheduleWhere } from '../../utils/meetingSchedule'
+import { RIBBON_BAR } from '../../constants/ribbon'
 
 // Stage 5 call checklist — all three must be confirmed to submit.
 const QUESTIONS = [
@@ -72,6 +75,12 @@ function ReviewModal({ r, myName, uid, onClose }) {
             </div>
           </div>
 
+          {r.schedule?.at && (
+            <p className="text-xs font-semibold text-sky-800 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+              🗓 {scheduleSummary(r.schedule)}{scheduleWhere(r.schedule) ? ` · ${scheduleWhere(r.schedule)}` : ''}
+            </p>
+          )}
+
           <div>
             <p className="text-sm font-bold text-slate-800">Call checklist</p>
             <p className="text-xs text-slate-500">Call {String(r.candidateName || 'the applicant').split(' ')[0]} and tick each question they agree with.</p>
@@ -114,23 +123,42 @@ function ReviewModal({ r, myName, uid, onClose }) {
 export default function CellLeaderApprovalRibbon({ uid, email, myName }) {
   const [requests, setRequests] = useState([])
   const [open, setOpen] = useState(null)
+  const [scheduling, setScheduling] = useState(null) // request being scheduled
   useEffect(() => subscribeMyCellLeaderApprovals({ uid, email }, setRequests), [uid, email])
   if (!requests.length) return null
   const firstName = (r) => String(myName || r.cellLeaderName || '').trim().split(/\s+/)[0] || 'there'
   return (
     <div>
       {requests.map((r) => (
-        <div key={r.id} className="bg-sky-600 text-white rounded-xl px-5 py-3 shadow-md flex items-center justify-between gap-3 w-full max-w-xl mx-auto my-3">
+        <div key={r.id} className={`${RIBBON_BAR} rounded-xl bg-sky-600 text-white shadow-md justify-between my-3`}>
           <span className="min-w-0 text-sm font-medium tracking-wide">
-            Hello {firstName(r)}, membership application review requested for <b>{r.candidateName || 'a member'}</b>{r.candidateCell ? ` (${r.candidateCell})` : ''}.
+            {r.schedule?.at
+              ? <>Hello {firstName(r)}, your call with <b>{r.candidateName || 'the applicant'}</b> is set for {scheduleSummary(r.schedule)}.</>
+              : <>Hello {firstName(r)}, membership application review requested for <b>{r.candidateName || 'a member'}</b>{r.candidateCell ? ` (${r.candidateCell})` : ''}.</>}
           </span>
-          <button type="button" onClick={() => setOpen(r)}
-            className="flex-shrink-0 bg-sky-700/80 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all whitespace-nowrap">
-            Review &amp; Call Applicant <ChevronRight size={14} />
-          </button>
+          <div className="flex-shrink-0 flex flex-col sm:flex-row gap-1.5">
+            <button type="button" onClick={() => setScheduling(r)}
+              className="bg-white text-sky-700 hover:bg-sky-50 text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap">
+              {r.schedule?.at ? '🗓 Reschedule' : '✔ Accept & Schedule'}
+            </button>
+            <button type="button" onClick={() => setOpen(r)}
+              className="bg-sky-700/80 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center justify-center gap-1 transition-all whitespace-nowrap">
+              Review &amp; Call <ChevronRight size={14} />
+            </button>
+          </div>
         </div>
       ))}
       {open && <ReviewModal r={open} myName={myName} uid={uid} onClose={() => setOpen(null)} />}
+      {scheduling && (
+        <ScheduleMeetingModal
+          title={scheduling.schedule?.at ? 'Reschedule Call' : 'Schedule Call'}
+          subtitle={`${scheduling.candidateName || 'Applicant'}${scheduling.candidateCell ? ` · ${scheduling.candidateCell}` : ''}`}
+          initial={scheduling.schedule || null}
+          defaultPhone={scheduling.candidatePhone || ''}
+          onSave={(sched) => scheduleCellLeaderCall(scheduling, sched, myName)}
+          onClose={() => setScheduling(null)}
+        />
+      )}
     </div>
   )
 }

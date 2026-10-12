@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import MembershipApplicationPreview from './MembershipApplicationPreview'
 import { getMemberDisplayName } from '../../utils/displayName'
 import { INTERVIEW_QUESTIONS, INTERVIEW_ANSWERS } from '../../constants/membershipInterview'
+import { scheduleSummary, scheduleWhere } from '../../utils/meetingSchedule'
 import { membershipWaterBaptism, MEMBERSHIP_DEPOSIT_AMOUNT, CARING_DEPARTMENT_HEAD, depositReceiptNo } from '../../constants/membershipForm'
 
 const fmt = (d) => {
@@ -190,6 +191,9 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
                 {cl?.approvedBy || mp.cellLeaderRequest?.cellLeaderName || '—'}
                 {(mp.cellLeaderRequest?.cellName || cellName) ? ` (${mp.cellLeaderRequest?.cellName || cellName} Cell)` : ''}
               </p>
+              {mp.cellLeaderVerification?.scheduledCall?.at && (
+                <p className="text-xs mb-2">🗓 Call: {scheduleSummary(mp.cellLeaderVerification.scheduledCall)}{scheduleWhere(mp.cellLeaderVerification.scheduledCall) ? ` · ${scheduleWhere(mp.cellLeaderVerification.scheduledCall)}` : ''}</p>
+              )}
               {'acceptedJesus' in (cl || {}) ? (
                 <ul className="text-sm space-y-0.5">
                   {CELL_CALL_ITEMS.map(([k, label]) => <li key={k}>{cl[k] ? '✔' : '✖'} {label}: {cl[k] ? 'Yes' : 'No'}</li>)}
@@ -204,6 +208,9 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
                 <Field label="Conducting Deacon" value={iv.conductedByDeaconName || iv.deaconName || st.membershipInterview?.interviewer} />
                 <Field label="Scheduled" value={fmtDateTime(iv.scheduledAt) || fmt(st.membershipInterview?.interviewDate)} />
               </dl>
+              {mp.deaconInterview?.scheduledInterview?.at && (
+                <p className="text-xs mb-2">🗓 {scheduleSummary(mp.deaconInterview.scheduledInterview)}{scheduleWhere(mp.deaconInterview.scheduledInterview) ? ` · ${scheduleWhere(mp.deaconInterview.scheduledInterview)}` : ''}</p>
+              )}
               {iv.part1Answers && Object.keys(iv.part1Answers).length > 0 && (
                 <ul className="text-sm space-y-0.5 mb-3">
                   {INTERVIEW_QUESTIONS.map((q) => (

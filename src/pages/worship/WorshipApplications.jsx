@@ -10,6 +10,9 @@ import {
   deleteWorshipApplication,
   getMergedPeopleDirectory,
   getCellGroups,
+  getWorshipTeamMembers,
+  addWorshipTeamMember,
+  updateWorshipTeamMember,
 } from '../../services/firestore'
 
 const DEPARTMENT = 'Worship'
@@ -413,6 +416,8 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
       email: m.email || f.email,
       currentPlace: m.currentPlace || f.currentPlace,
       comingFrom: m.nativity || f.comingFrom,
+      directoryPersonId: m.personId || '',
+      directoryVisitorId: m._visitorIds?.[0] || '',
     }))
     setShowNameSuggestions(false)
     setNameSuggestions([])
@@ -719,37 +724,6 @@ function ThankYou({ onDone }) {
   )
 }
 
-function Row({ label, value }) {
-  if (!value) return null
-  return (
-    <div className="py-2 border-b border-slate-100 last:border-b-0">
-      <p className="text-xs font-medium text-slate-400">{label}</p>
-      <p className="text-sm text-slate-800 whitespace-pre-wrap">{Array.isArray(value) ? value.join(', ') : String(value)}</p>
-    </div>
-  )
-}
-
-// Read-only summary of the per-instrument detail panel, for the Director's review view.
-function InstrumentDetailRow({ instrument, details }) {
-  if (!details) return null
-  return (
-    <div className="py-2 border-b border-slate-100 last:border-b-0">
-      <p className="text-xs font-bold uppercase tracking-wide text-emerald-700 mb-1">{instrument}</p>
-      {details.duration && <p className="text-sm text-slate-800">Experience: {details.duration}</p>}
-      {details.coaching && (
-        <p className="text-sm text-slate-800">
-          Coaching/formal education: {details.coaching}{details.coaching === 'Yes' && details.coachingYears ? ` (${details.coachingYears})` : ''}
-        </p>
-      )}
-      {details.certified && (
-        <p className="text-sm text-slate-800">
-          Certifications: {details.certified}{details.certified === 'Yes' && details.certificationDetails ? ` — ${details.certificationDetails}` : ''}
-        </p>
-      )}
-    </div>
-  )
-}
-
 const SCREENING_RECOMMENDATIONS = ['Ready for Main Roster', 'Needs Training / Sub List', 'Not Ready']
 
 const DEFAULT_SCREENING = {
@@ -862,63 +836,6 @@ function ScreeningModal({ app, onClose, onSubmit }) {
           </button>
         </div>
       </form>
-    </div>
-  )
-}
-
-// Read-only summary of a completed screening evaluation, for the Director's review view.
-// Just the row list (no wrapper/title) — ApplicationDetail wraps this in its own
-// CollapsibleSection so it participates in the same per-section + global collapse/
-// expand behavior as every other part of the application.
-function ScreeningSummary({ screening }) {
-  if (!screening) return null
-  const scale = (n) => n ? `${n} / 5` : '—'
-  return (
-    <>
-      <Row label="Pitch accuracy & vocal control" value={scale(screening.pitchAccuracy)} />
-      <Row label="Rhythm & timing" value={scale(screening.rhythmTiming)} />
-      <Row label="Live play & sing assessment" value={`${screening.livePlaySingDone ? 'Completed' : 'Not completed'} — ${scale(screening.livePlaySingScore)}`} />
-      <Row label="Ear training & harmony" value={screening.earTraining} />
-      <Row label="Instrumental proficiency" value={scale(screening.instrumentalProficiency)} />
-      <Row label="Dynamic sensitivity" value={screening.dynamicSensitivity} />
-      <Row label="Sight-reading / chart following" value={screening.chartFollowing} />
-      <Row label="Stage presence & expression" value={scale(screening.stagePresence)} />
-      <Row label="Coachability & feedback response" value={screening.coachability} />
-      <Row label="Overall recommendation" value={screening.recommendation} />
-      <Row label="Evaluation notes" value={screening.notes} />
-      <Row label="Screened by" value={screening.screenedBy} />
-    </>
-  )
-}
-
-// ── Collapsible accordion card for each section of the application detail view —
-// the whole header row (not just the chevron) is the click target, and the content
-// panel animates open/closed via a grid-template-rows transition (0fr → 1fr) rather
-// than toggling display/height directly, so it animates smoothly without needing to
-// measure the content's height in JS.
-function CollapsibleSection({ header, defaultOpen = true, borderClassName = 'border-slate-200', children }) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <div className={`bg-white rounded-xl border overflow-hidden ${borderClassName}`}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-slate-50 transition-colors"
-      >
-        <div className="flex-1 min-w-0">{header}</div>
-        <ChevronDown
-          size={18}
-          className={`shrink-0 text-slate-400 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      <div
-        className="grid transition-[grid-template-rows] duration-300 ease-in-out"
-        style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
-      >
-        <div className="overflow-hidden">
-          <div className="px-4 pb-4">{children}</div>
-        </div>
-      </div>
     </div>
   )
 }
@@ -1257,23 +1174,172 @@ async function downloadWelcomeCardJPEG(app) {
 }
 
 // ── Read-only detail view for a submitted application (Director-only) ──
-function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreening }) {
+const STATUS_BADGE = {
+  approved: ['Approved · On the Team', 'bg-indigo-50 text-indigo-700'],
+  screened: ['Screening Completed', 'bg-violet-50 text-violet-700'],
+  reviewed: ['Reviewed', 'bg-emerald-50 text-emerald-700'],
+}
+const statusBadge = (status) => STATUS_BADGE[status] || ['Pending review', 'bg-amber-50 text-amber-700']
+
+const digits = (p) => String(p || '').replace(/\D/g, '').slice(-10)
+const lower = (v) => String(v || '').trim().toLowerCase()
+
+/**
+ * "Approve & Add to Worship Team": pick the roles they will serve in (pre-ticked
+ * from their Musical & Technical Profile) and confirm the People Directory record
+ * the team member links to (team members must be linked to one).
+ */
+function ApproveToTeamModal({ app, onClose, onConfirm }) {
+  const [positions, setPositions] = useState(() => (app.primaryInstruments || []).filter((p) => INSTRUMENT_OPTIONS.includes(p)))
+  const [people, setPeople] = useState(null)
+  const [personKey, setPersonKey] = useState('')
+  const [search, setSearch] = useState(app.fullName || '')
+  const [memberSince, setMemberSince] = useState(new Date().toISOString().slice(0, 10))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    getMergedPeopleDirectory().then((list) => {
+      if (cancelled) return
+      setPeople(list)
+      // Best match: the record picked on the form, then phone, then exact name.
+      const match = list.find((p) => (app.directoryPersonId && p.personId === app.directoryPersonId) || (app.directoryVisitorId && p._visitorIds?.includes(app.directoryVisitorId)))
+        || (digits(app.phone).length === 10 && list.find((p) => digits(p.phone) === digits(app.phone)))
+        || list.find((p) => lower(directoryEntryName(p)) === lower(app.fullName))
+      if (match) setPersonKey(match._key)
+    }).catch(() => { if (!cancelled) setPeople([]) })
+    return () => { cancelled = true }
+  }, [app])
+
+  const person = people?.find((p) => p._key === personKey) || null
+  const options = (people || []).filter((p) => p._key === personKey || (lower(search).length >= 2 && lower(directoryEntryName(p)).includes(lower(search)))).slice(0, 30)
+  const toggle = (p) => setPositions((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
+
+  const confirm = async () => {
+    setError('')
+    if (!positions.length) { setError('Pick at least one role.'); return }
+    if (!person) { setError('Choose their People Directory record.'); return }
+    setBusy(true)
+    try {
+      await onConfirm({ positions, memberSince, person })
+    } catch (e) {
+      console.error('Approve & add to team failed', e)
+      setError(e?.message || 'Could not add them to the team. Please try again.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[95] bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Approve and add to Worship Team"
+        className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-indigo-600 text-white px-5 py-3 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="font-bold truncate">Approve &amp; Add to Worship Team</p>
+            <p className="text-xs text-white/80 truncate">{app.fullName}{app.screening?.recommendation ? ` · ${app.screening.recommendation}` : ''}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="w-9 h-9 rounded-full hover:bg-white/15 flex items-center justify-center text-lg">×</button>
+        </div>
+        <div className="p-5 space-y-5">
+          <div>
+            <p className="text-xs font-semibold text-slate-600 mb-1">Roles on the team</p>
+            <p className="text-[11px] text-slate-400 mb-2">Ticked from their Musical &amp; Technical Profile: {(app.primaryInstruments || []).join(', ') || 'none given'}.</p>
+            <div className="flex flex-wrap gap-1.5">
+              {INSTRUMENT_OPTIONS.map((p) => (
+                <button key={p} type="button" aria-pressed={positions.includes(p)} onClick={() => toggle(p)}
+                  className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors ${positions.includes(p) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-300 hover:border-indigo-400'}`}>
+                  {positions.includes(p) && <Check size={12} className="inline -mt-0.5 mr-1" />}{p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold text-slate-600 mb-1">People Directory record</p>
+            {people === null ? (
+              <p className="text-xs text-slate-400">Looking them up…</p>
+            ) : person ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <p className="text-sm text-emerald-900 min-w-0 truncate">✔ {directoryEntryName(person)}{person.phone ? ` · ${person.phone}` : ''}</p>
+                <button type="button" onClick={() => setPersonKey('')} className="text-xs font-semibold text-emerald-700 hover:underline shrink-0">Change</button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name"
+                  className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm" />
+                <div className="max-h-44 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+                  {options.length === 0
+                    ? <p className="px-3 py-2 text-xs text-slate-400">No match. Add them to the People Directory first.</p>
+                    : options.map((p) => (
+                      <button key={p._key} type="button" onClick={() => setPersonKey(p._key)} className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50">
+                        {directoryEntryName(p)}{p.phone ? <span className="text-xs text-slate-400"> · {p.phone}</span> : null}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <label className="block">
+            <span className="block text-xs font-semibold text-slate-600 mb-1">Member since</span>
+            <input type="date" value={memberSince} onChange={(e) => setMemberSince(e.target.value)} className="h-10 px-3 rounded-lg border border-slate-300 text-sm" />
+          </label>
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <button type="button" disabled={busy || people === null} onClick={confirm}
+            className="w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
+            {busy ? 'Adding…' : 'Approve & Add to Team'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Compact label/value cell for the detail grid — `wide` spans the full card width
+// (long free-text answers); everything else packs 2–3 to a row.
+function KV({ label, value, wide }) {
+  if (value === '' || value === null || value === undefined || (Array.isArray(value) && !value.length)) return null
+  return (
+    <div className={`min-w-0 ${wide ? 'col-span-full' : ''}`}>
+      <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="text-[13px] leading-snug text-slate-800 whitespace-pre-wrap break-words">{Array.isArray(value) ? value.join(', ') : String(value)}</dd>
+    </div>
+  )
+}
+
+// Detail section card: an accordion on phones (tap the header), always open on
+// md+ where the cards sit in a 2-column grid.
+function DetailCard({ title, tone = 'slate', defaultOpen = false, className = '', children }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const toneCls = tone === 'emerald' ? 'border-emerald-200' : 'border-slate-200'
+  const titleCls = tone === 'emerald' ? 'text-emerald-700' : 'text-slate-500'
+  return (
+    <section className={`bg-white rounded-xl border ${toneCls} ${className}`}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        className="w-full flex items-center gap-2 px-3.5 py-2.5 text-left md:cursor-default">
+        <h3 className={`flex-1 text-[11px] font-bold uppercase tracking-wider ${titleCls}`}>{title}</h3>
+        <ChevronDown size={16} className={`md:hidden shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <dl className={`${open ? 'grid' : 'hidden'} md:grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-2 px-3.5 pb-3.5`}>
+        {children}
+      </dl>
+    </section>
+  )
+}
+
+const yesNo = (v) => (v ? 'Yes' : 'No')
+
+function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreening, onApprove }) {
   const [exportingPdf, setExportingPdf] = useState(false)
   const [exportingCard, setExportingCard] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const readyForRoster = app.screening?.recommendation === 'Ready for Main Roster'
-
-  // Global "Collapse All / Expand All" — each CollapsibleSection below is remounted
-  // (via `key`) whenever this fires, forcing it back to `defaultOpen={allOpen}` and
-  // discarding whatever any individual section's own header click had set. Between
-  // global toggles, each section's header still opens/closes just itself as normal —
-  // this only resets everything back to one shared state on demand, it doesn't lock
-  // sections into moving together permanently.
-  const [allOpen, setAllOpen] = useState(true)
-  const [toggleVersion, setToggleVersion] = useState(0)
-  const toggleAll = () => {
-    setAllOpen(o => !o)
-    setToggleVersion(v => v + 1)
-  }
+  const canApprove = !!onApprove && (app.status === 'reviewed' || app.status === 'screened')
+  const canMarkReviewed = app.status !== 'reviewed' && app.status !== 'approved'
+  const [badgeLabel, badgeCls] = statusBadge(app.status)
+  const s = app.screening
 
   const handleDownloadPdf = async () => {
     setExportingPdf(true)
@@ -1299,134 +1365,202 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
     }
   }
 
+  // The one primary decision for the current status: Approve once reviewed/screened,
+  // Mark as Reviewed while pending, nothing once approved.
+  const primary = canApprove
+    ? { label: 'Approve & Add to Team', onClick: () => onApprove(app), cls: 'bg-indigo-600 hover:bg-indigo-700' }
+    : canMarkReviewed
+      ? { label: 'Mark as Reviewed', onClick: () => onMarkReviewed(app), cls: 'bg-emerald-600 hover:bg-emerald-700' }
+      : null
+  const screeningBtn = { label: s ? 'Edit Screening' : 'Take Screening', onClick: () => onEditScreening(app), cls: s ? 'bg-violet-600 hover:bg-violet-700' : 'bg-amber-500 hover:bg-amber-600' }
+  const secondary = [
+    { key: 'pdf', label: exportingPdf ? 'Generating…' : 'Download PDF', onClick: handleDownloadPdf, disabled: exportingPdf, icon: true },
+    readyForRoster && { key: 'card', label: exportingCard ? 'Generating…' : 'Welcome Card', onClick: handleDownloadCard, disabled: exportingCard, icon: true },
+    { key: 'delete', label: 'Delete', onClick: () => onDelete(app), danger: true },
+  ].filter(Boolean)
+
+  const quickFacts = [
+    app.cellGroup && ['Cell', app.cellGroup],
+    app.regularCellAttendee && ['Regular attendee', app.regularCellAttendee],
+    app.worshipRating && ['Worship rating', `${app.worshipRating}/5`],
+    app.primaryInstruments?.length && ['Serves as', app.primaryInstruments.join(', ')],
+    app.yearsExperience && ['Experience', app.yearsExperience],
+    s?.recommendation && ['Screening', s.recommendation],
+  ].filter(Boolean)
+
   return (
-    <div className="space-y-4 pb-10">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+    <div className="pb-24 md:pb-6">
+      {/* Header — sticky on md+ with every action at the top right; on phones the
+          actions live in the floating bar at the bottom instead. */}
+      <div className="md:sticky md:top-[calc(3rem_+_env(safe-area-inset-top,24px))] lg:top-16 z-20 -mx-1 px-1 py-2 mb-3 bg-white/95 backdrop-blur border-b border-slate-100">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
-            <ChevronLeft size={16} /> Back to list
+          <button type="button" onClick={onBack} aria-label="Back to list" className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100">
+            <ChevronLeft size={18} />
           </button>
-          <button type="button" onClick={toggleAll}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700">
-            <ChevronDown size={14} className={`transition-transform duration-300 ${allOpen ? 'rotate-180' : ''}`} />
-            {allOpen ? 'Collapse All' : 'Expand All'}
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={handleDownloadPdf} disabled={exportingPdf}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            <Download size={13} /> {exportingPdf ? 'Generating…' : 'Download Application PDF'}
-          </button>
-          {readyForRoster && (
-            <button type="button" onClick={handleDownloadCard} disabled={exportingCard}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-              <Download size={13} /> {exportingCard ? 'Generating…' : 'Download Welcome Card (JPEG)'}
-            </button>
-          )}
-          {app.screening ? (
-            <button type="button" onClick={() => onEditScreening(app)}
-              className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700">
-              Edit Screening
-            </button>
-          ) : (
-            <button type="button" onClick={() => onEditScreening(app)}
-              className="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600">
-              Take Screening
-            </button>
-          )}
-          {app.status !== 'reviewed' && (
-            <button type="button" onClick={() => onMarkReviewed(app)}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700">
-              Mark as Reviewed
-            </button>
-          )}
-          <button type="button" onClick={() => onDelete(app)}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-400 text-xs font-medium hover:text-red-500 hover:border-red-200">
-            Delete
-          </button>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-bold text-slate-900 truncate">{app.fullName}</h2>
+            <div className="flex items-center gap-2 text-[11px] text-slate-400">
+              <span className={`px-2 py-0.5 rounded-full font-semibold ${badgeCls}`}>{badgeLabel}</span>
+              {app.applicationDate && <span className="truncate">Applied {format(new Date(app.applicationDate), 'd MMM yyyy')}</span>}
+            </div>
+          </div>
+          <div className="hidden md:flex items-center gap-1.5 shrink-0">
+            {secondary.map((b) => (
+              <button key={b.key} type="button" onClick={b.onClick} disabled={b.disabled}
+                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold disabled:opacity-50 transition-colors ${b.danger ? 'border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                {b.icon && <Download size={12} />}{b.label}
+              </button>
+            ))}
+            <button type="button" onClick={screeningBtn.onClick} className={`px-3 py-1.5 rounded-lg text-white text-xs font-semibold ${screeningBtn.cls}`}>{screeningBtn.label}</button>
+            {primary && (
+              <button type="button" onClick={primary.onClick} className={`px-3.5 py-1.5 rounded-lg text-white text-xs font-bold shadow-sm ${primary.cls}`}>
+                {canApprove ? '✔ ' : ''}{primary.label}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      <CollapsibleSection
-        key={`personal-${toggleVersion}`}
-        defaultOpen={allOpen}
-        header={
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-slate-800 truncate">{app.fullName}</h2>
-            <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${
-              app.status === 'screened' ? 'bg-violet-50 text-violet-700' : app.status === 'reviewed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-            }`}>
-              {app.status === 'screened' ? 'Screening Completed' : app.status === 'reviewed' ? 'Reviewed' : 'Pending review'}
-            </span>
-          </div>
-        }
-      >
-        <Row label="Date of birth" value={app.dob} />
-        <Row label="Phone" value={app.phone} />
-        <Row label="Email" value={app.email} />
-        <Row label="Current Place" value={app.currentPlace} />
-        <Row label="Coming From" value={app.comingFrom} />
-      </CollapsibleSection>
+      {app.status === 'approved' && (
+        <div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-[13px] text-indigo-900">
+          ✔ Approved{app.approvedBy ? ` by ${app.approvedBy}` : ''}{app.approvedAt ? ` on ${format(new Date(app.approvedAt), 'd MMM yyyy')}` : ''} and added to The Team
+          {app.approvedPositions?.length ? ` as ${app.approvedPositions.join(', ')}` : ''}.
+        </div>
+      )}
 
-      <CollapsibleSection key={`church-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">About Our Church</h3>}>
-        <Row label="Cell group" value={app.cellGroup} />
-        <Row label="Regular cell attendee" value={app.regularCellAttendee} />
-        <Row label="Permanent member" value={app.permanentMember} />
-        <Row label="Attending the church for" value={app.churchAttendanceDuration} />
-        <Row label="Worship rating" value={app.worshipRating ? `${app.worshipRating} / 5` : ''} />
-        <Row label="Best part of our worship" value={app.worshipBestPart} />
-      </CollapsibleSection>
-
-      <CollapsibleSection key={`spiritual-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">Spiritual Journey</h3>}>
-        <Row label="Testimony" value={app.testimony} />
-        <Row label="Baptised" value={app.baptised} />
-        <Row label="Anointed by the Holy Spirit" value={app.anointedByHolySpirit} />
-        <Row label="Ministry experience" value={app.ministryExperience} />
-        <Row label="Duration" value={app.ministryDuration} />
-        <Row label="Area of ministry" value={app.ministryArea === 'Other Ministry Area' ? app.ministryAreaOther : app.ministryArea} />
-        <Row label="Inspiration for Worship Ministry" value={app.worshipInspiration} />
-      </CollapsibleSection>
-
-      <CollapsibleSection key={`musical-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">Musical &amp; Technical Profile</h3>}>
-        <Row label="Instrument(s) or vocal part(s)" value={app.primaryInstruments} />
-        {(app.primaryInstruments || []).map(inst => (
-          <InstrumentDetailRow key={inst} instrument={inst} details={app.instrumentDetails?.[inst]} />
-        ))}
-        <Row label="Reading ability" value={app.readingAbility} />
-        <Row label="Years of experience" value={app.yearsExperience} />
-        <Row label="Formal training" value={app.formalTraining} />
-        <Row label="Portfolio link" value={app.portfolioLink} />
-        <Row label="Vocal range / key" value={app.vocalRange} />
-      </CollapsibleSection>
-
-      <CollapsibleSection key={`availability-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">Availability &amp; Commitment</h3>}>
-        <Row label="Special events" value={app.specialEvents} />
-        <Row label="Will attend all practices" value={app.attendPractices ? 'Yes' : 'No'} />
-        <Row label="Will attend rehearsals" value={app.attendRehearsals ? 'Yes' : 'No'} />
-      </CollapsibleSection>
-
-      <CollapsibleSection key={`heart-${toggleVersion}`} defaultOpen={allOpen} header={<h3 className="text-sm font-bold text-slate-800">Heart for Worship &amp; Alignment</h3>}>
-        <Row label="Definition of worship" value={app.worshipDefinition} />
-        <Row label="Response to feedback" value={app.feedbackResponse} />
-        <Row label="Covenant agreed" value={app.covenantAgree ? 'Yes' : 'No'} />
-        {app.signatureDataUrl && (
-          <div className="py-2">
-            <p className="text-xs font-medium text-slate-400 mb-1">Signature</p>
-            <img src={app.signatureDataUrl} alt="Applicant signature" className="max-w-[280px] border border-slate-200 rounded-lg bg-white" />
+      {/* Overview — contact details + the at-a-glance facts as one inline strip. */}
+      <section className="mb-3 bg-white rounded-xl border border-slate-200 p-3.5">
+        {quickFacts.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {quickFacts.map(([k, v]) => (
+              <span key={k} className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2.5 py-1 text-[11px]">
+                <span className="text-slate-400">{k}:</span><span className="font-semibold text-slate-700">{v}</span>
+              </span>
+            ))}
           </div>
         )}
-      </CollapsibleSection>
+        <dl className="grid grid-cols-2 lg:grid-cols-5 gap-x-4 gap-y-2">
+          <KV label="Date of birth" value={app.dob} />
+          <KV label="Phone" value={app.phone} />
+          <KV label="Email" value={app.email} />
+          <KV label="Current place" value={app.currentPlace} />
+          <KV label="Coming from" value={app.comingFrom} />
+        </dl>
+      </section>
 
-      {app.screening && (
-        <CollapsibleSection
-          key={`screening-${toggleVersion}`}
-          defaultOpen={allOpen}
-          borderClassName="border-emerald-200"
-          header={<h3 className="text-sm font-bold text-emerald-700">Screening Evaluation</h3>}
-        >
-          <ScreeningSummary screening={app.screening} />
-        </CollapsibleSection>
-      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+        <DetailCard title="Church & Cell" defaultOpen>
+          <KV label="Cell group" value={app.cellGroup} />
+          <KV label="Regular attendee" value={app.regularCellAttendee} />
+          <KV label="Permanent member" value={app.permanentMember} />
+          <KV label="Attending for" value={app.churchAttendanceDuration} />
+          <KV label="Worship rating" value={app.worshipRating ? `${app.worshipRating} / 5` : ''} />
+          <KV label="Best part of our worship" value={app.worshipBestPart} wide />
+        </DetailCard>
+
+        <DetailCard title="Musical & Technical Profile">
+          <KV label="Instrument(s) / vocal part(s)" value={app.primaryInstruments} wide />
+          {(app.primaryInstruments || []).map((inst) => {
+            const d = app.instrumentDetails?.[inst]
+            if (!d) return null
+            const bits = [
+              d.duration && `${d.duration} experience`,
+              d.coaching && `Coaching: ${d.coaching}${d.coaching === 'Yes' && d.coachingYears ? ` (${d.coachingYears})` : ''}`,
+              d.certified && `Certified: ${d.certified}${d.certified === 'Yes' && d.certificationDetails ? ` (${d.certificationDetails})` : ''}`,
+            ].filter(Boolean).join(' · ')
+            return <KV key={inst} label={inst} value={bits} wide />
+          })}
+          <KV label="Reading ability" value={app.readingAbility} />
+          <KV label="Years of experience" value={app.yearsExperience} />
+          <KV label="Formal training" value={app.formalTraining} />
+          <KV label="Vocal range / key" value={app.vocalRange} />
+          {app.portfolioLink && (
+            <div className="col-span-full min-w-0">
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Portfolio</dt>
+              <dd className="text-[13px] truncate">
+                {/^https?:\/\//.test(app.portfolioLink)
+                  ? <a href={app.portfolioLink} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">{app.portfolioLink}</a>
+                  : app.portfolioLink}
+              </dd>
+            </div>
+          )}
+        </DetailCard>
+
+        <DetailCard title="Spiritual Journey" className="md:col-span-2">
+          <KV label="Baptised" value={app.baptised} />
+          <KV label="Anointed by the Holy Spirit" value={app.anointedByHolySpirit} />
+          <KV label="Ministry experience" value={app.ministryExperience} />
+          <KV label="Duration" value={app.ministryDuration} />
+          <KV label="Area of ministry" value={app.ministryArea === 'Other Ministry Area' ? app.ministryAreaOther : app.ministryArea} />
+          <KV label="Testimony" value={app.testimony} wide />
+          <KV label="Inspiration for worship ministry" value={app.worshipInspiration} wide />
+        </DetailCard>
+
+        <DetailCard title="Availability & Commitment">
+          <KV label="Attends all practices" value={yesNo(app.attendPractices)} />
+          <KV label="Attends rehearsals" value={yesNo(app.attendRehearsals)} />
+          <KV label="Special events" value={app.specialEvents} wide />
+        </DetailCard>
+
+        <DetailCard title="Heart for Worship & Alignment">
+          <KV label="Covenant agreed" value={yesNo(app.covenantAgree)} />
+          <KV label="Definition of worship" value={app.worshipDefinition} wide />
+          <KV label="Response to feedback" value={app.feedbackResponse} wide />
+          {app.signatureDataUrl && (
+            <div className="col-span-full">
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Signature</dt>
+              <dd><img src={app.signatureDataUrl} alt="Applicant signature" className="max-h-14 max-w-[220px] border-b border-slate-300" /></dd>
+            </div>
+          )}
+        </DetailCard>
+
+        {s && (
+          <DetailCard title="Screening Evaluation" tone="emerald" className="md:col-span-2" defaultOpen>
+            <KV label="Pitch & vocal control" value={scaleOf5(s.pitchAccuracy)} />
+            <KV label="Rhythm & timing" value={scaleOf5(s.rhythmTiming)} />
+            <KV label="Live play & sing" value={`${s.livePlaySingDone ? 'Done' : 'Not done'} · ${scaleOf5(s.livePlaySingScore)}`} />
+            <KV label="Instrumental proficiency" value={scaleOf5(s.instrumentalProficiency)} />
+            <KV label="Stage presence" value={scaleOf5(s.stagePresence)} />
+            <KV label="Ear training & harmony" value={s.earTraining} />
+            <KV label="Dynamic sensitivity" value={s.dynamicSensitivity} />
+            <KV label="Chart following" value={s.chartFollowing} />
+            <KV label="Coachability" value={s.coachability} />
+            <KV label="Recommendation" value={s.recommendation} />
+            <KV label="Screened by" value={s.screenedBy} />
+            <KV label="Evaluation notes" value={s.notes} wide />
+          </DetailCard>
+        )}
+      </div>
+
+      {/* Phone decision bar — floats above the bottom Departments button. */}
+      <div className="md:hidden fixed inset-x-3 z-30" style={{ bottom: 'calc(5.25rem + env(safe-area-inset-bottom, 0px))' }}>
+        {moreOpen && (
+          <>
+            <div className="fixed inset-0" onClick={() => setMoreOpen(false)} aria-hidden />
+            <div className="relative mb-2 ml-auto w-48 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden">
+              {secondary.map((b) => (
+                <button key={b.key} type="button" disabled={b.disabled} onClick={() => { setMoreOpen(false); b.onClick() }}
+                  className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-left text-sm border-b border-slate-100 last:border-b-0 disabled:opacity-50 ${b.danger ? 'text-red-600' : 'text-slate-700'}`}>
+                  {b.icon && <Download size={14} />}{b.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        <div className="relative flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 backdrop-blur p-2 shadow-lg">
+          {primary && (
+            <button type="button" onClick={primary.onClick} className={`flex-1 min-h-[44px] rounded-xl text-white text-sm font-bold ${primary.cls}`}>
+              {canApprove ? 'Approve' : primary.label}
+            </button>
+          )}
+          <button type="button" onClick={screeningBtn.onClick}
+            className={`${primary ? '' : 'flex-1 '}min-h-[44px] px-3 rounded-xl text-white text-sm font-semibold ${screeningBtn.cls}`}>
+            {s ? 'Edit' : 'Screen'}
+          </button>
+          <button type="button" onClick={() => setMoreOpen((o) => !o)} aria-label="More actions" aria-expanded={moreOpen}
+            className="w-11 min-h-[44px] rounded-xl border border-slate-200 text-slate-600 text-lg font-bold">⋯</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1438,6 +1572,8 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
   const [mode, setMode] = useState('list') // 'list' | 'new' | 'done'
   const [viewing, setViewing] = useState(null)
   const [screeningApp, setScreeningApp] = useState(null)
+  const [approvingApp, setApprovingApp] = useState(null)
+  const [approvedNote, setApprovedNote] = useState('')
 
   useEffect(() => { load() }, [])
 
@@ -1481,6 +1617,41 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
     }
   }
 
+  // Approve & Add to Worship Team: create (or re-activate) their worship team
+  // member record, then mark the application approved. A new record's createdAt
+  // shows on the Worship page's blue notification ribbon ("New worship team
+  // member added") for the department's directors.
+  async function handleApprove({ positions, memberSince, person }) {
+    const app = approvingApp
+    const by = userProfile?.email || userProfile?.name || ''
+    const name = directoryEntryName(person) || app.fullName
+    const visitorId = person._visitorIds?.[0] || ''
+    const personId = person.personId || ''
+    const team = await getWorshipTeamMembers(DEPARTMENT)
+    const existing = team.find((m) => (personId && m.personId === personId) || (visitorId && m.visitorId === visitorId) || lower(m.name) === lower(name))
+    let teamMemberId
+    if (existing) {
+      teamMemberId = existing.id
+      await updateWorshipTeamMember(existing.id, {
+        positions: Array.from(new Set([...(existing.positions || []), ...positions])),
+        isFormer: false,
+        visitorId: existing.visitorId || visitorId,
+        personId: existing.personId || personId,
+      })
+    } else {
+      teamMemberId = await addWorshipTeamMember(DEPARTMENT, { name, visitorId, personId, positions, memberSince, createdSource: 'worship_application' }, by)
+    }
+    const patch = { status: 'approved', approvedAt: new Date().toISOString(), approvedBy: by, approvedPositions: positions, teamMemberId: teamMemberId || '' }
+    await updateWorshipApplication(app.id, patch)
+    setApplications((prev) => prev.map((a) => (a.id === app.id ? { ...a, ...patch } : a)))
+    setViewing((v) => (v && v.id === app.id ? { ...v, ...patch } : v))
+    setApprovingApp(null)
+    setApprovedNote(existing
+      ? `${name} was already on The Team — their roles were updated.`
+      : `✔ ${name} added to The Team as ${positions.join(', ')}.`)
+    setTimeout(() => setApprovedNote(''), 6000)
+  }
+
   async function handleDelete(app) {
     if (!window.confirm(`Delete ${app.fullName}'s application?`)) return
     try {
@@ -1515,8 +1686,11 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
 
   if (viewing) {
     return (
-      <div className="max-w-2xl mx-auto">
-        <ApplicationDetail app={viewing} onBack={() => setViewing(null)} onMarkReviewed={markReviewed} onDelete={handleDelete} onEditScreening={setScreeningApp} />
+      <div className="max-w-5xl mx-auto">
+        {approvedNote && <p className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">{approvedNote}</p>}
+        <ApplicationDetail app={viewing} onBack={() => setViewing(null)} onMarkReviewed={markReviewed} onDelete={handleDelete} onEditScreening={setScreeningApp}
+          onApprove={canManageWorship ? setApprovingApp : null} />
+        {approvingApp && <ApproveToTeamModal app={approvingApp} onClose={() => setApprovingApp(null)} onConfirm={handleApprove} />}
         {screeningApp && (
           <ScreeningModal
             app={screeningApp}
@@ -1528,7 +1702,7 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
     )
   }
 
-  const pendingCount = applications.filter(a => a.status !== 'reviewed' && a.status !== 'screened').length
+  const pendingCount = applications.filter(a => a.status !== 'reviewed' && a.status !== 'screened' && a.status !== 'approved').length
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
@@ -1571,7 +1745,11 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
                     {(app.primaryInstruments || []).join(', ') || 'No instrument selected'}
                   </p>
                 </div>
-                {app.status === 'screened' ? (
+                {app.status === 'approved' ? (
+                  <span className="shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
+                    On the Team
+                  </span>
+                ) : app.status === 'screened' ? (
                   canManageWorship ? (
                     <div className="flex items-center gap-1.5 shrink-0">
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-50 text-violet-700">

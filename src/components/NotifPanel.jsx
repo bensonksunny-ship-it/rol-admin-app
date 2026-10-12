@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Bell, ListPlus, Check, X, ArrowRight } from 'lucide-react'
+import { Bell, ListPlus, Check, X, ArrowRight, UserRound } from 'lucide-react'
 
 export default function NotifPanel({ isDay, notifications, posStyle, onAction, onAddToTodo, onDismiss, onClose }) {
   const [pendingIds, setPendingIds] = useState(() => new Set())
@@ -30,6 +30,8 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
   useEffect(() => {
     if (!onClose) return
     const close = (e) => {
+      // The desktop backdrop closes on its own click (so that click is swallowed).
+      if (e.target?.dataset?.notifBackdrop) return
       if (panelRef.current && !panelRef.current.contains(e.target)) onClose()
     }
     document.addEventListener('mousedown', close)
@@ -72,9 +74,11 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
   // fill, a lighter backdrop blur so the page behind still shows through, and a
   // bright hairline + inset top highlight standing in for a specular sheen.
   const glassStyle = {
+    // Near-opaque: at 62% the bright blue workspace ribbons behind the panel showed
+    // through its lower half and read as if they were on top of it.
     background: isDay
-      ? 'linear-gradient(to bottom, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.62) 100%)'
-      : 'linear-gradient(to bottom, rgba(30,41,59,0.82) 0%, rgba(15,23,42,0.62) 100%)',
+      ? 'linear-gradient(to bottom, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0.94) 100%)'
+      : 'linear-gradient(to bottom, rgba(30,41,59,0.96) 0%, rgba(15,23,42,0.94) 100%)',
     backdropFilter: 'blur(12px) saturate(180%)',
     WebkitBackdropFilter: 'blur(12px) saturate(180%)',
     border: isDay ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.14)',
@@ -95,7 +99,7 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
   // three-button action bar — replaces the old whole-card-as-one-button plus tiny
   // nested text-link pattern.
   const cards = (
-    <div className="space-y-3 p-3">
+    <div className="space-y-3 p-3 pb-5">
       {notifications.map((n) => (
         <div
           key={n.id}
@@ -113,14 +117,35 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
           </div>
           <p className={`text-sm font-bold ${isDay ? 'text-slate-800' : 'text-slate-100'}`}>{n.title}</p>
           <p className={`text-sm mt-0.5 break-words ${isDay ? 'text-slate-600' : 'text-slate-300'}`}>{n.body}</p>
-          {n.cellName && <p className={`text-xs mt-1 ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>{n.cellName}</p>}
+          {/* Attribution: who raised it → who it is for. Falls back to the old
+              cell-name line for any type that doesn't carry from/to yet. */}
+          {(n.from || n.to) ? (
+            <p className={`mt-2 pt-2 border-t flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs ${
+              isDay ? 'border-slate-100 text-slate-500' : 'border-slate-700/60 text-slate-400'
+            }`}>
+              {n.from && (
+                <span className="inline-flex items-center gap-1 min-w-0">
+                  <UserRound size={12} className="shrink-0" aria-hidden />
+                  <span>From:</span>
+                  <span className={`font-semibold break-words ${isDay ? 'text-slate-700' : 'text-slate-200'}`}>{n.from}</span>
+                </span>
+              )}
+              {n.to && (
+                <span className="inline-flex items-center gap-1 min-w-0">
+                  <ArrowRight size={12} className="shrink-0" aria-hidden />
+                  <span>For:</span>
+                  <span className={`font-semibold break-words ${isDay ? 'text-slate-700' : 'text-slate-200'}`}>{n.to}</span>
+                </span>
+              )}
+            </p>
+          ) : n.cellName && <p className={`text-xs mt-1 ${isDay ? 'text-slate-400' : 'text-slate-500'}`}>{n.cellName}</p>}
 
-          <div className="flex items-center gap-2 mt-3">
+          <div className="flex flex-wrap items-center gap-2 mt-3">
             {onAction && (
               <button
                 type="button"
                 onClick={() => onAction(n)}
-                className={`flex-1 inline-flex items-center justify-center gap-1 text-xs font-semibold px-3 py-2 rounded-full transition-colors ${
+                className={`flex-1 min-w-[8rem] whitespace-nowrap inline-flex items-center justify-center gap-1 text-xs font-semibold px-3 py-2 rounded-full transition-colors ${
                   isDay ? 'bg-violet-600 text-white hover:bg-violet-700' : 'bg-violet-500 text-white hover:bg-violet-400'
                 }`}
               >
@@ -195,7 +220,7 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
             </p>
           )}
           {notifications.length === 0 ? emptyState : (
-            <div className="flex-1 min-h-0 overflow-y-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+            <div className={`flex-1 min-h-0 overflow-y-auto scrollbar-subtle ${isDay ? '' : 'scrollbar-dark'}`} style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
               {cards}
             </div>
           )}
@@ -205,25 +230,44 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
     )
   }
 
+  // Desktop: anchored dropdown. Width and height are capped to the viewport (from the
+  // panel's own top edge), and the header stays fixed while only the card list
+  // scrolls, so the last card's action buttons are never cut off at the bottom.
+  const PANEL_W = 384
+  const top = posStyle?.top ?? 68
+  const left = Math.max(12, Math.min(posStyle?.left ?? 12, window.innerWidth - PANEL_W - 12))
   return createPortal(
+    <>
+    {/* Transparent click-catcher: an outside click closes the panel without also
+        landing on the dashboard card underneath. */}
+    <div data-notif-backdrop="1" className="fixed inset-0 z-[99]" onClick={onClose} aria-hidden />
     <div
       ref={panelRef}
-      className="w-96 rounded-2xl overflow-hidden"
-      style={{ position: 'fixed', zIndex: 100, maxWidth: 'calc(100vw - 24px)', ...glassStyle, ...posStyle }}
+      role="dialog"
+      aria-label="Notifications"
+      className="w-96 rounded-2xl overflow-hidden flex flex-col"
+      style={{
+        position: 'fixed', zIndex: 100, maxWidth: 'calc(100vw - 24px)',
+        maxHeight: `min(480px, calc(100vh - ${top}px - 16px))`,
+        ...glassStyle, ...posStyle, top, left,
+      }}
     >
-      <div className={`px-4 py-2.5 flex items-center justify-between border-b ${isDay ? 'border-slate-100' : 'border-slate-700/60'}`}>
+      <div className={`shrink-0 px-4 py-2.5 flex items-center justify-between border-b ${isDay ? 'border-slate-100' : 'border-slate-700/60'}`}>
         <p className={`text-sm font-bold ${isDay ? 'text-slate-800' : 'text-slate-100'}`}>Notifications</p>
         {notifications.length > 0 && (
           <span className="text-xs font-semibold text-indigo-500">{notifications.length} pending</span>
         )}
       </div>
       {actionError && (
-        <p className="px-4 py-2 text-xs font-semibold text-rose-600 bg-rose-50 border-b border-rose-100">
+        <p className="shrink-0 px-4 py-2 text-xs font-semibold text-rose-600 bg-rose-50 border-b border-rose-100">
           {actionError}
         </p>
       )}
-      {notifications.length === 0 ? emptyState : <div className="overflow-y-auto max-h-80">{cards}</div>}
-    </div>,
+      {notifications.length === 0 ? emptyState : (
+        <div className={`flex-1 min-h-0 overflow-y-auto scrollbar-subtle ${isDay ? '' : 'scrollbar-dark'}`}>{cards}</div>
+      )}
+    </div>
+    </>,
     document.body
   )
 }

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { subscribeMyInterviewRequests, respondToInterviewRequest } from '../../services/firestore'
+import { subscribeMyInterviewRequests, respondToInterviewRequest, scheduleDeaconInterview } from '../../services/firestore'
+import ScheduleMeetingModal from './ScheduleMeetingModal'
+import { MEETING_MODES, scheduleWhere } from '../../utils/meetingSchedule'
 import useClickOutside from '../../hooks/useClickOutside'
 import ConductInterviewModal from './ConductInterviewModal'
+import { RIBBON_BAR } from '../../constants/ribbon'
 
 const fmtDateTime = (s) => {
   const dt = s ? new Date(s) : null
@@ -10,9 +13,6 @@ const fmtDateTime = (s) => {
     ? dt.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
     : 'a date to be confirmed'
 }
-// An accepted interview stays on the workspace (as its schedule entry) until a few
-// hours after the scheduled time.
-const isUpcoming = (s) => { const t = s ? new Date(s).getTime() : NaN; return isNaN(t) || t > Date.now() - 6 * 60 * 60 * 1000 }
 
 /** One invitation — Worship-ribbon style banner ("Hello …, you are assigned …  More →");
  *  More toggles the details and Accept / Decline just below it. */
@@ -23,6 +23,8 @@ function InterviewInvite({ r, myName, onRecorded }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [conducting, setConducting] = useState(false)
+  const [scheduling, setScheduling] = useState(false)
+  const modeLabel = MEETING_MODES.find((m) => m.value === r.schedule?.mode)?.label || ''
   const cardRef = useRef(null)
   const collapse = useCallback(() => { setExpanded(false); setDeclining(false) }, [])
   useClickOutside(cardRef, collapse, expanded)
@@ -35,6 +37,8 @@ function InterviewInvite({ r, myName, onRecorded }) {
       // Sets membershipPipeline.interview.status ('Accepted' / 'Declined') on the candidate too;
       // the live feed then flips this banner to its accepted wording (or removes it on decline).
       await respondToInterviewRequest(r, yes, { by: myName, note: yes ? '' : reason })
+      // Accepted → set the date, time and mode (the form opens from the banner later).
+      if (yes) setScheduling(true)
     } catch (e) {
       console.error('respondToInterviewRequest', e)
       setError('Could not save your answer. Please try again.')
@@ -43,21 +47,34 @@ function InterviewInvite({ r, myName, onRecorded }) {
   }
 
   return (
-    <div ref={cardRef} className="w-full max-w-xl mx-auto my-3">
-      <div className={`${accepted ? 'bg-emerald-600' : 'bg-indigo-600'} text-white rounded-xl px-5 py-3 shadow-md flex items-center justify-between gap-3 w-full`}>
+    <div ref={cardRef} className="w-full my-3">
+      {/* The whole bar opens / closes the details — no separate "More" button. */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setExpanded((v) => !v) } }}
+        className={`${accepted ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-xl shadow-md justify-between cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500 ${RIBBON_BAR}`}
+      >
         <span className="min-w-0 text-sm font-medium tracking-wide">
           {accepted
-            ? <>Hello {firstName}, you have accepted the interview for <b>{r.candidateName || 'the candidate'}</b> on {fmtDateTime(r.scheduledAt)}.</>
+            ? <>Hello {firstName}, you have accepted the interview for <b>{r.candidateName || 'the candidate'}</b> on {fmtDateTime(r.scheduledAt)}{modeLabel ? ` · ${modeLabel}` : ''}.</>
             : <>Hello {firstName}, you are assigned for the membership interview of <b>{r.candidateName || 'a candidate'}</b> on {fmtDateTime(r.scheduledAt)}.</>}
         </span>
-        <button
-          type="button"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
-          className={`flex-shrink-0 ${accepted ? 'bg-emerald-700/80 hover:bg-emerald-700' : 'bg-indigo-700/80 hover:bg-indigo-700'} text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all`}
-        >
-          More <ChevronRight size={14} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
-        </button>
+        {accepted && (
+          <div className="flex-shrink-0 flex flex-col sm:flex-row gap-1.5" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            <button type="button" onClick={() => setScheduling(true)}
+              className="bg-emerald-700/80 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg whitespace-nowrap">
+              {r.schedule?.at ? '🗓 Reschedule' : '🗓 Schedule Interview'}
+            </button>
+            <button type="button" onClick={() => setConducting(true)}
+              className="bg-white text-emerald-700 hover:bg-emerald-50 text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap">
+              📋 Conduct Membership Interview
+            </button>
+          </div>
+        )}
+        <ChevronRight size={18} aria-hidden="true" className={`flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
       </div>
 
       {expanded && (
@@ -67,15 +84,26 @@ function InterviewInvite({ r, myName, onRecorded }) {
             <div><dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Assigned Cell</dt><dd className="text-slate-800">{r.candidateCell || '—'}</dd></div>
             <div><dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Interview</dt><dd className="text-slate-800">{fmtDateTime(r.scheduledAt)}</dd></div>
           </dl>
+          {r.schedule?.at && (
+            <p className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+              {modeLabel}{scheduleWhere(r.schedule) ? ` · ${scheduleWhere(r.schedule)}` : ''}{r.schedule.notes ? ` · ${r.schedule.notes}` : ''}
+            </p>
+          )}
           {r.notes && <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">Notes: {r.notes}</p>}
 
           {accepted ? (
             <div className="space-y-2">
-              <p className="text-sm font-semibold text-emerald-700">✔ Accepted. This interview is on your workspace schedule.</p>
-              <button type="button" onClick={() => setConducting(true)}
-                className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-lg text-sm shadow-sm">
-                Conduct Membership Interview
-              </button>
+              <p className="text-sm font-semibold text-emerald-700">✔ Accepted. This interview stays on your workspace until you record it.</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button type="button" onClick={() => setScheduling(true)}
+                  className="bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold px-4 py-2.5 rounded-lg text-sm">
+                  {r.schedule?.at ? '🗓 Reschedule' : '🗓 Schedule Interview'}
+                </button>
+                <button type="button" onClick={() => setConducting(true)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-lg text-sm shadow-sm">
+                  📋 Conduct Membership Interview
+                </button>
+              </div>
             </div>
           ) : declining ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -100,6 +128,16 @@ function InterviewInvite({ r, myName, onRecorded }) {
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       )}
+      {scheduling && (
+        <ScheduleMeetingModal
+          title={r.schedule?.at ? 'Reschedule Interview' : 'Schedule Interview'}
+          subtitle={`${r.candidateName || 'Candidate'}${r.candidateCell ? ` · ${r.candidateCell}` : ''}`}
+          accent="emerald"
+          initial={r.schedule || (r.scheduledAt ? { at: r.scheduledAt } : null)}
+          onSave={(sched) => scheduleDeaconInterview(r, sched, myName)}
+          onClose={() => setScheduling(false)}
+        />
+      )}
       {conducting && (
         <ConductInterviewModal
           request={r}
@@ -116,15 +154,15 @@ function InterviewInvite({ r, myName, onRecorded }) {
  * My Workspace → Membership Interview invitations for a Deacon (pipeline stage 6),
  * in the Worship roster ribbon's design: a solid indigo "Hello …, you are assigned …"
  * banner with More → revealing the details and Accept / Decline. Once accepted it
- * turns green ("you have accepted …") and stays as the Deacon's schedule entry until
- * the interview has taken place. Live (onSnapshot).
+ * turns green ("you have accepted …") with 📋 Conduct Membership Interview, and stays
+ * until the interview is recorded (even after the scheduled time). Live (onSnapshot).
  */
 export default function DeaconInterviewRibbon({ uid, email, myName }) {
   const [requests, setRequests] = useState([])
   // Confirmation after an interview is recorded (its request leaves the list).
   const [recorded, setRecorded] = useState('')
   useEffect(() => subscribeMyInterviewRequests({ uid, email }, setRequests), [uid, email])
-  const shown = requests.filter((r) => r.status === 'pending' || (r.status === 'accepted' && isUpcoming(r.scheduledAt)))
+  const shown = requests.filter((r) => r.status === 'pending' || r.status === 'accepted')
   if (!shown.length && !recorded) return null
   return (
     <div>

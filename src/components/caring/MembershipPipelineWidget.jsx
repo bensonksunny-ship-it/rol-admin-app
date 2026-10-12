@@ -10,6 +10,8 @@ import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { getMemberDisplayName } from '../../utils/displayName'
 import MembershipPipelineTracker from './MembershipPipelineTracker'
 import ApplicationMasterDocumentModal from './ApplicationMasterDocumentModal'
+import { scheduleSummary, scheduleWhere } from '../../utils/meetingSchedule'
+import { RIBBON_BAR } from '../../constants/ribbon'
 
 /** The one status worth surfacing on a collapsed row (most urgent first), or null. */
 function priorityBadge(entry, application, cur) {
@@ -23,6 +25,50 @@ function priorityBadge(entry, application, cur) {
   if (cur?.key === 'membershipInterview' && mp.interview?.status === 'Accepted') return { label: 'Interview Accepted', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
   return null
 }
+
+const fmtDateTime = (v) => {
+  const d = v ? new Date(v) : null
+  return d && !isNaN(d.getTime()) ? d.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
+}
+const TONES = {
+  green: 'bg-emerald-600 text-white',
+  amber: 'bg-amber-50 text-amber-900 border border-amber-200',
+  sky: 'bg-sky-600 text-white',
+  orange: 'bg-orange-50 text-orange-900 border border-orange-300',
+}
+
+/** Card for the current stage (accordion level 1): { tone, title, detail }. */
+function stageSummaryCard(entry, application, cur) {
+  const mp = entry.membershipPipeline || {}
+  if (!cur) return { tone: 'green', title: '✔ All 8 stages complete', detail: entry.membershipNumber ? `Membership No. ${entry.membershipNumber}` : '' }
+  const where = (sch) => [scheduleSummary(sch), scheduleWhere(sch)].filter(Boolean).join(' · ')
+  if (application?.status === 'revision_requested') return { tone: 'orange', title: 'Returned to the applicant for revisions', detail: 'Waiting for them to resubmit.' }
+  if (application?.status === 'declaration_requested') return { tone: 'orange', title: 'Baptism self-declaration requested', detail: 'Waiting for the applicant to sign.' }
+  if (cur.key === 'cellLeaderApproval') {
+    const req = mp.cellLeaderRequest
+    const call = mp.cellLeaderVerification?.scheduledCall
+    if (call?.at) return { tone: 'sky', title: `📞 ${req?.cellLeaderName || 'Cell leader'} scheduled the call`, detail: where(call) }
+    if (req?.status === 'Requested') return { tone: 'sky', title: `Sent to ${req.cellLeaderName || 'the cell leader'}`, detail: 'Waiting for them to accept and schedule the call.' }
+  }
+  if (cur.key === 'membershipInterview') {
+    const iv = mp.interview || {}
+    const sch = mp.deaconInterview?.scheduledInterview
+    if (iv.status === 'Accepted') return { tone: 'green', title: `✔ ${iv.deaconName || 'The deacon'} accepted the interview`, detail: sch?.at ? where(sch) : fmtDateTime(iv.scheduledAt) }
+    if (iv.status === 'Requested') return { tone: 'amber', title: `Waiting for ${iv.deaconName || 'the deacon'} to accept`, detail: fmtDateTime(iv.scheduledAt) }
+    if (iv.status === 'Declined') return { tone: 'orange', title: `${iv.deaconName || 'The deacon'} declined`, detail: iv.responseNote ? `"${iv.responseNote}"` : 'Assign another deacon.' }
+    if (iv.status === 'Follow-up Required') return { tone: 'orange', title: 'Interview needs a follow-up', detail: iv.deaconRemarks || '' }
+  }
+  return { tone: 'amber', title: `Stage ${cur.n}: ${cur.label}`, detail: cur.detail || '' }
+}
+
+// Row click cycles: one line → current-stage card → full tracker → one line.
+const NEXT_LEVEL = { collapsed: 'summary', summary: 'full', full: 'collapsed' }
+
+// Whole-widget open state (level 0 ribbon ↔ level 1 list) — a per-viewer
+// convenience, so browser storage is fine; unavailable storage just means collapsed.
+const SECTION_KEY = 'rol.membershipPipeline.open'
+const readSectionOpen = () => { try { return localStorage.getItem(SECTION_KEY) === '1' } catch { return false } }
+const writeSectionOpen = (v) => { try { localStorage.setItem(SECTION_KEY, v ? '1' : '0') } catch { /* storage blocked */ } }
 
 const isBaptised = (p) => String(p?.baptised || '').toLowerCase() === 'yes' || !!(p?.baptismDate || p?.baptismChurch || p?.baptismPlace)
 
@@ -45,10 +91,16 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
   const [apps, setApps] = useState([])
   const [profiles, setProfiles] = useState({}) // visitorId → member profile
   const [showDone, setShowDone] = useState(false)
-  // Rows start collapsed to one summary line; clicking a row opens its full tracker.
-  const [expandedApplicantIds, setExpandedApplicantIds] = useState([])
+  // Each row: 'collapsed' | 'summary' | 'full' (see NEXT_LEVEL); absent = collapsed.
+  const [expansion, setExpansion] = useState({})
   const [masterDocId, setMasterDocId] = useState(null) // PCS id whose Full Application Record is open
-  const toggleRow = (id) => setExpandedApplicantIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  // Level 0: the whole widget as one blue ribbon; level 1: the candidate list;
+  // level 2: a row's own summary → full tracker (levelOf / toggleRow below).
+  const [sectionOpen, setSectionOpenState] = useState(readSectionOpen)
+  const setSectionOpen = (v) => { setSectionOpenState(v); writeSectionOpen(v) }
+  const levelOf = (id) => expansion[id] || 'collapsed'
+  const setLevel = (id, level) => setExpansion((prev) => ({ ...prev, [id]: level }))
+  const toggleRow = (id) => setLevel(id, NEXT_LEVEL[levelOf(id)])
 
   useEffect(() => subscribeApplicationsByStatus('membership', ['pending', 'submitted', 'info_requested', 'declaration_requested', 'revision_requested', 'approved', 'rejected'], setApps, () => setApps([])), [])
   useEffect(() => subscribeMembershipPipelineEntries(setPcsEntries, () => setPcsEntries([])), [])
@@ -97,22 +149,42 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
   const openCount = pcsEntries.filter((e) => hasMembershipPipeline(e) && e.membershipPipeline.status !== 'completed').length
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 flex items-center gap-2 border-b border-slate-100">
-        <p className="text-sm font-bold text-slate-800 flex-1">Membership Onboarding Pipeline</p>
-        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${openCount ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{openCount} in progress</span>
-        <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
-          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> Show completed
-        </label>
+    <div className={`rounded-xl border shadow-sm overflow-hidden ${sectionOpen ? 'bg-white border-slate-200' : 'border-transparent'}`}>
+      {/* Ribbon header — the whole widget when collapsed (level 0), the list's
+          header when open. Same single-line ribbon shape as Upcoming Worship. */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={sectionOpen}
+        onClick={() => setSectionOpen(!sectionOpen)}
+        onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setSectionOpen(!sectionOpen) } }}
+        className={`${RIBBON_BAR} cursor-pointer bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/80`}
+      >
+        <span className="flex-1 min-w-0 text-sm font-bold truncate">Membership Onboarding Pipeline</span>
+        <span className="flex-shrink-0 text-xs font-bold px-2.5 py-0.5 rounded-full bg-white/20 text-white">{openCount} in progress</span>
+        {sectionOpen && (
+          <label className="hidden sm:flex flex-shrink-0 items-center gap-1.5 text-xs text-white/90 cursor-pointer" onClick={(ev) => ev.stopPropagation()}>
+            <input type="checkbox" checked={showDone} onChange={(ev) => setShowDone(ev.target.checked)} className="accent-white" /> Show completed
+          </label>
+        )}
+        <ChevronDown size={18} aria-hidden="true" className={`flex-shrink-0 transition-transform duration-200 ${sectionOpen ? 'rotate-180' : ''}`} />
       </div>
-      {rows.length === 0 ? (
+      {/* Phones: the "Show completed" toggle sits under the ribbon. */}
+      {sectionOpen && (
+        <label className="sm:hidden flex items-center gap-1.5 px-4 pt-3 text-xs text-slate-500 cursor-pointer">
+          <input type="checkbox" checked={showDone} onChange={(ev) => setShowDone(ev.target.checked)} /> Show completed
+        </label>
+      )}
+      {!sectionOpen ? null : rows.length === 0 ? (
         <p className="px-4 py-6 text-sm text-slate-400 text-center">
           No one in the membership process. Start it from a PCS profile with “+ Initiate Membership Process”.
         </p>
       ) : (
         <ul className="px-3 py-1">
           {rows.map(({ e, cg, application, stages, cur }) => {
-            const open = expandedApplicantIds.includes(e.id)
+            const level = levelOf(e.id)
+            const open = level !== 'collapsed'
+            const card = open ? stageSummaryCard(e, application, cur) : null
             const badge = priorityBadge(e, application, cur)
             return (
               <li key={e.id}
@@ -137,14 +209,25 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
                     </div>
                     {badge && <span className={`self-start sm:self-auto text-[11px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${badge.cls}`}>{badge.label}</span>}
                   </div>
-                  <button type="button" aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${getMemberDisplayName(e)}`}
+                  <button type="button" aria-expanded={open}
+                    aria-label={`${level === 'collapsed' ? 'Show summary for' : level === 'summary' ? 'Show full details for' : 'Collapse'} ${getMemberDisplayName(e)}`}
                     className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100">
-                    <ChevronDown size={18} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+                    <ChevronDown size={18} className={`transition-transform duration-200 ${level === 'full' ? 'rotate-180' : level === 'summary' ? '-rotate-90' : ''}`} />
                   </button>
                 </div>
-                {/* Expanded drawer: full tracker. Clicks inside (incl. its portal
-                    modals, which bubble through React) don't collapse the row. */}
-                {open && (
+                {/* Level 1: the current stage's card (a click on it moves to level 2). */}
+                {card && (
+                  <div className={`mt-3 rounded-xl px-4 py-3 flex items-center gap-3 min-w-0 rol-accordion-slide-open ${TONES[card.tone]}`}>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold break-words">{card.title}</p>
+                      {card.detail && <p className="text-xs opacity-90 break-words mt-0.5">{card.detail}</p>}
+                    </div>
+                    {level === 'summary' && <span className="flex-shrink-0 text-xs font-semibold underline underline-offset-2 opacity-90 whitespace-nowrap">Full details ▾</span>}
+                  </div>
+                )}
+                {/* Level 2: full tracker. Clicks inside (incl. its portal modals,
+                    which bubble through React) don't change the level. */}
+                {level === 'full' && (
                   <div className="mt-3 pt-3 border-t border-slate-100 space-y-4 rol-accordion-slide-open cursor-default" onClick={(ev) => ev.stopPropagation()}>
                     <MembershipPipelineTracker
                       entry={e} stages={stages} application={application} cellLeaderName={cg?.leader || ''}
@@ -156,6 +239,9 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
                       </button>
                       <button type="button" onClick={() => onOpenProfile(e)} className="text-xs font-semibold text-indigo-700 hover:underline">
                         Open PCS profile →
+                      </button>
+                      <button type="button" onClick={() => setLevel(e.id, 'summary')} className="ml-auto text-xs font-semibold text-slate-500 hover:text-slate-800">
+                        Show less ▴
                       </button>
                     </div>
                   </div>

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import QRCode from 'qrcode'
+import { ClipboardCopy, Link2 } from 'lucide-react'
+import { copyImageDataUrlToClipboard } from '../../utils/shareImage'
 import {
   createMembershipApplication, subscribeMembershipApplicationsForEntry, updateMembershipApplication, deleteMembershipApplication, closeMembershipApplication,
 } from '../../services/firestore'
@@ -34,6 +36,7 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
   const [showCreate, setShowCreate] = useState(false)
   const [qr, setQr] = useState('')
   const [copied, setCopied] = useState(false)
+  const [qrNote, setQrNote] = useState(null) // { ok, text } after Copy QR Code Image
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -73,6 +76,15 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
     } finally { setCreating(false) }
   }
 
+  const qrFile = `membership-${entry.name.replace(/[^\w-]+/g, '-')}-qr.png`
+  const copyQr = async () => {
+    const result = await copyImageDataUrlToClipboard(qr, qrFile)
+    if (result === 'cancelled') return
+    setQrNote(result === 'copied' ? { ok: true, text: '✔ QR Code image copied! Paste (Ctrl+V) directly into WhatsApp.' }
+      : result === 'shared' ? { ok: true, text: '✔ QR Code image shared.' }
+      : { ok: false, text: "This browser can't copy images. Use Copy Application Link or Download QR image." })
+    setTimeout(() => setQrNote(null), 4000)
+  }
   const copy = async () => {
     try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { window.prompt('Copy this link:', link) }
   }
@@ -145,11 +157,20 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
                 <div className="flex flex-col items-center gap-3">
                   {qr ? <img src={qr} alt="Membership application QR code" className="w-56 h-56 rounded-xl border border-slate-200" /> : <div className="w-56 h-56 rounded-xl bg-slate-100" />}
                   <p className="text-xs text-slate-500 text-center">Scan with the applicant's phone camera to open their pre-filled membership form.</p>
-                  <div className="w-full flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                    <span className="flex-1 min-w-0 truncate text-xs text-slate-600 font-mono">{link}</span>
-                    <button type="button" onClick={copy} className="text-xs font-bold text-blue-700 whitespace-nowrap">{copied ? 'Copied ✓' : 'Copy Link'}</button>
+                  <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button type="button" disabled={!qr} onClick={copyQr}
+                      className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#92400e] text-white text-sm font-bold hover:bg-[#7c350c] disabled:opacity-50">
+                      <ClipboardCopy size={16} /> {qrNote?.ok ? '✔ QR Image Copied!' : 'Copy QR Code Image'}
+                    </button>
+                    <button type="button" onClick={copy}
+                      className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50">
+                      <Link2 size={16} /> {copied ? '✔ Link Copied!' : 'Copy Application Link'}
+                    </button>
                   </div>
-                  {qr && <a href={qr} download={`membership-${entry.name.replace(/[^\w-]+/g, '-')}-qr.png`} className="text-xs font-semibold text-slate-500 hover:text-slate-700">Download QR image</a>}
+                  {qrNote && (
+                    <p role="status" className={`text-xs font-semibold text-center px-3 py-1.5 rounded-full border ${qrNote.ok ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>{qrNote.text}</p>
+                  )}
+                  {qr && <a href={qr} download={qrFile} className="text-xs font-semibold text-slate-500 hover:text-slate-700">Download QR image</a>}
                 </div>
               )}
 

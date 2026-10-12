@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { format, startOfWeek, subWeeks, parseISO } from 'date-fns'
-import { getCellGroups, getLatestCellReports, createCellReportReminder } from '../services/firestore'
+import { getCellGroups, subscribeLatestCellReports, createCellReportReminder } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole, isFounder as isFounderUser } from '../utils/access'
 import { computeMeetingDateISO, formatWeekRangeLabel, formatWeekDayRangeShort, monthSpanLabel, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission } from '../utils/cellWeek'
@@ -49,21 +49,15 @@ export function canSeeCellDirectorDashboard(userProfile) {
   return directorDepartments(userProfile).length > 0
 }
 
-function buildReportLookup(reports) {
-  const m = new Map()
-  for (const r of reports || []) {
-    if (!r?.cellId || !r?.reportDate) continue
-    m.set(`${r.cellId}|${String(r.reportDate).slice(0, 10)}`, r)
-  }
-  return m
-}
-
 /**
  * Buckets reports by cellId + the Monday-anchored week the report's own date
  * falls in — not by a guessed "expected" date derived from the cell's configured
  * meetingDay. A cell with a missing/wrong meetingDay, or one that met on a
  * different day than usual, still gets counted here since we key off the report
- * it actually filed rather than where we expected it to land.
+ * it actually filed rather than where we expected it to land. This is the one
+ * week-matching rule for every widget here (banner, status table, 10-week badges,
+ * trend chart). When a week holds several docs, a real submission wins over a
+ * blank auto-created one.
  */
 function buildReportsByCellWeek(reports) {
   const m = new Map()
@@ -71,12 +65,27 @@ function buildReportsByCellWeek(reports) {
     if (!r?.cellId || !r?.reportDate) continue
     const wk = weekStartKey(String(r.reportDate).slice(0, 10))
     if (!m.has(r.cellId)) m.set(r.cellId, new Map())
-    m.get(r.cellId).set(wk, r)
+    const byWeek = m.get(r.cellId)
+    const prev = byWeek.get(wk)
+    if (!prev || (!isRealCellReportSubmission(prev) && isRealCellReportSubmission(r))) byWeek.set(wk, r)
   }
   return m
 }
 
-export function AlertPanelCellReports({ missingCount, onOpenDetails }) {
+export function AlertPanelCellReports({ missingCount, submittedCount, totalCount, onOpenDetails }) {
+  // "All submitted" only when every cell actually has this week's report — not just
+  // because no meeting date has passed yet (e.g. on a Monday, nothing is due).
+  if (missingCount === 0 && totalCount != null && submittedCount < totalCount) {
+    return (
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-xl bg-slate-200 flex items-center justify-center text-base flex-shrink-0">🗓️</div>
+        <div>
+          <p className="text-sm font-semibold text-slate-800">{submittedCount} of {totalCount} reports submitted this week</p>
+          <p className="text-xs text-slate-500 mt-0.5">No reports overdue yet. The rest are due after each cell's meeting day.</p>
+        </div>
+      </div>
+    )
+  }
   if (missingCount === 0) {
     return (
       <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center gap-3">
@@ -438,32 +447,40 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   const [remindedIds, setRemindedIds] = useState(new Set())
   const [reminderToast, setReminderToast] = useState(null)
 
-  const weekStartDate = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), [])
-  const storageKey = `cell_alerts_dismissed_${format(weekStartDate, 'yyyy-MM-dd')}`
+  // Today's date, re-read every minute so a dashboard left open across midnight
+  // (e.g. Sunday → Monday) rolls into the new Mon–Sun week by itself.
+  const [todayISO, setTodayISO] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+  useEffect(() => {
+    const t = setInterval(() => setTodayISO(format(new Date(), 'yyyy-MM-dd')), 60_000)
+    return () => clearInterval(t)
+  }, [])
+  const weekStartDate = useMemo(() => startOfWeek(parseISO(todayISO), { weekStartsOn: 1 }), [todayISO])
+  const weekKey = format(weekStartDate, 'yyyy-MM-dd')
+  const storageKey = `cell_alerts_dismissed_${weekKey}`
 
   const [dismissedIds, setDismissedIds] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem(`cell_alerts_dismissed_${format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')}`) || '[]')) }
     catch { return new Set() }
   })
+  useEffect(() => {
+    try { setDismissedIds(new Set(JSON.parse(localStorage.getItem(storageKey) || '[]'))) }
+    catch { setDismissedIds(new Set()) }
+  }, [storageKey])
 
-  const load = useCallback(() => {
-    setLoading(true)
-    // 1000, not 500 — the 10-week compliance table below needs enough history for
-    // every cell across a 10-week window; 500 risked truncating older weeks once
-    // there are 50+ active cells (500 / 10 weeks = 50 cells before it starts missing data).
-    Promise.all([getCellGroups(CELL_DEPARTMENT), getLatestCellReports(1000)])
-      .then(([groups, reports]) => {
-        setCellGroups(groups || [])
-        setLatestCellReports(reports || [])
-      })
-      .catch(() => {
-        setCellGroups([])
-        setLatestCellReports([])
-      })
-      .finally(() => setLoading(false))
+  useEffect(() => {
+    getCellGroups(CELL_DEPARTMENT).then((g) => setCellGroups(g || [])).catch(() => setCellGroups([]))
   }, [])
 
-  useEffect(() => { load() }, [load])
+  // Live: a leader submitting (or editing) a report updates the banner, the status
+  // row and the 10-week badge together, without a refresh. 1000, not 500 — the
+  // 10-week compliance table needs enough history for every cell across 10 weeks.
+  useEffect(() => subscribeLatestCellReports(1000, (reports) => {
+    setLatestCellReports(reports)
+    setLoading(false)
+  }, () => {
+    setLatestCellReports([])
+    setLoading(false)
+  }), [])
 
   const isFounder = isFounderUser(userProfile) || userProfile?.role === ROLES.FOUNDER
 
@@ -472,16 +489,17 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
     [cellGroups, userProfile]
   )
 
-  const reportLookup = useMemo(() => buildReportLookup(latestReports), [latestReports])
   const reportsByCellWeek = useMemo(() => buildReportsByCellWeek(latestReports), [latestReports])
 
   const rows = useMemo(() => {
-    const todayISO = format(new Date(), 'yyyy-MM-dd')
     return visibleGroups.map((cell) => {
       const expectedDate = computeMeetingDateISO(cell.meetingDay, weekStartDate)
-      // Try Firestore doc ID first; fall back to logical cellId for legacy reports.
-      const hit = reportLookup.get(`${cell.id}|${expectedDate}`)
-        || (cell.cellId !== cell.id ? reportLookup.get(`${cell.cellId}|${expectedDate}`) : null)
+      // Any real report dated inside this Mon–Sun week counts — same week rule as the
+      // 10-week badges and the chart, so a cell that met on a different day than its
+      // configured meetingDay isn't shown as not-submitted. Doc ID first, then the
+      // logical cellId for legacy reports.
+      const hit = reportsByCellWeek.get(cell.id)?.get(weekKey)
+        || (cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(weekKey) : null)
       const submitted = isRealCellReportSubmission(hit)
       const isDue = !submitted && !!expectedDate && expectedDate < todayISO
       const isMeetingToday = !submitted && !!expectedDate && expectedDate === todayISO
@@ -495,7 +513,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
         isMeetingToday,
       }
     })
-  }, [visibleGroups, reportLookup, weekStartDate])
+  }, [visibleGroups, reportsByCellWeek, weekStartDate, weekKey, todayISO])
 
   const dismissAlert = useCallback((cellId) => {
     setDismissedIds((prev) => {
@@ -526,8 +544,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   // expected date — a cell with no/wrong meetingDay configured, or one that met
   // on an unusual day, was otherwise silently counted as 0 for that week.
   const chartData = useMemo(() => {
-    const cur = startOfWeek(new Date(), { weekStartsOn: 1 })
-    const weeks = [5, 4, 3, 2, 1, 0].map((i) => subWeeks(cur, i))
+    const weeks = [5, 4, 3, 2, 1, 0].map((i) => subWeeks(weekStartDate, i))
     return weeks.map((ws) => {
       const wk = format(ws, 'yyyy-MM-dd')
       const total = visibleGroups.reduce((sum, cell) => {
@@ -537,15 +554,14 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
       }, 0)
       return { weekLabel: formatWeekRangeLabel(ws), weekLabelShort: formatWeekDayRangeShort(ws), weekStart: wk, total }
     })
-  }, [reportsByCellWeek, visibleGroups])
+  }, [reportsByCellWeek, visibleGroups, weekStartDate])
 
   // Compliance over the last 10 *completed* weeks — deliberately excludes the
   // current in-progress week (which MissingCellReportsTable above already covers
   // via isDue/isMeetingToday), so a cell isn't flagged "missing" for a meeting
   // that hasn't happened yet.
   const tenWeekRows = useMemo(() => {
-    const cur = startOfWeek(new Date(), { weekStartsOn: 1 })
-    const tenWeeks = Array.from({ length: TEN_WEEK_COUNT }, (_, i) => subWeeks(cur, TEN_WEEK_COUNT - i))
+    const tenWeeks = Array.from({ length: TEN_WEEK_COUNT }, (_, i) => subWeeks(weekStartDate, TEN_WEEK_COUNT - i))
     return visibleGroups.map((cell) => {
       const weeks = tenWeeks.map((ws) => {
         const wk = format(ws, 'yyyy-MM-dd')
@@ -561,7 +577,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
         missingCount: weeks.filter((w) => !w.submitted).length,
       }
     })
-  }, [visibleGroups, reportsByCellWeek])
+  }, [visibleGroups, reportsByCellWeek, weekStartDate])
 
   const tenWeekByCellId = useMemo(
     () => new Map(tenWeekRows.map((r) => [r.cellId, r])),
@@ -617,7 +633,9 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
           {reminderToast.msg}
         </div>
       )}
-      <AlertPanelCellReports missingCount={missingCount} onOpenDetails={onOpenDetails} />
+      {!loading && (
+        <AlertPanelCellReports missingCount={missingCount} submittedCount={rows.filter((r) => r.submitted).length} totalCount={rows.length} onOpenDetails={onOpenDetails} />
+      )}
       <div id="missing-cell-reports-table">
         <MissingCellReportsTable
           rows={rows}

@@ -641,6 +641,25 @@ service cloud.firestore {
         && request.resource.data.membershipPipeline.diff(resource.data.membershipPipeline).affectedKeys().hasOnly(['stages', 'cellLeaderRequest'])
         && request.resource.data.membershipPipeline.get('stages', {}).diff(resource.data.membershipPipeline.get('stages', {})).affectedKeys().hasOnly(['cellLeaderApproval'])
         && request.resource.data.membershipPipeline.cellLeaderRequest.status == 'Completed';
+      // …and before that, schedules the call (date / time / phone or face-to-face):
+      // only membershipPipeline.cellLeaderVerification.
+      allow update: if isSignedIn()
+        && resource.data.get('membershipPipeline', {}).get('cellLeaderRequest', {}).get('status', '') == 'Requested'
+        && (resource.data.membershipPipeline.cellLeaderRequest.get('recipientUid', '') == request.auth.uid
+            || (request.auth.token.email_verified == true
+                && resource.data.membershipPipeline.cellLeaderRequest.get('recipientEmail', '') == request.auth.token.email.lower()))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipPipeline'])
+        && request.resource.data.membershipPipeline.diff(resource.data.membershipPipeline).affectedKeys().hasOnly(['cellLeaderVerification']);
+      // Stage 6: the Deacon schedules / reschedules the interview (pending or accepted):
+      // membershipPipeline.deaconInterview + interview.scheduledAt only.
+      allow update: if isSignedIn()
+        && resource.data.get('membershipPipeline', {}).get('interview', {}).get('status', '') in ['Requested', 'Accepted']
+        && (resource.data.membershipPipeline.interview.get('recipientUid', '') == request.auth.uid
+            || (request.auth.token.email_verified == true
+                && resource.data.membershipPipeline.interview.get('recipientEmail', '') == request.auth.token.email.lower()))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membershipPipeline'])
+        && request.resource.data.membershipPipeline.diff(resource.data.membershipPipeline).affectedKeys().hasOnly(['deaconInterview', 'interview'])
+        && request.resource.data.membershipPipeline.interview.diff(resource.data.membershipPipeline.interview).affectedKeys().hasOnly(['scheduledAt']);
       // Auto-return from Away: marking an Away person present on a Cell or Sunday
       // attendance sheet flips them back to Active (returnPCSEntryFromAway). Only
       // Away -> Active, and only the away* fields — nothing else on the entry.
@@ -821,7 +840,11 @@ service cloud.firestore {
             // pending → accepted / declined / completed; accepted → completed (interview recorded)
             && (resource.data.status == 'pending' || (resource.data.status == 'accepted' && request.resource.data.status == 'completed'))
             && request.resource.data.status in ['accepted', 'declined', 'completed']
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt', 'respondedBy', 'responseNote']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt', 'respondedBy', 'responseNote']))
+        // the recipient sets / changes the meeting time on an open request (status unchanged)
+        || (isNotificationRecipient(resource.data)
+            && resource.data.status in ['pending', 'accepted']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['schedule', 'scheduledAt']));
     }
 
     match /pcs_lookup/{docId} {

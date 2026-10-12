@@ -32,3 +32,30 @@ export async function shareNodeAsImage(node, filename) {
   link.remove()
   return 'downloaded'
 }
+
+// Copies an image data URL (e.g. a QR code PNG) to the clipboard so it can be
+// pasted straight into WhatsApp / Telegram / email. The blob is handed to
+// ClipboardItem as a promise, which Safari requires (the write must start inside
+// the click). Where image copy isn't supported (most phones), falls back to the
+// share sheet with the image attached.
+// Resolves to 'copied' | 'shared' | 'cancelled' | 'unsupported'.
+export async function copyImageDataUrlToClipboard(dataUrl, filename = 'image.png') {
+  if (!dataUrl) return 'unsupported'
+  const blobPromise = fetch(dataUrl).then((r) => r.blob()).then((b) => (b.type === 'image/png' ? b : new Blob([b], { type: 'image/png' })))
+  try {
+    if (typeof window.ClipboardItem === 'function' && navigator.clipboard?.write) {
+      await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blobPromise })])
+      return 'copied'
+    }
+  } catch { /* image clipboard blocked here — try the share sheet */ }
+  try {
+    const file = new File([await blobPromise], filename, { type: 'image/png' })
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file] })
+      return 'shared'
+    }
+  } catch (e) {
+    if (e?.name === 'AbortError') return 'cancelled'
+  }
+  return 'unsupported'
+}

@@ -260,7 +260,10 @@ export default function ToDoListCard() {
 
       {/* Collapsed state: floating capsule badge — takes only as much space as its own
           pixels, never a fixed card footprint. Badge count is the open task count;
-          a task drops off the instant it's completed or turned down. */}
+          a task drops off the instant it's completed or turned down. Not rendered at
+          all while loading or when nothing is open, so the ribbons and cards below
+          move up instead of leaving an empty "All clear" pill. */}
+      {!loading && activeTasks.length > 0 && (
       <button
         type="button"
         onClick={() => setIsOpen(true)}
@@ -271,16 +274,11 @@ export default function ToDoListCard() {
           <CheckSquare size={16} strokeWidth={1.75} />
         </span>
         <span className="text-sm font-bold text-slate-800 dark:text-slate-100">To-Do</span>
-        {loading ? (
-          <span className="text-xs text-slate-400 dark:text-slate-500">…</span>
-        ) : activeTasks.length > 0 ? (
-          <span className="text-[11px] font-bold min-w-[20px] text-center px-2 py-0.5 rounded-full bg-amber-500 text-white">
-            {activeTasks.length}
-          </span>
-        ) : (
-          <span className="text-xs text-slate-400 dark:text-slate-500">All clear 🎉</span>
-        )}
+        <span className="text-[11px] font-bold min-w-[20px] text-center px-2 py-0.5 rounded-full bg-amber-500 text-white">
+          {activeTasks.length}
+        </span>
       </button>
+      )}
 
       {/* Expanded state: centered modal dialog (A4-proportioned max width),
           opened on tap — was a full-width bottom sheet; the outer wrapper

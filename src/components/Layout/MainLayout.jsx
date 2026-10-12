@@ -27,7 +27,7 @@ import DepartmentDock from '../workspace/DepartmentDock'
 // from My Workspace's greeting row) and to the routed page via Outlet context (My
 // Workspace's own desktop-only header row still renders them) — one subscription
 // instead of each consumer re-subscribing independently.
-const WIDE_LAYOUT_ROUTES = ['/worklist']
+const WIDE_LAYOUT_ROUTES = ['/worklist', '/']
 
 // Same idea as WIDE_LAYOUT_ROUTES, but for a single tab of a hub page rather than
 // a whole route (the tab lives in the ?tab= query string, so pathname alone can't
@@ -43,6 +43,8 @@ const WIDE_LAYOUT_TABS = [
   { pathname: '/department/media', tab: 'team' },
   { pathname: '/department/d-light', tab: 'team', tabIsDefault: true },
   { pathname: '/department/river-kids', tab: 'register' },
+  // Worship's Upcoming Sunday (the default tab): team roster + song list side by side.
+  { pathname: '/department/worship', tab: 'upcomingSunday', tabIsDefault: true },
 ]
 
 export default function MainLayout() {

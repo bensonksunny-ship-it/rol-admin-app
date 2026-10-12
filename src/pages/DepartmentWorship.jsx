@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import useModalOpenGuard from '../hooks/useModalOpenGuard'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2 } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2, Copy } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -40,11 +40,16 @@ import { formatDMY } from '../utils/date'
 import { isWorshipLeader, hasWorshipRoleAccess, getAllowedWorshipTabs } from '../utils/worshipAccess'
 import { getDepartmentRole } from '../utils/access'
 import useSeniorPastor from '../hooks/useSeniorPastor'
+import useDepartmentAlerts from '../hooks/useDepartmentAlerts'
+import DepartmentNotificationRibbon from '../components/DepartmentNotificationRibbon'
+import { getDepartmentIcon } from '../constants/departments'
+import WorshipMultiWeekMatrix from '../components/worship/WorshipMultiWeekMatrix'
+import { consecutiveSundays, sundaysInMonth, nextSunday, copiedRoster } from '../utils/worshipRoster'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import BudgetPage from './accounts/BudgetPage'
-import UpcomingSunday from './UpcomingSunday'
+import WorshipUpcomingSunday from '../components/worship/WorshipUpcomingSunday'
 import SongDesigner from './worship/SongDesigner'
 import SongViewer from './worship/SongViewer'
 
@@ -665,10 +670,81 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
       draft.saturday[a.memberId] = { arrivedAt: pa.saturday?.[a.memberId]?.arrivedAt || '', memberName: a.memberName }
     })
     setTimesDraft(draft)
+    setMemberEdit(null)
     setEditingTimes(true)
   }
 
-  const cancelTimesEdit = () => { setEditingTimes(false); setTimesDraft(null) }
+  const cancelTimesEdit = () => { setEditingTimes(false); setTimesDraft(null); setBulkSel([]); setBulkTime('') }
+
+  // Groupwise entry — tick members (or a whole Vocals / Band / Technical team) and
+  // stamp one arrival time onto Fri, Sat or both in the draft; Save persists it.
+  // A member counts as in a team if any of their roles this week falls in it.
+  const memberGroups = {}
+  assignedRoles.forEach((a) => {
+    const g = ROLE_CATEGORY_GROUP[parseRoleKey(a.role).category] || 'band'
+    ;(memberGroups[a.memberId] ||= new Set()).add(g)
+  })
+  const [bulkSel, setBulkSel] = useState([])
+  const [bulkDay, setBulkDay] = useState('both')
+  const [bulkTime, setBulkTime] = useState('')
+  const groupIds = (g) => assignedMembers.filter((a) => g === 'all' || memberGroups[a.memberId]?.has(g)).map((a) => a.memberId)
+  const toggleBulkGroup = (g) => {
+    const ids = groupIds(g)
+    const allOn = ids.length > 0 && ids.every((id) => bulkSel.includes(id))
+    setBulkSel((sel) => allOn ? sel.filter((id) => !ids.includes(id)) : [...new Set([...sel, ...ids])])
+  }
+  const toggleBulkMember = (id) => setBulkSel((sel) => sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id])
+  const applyBulk = () => {
+    if (!bulkTime || !bulkSel.length) return
+    const days = bulkDay === 'both' ? ['friday', 'saturday'] : [bulkDay]
+    setTimesDraft((d) => {
+      const next = { ...d }
+      days.forEach((day) => {
+        next[day] = { ...next[day] }
+        bulkSel.forEach((id) => { next[day][id] = { ...next[day][id], arrivedAt: bulkTime } })
+      })
+      return next
+    })
+  }
+
+  // Individual entry — tap a roster card to set just that member's Fri/Sat arrival.
+  // Saves straight away; the card's Late-by badges recompute from the saved value.
+  const [memberEdit, setMemberEdit] = useState(null) // { memberId, memberName, friday, saturday }
+  const [savingMember, setSavingMember] = useState(false)
+  const openMemberEdit = (a) => {
+    if (!canManageWorship || editingTimes) return
+    setMemberEdit({
+      role: a.role, memberId: a.memberId, memberName: a.memberName,
+      friday: pa.friday?.[a.memberId]?.arrivedAt || '',
+      saturday: pa.saturday?.[a.memberId]?.arrivedAt || '',
+    })
+  }
+  const saveMemberEdit = async () => {
+    const { memberId, memberName } = memberEdit
+    const next = { ...pa }
+    ;['friday', 'saturday'].forEach((day) => {
+      const dayMap = { ...(pa[day] || {}) }
+      if (memberEdit[day]) dayMap[memberId] = { ...(dayMap[memberId] || {}), arrivedAt: memberEdit[day], memberName }
+      else delete dayMap[memberId]
+      next[day] = dayMap
+    })
+    setSavingMember(true)
+    try {
+      await onSaveTimes(stamp.id, next)
+      setMemberEdit(null)
+    } catch (err) {
+      console.error('Failed to save member practice time:', err)
+      alert('Failed to save changes')
+    } finally {
+      setSavingMember(false)
+    }
+  }
+
+  // Live "Late by N mins" / "Punctual" preview next to a time input.
+  const latePreview = (t) => {
+    const p = punctualityFor(t)
+    return p ? <span className={`text-[10px] font-semibold ${p.late ? 'text-amber-600' : 'text-emerald-600'}`}>{p.label}</span> : null
+  }
 
   // One roster-card's Friday/Saturday attendance pill — day label plus exact time
   // and its punctuality status against the 8:00 PM practice start benchmark, kept
@@ -696,9 +772,12 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
   const saveTimesEdit = async () => {
     setSavingTimes(true)
     try {
-      const friday = {}
+      // Check-ins for anyone no longer on this week's roster are kept, not dropped.
+      const rosterIds = new Set(assignedMembers.map((a) => a.memberId))
+      const offRoster = (day) => Object.fromEntries(Object.entries(pa[day] || {}).filter(([mid]) => !rosterIds.has(mid)))
+      const friday = offRoster('friday')
       Object.entries(timesDraft.friday).forEach(([mid, v]) => { if (v.arrivedAt) friday[mid] = { arrivedAt: v.arrivedAt, memberName: v.memberName } })
-      const saturday = {}
+      const saturday = offRoster('saturday')
       Object.entries(timesDraft.saturday).forEach(([mid, v]) => { if (v.arrivedAt) saturday[mid] = { arrivedAt: v.arrivedAt, memberName: v.memberName } })
       const fridaySession = {}
       if (timesDraft.fridaySession.endOfPractice) fridaySession.endOfPractice = timesDraft.fridaySession.endOfPractice
@@ -765,10 +844,48 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
                             {a.key && <span className="font-semibold text-indigo-500 shrink-0">[{a.key}]</span>}
                           </div>
                         )}
-                        <div className="mt-3 pt-2 border-t border-slate-100 flex flex-wrap gap-1.5">
-                          {arrivalBadge('Fri', pa.friday?.[a.memberId]?.arrivedAt)}
-                          {arrivalBadge('Sat', pa.saturday?.[a.memberId]?.arrivedAt)}
-                        </div>
+                        {memberEdit?.role === a.role ? (
+                          <div className="mt-3 pt-2 border-t border-slate-100 space-y-2">
+                            {[['friday', 'Fri'], ['saturday', 'Sat']].map(([day, label]) => (
+                              <label key={day} className="flex items-center gap-2 text-xs">
+                                <span className="w-7 text-slate-500">{label}</span>
+                                <input
+                                  type="time"
+                                  value={memberEdit[day]}
+                                  onChange={(e) => setMemberEdit((m) => ({ ...m, [day]: e.target.value }))}
+                                  className="px-2 py-1 rounded border border-slate-300 w-24"
+                                />
+                                {memberEdit[day] && (
+                                  <button type="button" onClick={() => setMemberEdit((m) => ({ ...m, [day]: '' }))} aria-label={`Clear ${label} time`}
+                                    className="text-slate-300 hover:text-red-500"><X size={13} /></button>
+                                )}
+                                {latePreview(memberEdit[day])}
+                              </label>
+                            ))}
+                            <div className="flex gap-2 pt-1">
+                              <button type="button" disabled={savingMember} onClick={saveMemberEdit}
+                                className="flex-1 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40">
+                                {savingMember ? 'Saving…' : 'Save'}
+                              </button>
+                              <button type="button" disabled={savingMember} onClick={() => setMemberEdit(null)}
+                                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 text-xs font-medium hover:bg-slate-50 disabled:opacity-40">
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-3 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+                            {arrivalBadge('Fri', pa.friday?.[a.memberId]?.arrivedAt)}
+                            {arrivalBadge('Sat', pa.saturday?.[a.memberId]?.arrivedAt)}
+                            {canManageWorship && !editingTimes && (
+                              <button type="button" onClick={() => openMemberEdit(a)} title={`Edit ${firstNameOf(a.memberName)}'s practice times`}
+                                aria-label={`Edit ${firstNameOf(a.memberName)}'s practice times`}
+                                className="ml-auto w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:bg-violet-50 hover:text-violet-600 transition-colors">
+                                <Pencil size={12} />
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -803,10 +920,45 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
                   <div className="space-y-4">
                     {assignedMembers.length > 0 && (
                       <div className="space-y-2">
-                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Check-In Times</p>
+                        {/* Groupwise entry — pick a team or tick members, then apply one time. */}
+                        <div className="rounded-xl border border-violet-100 bg-violet-50/50 p-3 space-y-2">
+                          <p className="text-[11px] font-bold uppercase tracking-widest text-violet-500">Set time for a group</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[['all', 'Everyone'], ['vocals', 'Vocals'], ['band', 'Band'], ['technical', 'Sound / Tech']].map(([g, label]) => {
+                              const ids = groupIds(g)
+                              if (!ids.length) return null
+                              const on = ids.every((id) => bulkSel.includes(id))
+                              return (
+                                <button key={g} type="button" onClick={() => toggleBulkGroup(g)}
+                                  className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ${on ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-50'}`}>
+                                  {label} ({ids.length})
+                                </button>
+                              )
+                            })}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select value={bulkDay} onChange={(e) => setBulkDay(e.target.value)} className="px-2 py-1 text-xs rounded border border-slate-300 bg-white">
+                              <option value="both">Fri &amp; Sat</option>
+                              <option value="friday">Friday</option>
+                              <option value="saturday">Saturday</option>
+                            </select>
+                            <input type="time" value={bulkTime} onChange={(e) => setBulkTime(e.target.value)} className="px-2 py-1 text-xs rounded border border-slate-300 w-24" />
+                            {latePreview(bulkTime)}
+                            <button type="button" disabled={!bulkTime || !bulkSel.length} onClick={applyBulk}
+                              className="ml-auto px-3 py-1 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40">
+                              Apply to {bulkSel.length} selected
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-slate-400">Fills the times below. Adjust anyone individually, then Save Changes.</p>
+                        </div>
+
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 pt-1">Check-In Times</p>
                         {assignedMembers.map((a) => (
                           <div key={a.memberId} className="flex flex-wrap items-center gap-3">
-                            <span className="flex-1 min-w-[7rem] text-sm text-slate-700 truncate">{firstNameOf(a.memberName)}</span>
+                            <label className="flex-1 min-w-[7rem] flex items-center gap-2 text-sm text-slate-700 truncate cursor-pointer">
+                              <input type="checkbox" checked={bulkSel.includes(a.memberId)} onChange={() => toggleBulkMember(a.memberId)} className="w-4 h-4 accent-violet-600" />
+                              <span className="truncate">{firstNameOf(a.memberName)}</span>
+                            </label>
                             <label className="flex items-center gap-1.5">
                               <span className="text-[10px] text-slate-400 w-7">Fri</span>
                               <input
@@ -815,6 +967,7 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
                                 onChange={(e) => setTimesDraft((d) => ({ ...d, friday: { ...d.friday, [a.memberId]: { ...d.friday[a.memberId], arrivedAt: e.target.value } } }))}
                                 className="px-2 py-1 text-xs rounded border border-slate-300 w-24"
                               />
+                              {latePreview(timesDraft.friday[a.memberId]?.arrivedAt)}
                             </label>
                             <label className="flex items-center gap-1.5">
                               <span className="text-[10px] text-slate-400 w-7">Sat</span>
@@ -824,6 +977,7 @@ function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }
                                 onChange={(e) => setTimesDraft((d) => ({ ...d, saturday: { ...d.saturday, [a.memberId]: { ...d.saturday[a.memberId], arrivedAt: e.target.value } } }))}
                                 className="px-2 py-1 text-xs rounded border border-slate-300 w-24"
                               />
+                              {latePreview(timesDraft.saturday[a.memberId]?.arrivedAt)}
                             </label>
                           </div>
                         ))}
@@ -1601,6 +1755,12 @@ export default function DepartmentWorship() {
   }
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   const [scheduleForDate, setScheduleForDate] = useState({ date: '', assignments: [] })
+  // Assign tab view: 'single' (one Sunday, full editor) or a multi-week matrix of
+  // '2' / '4' Sundays from matrixStart, or 'month' (every Sunday in its month).
+  const [assignView, setAssignView] = useState('single')
+  const [matrixStart, setMatrixStart] = useState(() => upcomingSundays(1)[0])
+  const [copyingRoster, setCopyingRoster] = useState(false)
+  const [rosterNote, setRosterNote] = useState('')
   const [loadingSchedule, setLoadingSchedule] = useState(false)
   const [editMember, setEditMember] = useState(null)
   const [budgetItems, setBudgetItems] = useState([])
@@ -1964,6 +2124,45 @@ export default function DepartmentWorship() {
   // localAssignments/roleRowCounts from the last-loaded schedule (same reset the
   // scheduleForDate effect does on a fresh load) rather than refetching, then drops
   // back to the read-only view.
+  const matrixSundays = assignView === 'month' ? sundaysInMonth(matrixStart) : consecutiveSundays(matrixStart, assignView === '4' ? 4 : 2)
+  const matrixRangeLabel = assignView === 'month'
+    ? format(new Date(matrixStart + 'T12:00:00'), 'MMMM yyyy')
+    : `${format(new Date(matrixSundays[0] + 'T12:00:00'), 'd MMM')} – ${format(new Date(matrixSundays[matrixSundays.length - 1] + 'T12:00:00'), 'd MMM yyyy')}`
+  function shiftMatrix(dir) {
+    if (assignView === 'month') {
+      setMatrixStart(sundaysInMonth(format(addMonths(new Date(matrixStart + 'T12:00:00'), dir), 'yyyy-MM-01'))[0])
+    } else {
+      setMatrixStart(format(addDays(new Date(matrixStart + 'T12:00:00'), dir * 7 * (assignView === '4' ? 4 : 2)), 'yyyy-MM-dd'))
+    }
+  }
+  function changeAssignView(v) {
+    if (v !== 'single') setMatrixStart(v === 'month' ? sundaysInMonth(snapToSunday(selectedDate))[0] : snapToSunday(selectedDate))
+    setAssignView(v)
+  }
+
+  // "Copy Roster to Next Week" (Single Week View): the same members in the same
+  // roles on the following Sunday; that Sunday keeps its own songs.
+  async function copyRosterToNextWeek() {
+    const from = selectedDate
+    const to = nextSunday(from)
+    const toLabel = format(new Date(to + 'T12:00:00'), 'd MMM')
+    const fromList = scheduleForDate.assignments || []
+    if (!fromList.some((a) => a.memberId)) { setRosterNote('Nothing assigned on this Sunday to copy.'); setTimeout(() => setRosterNote(''), 3500); return }
+    setCopyingRoster(true)
+    try {
+      const target = await getWorshipScheduleByDate(DEPARTMENT, to)
+      if ((target.assignments || []).some((a) => a.memberId) && !window.confirm(`${toLabel} already has a team. Replace it with this Sunday's team? Songs stay as they are.`)) return
+      await setWorshipScheduleByDate(DEPARTMENT, to, copiedRoster(fromList, target.assignments || []), userProfile?.email || '')
+      setRosterNote(`Roster copied to ${toLabel}.`)
+    } catch (e) {
+      console.error('copyRosterToNextWeek', e)
+      setRosterNote('Could not copy. Please try again.')
+    } finally {
+      setCopyingRoster(false)
+      setTimeout(() => setRosterNote(''), 3500)
+    }
+  }
+
   function cancelEditingPlan() {
     setLocalAssignments(scheduleForDate.assignments || [])
     setRoleRowCounts({})
@@ -2133,6 +2332,14 @@ export default function DepartmentWorship() {
 
   const canViewInsights = isPastor
 
+  // Blue notification ribbon (new musicians, overdue tasks) — above the guards below.
+  const worshipAlerts = useDepartmentAlerts({
+    department: DEPARTMENT,
+    team: allMembers,
+    memberNoun: 'worship team member',
+    open: { team: () => setSearchParams({ tab: 'theTeam' }, { replace: true }) },
+  })
+
   if (!canManageWorship && !canViewInsights && !hasWorshipRoleAccess(userProfile)) {
     return (
       <div className="p-8 text-slate-600">
@@ -2191,14 +2398,14 @@ export default function DepartmentWorship() {
   return (
     <div>
       <div className="space-y-4 px-4 pb-4 pt-1">
-      {/* Shared multi-department Sunday-service programme grid (same component D
-          Light/Media/Administration use) — order-of-service cards, "+ Add Programme
-          Item", "Manage Custom Elements", Save. Keeps this tab's layout modular and
-          consistent with every other department's Upcoming Sunday view instead of a
-          Worship-only page. The personal "am I serving this week + song design" view
-          (formerly here) still lives in My Workspace's Upcoming Worship widget. */}
+      {(canManageWorship || canViewInsights) && (
+        <DepartmentNotificationRibbon icon={getDepartmentIcon(DEPARTMENT)} departmentName={DEPARTMENT} storageKey="worship" alerts={worshipAlerts} />
+      )}
+      {/* Upcoming Sunday — worship team roster, song list and practice only. The
+          order-of-service programme grid was removed from Worship: service order is
+          planned by Sunday Ministry alone (no duplicate workflow). */}
       {activeTab === 'upcomingSunday' && (
-        <UpcomingSunday slug="worship" />
+        <WorshipUpcomingSunday canManage={canManageWorship} />
       )}
 
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
@@ -2449,6 +2656,36 @@ export default function DepartmentWorship() {
 
       {activeTab === 'assign' && canManageWorship && (
         <div className="space-y-4 pb-20">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div role="group" aria-label="Assign view" className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+              {[['single', 'Single Week'], ['2', '2 Weeks'], ['4', '4 Weeks'], ['month', 'Month']].map(([v, label]) => (
+                <button key={v} type="button" aria-pressed={assignView === v} onClick={() => changeAssignView(v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${assignView === v ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {rosterNote && <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">{rosterNote}</span>}
+          </div>
+          {assignView !== 'single' ? (
+            <WorshipMultiWeekMatrix
+              department={DEPARTMENT}
+              sundays={matrixSundays}
+              rangeLabel={matrixRangeLabel}
+              onShift={shiftMatrix}
+              onOpenWeek={(d) => { setSelectedDate(d); setAssignView('single') }}
+              onSaved={(d, assignments) => { if (d === selectedDate) setScheduleForDate((sch) => ({ ...sch, assignments })) }}
+              by={userProfile?.email || ''}
+              roleCategories={ROLE_CATEGORIES}
+              roleKeyFor={roleKeyFor}
+              parseRoleKey={parseRoleKey}
+              roleDisplayLabel={roleDisplayLabel}
+              eligibleFor={(role) => {
+                const posKey = positionKeyForRole(role)
+                return posKey ? activeMembers.filter((m) => m.positions?.includes(posKey)) : activeMembers
+              }}
+            />
+          ) : (
           <AnimatePresence mode="popLayout">
             {assignStamp ? (
               <WorshipStamp
@@ -2527,6 +2764,15 @@ export default function DepartmentWorship() {
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60 transition-colors"
                       >
                         <Share2 size={14} /> {sharingPlan ? 'Copying...' : 'Share Plan'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={copyRosterToNextWeek}
+                        disabled={copyingRoster}
+                        title="Same members in the same roles on the next Sunday"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-sm font-semibold hover:bg-indigo-100 disabled:opacity-60 transition-colors"
+                      >
+                        <Copy size={14} /> {copyingRoster ? 'Copying...' : 'Copy Roster to Next Week'}
                       </button>
                       <button
                         type="button"
@@ -2791,6 +3037,7 @@ export default function DepartmentWorship() {
             </motion.div>
             )}
           </AnimatePresence>
+          )}
 
           {/* "Plan copied as image" confirmation for the Share Plan button above. */}
           <AnimatePresence>

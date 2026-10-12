@@ -14,6 +14,7 @@ import { hasFullWorshipAccess, hasWorshipRoleAccess, isWorshipLeader } from '../
 import useClickOutside from '../../hooks/useClickOutside'
 import UpcomingWorship from '../../pages/worship/UpcomingWorship'
 import SongViewer from '../../pages/worship/SongViewer'
+import { RIBBON_BAR } from '../../constants/ribbon'
 
 // Same "forthcoming Sunday" rule used by Assign/UpcomingWorship: today if it's Sunday
 // before 6pm, otherwise the next Sunday. Duplicated here (rather than imported) so this
@@ -418,7 +419,7 @@ export default function WorshipWorkspaceWidget() {
 
   return (
     <>
-      <div ref={cardRef} className={`w-full rounded-xl border shadow-sm overflow-hidden sm:max-w-2xl ${
+      <div ref={cardRef} className={`w-full rounded-xl border shadow-sm overflow-hidden ${
         highlighted ? 'border-violet-300' : 'border-slate-200 bg-white'
       }`}>
         <div
@@ -426,7 +427,7 @@ export default function WorshipWorkspaceWidget() {
           tabIndex={0}
           onClick={() => setExpanded(!expanded)}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }}
-          className={`w-full flex items-center justify-between gap-3 p-3 cursor-pointer transition-colors ${
+          className={`${RIBBON_BAR} justify-between cursor-pointer transition-colors ${
             isScheduledThisSunday
               ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700'
               : 'text-slate-800 hover:bg-slate-50'
@@ -438,7 +439,7 @@ export default function WorshipWorkspaceWidget() {
           <span className="flex items-center gap-2 shrink-0">
             {/* "SONGS" — quick access to both the Song Directory and the Design My Song
                 flow for the Worship Leader position OR whoever is assigned Lead Vocal
-                this coming Sunday, surfaced right in the shared header next to "More".
+                this coming Sunday, surfaced right in the shared header next to the chevron.
                 Replaces the old "Share Setlist" badge here; the Share Your Song Setlist
                 feature itself is unchanged and still lives in the expanded body below. */}
             {showSongsAccess && (
@@ -480,7 +481,6 @@ export default function WorshipWorkspaceWidget() {
               </div>
             )}
             <span className={`flex items-center gap-1 text-xs ${isScheduledThisSunday ? 'text-white/90 font-semibold' : 'text-slate-400'}`}>
-              {isScheduledThisSunday && 'More'}
               <span className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}>▾</span>
             </span>
           </span>

@@ -6,6 +6,7 @@ import { auth } from '../../lib/firebase'
 import MembershipApplicationPreview from './MembershipApplicationPreview'
 import BaptismProofStatus from './BaptismProofStatus'
 import IdProofAttachment from './IdProofAttachment'
+import ConductInterviewModal from '../workspace/ConductInterviewModal'
 import { VERIFICATION_CHECKLIST, revisionItem, flaggedItemsText, membershipRevisionLink } from '../../constants/membershipRevision'
 import { membershipFieldValue, MEMBERSHIP_DEPOSIT_AMOUNT, depositReceiptNo } from '../../constants/membershipForm'
 import { advanceBlockReason, currentStage } from '../../utils/membershipPipeline'
@@ -320,8 +321,9 @@ function InterviewAssign({ entry, by, onSaved }) {
  */
 export default function MembershipStageModal({
   stage, stages, entry, application = null, cellLeaderName = '', canCaring, canPastor, canFirstLady, by, busy, undoKey,
-  onComplete, onIssue, onUndo, onInterviewSaved, onCellLeaderRequested, onClose,
+  onComplete, onIssue, onUndo, onInterviewSaved, onInterviewRecorded, onCellLeaderRequested, onClose,
 }) {
+  const [conducting, setConducting] = useState(false)
   const cur = currentStage(stages)
   const isCur = cur?.key === stage.key
   const block = isCur ? advanceBlockReason(stage, stages, { canCaring, canPastor, canFirstLady }) : ''
@@ -597,8 +599,29 @@ export default function MembershipStageModal({
             </section>
           )}
 
-          {/* Stage 6 — record the interview as held */}
-          {canAct && stage.key === 'membershipInterview' && (
+          {/* Stage 6 — the Deacon accepted: fill in the 3-part interview form (on
+              their behalf, e.g. from a paper copy). Otherwise mark it held by date. */}
+          {canAct && stage.key === 'membershipInterview' && ['Accepted', 'Follow-up Required'].includes(entry.membershipPipeline?.interview?.status) && (
+            <div className="space-y-1.5 border-t border-slate-200 pt-3">
+              <button type="button" disabled={busy} onClick={() => setConducting(true)} className={btn}>📋 Conduct Membership Interview</button>
+              <p className="text-[11px] text-slate-500">
+                Deacon {entry.membershipPipeline.interview.deaconName || ''} {entry.membershipPipeline.interview.status === 'Accepted' ? 'accepted this interview' : 'asked for a follow-up'}. They can also fill this in from their My Workspace.
+              </p>
+            </div>
+          )}
+          {conducting && (() => {
+            const iv = entry.membershipPipeline?.interview || {}
+            return (
+              <ConductInterviewModal
+                request={{ id: iv.notificationId || '', candidatePcsId: entry.id, candidateName: getMemberDisplayName(entry),
+                  candidateCell: iv.candidateCell || '', scheduledAt: iv.scheduledAt || '', deaconPcsId: iv.deaconPcsId || '', deaconName: iv.deaconName || '' }}
+                myName={by}
+                onClose={() => setConducting(false)}
+                onSubmitted={(advanced, record) => { onInterviewRecorded?.(record, advanced); onClose() }}
+              />
+            )
+          })()}
+          {canAct && stage.key === 'membershipInterview' && !['Accepted', 'Follow-up Required'].includes(entry.membershipPipeline?.interview?.status) && (
             <div className="space-y-2 border-t border-slate-200 pt-3">
               <label className="block"><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Interview held on</span>
                 <input type="date" value={interviewDate} onChange={(e) => setInterviewDate(e.target.value)} className={inp} /></label>

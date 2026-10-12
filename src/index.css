@@ -219,6 +219,18 @@ body {
 }
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 
+/* ─── Subtle thin scrollbar (dropdown panels) ────────────────────────────── */
+.scrollbar-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(226 232 240) transparent; /* slate-200 */
+  overscroll-behavior: contain;
+}
+.scrollbar-subtle.scrollbar-dark { scrollbar-color: rgb(51 65 85) transparent; } /* slate-700 */
+.scrollbar-subtle::-webkit-scrollbar { width: 6px; }
+.scrollbar-subtle::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-subtle::-webkit-scrollbar-thumb { background: rgb(226 232 240); border-radius: 9999px; }
+.scrollbar-subtle.scrollbar-dark::-webkit-scrollbar-thumb { background: rgb(51 65 85); }
+
 /* ─── Mobile typography baseline ─────────────────────────────────────────── */
 /* text-xs (12 px) is borderline illegible on phones — nudge to 13 px */
 @media (max-width: 639px) {

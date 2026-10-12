@@ -46,15 +46,16 @@ export default function ConductInterviewModal({ request, myName, myPcsId, onClos
     if (!recommendation) { setError('Choose your recommendation.'); return }
     setBusy(true)
     try {
-      await submitMembershipInterviewRecord(request, {
+      const record = {
         conductedByDeaconId: request.deaconPcsId || myPcsId || '',
         conductedByDeaconName: request.deaconName || myName || '',
         part1Answers: Object.fromEntries(INTERVIEW_QUESTIONS.map((q) => [q.key, {
           question: q.title, answer: answers[q.key].answer, note: String(answers[q.key].note || '').trim(),
         }])),
         status, connectionLevel: connection, deaconRemarks: remarks, recommendation,
-      }, { advance: advances, by: myName })
-      onSubmitted?.(advances)
+      }
+      await submitMembershipInterviewRecord(request, record, { advance: advances, by: myName })
+      onSubmitted?.(advances, record)
       onClose()
     } catch (err) {
       console.error('submitMembershipInterviewRecord', err)
@@ -69,7 +70,7 @@ export default function ConductInterviewModal({ request, myName, myPcsId, onClos
   const name = candidate ? (candidate.legalName || getMemberDisplayName(candidate)) : request.candidateName
 
   return createPortal(
-    <div className="fixed inset-0 w-screen h-[100dvh] z-[70] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onClick={() => !busy && onClose()}>
+    <div className="fixed inset-0 w-screen h-[100dvh] z-[95] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onClick={() => !busy && onClose()}>
       <div role="dialog" aria-modal="true" aria-label="Conduct membership interview" onClick={(e) => e.stopPropagation()}
         className="w-full max-w-2xl mx-auto max-h-[92dvh] flex flex-col bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden">
         <div className="shrink-0 bg-indigo-700 text-white px-5 py-4 flex items-center gap-3">
@@ -177,7 +178,7 @@ export default function ConductInterviewModal({ request, myName, myPcsId, onClos
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button type="button" disabled={busy} onClick={submit}
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl shadow-md transition-all disabled:opacity-50">
-            {busy ? 'Submitting…' : 'Submit Membership Interview Record'}
+            {busy ? 'Submitting…' : advances ? 'Submit Interview Record & Pass to Pastoral Approval' : 'Submit Interview Record'}
           </button>
         </div>
       </div>

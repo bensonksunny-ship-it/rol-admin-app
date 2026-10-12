@@ -1,9 +1,12 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { format, startOfWeek } from 'date-fns'
+import { AnimatePresence, motion } from 'framer-motion'
+
+const MotionDiv = motion.div
 import {
   getCellGroupMembers,
   getRecentSundayReports,
-  getLatestCellReports,
+  subscribeLatestCellReports,
   addCellGroupMember,
   updateCellGroupMember,
   deactivateCellGroupMember,
@@ -21,7 +24,7 @@ import {
   getDelightVisitors,
   VISITOR_REQUIRED_MESSAGE,
 } from '../services/firestore'
-import { totalAttendanceFromCellReport, weekStartKey } from '../utils/cellWeek'
+import { totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission } from '../utils/cellWeek'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
 
 function initials(name) {
@@ -157,6 +160,8 @@ export function CellDirectorCockpit({
   // surfaced in Pending Member Changes alongside actual member-change requests, since
   // that's the one place directors already check for anything needing their attention.
   const [leaderNotes, setLeaderNotes] = useState([])
+  // Pending Member Changes card shows only while this is > 0 (hidden while loading too).
+  const pendingTotal = loadingCellPending ? 0 : cellPendingChanges.length + leaderNotes.length
   const [resolvingNoteId, setResolvingNoteId] = useState(null)
   useEffect(() => {
     const unsub = subscribeCellLeaderDirectorNotes(setLeaderNotes)
@@ -261,9 +266,7 @@ export function CellDirectorCockpit({
   // This week's cell reports — joined onto growthData so the chart can compare
   // active member count against who actually attended this week's meeting.
   const [weeklyReports, setWeeklyReports] = useState([])
-  useEffect(() => {
-    getLatestCellReports(500).then(setWeeklyReports).catch(() => setWeeklyReports([]))
-  }, [])
+  useEffect(() => subscribeLatestCellReports(500, setWeeklyReports, () => setWeeklyReports([])), [])
 
   // Bucketed by cellId + the Monday-anchored week the report's own date falls
   // in — not by guessing an "expected" date from the cell's configured
@@ -275,7 +278,8 @@ export function CellDirectorCockpit({
       if (!r?.cellId || !r?.reportDate) continue
       const wk = weekStartKey(String(r.reportDate).slice(0, 10))
       if (!m.has(r.cellId)) m.set(r.cellId, new Map())
-      m.get(r.cellId).set(wk, r)
+      const prev = m.get(r.cellId).get(wk)
+      if (!prev || (!isRealCellReportSubmission(prev) && isRealCellReportSubmission(r))) m.get(r.cellId).set(wk, r)
     }
     return m
   }, [weeklyReports])
@@ -698,29 +702,30 @@ export function CellDirectorCockpit({
         </button>
       </div>
 
-      {/* ── Pending Member Changes ── */}
-      <div
+      {/* ── Pending Member Changes — only while something is waiting. Both feeds are
+          live, so a new request fades the card in (and the last one resolved fades it
+          out); the charts below move up when it's gone. ── */}
+      <AnimatePresence initial={false}>
+      {pendingTotal > 0 && (
+      <MotionDiv
+        key="pending-member-changes"
         ref={pendingChangesRef}
-        className={`bg-white border rounded-2xl shadow-sm overflow-hidden transition-all ${
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: 'auto' }}
+        exit={{ opacity: 0, height: 0 }}
+        transition={{ duration: 0.25, ease: 'easeOut' }}
+        className={`bg-white border rounded-2xl shadow-sm overflow-hidden transition-[border-color,box-shadow] ${
           pendingHighlight ? 'border-amber-300 ring-2 ring-amber-200' : 'border-slate-100'
         }`}
       >
         <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
           <p className="text-sm font-bold text-slate-800">Pending Member Changes</p>
-          {!loadingCellPending && (cellPendingChanges.length + leaderNotes.length) > 0 && (
-            <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-              {cellPendingChanges.length + leaderNotes.length}
-            </span>
-          )}
+          <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+            {pendingTotal}
+          </span>
         </div>
 
-        {loadingCellPending ? (
-          <div className="px-5 py-6 text-sm text-slate-400 text-center">Loading…</div>
-        ) : (cellPendingChanges.length + leaderNotes.length) === 0 ? (
-          <div className="px-5 py-6 text-sm text-slate-400 text-center">
-            All caught up — no pending changes.
-          </div>
-        ) : (
+        {(
           <div className="divide-y divide-slate-50">
             {leaderNotes.map((note) => (
               <div key={`note-${note.id}`} className="p-5 space-y-3 bg-amber-50/40">
@@ -817,7 +822,9 @@ export function CellDirectorCockpit({
             ))}
           </div>
         )}
-      </div>
+      </MotionDiv>
+      )}
+      </AnimatePresence>
 
       {/* ── Cell Member Growth Chart ── */}
       {!loadingMembers && growthData.length > 0 && (

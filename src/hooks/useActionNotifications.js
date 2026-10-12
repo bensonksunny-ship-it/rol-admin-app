@@ -5,13 +5,19 @@ import {
   subscribeDismissedNotificationIds, dismissNotification as dismissNotificationDoc,
   subscribeNotificationTodoAdditionIds, markNotificationAddedToTodo, createTask,
   subscribeSundayLeaderAssignmentNotifications, subscribePCSRemovalNoticesByCellId,
-  subscribePendingApprovals,
+  subscribePendingApprovals, getUserDirectoryNamesByEmail,
 } from '../services/firestore'
 import { formatDisplayDate } from '../utils/date'
 import { isDepartmentDirectorInPositions } from '../utils/access'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 
 const CONSULT_RESPONSE_ID_PREFIX = 'consult_response:'
+
+// Sender values are a mix of names and emails ('unknown' when nothing was recorded).
+const cleanSender = (v) => {
+  const t = String(v || '').trim()
+  return t && t.toLowerCase() !== 'unknown' ? t : ''
+}
 
 // Shared by the bell's "tap to act" navigation and by "+ Add to To-Do" (which stamps
 // the resolved URL onto the created task's `deepLink` field) so both paths — acting on
@@ -104,6 +110,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         title: 'Profile Fill Request',
         body: `Fill profile for ${inv.personName || 'a member'}`,
         cellName: inv.cellName || '',
+        from: cleanSender(inv.sentBy) || 'Caring',
+        to: inv.cellLeaderName || (inv.cellName ? `${inv.cellName} Cell Leader` : 'Cell Leader'),
         sentAt: inv.sentAt,
         // Identity used both to dedupe To-Do rows for this person (ToDoListCard.jsx)
         // and, since it's the same field, to detect a re-sent invitation for someone
@@ -127,6 +135,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         title: `Member Removed from PCS: ${r.personName || 'a member'}`,
         body: `${r.personName || 'A member'} has been removed from PCS due to continuous inactivity. Please review and update your Cell roster if needed.`,
         cellName: r.cellName || '',
+        from: cleanSender(r.removedBy) || 'Caring',
+        to: r.cellName ? `${r.cellName} Cell Leader` : 'Cell Leader',
         sentAt: r.createdAt,
         personId: r.visitorId || r.cellMemberId || '',
       })))
@@ -148,6 +158,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         title: 'New Visitor to Register',
         body: `${p.visitorName || 'Someone'} was flagged for D-Light registration`,
         cellName: p.cellName || p.sentByName || '',
+        from: cleanSender(p.sentByName) || cleanSender(p.sentBy) || (p.cellName ? `${p.cellName} Cell` : 'Cell'),
+        to: 'D-Light Director',
         sentAt: typeof p.createdAt?.toDate === 'function' ? p.createdAt.toDate() : p.createdAt,
         // Phone is the only stable identity cell_visitor_proposals carries — used for
         // To-Do dedupe (ToDoListCard.jsx), including merging with a PCS→D-Light forward
@@ -173,6 +185,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         title: 'Pending Consultation',
         body: `${t.consultPersonName || 'Someone'} needs a cell placement recommendation`,
         cellName: t.requestedBy || '',
+        from: cleanSender(t.requestedBy) || cleanSender(t.createdBy) || 'Cell Director',
+        to: 'D-Light Director',
         sentAt: typeof t.createdAt?.toDate === 'function' ? t.createdAt.toDate() : t.createdAt,
         // Used for To-Do dedupe (ToDoListCard.jsx) — same taskType as the underlying
         // cellAssignConsult task itself, so a personal "add to my to-do" copy of this
@@ -206,6 +220,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
             title: 'D-Light Recommendation',
             body: `${t.consultPersonName || 'Someone'}: ${t.recommendation || 'D-Light responded to your request'}`,
             cellName: '',
+            from: cleanSender(t.respondedBy) || 'D-Light Director',
+            to: cleanSender(t.requestedBy) || 'Cell Director',
             sentAt: typeof t.respondedAt === 'string' ? new Date(t.respondedAt) : t.respondedAt,
             // Carried through onto the To-Do task (see addNotificationToTodo) so the
             // To-Do List card can offer one-tap "Assign to [recommended cell]" —
@@ -235,6 +251,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         title: d.role === 'coLeader' ? 'Assigned as Co-Leader' : 'Assigned as Sunday Leader',
         body: `You're scheduled for ${formatDisplayDate(d.date)}`,
         cellName: '',
+        from: cleanSender(d.createdBy) || 'Sec-Core',
+        to: d.name || 'You',
         sentAt: typeof d.createdAt?.toDate === 'function' ? d.createdAt.toDate() : d.createdAt,
         // Used for To-Do dedupe (ToDoListCard.jsx) — scoped per date so next month's
         // assignment isn't merged with this one.
@@ -260,6 +278,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         title: 'PCS Discard Request',
         body: `${a.requestedBy || 'Caring'} asks to discard ${a.memberName || 'a PCS profile'}${a.reason ? `: ${a.reason}` : ''}`,
         cellName: '',
+        from: cleanSender(a.requestedBy) || 'Caring',
+        to: 'Founder',
         sentAt: a.timestamp,
         personId: a.memberId || '',
       })))
@@ -319,13 +339,33 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   const isHidden = (n) =>
     dismissedIds.has(n.id) || optimisticHiddenIds.has(n.id) || (n.legacyId && dismissedIds.has(n.legacyId))
 
+  // "From: … → For: …" — many senders are stored as emails; look their names up
+  // once in user_directory (falls back to the part before the @).
+  const [namesByEmail, setNamesByEmail] = useState({})
+  const allRaw = [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
+  const emailKey = Array.from(new Set(allRaw.flatMap((n) => [n.from, n.to]).filter((v) => String(v || '').includes('@')).map((v) => v.toLowerCase()))).sort().join(',')
+  useEffect(() => {
+    const missing = emailKey ? emailKey.split(',').filter((e) => !(e in namesByEmail)) : []
+    if (!missing.length) return undefined
+    let cancelled = false
+    getUserDirectoryNamesByEmail(missing)
+      .then((found) => { if (!cancelled) setNamesByEmail((prev) => ({ ...prev, ...Object.fromEntries(missing.map((e) => [e, found[e] || ''])) })) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [emailKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const personLabel = (v) => {
+    const t = String(v || '')
+    if (!t.includes('@')) return t
+    return namesByEmail[t.toLowerCase()] || t.split('@')[0]
+  }
+
   const notifications = useMemo(
     () => [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
       .filter((n) => !isHidden(n))
       .filter(canSeeNotification)
-      .map((n) => ({ ...n, addedToTodo: addedToTodoIds.has(n.id) })),
+      .map((n) => ({ ...n, from: personLabel(n.from), to: personLabel(n.to), addedToTodo: addedToTodoIds.has(n.id) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fillNotifications, pcsRemovalNotifications, approvalNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds, userProfile, isFounder, uid]
+    [fillNotifications, pcsRemovalNotifications, approvalNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds, userProfile, isFounder, uid, namesByEmail]
   )
 
   const handleNotifAction = (n) => {

@@ -70,7 +70,7 @@ export default function WorkspaceHeader({ notifications, onNotifAction, onDismis
           const r = notifRef.current?.getBoundingClientRect()
           return <NotifPanel isDay notifications={notifications} onAction={(n) => { setNotifOpen(false); onNotifAction(n) }}
             onAddToTodo={onAddNotificationToTodo} onDismiss={onDismissNotification} onClose={() => setNotifOpen(false)}
-            posStyle={{ top: (r?.bottom ?? 60) + 8, left: Math.min(r?.left ?? 0, window.innerWidth - 300) }} />
+            posStyle={{ top: (r?.bottom ?? 60) + 8, left: (r?.right ?? window.innerWidth) - 384 }} />
         })()}
       </div>
 

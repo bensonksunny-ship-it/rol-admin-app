@@ -78,7 +78,7 @@ export default function BoardMeetingWorkspaceWidget() {
 
   return (
     <>
-      <div className="w-full rounded-xl border border-violet-300 shadow-sm overflow-hidden sm:max-w-2xl">
+      <div className="w-full rounded-xl border border-violet-300 shadow-sm overflow-hidden">
         <div className="w-full flex items-center justify-between gap-3 p-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white">
           <span className="min-w-0 text-sm font-bold text-white truncate">
             Hello {myFirstName}, you are invited to the Director Board Meeting on{' '}

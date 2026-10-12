@@ -6,7 +6,8 @@ import { ChevronRight, X } from 'lucide-react'
 import {
   getSundayReportSummaries, getDelightVisitors, getCellGroups, getLatestCellReports,
 } from '../../services/firestore'
-import { format, startOfMonth, endOfMonth, eachWeekOfInterval, endOfWeek, isThisMonth } from 'date-fns'
+import { format, startOfMonth, endOfMonth, eachWeekOfInterval, endOfWeek, isThisMonth, startOfWeek, subWeeks, addDays, parseISO } from 'date-fns'
+import { isRealCellReportSubmission } from '../../utils/cellWeek'
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
@@ -188,7 +189,7 @@ function CellBreakdown({ reported, missing }) {
       )}
       {missing.length > 0 && (
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-500">No report yet</p>
+          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-500">No submission this week</p>
           <ul className="divide-y divide-slate-100">
             {missing.map(c => (
               <li key={c.id} className="py-2 text-sm text-slate-500">{c.cellName || 'Unnamed cell'}{c.leader ? ` · ${c.leader}` : ''}</li>
@@ -256,14 +257,37 @@ export default function FounderInsightsPanel() {
   }
 
   const activeCells = cells.filter(c => c.status !== 'inactive')
-  const activeCellIds = new Set(activeCells.map(c => c.id))
-  const latestPerCell = {}
-  cellReports.forEach(r => {
-    if (!activeCellIds.has(r.cellId)) return
-    if (!latestPerCell[r.cellId] || r.reportDate > latestPerCell[r.cellId].reportDate) {
-      latestPerCell[r.cellId] = r
-    }
-  })
+  // Reports carry either the cell doc id or the legacy logical cellId.
+  const cellDocIdByReportKey = {}
+  activeCells.forEach(c => { cellDocIdByReportKey[c.id] = c.id; if (c.cellId) cellDocIdByReportKey[c.cellId] = c.id })
+
+  // Cell reporting week = Sunday–Saturday. Only reports dated inside one window are
+  // summed — never a cell's older report from a previous week. The active window is
+  // this week once any cell has reported in it, otherwise last week (so early in the
+  // week the card shows last week's complete picture instead of a near-zero total).
+  const weekWindow = (sunday) => ({ start: format(sunday, 'yyyy-MM-dd'), end: format(addDays(sunday, 6), 'yyyy-MM-dd'), sunday })
+  const reportsInWindow = (w) => {
+    const byCell = {}
+    cellReports.forEach(r => {
+      const docId = cellDocIdByReportKey[r.cellId]
+      const d = String(r.reportDate || '').slice(0, 10)
+      if (!docId || d < w.start || d > w.end) return
+      // A real submission beats a blank auto-created doc; then the later report wins.
+      const prev = byCell[docId]
+      const better = !prev
+        || (isRealCellReportSubmission(r) && !isRealCellReportSubmission(prev))
+        || (isRealCellReportSubmission(r) === isRealCellReportSubmission(prev) && d > String(prev.reportDate).slice(0, 10))
+      if (better) byCell[docId] = { ...r, cellDocId: docId }
+    })
+    Object.keys(byCell).forEach(id => { if (!isRealCellReportSubmission(byCell[id])) delete byCell[id] })
+    return byCell
+  }
+  const thisWeek = weekWindow(startOfWeek(new Date(), { weekStartsOn: 0 }))
+  const thisWeekReports = reportsInWindow(thisWeek)
+  const useThisWeek = Object.keys(thisWeekReports).length > 0
+  const cellWeek = useThisWeek ? thisWeek : weekWindow(subWeeks(thisWeek.sunday, 1))
+  const latestPerCell = useThisWeek ? thisWeekReports : reportsInWindow(cellWeek)
+  const cellWeekLabel = `${format(parseISO(cellWeek.start), 'd MMM')} – ${format(parseISO(cellWeek.end), 'd MMM yyyy')}`
   const reportedCells = Object.values(latestPerCell).sort((a, b) => b.membersAttended - a.membersAttended)
   const cellAttendance = {
     total: reportedCells.reduce((s, r) => s + (r.membersAttended || 0), 0),
@@ -363,7 +387,7 @@ export default function FounderInsightsPanel() {
       <button type="button" onClick={() => setDrill({ kind: 'cell' })} className={`${CLICKABLE_CARD} flex flex-col justify-between`}>
         <div>
           <p className="text-sm font-bold text-slate-800">Total Cell Attendance</p>
-          <p className="text-xs text-slate-400">Latest report per active cell · {cellAttendance.cellCount} cell{cellAttendance.cellCount === 1 ? '' : 's'} reporting</p>
+          <p className="text-xs text-slate-400">{useThisWeek ? 'This week' : 'Last week'} · {cellWeekLabel} · {cellAttendance.cellCount} of {activeCells.length} cells reported</p>
         </div>
         <div>
           <p className="text-4xl font-black text-emerald-700 mt-6">
@@ -398,7 +422,7 @@ export default function FounderInsightsPanel() {
       {drill?.kind === 'cell' && (
         <DrillDownModal
           title="Cell Attendance by Cell"
-          subtitle={`${cellAttendance.total.toLocaleString()} members · ${cellAttendance.cellCount} of ${activeCells.length} active cells reporting`}
+          subtitle={`Week of ${cellWeekLabel} (Sun–Sat) · ${cellAttendance.total.toLocaleString()} members · ${cellAttendance.cellCount} of ${activeCells.length} active cells reported`}
           link={{ label: 'Open cell reports', to: '/department/cell?tab=reports' }}
           onClose={closeDrill}
         >

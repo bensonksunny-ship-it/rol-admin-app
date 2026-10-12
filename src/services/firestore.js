@@ -3026,6 +3026,32 @@ export async function getLatestCellReports(limitCount = 30) {
   })
 }
 
+/** Live twin of getLatestCellReports — fires again whenever any of those reports changes. */
+export function subscribeLatestCellReports(limitCount, onChange, onError) {
+  if (!db) { onChange([]); return () => {} }
+  const q = query(collection(db, CELL_REPORTS_COLLECTION), orderBy('reportDate', 'desc'), limit(limitCount))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        cellId: data.cellId || '',
+        cellName: data.cellName || '',
+        meetingDay: data.meetingDay || '',
+        membersAttended: Number(data.membersAttended) || 0,
+        visitors: Number(data.visitors) || 0,
+        children: Number(data.children) || 0,
+        reportDate: data.reportDate || '',
+        startTime: data.startTime || '',
+        endTime: data.endTime || '',
+      }
+    }))
+  }, (err) => {
+    console.error('subscribeLatestCellReports', err)
+    onError?.(err)
+  })
+}
+
 /**
  * Read-only weekly archive history.
  * Each doc is grouped by weekStartISO and contains program summary + totals.
@@ -3880,18 +3906,33 @@ export async function rejectPCSDiscard(approval, decidedBy = '') {
 // D Light – sub departments (dlight_sub_departments)
 const DLIGHT_SUB_DEPARTMENTS_COLLECTION = 'dlight_sub_departments'
 
+const mapDlightSubDepartment = (d) => {
+  const data = d.data()
+  return {
+    id: d.id,
+    name: data.name || '',
+    servingArea: data.servingArea || '',
+    // Older docs have no flag: treated as active (only an explicit false hides one).
+    active: data.active !== false,
+    createdAt: toDate(data.createdAt),
+  }
+}
+
 export async function getDlightSubDepartments() {
   if (!db) return []
   const q = query(collection(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION), orderBy('createdAt', 'desc'))
   const snap = await getDocs(q)
-  return snap.docs.map((d) => {
-    const data = d.data()
-    return {
-      id: d.id,
-      name: data.name || '',
-      servingArea: data.servingArea || '',
-      createdAt: toDate(data.createdAt),
-    }
+  return snap.docs.map(mapDlightSubDepartment)
+}
+
+/** Live D Light sub-departments (newest first): the Assign tab's duty rows follow
+ *  creates / renames / deletes made anywhere without a reload. Returns unsubscribe. */
+export function subscribeDlightSubDepartments(callback, onError) {
+  if (!db) { callback([]); return () => {} }
+  const q = query(collection(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION), orderBy('createdAt', 'desc'))
+  return onSnapshot(q, (snap) => callback(snap.docs.map(mapDlightSubDepartment)), (err) => {
+    console.error('subscribeDlightSubDepartments', err)
+    onError?.(err)
   })
 }
 
@@ -3900,6 +3941,7 @@ export async function addDlightSubDepartment({ name, servingArea }, createdBy) {
   const ref = await addDoc(collection(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION), {
     name: String(name || '').trim(),
     servingArea: String(servingArea || '').trim(),
+    active: true,
     createdAt: serverTimestamp(),
     createdBy: createdBy || 'unknown',
   })
@@ -3911,6 +3953,7 @@ export async function updateDlightSubDepartment(id, { name, servingArea }) {
   await updateDoc(doc(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION, id), {
     name: String(name || '').trim(),
     servingArea: String(servingArea || '').trim(),
+    active: true,
   })
 }
 
@@ -7253,6 +7296,21 @@ export async function upsertUserDirectoryEntry(uid, { name, email, role, departm
   }, { merge: true })
 }
 
+/** { email(lowercase) → display name } for the given emails, read from user_directory. */
+export async function getUserDirectoryNamesByEmail(emails = []) {
+  const list = Array.from(new Set(emails.map((e) => String(e || '').trim().toLowerCase()).filter((e) => e.includes('@'))))
+  if (!db || !list.length) return {}
+  const out = {}
+  for (let i = 0; i < list.length; i += 30) {
+    const snap = await getDocs(query(collection(db, USER_DIRECTORY), where('email', 'in', list.slice(i, i + 30))))
+    snap.docs.forEach((d) => {
+      const data = d.data()
+      if (data.email && data.name) out[String(data.email).toLowerCase()] = data.name
+    })
+  }
+  return out
+}
+
 export function subscribeUserDirectory(onChange) {
   if (!db) return () => {}
   return onSnapshot(collection(db, USER_DIRECTORY), (snap) => {
@@ -8925,6 +8983,37 @@ export async function submitCellLeaderApproval(notif, { answers, notes = '', by 
   await batch.commit()
 }
 
+/**
+ * Stage 5: the cell leader accepts the request and schedules the call (phone or
+ * face-to-face). Saved on the candidate (membershipPipeline.cellLeaderVerification
+ * .scheduledCall) and on the request, so the ribbon shows it. Rules: only the
+ * cell leader the pending request was sent to.
+ */
+export async function scheduleCellLeaderCall(notif, schedule, by = '') {
+  if (!db || !notif?.id || !notif.candidatePcsId) throw new Error('Missing request')
+  const rec = { ...schedule, scheduledBy: by || notif.cellLeaderName || 'Cell Leader', updatedAt: nowIso() }
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, notif.candidatePcsId), { 'membershipPipeline.cellLeaderVerification.scheduledCall': rec })
+  await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), { schedule: rec })
+  return rec
+}
+
+/**
+ * Stage 6: the deacon schedules / reschedules the interview (phone or face-to-face).
+ * Saved on the candidate (membershipPipeline.deaconInterview.scheduledInterview,
+ * and interview.scheduledAt so the stepper shows the new time) and on the
+ * request (scheduledAt drives the ribbon). Rules: only that deacon.
+ */
+export async function scheduleDeaconInterview(notif, schedule, by = '') {
+  if (!db || !notif?.id || !notif.candidatePcsId) throw new Error('Missing request')
+  const rec = { ...schedule, scheduledBy: by || notif.deaconName || 'Deacon', updatedAt: nowIso() }
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, notif.candidatePcsId), {
+    'membershipPipeline.deaconInterview.scheduledInterview': rec,
+    'membershipPipeline.interview.scheduledAt': rec.at,
+  })
+  await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), { schedule: rec, scheduledAt: rec.at })
+  return rec
+}
+
 /** Recipient closes a workspace notification that needs no pipeline update
  *  (e.g. their baptism self-declaration has been signed). */
 export async function markWorkspaceNotificationDone(notifId, by = '') {
@@ -8971,6 +9060,7 @@ export async function submitMembershipInterviewRecord(notif, record, { advance, 
     }
   }
   await updateDoc(doc(db, CARING_PCS_COLLECTION, notif.candidatePcsId), patch)
+  if (!notif.id) return // recorded from the pipeline with no workspace request
   await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), {
     status: 'completed', respondedAt: at, respondedBy: by, responseNote: record.status,
   }).catch((e) => console.error('close interview request:', e))

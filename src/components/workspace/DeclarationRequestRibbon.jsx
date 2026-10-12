@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { subscribeMyInterviewRequests, getBaptismDeclarationByToken, markWorkspaceNotificationDone } from '../../services/firestore'
+import { RIBBON_BAR } from '../../constants/ribbon'
 
 /**
  * My Workspace → "please sign your Baptism Self-Declaration" ribbon for a
@@ -32,8 +33,8 @@ export default function DeclarationRequestRibbon({ uid, email, myName }) {
   return (
     <div>
       {shown.map((r) => (
-        <div key={r.id} className="w-full max-w-xl mx-auto my-3">
-          <div className="bg-indigo-600 text-white rounded-xl px-5 py-3 shadow-md flex items-center justify-between gap-3 w-full">
+        <div key={r.id} className="w-full my-3">
+          <div className={`${RIBBON_BAR} rounded-xl bg-indigo-600 text-white shadow-md justify-between`}>
             <span className="min-w-0 text-sm font-medium tracking-wide">
               Hello {firstName}, please sign your Baptism Self-Declaration for your membership application.
             </span>

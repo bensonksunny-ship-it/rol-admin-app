@@ -93,12 +93,13 @@ export default function MembershipPipelineTracker({
   }
 
   const block = cur ? advanceBlockReason(cur, stages, { canCaring, canPastor, canFirstLady }) : ''
+  const interviewToConduct = cur?.key === 'membershipInterview' && ['Accepted', 'Follow-up Required'].includes(entry.membershipPipeline?.interview?.status)
   const btn = 'px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap'
 
   // The current stage's action opens the same window as clicking its number.
   const stageInputs = () => {
     if (!cur || block) return null
-    return <button type="button" disabled={busy} onClick={() => setOpenStageKey(cur.key)} className={btn}>{busy ? 'Saving…' : cur.action}</button>
+    return <button type="button" disabled={busy} onClick={() => setOpenStageKey(cur.key)} className={btn}>{busy ? 'Saving…' : interviewToConduct ? '📋 Conduct Membership Interview' : cur.action}</button>
   }
 
   return (
@@ -156,6 +157,13 @@ export default function MembershipPipelineTracker({
             onIssue={(num) => issue(num)}
             onUndo={(key) => undo(key)}
             onInterviewSaved={(interview) => onChanged?.(entry.id, (p) => ({ ...p, interview }))}
+            onInterviewRecorded={(record, advanced) => onChanged?.(entry.id, (p) => ({
+              ...p, interview: { ...(p?.interview || {}), ...record, completedAt: new Date().toISOString() },
+              ...(advanced ? { stages: { ...(p?.stages || {}), membershipInterview: {
+                status: 'completed', completedAt: new Date().toISOString(), by, interviewer: record.conductedByDeaconName,
+                interviewDate: new Date().toISOString().slice(0, 10), recommendation: record.recommendation, connectionLevel: record.connectionLevel,
+              } } } : {}),
+            }))}
             onCellLeaderRequested={(cellLeaderRequest) => onChanged?.(entry.id, (p) => ({ ...p, cellLeaderRequest }))}
             onClose={() => setOpenStageKey(null)}
           />
