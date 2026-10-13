@@ -1,4 +1,4 @@
-import { useParams, Link, Navigate } from 'react-router-dom'
+import { useParams, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
@@ -11,6 +11,7 @@ import {
 import { ROLES } from '../constants/roles'
 import { format } from 'date-fns'
 import { formatDMY } from '../utils/date'
+import BackButton from '../components/BackButton'
 
 export default function DepartmentPastorUpdates() {
   const { slug } = useParams()
@@ -44,8 +45,8 @@ export default function DepartmentPastorUpdates() {
   if (!department) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/senior-pastor" className="text-blue-600 hover:underline">← Senior Pastor Office</Link>
-        <p className="mt-4">Department not found.</p>
+        <BackButton fallback="/senior-pastor" className="-ml-2.5" />
+        <p className="mt-2">Department not found.</p>
       </div>
     )
   }
@@ -53,8 +54,8 @@ export default function DepartmentPastorUpdates() {
   if (!canManage) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/" className="text-blue-600 hover:underline">← Dashboard</Link>
-        <p className="mt-4">You don&apos;t have access to pastor updates for this department.</p>
+        <BackButton fallback="/" className="-ml-2.5" />
+        <p className="mt-2">You don&apos;t have access to pastor updates for this department.</p>
       </div>
     )
   }
@@ -85,19 +86,14 @@ export default function DepartmentPastorUpdates() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Link
-          to={`/department/${slug}/pastor`}
-          className="text-slate-600 hover:text-slate-800 text-sm"
-        >
-          ← {department.name} Pastor view
-        </Link>
-      </div>
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Updates</h1>
-        <p className="text-slate-500 mt-1">
-          Pastor notes, ratings, and suggested changes for {department.name}. Only Senior Pastor and Founder can edit.
-        </p>
+      <div className="flex items-start gap-2">
+        <BackButton fallback={`/department/${slug}/pastor`} label={`Back to ${department.name} Pastor view`} className="-ml-2.5" />
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-800 leading-10">Updates</h1>
+          <p className="text-slate-500">
+            Pastor notes, ratings, and suggested changes for {department.name}. Only Senior Pastor and Founder can edit.
+          </p>
+        </div>
       </div>
 
       <div className="flex justify-end">

@@ -74,7 +74,17 @@ function Root() {
 
 // When a new service worker takes over (skipWaiting activated), reload so the
 // page runs the updated bundle instead of the old cached one.
-if ('serviceWorker' in navigator) {
+if (import.meta.env.DEV && 'serviceWorker' in navigator) {
+  // The dev server never registers a worker, so any registration here is a stale
+  // production one that would shadow live code. Drop it and its caches.
+  navigator.serviceWorker.getRegistrations().then(async (regs) => {
+    if (!regs.length) return
+    await Promise.all(regs.map((r) => r.unregister()))
+    const keys = await caches.keys()
+    await Promise.all(keys.map((k) => caches.delete(k)))
+    window.location.reload()
+  })
+} else if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     window.location.reload()
   })

@@ -13,6 +13,7 @@ import {
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { formatDisplayDate } from '../utils/date'
+import BackButton from '../components/BackButton'
 
 export default function DepartmentPastorView() {
   const { slug } = useParams()
@@ -64,8 +65,8 @@ export default function DepartmentPastorView() {
   if (!department) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/senior-pastor" className="text-blue-600 hover:underline">← Senior Pastor Office</Link>
-        <p className="mt-4">Department not found.</p>
+        <BackButton fallback="/senior-pastor" className="-ml-2.5" />
+        <p className="mt-2">Department not found.</p>
       </div>
     )
   }
@@ -73,8 +74,8 @@ export default function DepartmentPastorView() {
   if (!canAccess) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/" className="text-blue-600 hover:underline">← Dashboard</Link>
-        <p className="mt-4">You don&apos;t have access to the pastor view for this department.</p>
+        <BackButton fallback="/" className="-ml-2.5" />
+        <p className="mt-2">You don&apos;t have access to the pastor view for this department.</p>
       </div>
     )
   }

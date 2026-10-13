@@ -14,6 +14,21 @@ export const BLANK_STUDENT = {
   feePaidDate: '',
 }
 
+export function summarizeFees(rows) {
+  let collected = 0
+  let pending = 0
+  for (const s of rows) {
+    const amt = Number(s.feeAmount) || 0
+    if (s.feePaid) collected += amt
+    else pending += amt
+  }
+  return { count: rows.length, collected, pending, total: collected + pending }
+}
+
+export function formatINR(n) {
+  return `₹${(Number(n) || 0).toLocaleString('en-IN')}`
+}
+
 export function toDateInputValue(d) {
   if (!d) return ''
   const date = d instanceof Date ? d : new Date(d)

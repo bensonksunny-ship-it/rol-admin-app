@@ -1,5 +1,4 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { Link } from 'react-router-dom'
 import { format, startOfWeek, parseISO, addDays } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -37,6 +36,7 @@ import { getDepartmentRole } from '../utils/access'
 import { canEditCellReport } from '../utils/cellReportPermissions'
 import { calcTenureLabel } from '../utils/cellMemberCategory'
 import { computeDurationMinutes, formatMeetingTimeRange } from '../utils/date'
+import BackButton from '../components/BackButton'
 
 const CELL_DEPARTMENT = 'Cell'
 const MAX_VISIBLE_TILES = 18
@@ -756,8 +756,8 @@ export default function CellReport() {
   if (!canAccess) {
     return (
       <div className="p-8 text-slate-600">
-        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
-        <p className="mt-4">You do not have access to Cell Report. Cell Leaders can only access their own cell; Cell Director and Founder can view all.</p>
+        <BackButton fallback="/departments" className="-ml-2.5" />
+        <p className="mt-2">You do not have access to Cell Report. Cell Leaders can only access their own cell; Cell Director and Founder can view all.</p>
       </div>
     )
   }
@@ -766,7 +766,7 @@ export default function CellReport() {
     return (
       <div className="p-8 text-slate-600">
         {canViewAllCells && (
-          <Link to="/department/cell" className="text-blue-600 hover:underline">← Cell Department</Link>
+          <BackButton fallback="/department/cell" className="-ml-2.5" />
         )}
         <p className="mt-4">Your user is not linked to a cell. Ask an admin to set your <strong>cellId</strong> in your profile, or ensure your name matches the <strong>Leader</strong> of a cell group.</p>
       </div>

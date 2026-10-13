@@ -217,6 +217,7 @@ import BudgetPage from './accounts/BudgetPage'
 import UpcomingSunday from './UpcomingSunday'
 import { DirectorBoardPage, SundayLeaderTab, SecCoreAnalyticsHub } from './seccore/SecCoreSummary'
 import SundayPrepTracker from '../components/SundayPrepTracker'
+import BackButton from '../components/BackButton'
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -2859,8 +2860,8 @@ export default function DepartmentHub() {
   if (!department) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
-        <p className="mt-4">Department not found.</p>
+        <BackButton fallback="/departments" className="-ml-2.5" />
+        <p className="mt-2">Department not found.</p>
       </div>
     )
   }
@@ -2879,8 +2880,8 @@ export default function DepartmentHub() {
     if (isPreServiceLeaderInPositions(userProfile)) return <Navigate to="/department/sunday-ministry/assign" replace />
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
-        <p className="mt-4">You do not have access to Sunday Ministry department.</p>
+        <BackButton fallback="/departments" className="-ml-2.5" />
+        <p className="mt-2">You do not have access to Sunday Ministry department.</p>
       </div>
     )
   }
@@ -2888,8 +2889,8 @@ export default function DepartmentHub() {
   if (slug !== 'sunday-ministry' && !hasAccess(userProfile, department.name) && !isAccountsEntryPassthrough) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
-        <p className="mt-4">
+        <BackButton fallback="/departments" className="-ml-2.5" />
+        <p className="mt-2">
           You do not have access to {department.name === 'Event M' ? 'Event Management' : department.name} department.
         </p>
       </div>
@@ -2906,8 +2907,8 @@ export default function DepartmentHub() {
   if (slug === 'd-light' && isRestrictedDLightDirector(userProfile)) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/sunday-planning" className="text-blue-600 hover:underline">← Sunday Planning</Link>
-        <p className="mt-4 text-lg font-semibold text-slate-800">Access Denied</p>
+        <BackButton fallback="/sunday-planning" className="-ml-2.5" />
+        <p className="mt-2 text-lg font-semibold text-slate-800">Access Denied</p>
         <p className="mt-2 text-sm text-slate-600">D Light Directors may only use Sunday Planning. Other D Light pages are not available.</p>
       </div>
     )

@@ -10,7 +10,7 @@ export function getDepartmentHubTabs(slug) {
     case 'sunday-ministry':
       return ['summary', 'sunday', 'sundayReportsHistory', 'sundayCrew', 'finance', 'operations']
     case 'worship':
-      return ['summary', 'upcomingSunday', 'assign', 'theTeam', 'applications', 'practiceRehearsal', 'songsDirectory', 'archives', 'finance']
+      return ['summary', 'upcomingSunday', 'assign', 'theTeam', 'practiceRehearsal', 'songsDirectory', 'archives', 'finance']
     case 'media':
       // No Operations tab — Team + Sub-Departments already moved to the top-level
       // "The Team" tab, which left Operations with only Planning as a sub-tab; that

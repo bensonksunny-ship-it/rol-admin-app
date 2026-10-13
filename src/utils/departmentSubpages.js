@@ -217,7 +217,6 @@ function getTabPath(slug, tab) {
   if (tab === 'sundayReportsHistory') return '/department/sunday-ministry/reports'
   if (tab === 'sundayProgram')        return '/department/sunday-ministry/sunday-program'
   if (tab === 'sundayCrew')           return '/department/sunday-ministry/assign'
-  if (tab === 'applications' && slug === 'worship') return '/department/worship/applications'
   return `/department/${slug}?tab=${encodeURIComponent(tab)}`
 }
 

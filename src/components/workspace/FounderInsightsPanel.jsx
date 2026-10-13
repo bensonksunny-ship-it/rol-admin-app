@@ -261,11 +261,12 @@ export default function FounderInsightsPanel() {
   const cellDocIdByReportKey = {}
   activeCells.forEach(c => { cellDocIdByReportKey[c.id] = c.id; if (c.cellId) cellDocIdByReportKey[c.cellId] = c.id })
 
-  // Cell reporting week = Sunday–Saturday. Only reports dated inside one window are
-  // summed — never a cell's older report from a previous week. The active window is
-  // this week once any cell has reported in it, otherwise last week (so early in the
-  // week the card shows last week's complete picture instead of a near-zero total).
-  const weekWindow = (sunday) => ({ start: format(sunday, 'yyyy-MM-dd'), end: format(addDays(sunday, 6), 'yyyy-MM-dd'), sunday })
+  // Cell reporting week = Monday–Sunday (ISO), the same band as the Cell Hub and
+  // Reports tab. Only reports dated inside one window are summed — never a cell's
+  // older report from a previous week. The active window is this week once any cell
+  // has reported in it, otherwise last week (so early in the week the card shows
+  // last week's complete picture instead of a near-zero total).
+  const weekWindow = (monday) => ({ start: format(monday, 'yyyy-MM-dd'), end: format(addDays(monday, 6), 'yyyy-MM-dd'), monday })
   const reportsInWindow = (w) => {
     const byCell = {}
     cellReports.forEach(r => {
@@ -282,10 +283,10 @@ export default function FounderInsightsPanel() {
     Object.keys(byCell).forEach(id => { if (!isRealCellReportSubmission(byCell[id])) delete byCell[id] })
     return byCell
   }
-  const thisWeek = weekWindow(startOfWeek(new Date(), { weekStartsOn: 0 }))
+  const thisWeek = weekWindow(startOfWeek(new Date(), { weekStartsOn: 1 }))
   const thisWeekReports = reportsInWindow(thisWeek)
   const useThisWeek = Object.keys(thisWeekReports).length > 0
-  const cellWeek = useThisWeek ? thisWeek : weekWindow(subWeeks(thisWeek.sunday, 1))
+  const cellWeek = useThisWeek ? thisWeek : weekWindow(subWeeks(thisWeek.monday, 1))
   const latestPerCell = useThisWeek ? thisWeekReports : reportsInWindow(cellWeek)
   const cellWeekLabel = `${format(parseISO(cellWeek.start), 'd MMM')} – ${format(parseISO(cellWeek.end), 'd MMM yyyy')}`
   const reportedCells = Object.values(latestPerCell).sort((a, b) => b.membersAttended - a.membersAttended)
@@ -422,7 +423,7 @@ export default function FounderInsightsPanel() {
       {drill?.kind === 'cell' && (
         <DrillDownModal
           title="Cell Attendance by Cell"
-          subtitle={`Week of ${cellWeekLabel} (Sun–Sat) · ${cellAttendance.total.toLocaleString()} members · ${cellAttendance.cellCount} of ${activeCells.length} active cells reported`}
+          subtitle={`Week of ${cellWeekLabel} (Mon–Sun) · ${cellAttendance.total.toLocaleString()} members · ${cellAttendance.cellCount} of ${activeCells.length} active cells reported`}
           link={{ label: 'Open cell reports', to: '/department/cell?tab=reports' }}
           onClose={closeDrill}
         >

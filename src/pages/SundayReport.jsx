@@ -38,6 +38,7 @@ import useFloatingToast from '../hooks/useFloatingToast'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import useSeniorPastor from '../hooks/useSeniorPastor'
+import BackButton from '../components/BackButton'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'nonCell', title: 'Non Cell' },
@@ -2409,10 +2410,8 @@ export default function SundayReport({ embedded = false }) {
   if (!isSundayMinistryDirector) {
     return (
       <div className="p-8 text-slate-600">
-        <Link to="/department/sunday-ministry" className="text-blue-600 hover:underline">
-          ← Sunday Ministry
-        </Link>
-        <p className="mt-4">You do not have access to Sunday Ministry.</p>
+        <BackButton fallback="/department/sunday-ministry" className="-ml-2.5" />
+        <p className="mt-2">You do not have access to Sunday Ministry.</p>
       </div>
     )
   }

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import useModalOpenGuard from '../hooks/useModalOpenGuard'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2, Copy } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2, Copy, ClipboardList } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -27,7 +27,6 @@ import {
   updateWorshipBudgetItem,
   deleteWorshipBudgetItem,
   getMergedPeopleDirectory,
-  getWorshipApplications,
   getWorshipSongs,
   addWorshipSong,
   updateWorshipSong,
@@ -52,6 +51,8 @@ import BudgetPage from './accounts/BudgetPage'
 import WorshipUpcomingSunday from '../components/worship/WorshipUpcomingSunday'
 import SongDesigner from './worship/SongDesigner'
 import SongViewer from './worship/SongViewer'
+import WorshipApplications from './worship/WorshipApplications'
+import BackButton from '../components/BackButton'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -1616,33 +1617,14 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
   )
 }
 
-// "+ Add New Team Member" must only offer applicants whose screening evaluation
-// explicitly recommended them — not the full church directory. An applicant only
-// qualifies once status === 'screened' AND screening.recommendation === 'Ready for
-// Main Roster'; pending/incomplete applications and 'Needs Training / Sub List' or
-// 'Not Ready' recommendations are excluded, as are people with no application at all.
-async function getApprovedRosterVisitors() {
-  const [{ people }, applications] = await Promise.all([
-    getMergedPeopleDirectory(),
-    getWorshipApplications(DEPARTMENT).catch(() => []),
-  ])
-  const approvedNames = new Set(
-    (applications || [])
-      .filter(a => a.status === 'screened' && a.screening?.recommendation === 'Ready for Main Roster')
-      .map(a => (a.fullName || '').trim().toLowerCase())
-      .filter(Boolean)
-  )
-  return people.filter(p => approvedNames.has((p.name || '').trim().toLowerCase()))
-}
-
 export default function DepartmentWorship() {
   const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
   const { name: seniorPastorName } = useSeniorPastor()
   if (!hasAccess(userProfile, DEPARTMENT) && !hasWorshipRoleAccess(userProfile)) {
     return (
       <div className="p-6 text-slate-600">
-        <Link to="/departments" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all">← Departments</Link>
-        <p className="mt-4">You do not have access to {DEPARTMENT} department.</p>
+        <BackButton fallback="/departments" className="-ml-2.5" />
+        <p className="mt-2">You do not have access to {DEPARTMENT} department.</p>
       </div>
     )
   }
@@ -1705,17 +1687,25 @@ export default function DepartmentWorship() {
   const [loadingTeam, setLoadingTeam] = useState(true)
   const [teamError, setTeamError] = useState(null)
   const [worshipMemberLinking, setWorshipMemberLinking] = useState(null)
-  const [newMember, setNewMember] = useState({
-    name: '',
-    visitorId: '',
-    personId: '',
-    memberSince: new Date().toISOString().slice(0, 10),
-    isFormer: false,
-    positions: [],
-    isWorshipDirector: false,
-  })
-  const [addMemberVisitors, setAddMemberVisitors] = useState([])
-  const [addMemberVisitorsLoading, setAddMemberVisitorsLoading] = useState(false)
+  // The Team → "Pending Applicant Reviews" panel. applicationsSummary is the
+  // embedded WorshipApplications list (null until it loads).
+  const [applicationsPanelOpen, setApplicationsPanelOpen] = useState(false)
+  const [applicationsSummary, setApplicationsSummary] = useState(null)
+  const applicationsPanelRef = useRef(null)
+  const pendingApplicationCount = (applicationsSummary || []).filter(a => a.status !== 'approved').length
+  // Escape dismisses the pop-over — unless one of its own modals is open on top.
+  useEffect(() => {
+    if (!applicationsPanelOpen) return
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !document.querySelector('[aria-modal="true"]')) setApplicationsPanelOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [applicationsPanelOpen])
+  const openApplicationsPanel = () => {
+    setApplicationsPanelOpen(true)
+    requestAnimationFrame(() => applicationsPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
   const [form, setForm] = useState({
     type: 'team',
     period: PERIOD,
@@ -1796,7 +1786,6 @@ export default function DepartmentWorship() {
   const [rehearsalModalOpen, setRehearsalModalOpen] = useState(false)
   const [editingRehearsal, setEditingRehearsal] = useState(null)
   const [rehearsalForm, setRehearsalForm] = useState({ date: '', time: '', location: '', notes: '' })
-  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false)
   const [openAttendanceId, setOpenAttendanceId] = useState(null)
   const [attendanceDraft, setAttendanceDraft] = useState({})
   const [openSessionMenuId, setOpenSessionMenuId] = useState(null)
@@ -1870,6 +1859,17 @@ export default function DepartmentWorship() {
     setSelectedDate(d)
     const next = new URLSearchParams(searchParams)
     next.delete('assignDate')
+    setSearchParams(next, { replace: true })
+  }, [activeTab, searchParams])
+
+  // Deep link to the applications panel (?tab=theTeam&panel=applications) — the
+  // workspace "Review Applications" action and the old /department/worship/applications
+  // route land here now that Applications isn't its own tab. Consumed like newSong.
+  useEffect(() => {
+    if (activeTab !== 'theTeam' || searchParams.get('panel') !== 'applications') return
+    openApplicationsPanel()
+    const next = new URLSearchParams(searchParams)
+    next.delete('panel')
     setSearchParams(next, { replace: true })
   }, [activeTab, searchParams])
 
@@ -2680,6 +2680,7 @@ export default function DepartmentWorship() {
               roleKeyFor={roleKeyFor}
               parseRoleKey={parseRoleKey}
               roleDisplayLabel={roleDisplayLabel}
+              roleTheme={roleGroupTheme}
               eligibleFor={(role) => {
                 const posKey = positionKeyForRole(role)
                 return posKey ? activeMembers.filter((m) => m.positions?.includes(posKey)) : activeMembers
@@ -3375,6 +3376,60 @@ export default function DepartmentWorship() {
       {activeTab === 'theTeam' && (
         <div className="space-y-6 pb-24">
 
+          {/* Pending applicant reviews — the whole application pipeline (screening,
+              review, Approve & Add to Team) lives here, above the roster it feeds,
+              instead of on its own Applications tab. */}
+          {/* Opens as a floating pop-over (absolute, below the header card) so the
+              cards underneath never shift. The blur lives on its own layer, never
+              on an ancestor of the list — a backdrop-filter ancestor would trap the
+              list's fixed Approve / Screening modals inside the pop-over. */}
+          <div ref={applicationsPanelRef} className={`scroll-mt-24 relative ${applicationsPanelOpen ? 'z-40' : ''}`}>
+            {applicationsPanelOpen && (
+              <div aria-hidden="true" onClick={() => setApplicationsPanelOpen(false)}
+                className="fixed inset-0 bg-slate-900/10 backdrop-blur-[2px]" />
+            )}
+            <div className="relative z-10 bg-white rounded-xl rol-solid border border-indigo-200 shadow-sm overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setApplicationsPanelOpen(o => !o)}
+              aria-expanded={applicationsPanelOpen}
+              aria-haspopup="dialog"
+              className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-indigo-50/50 transition-colors"
+            >
+              <ClipboardList size={18} className="shrink-0 text-indigo-600" />
+              <div className="flex-1 min-w-0">
+                <h2 className="font-semibold text-slate-800">Pending Applicant Reviews</h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {applicationsSummary === null
+                    ? 'Loading…'
+                    : pendingApplicationCount > 0
+                      ? `${pendingApplicationCount} awaiting a decision`
+                      : 'No applications waiting'}
+                </p>
+              </div>
+              {pendingApplicationCount > 0 && (
+                <span className="min-w-[1.5rem] h-6 px-2 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">{pendingApplicationCount}</span>
+              )}
+              <ChevronDown size={18} className={`shrink-0 text-slate-400 transition-transform duration-200 ${applicationsPanelOpen ? 'rotate-180' : ''}`} />
+            </button>
+            </div>
+            {/* Kept mounted while closed so the count stays live and an open
+                application/detail isn't lost by dismissing the pop-over. */}
+            <div role="dialog" aria-label="Pending Applicant Reviews"
+              className={applicationsPanelOpen ? 'absolute top-full left-0 right-0 mt-2 z-20 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xl' : 'hidden'}>
+              <div aria-hidden="true" className="absolute inset-0 -z-10 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md" />
+              <div className="max-h-[70vh] overflow-y-auto overscroll-contain p-4">
+                <WorshipApplications
+                  embedded
+                  canManageWorship={canManageWorship}
+                  userProfile={userProfile}
+                  onApplicationsChange={setApplicationsSummary}
+                  onApproved={loadTeam}
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Active members */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -3402,23 +3457,21 @@ export default function DepartmentWorship() {
                     </button>
                   )
                 })()}
-                {canManageWorship && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewMember({ name: '', visitorId: '', personId: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
-                      setAddMemberVisitors([])
-                      setAddMemberVisitorsLoading(true)
-                      getApprovedRosterVisitors().then(setAddMemberVisitors).catch(() => setAddMemberVisitors([])).finally(() => setAddMemberVisitorsLoading(false))
-                      setAddMemberModalOpen(true)
-                    }}
-                    aria-label="Add New Team Member"
-                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm shrink-0"
-                  >
-                    <span className="text-lg leading-none">+</span>
-                    <span className="hidden sm:inline">Add New Team Member</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={openApplicationsPanel}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm shrink-0"
+                >
+                  <ClipboardList size={16} />
+                  {pendingApplicationCount > 0 ? (
+                    <>
+                      <span>Pending Applications</span>
+                      <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-white text-indigo-700 text-xs font-bold flex items-center justify-center">{pendingApplicationCount}</span>
+                    </>
+                  ) : (
+                    <span>Review Applications</span>
+                  )}
+                </button>
               </div>
             </div>
             {loadingTeam ? (
@@ -3466,164 +3519,6 @@ export default function DepartmentWorship() {
               </div>
             )}
           </div>
-
-          {/* Add member modal */}
-          {addMemberModalOpen && canManageWorship && (
-            <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4" onClick={() => setAddMemberModalOpen(false)}>
-              <div
-                className="bg-white dark:bg-[#16213a] rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border-0 dark:border dark:border-slate-700/50 overflow-hidden"
-                onClick={e => e.stopPropagation()}
-              >
-                {/* drag handle on mobile */}
-                <div className="sm:hidden flex justify-center pt-3 pb-1">
-                  <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600" />
-                </div>
-
-                {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700/50">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">Add New Team Member</h3>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Must exist in the People Directory</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setAddMemberModalOpen(false)}
-                    className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 text-xl leading-none transition-colors"
-                  >×</button>
-                </div>
-
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault()
-                    if (!newMember.visitorId && !newMember.personId) return
-                    try {
-                      await addWorshipTeamMember(DEPARTMENT, {
-                        name: newMember.name.trim(), visitorId: newMember.visitorId, personId: newMember.personId,
-                        memberSince: newMember.memberSince,
-                        isFormer: newMember.isFormer, positions: newMember.positions,
-                        isWorshipDirector: newMember.isWorshipDirector,
-                      }, userProfile?.email)
-                      setNewMember({ name: '', visitorId: '', personId: '', memberSince: new Date().toISOString().slice(0, 10), isFormer: false, positions: [], isWorshipDirector: false })
-                      setAddMemberModalOpen(false)
-                      await loadTeam()
-                    } catch (err) { console.error(err); alert('Failed to add member') }
-                  }}
-                  className="px-6 py-5 space-y-4"
-                >
-                  {/* Person picker — keyed/matched on the merged directory entry's `_key`
-                      (always present and unique), not `.id` (getMergedPeopleDirectory's
-                      entries never have a plain `.id` — only `personId` for a real people-
-                      collection record and `_visitorIds` for linked D-Light visitor docs).
-                      Matching on `.id` here silently resolved to `undefined` for every
-                      candidate, which made the browser fall back to each <option>'s text
-                      content (the person's name) as its value — so a pick only ever
-                      "matched" by display-name string and never actually bound a real
-                      personId/visitorId onto the new team member record. */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">
-                      Person <span className="text-red-400">*</span>
-                    </label>
-                    {(newMember.visitorId || newMember.personId) ? (
-                      <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-emerald-200 dark:border-emerald-700/50 bg-emerald-50 dark:bg-emerald-900/20">
-                        <span className="w-8 h-8 rounded-full bg-emerald-500 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
-                          {newMember.name.charAt(0).toUpperCase()}
-                        </span>
-                        <span className="flex-1 text-sm font-semibold text-emerald-900 dark:text-emerald-300">{newMember.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => setNewMember(m => ({ ...m, name: '', visitorId: '', personId: '' }))}
-                          className="text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-200 text-xl leading-none transition-colors"
-                        >×</button>
-                      </div>
-                    ) : (
-                      <select
-                        value=""
-                        disabled={addMemberVisitorsLoading || addMemberVisitors.length === 0}
-                        onChange={e => {
-                          const v = addMemberVisitors.find(x => x._key === e.target.value)
-                          if (v) setNewMember(m => ({ ...m, name: v.name, visitorId: v._visitorIds?.[0] || '', personId: v.personId || '' }))
-                        }}
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800/60 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500/40 focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors disabled:opacity-50"
-                      >
-                        <option value="" disabled>
-                          {addMemberVisitorsLoading
-                            ? 'Loading candidates…'
-                            : addMemberVisitors.length === 0
-                              ? 'No candidates ready for main roster'
-                              : 'Select an approved candidate…'}
-                        </option>
-                        {addMemberVisitors.map(v => (
-                          <option key={v._key} value={v._key}>{v.name}</option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-
-                  {/* Member since */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Member Since</label>
-                    <input
-                      type="date"
-                      value={newMember.memberSince}
-                      onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))}
-                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800/60 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500/40 transition-colors"
-                    />
-                  </div>
-
-                  {/* Positions */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Positions</label>
-                    <div className="flex flex-wrap gap-2">
-                      {MEMBER_POSITIONS.map((pos) => (
-                        <label
-                          key={pos}
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs border cursor-pointer transition-colors ${
-                            newMember.positions.includes(pos)
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-500'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="hidden"
-                            checked={newMember.positions.includes(pos)}
-                            onChange={(e) => setNewMember((m) => ({ ...m, positions: e.target.checked ? [...m.positions, pos] : m.positions.filter((p) => p !== pos) }))}
-                          />
-                          {pos}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Toggles */}
-                  <div className="flex flex-col gap-2.5 py-1 px-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-700/40">
-                    <label className="flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
-                      <input type="checkbox" checked={newMember.isWorshipDirector} onChange={(e) => setNewMember((m) => ({ ...m, isWorshipDirector: e.target.checked }))} className="rounded accent-indigo-600" />
-                      Set as Worship Director
-                    </label>
-                    <label className="flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
-                      <input type="checkbox" checked={newMember.isFormer} onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))} className="rounded accent-indigo-600" />
-                      Mark as Former Member
-                    </label>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="submit"
-                      disabled={!newMember.visitorId && !newMember.personId}
-                      className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >Add Member</button>
-                    <button
-                      type="button"
-                      onClick={() => setAddMemberModalOpen(false)}
-                      className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 bg-white dark:bg-transparent text-sm hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors"
-                    >Cancel</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
 
         </div>
       )}

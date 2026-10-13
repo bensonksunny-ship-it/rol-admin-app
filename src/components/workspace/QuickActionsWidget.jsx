@@ -64,7 +64,8 @@ const WEEKLY_ACTIONS = {
   Worship: { color: 'violet', actions: [
     ['assign', 'Assign Roster', CalendarCheck],
     ['practiceRehearsal', 'Practice & Rehearsal', Music2],
-    ['applications', 'Review Applications', FileText],
+    // Applications live in a panel on The Team; the extra query opens it.
+    ['theTeam', 'Review Applications', FileText, 'panel=applications'],
   ] },
   Cell: { color: 'emerald', actions: [
     ['reports', 'Submit Cell Report', ClipboardList],
@@ -115,7 +116,10 @@ export default function QuickActionsWidget() {
       const dept = getDepartmentByName(name)
       const subpages = dept ? getDepartmentSubpages(dept.slug, userProfile) : []
       const byKey = new Map(subpages.map((s) => [s.key, s]))
-      let actions = cfg.actions.filter(([tab]) => byKey.has(tab)).map(([tab, label, Icon]) => ({ key: tab, label, Icon, to: byKey.get(tab).to }))
+      let actions = cfg.actions.filter(([tab]) => byKey.has(tab)).map(([tab, label, Icon, extraQuery]) => {
+        const to = byKey.get(tab).to
+        return { key: tab, label, Icon, to: extraQuery ? `${to}${to.includes('?') ? '&' : '?'}${extraQuery}` : to }
+      })
       // No hub tabs for this user (e.g. a Pre-Service-only Sunday Ministry leader):
       // one action straight to wherever their department tile goes.
       if (!actions.length) actions = [{ key: 'open', label: `Open ${name}`, Icon: ArrowUpRight, to: getDepartmentNavPath(name, userProfile) }]

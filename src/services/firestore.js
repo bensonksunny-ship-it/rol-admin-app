@@ -7603,18 +7603,44 @@ export async function deleteRFFProgram(id) {
   await deleteDoc(doc(db, RFF_PROGRAMS_COLLECTION, id))
 }
 
+// Field mapping for this project's RFF docs. The standalone RFF app's docs are
+// mapped server-side by rffMapProgram/rffMapStudent in functions/index.js.
+function mapRFFProgram(d) {
+  return { id: d.id, name: String(d.data().name || '') }
+}
+
+function mapRFFStudent(d) {
+  const data = d.data()
+  return {
+    id: d.id,
+    ...data,
+    feeAmount: Number(data.feeAmount) || 0,
+    feePaid: !!data.feePaid,
+    admissionDate: toDate(data.admissionDate),
+    feePaidDate: toDate(data.feePaidDate),
+  }
+}
+
+// This project's own RFF collections (the standalone RFF app is read through
+// the getRFFData Cloud Function instead). `callback` also receives the
+// snapshot metadata so the UI can tell a server-confirmed sync from a cache read.
+export function listenRFFPrograms(callback, onError) {
+  const q = query(collection(db, RFF_PROGRAMS_COLLECTION), orderBy('name'))
+  return onSnapshot(q, { includeMetadataChanges: true }, snap => callback(snap.docs.map(mapRFFProgram), snap.metadata), onError)
+}
+
 export function listenRFFStudents(callback, onError) {
   const q = query(collection(db, RFF_STUDENTS_COLLECTION), orderBy('name'))
-  return onSnapshot(
-    q,
-    snap => callback(snap.docs.map(d => ({
-      id: d.id,
-      ...d.data(),
-      admissionDate: toDate(d.data().admissionDate),
-      feePaidDate: toDate(d.data().feePaidDate),
-    }))),
-    onError,
-  )
+  return onSnapshot(q, { includeMetadataChanges: true }, snap => callback(snap.docs.map(mapRFFStudent), snap.metadata), onError)
+}
+
+/** One-shot server read of both RFF collections (the manual "Refresh"). */
+export async function fetchRFFFromServer() {
+  const [p, st] = await Promise.all([
+    getDocsFromServer(query(collection(db, RFF_PROGRAMS_COLLECTION), orderBy('name'))),
+    getDocsFromServer(query(collection(db, RFF_STUDENTS_COLLECTION), orderBy('name'))),
+  ])
+  return { programs: p.docs.map(mapRFFProgram), students: st.docs.map(mapRFFStudent) }
 }
 
 export async function createRFFStudent(data) {

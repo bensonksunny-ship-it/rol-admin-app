@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { getTasks } from '../services/firestore'
 import { getDepartmentBySlug } from '../constants/departments'
@@ -6,6 +6,7 @@ import { DEPARTMENTS } from '../constants/roles'
 import { useAuth } from '../context/AuthContext'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { formatDisplayDate } from '../utils/date'
+import BackButton from '../components/BackButton'
 
 function getDepartmentName(slug) {
   const fromConfig = getDepartmentBySlug(slug)
@@ -31,8 +32,8 @@ export default function DepartmentDetail() {
     return (
       <div>
         <div className="p-6 text-slate-600">
-          <Link to="/sunday-planning" className="text-blue-600 hover:underline">← Sunday Planning</Link>
-          <p className="mt-4 text-lg font-semibold text-slate-800">Access Denied</p>
+          <BackButton fallback="/sunday-planning" className="-ml-2.5" />
+          <p className="mt-2 text-lg font-semibold text-slate-800">Access Denied</p>
           <p className="mt-2 text-sm text-slate-600">D Light Directors may only use Sunday Planning.</p>
         </div>
       </div>

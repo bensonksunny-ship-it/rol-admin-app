@@ -1,7 +1,6 @@
 import { getMemberDisplayName } from '../utils/displayName'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { format, addWeeks } from 'date-fns'
-import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { isPreServiceLeaderInPositions } from '../utils/sundayMinistryAccess'
 import MemberPicker from '../components/MemberPicker'
@@ -15,6 +14,7 @@ import {
   getSundayCrewScheduleByDate,
   setSundayCrewScheduleByDate,
 } from '../services/firestore'
+import BackButton from '../components/BackButton'
 
 function nextSunday() {
   const today = new Date()
@@ -915,8 +915,8 @@ export default function SundayCrew() {
   if (!canAccessCrew && !canAccessPreService) {
     return (
       <div className="p-8 text-slate-600">
-        <Link to="/department/sunday-ministry" className="text-blue-600 hover:underline">← Sunday Ministry</Link>
-        <p className="mt-4">You do not have access to Sunday Ministry.</p>
+        <BackButton fallback="/department/sunday-ministry" className="-ml-2.5" />
+        <p className="mt-2">You do not have access to Sunday Ministry.</p>
       </div>
     )
   }

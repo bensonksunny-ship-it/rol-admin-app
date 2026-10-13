@@ -59,16 +59,15 @@ export function isRealCellReportSubmission(r) {
 }
 
 /**
- * Display-only Sunday–Saturday range for a Monday-anchored week start (as produced
- * by weekStartKey / startOfWeek(d, { weekStartsOn: 1 })). Does not affect bucketing —
- * reports are still matched/aggregated by the Monday key everywhere else.
- * e.g. weekStart 2026-07-27 (Mon) -> "Jul 26 - Aug 01"
+ * Monday–Sunday range label for a Monday-anchored week start (as produced by
+ * weekStartKey / startOfWeek(d, { weekStartsOn: 1 })) — the label covers exactly
+ * the days the week bucket holds.
+ * e.g. weekStart 2026-07-27 (Mon) -> "Jul 27 - Aug 02"
  */
 export function formatWeekRangeLabel(weekStart) {
   const monday = typeof weekStart === 'string' ? parseISO(weekStart) : weekStart
-  const sunday = addDays(monday, -1)
-  const saturday = addDays(monday, 5)
-  return `${format(sunday, 'MMM dd')} - ${format(saturday, 'MMM dd')}`
+  const sunday = addDays(monday, 6)
+  return `${format(monday, 'MMM dd')} - ${format(sunday, 'MMM dd')}`
 }
 
 /**
@@ -82,12 +81,11 @@ export function formatWeekRangeLabel(weekStart) {
  */
 export function formatWeekDayRangeShort(weekStart) {
   const monday = typeof weekStart === 'string' ? parseISO(weekStart) : weekStart
-  const sunday = addDays(monday, -1)
-  const saturday = addDays(monday, 5)
-  if (format(sunday, 'MMM') !== format(saturday, 'MMM')) {
-    return `${format(sunday, 'MMM d')}–${format(saturday, 'MMM d')}`
+  const sunday = addDays(monday, 6)
+  if (format(monday, 'MMM') !== format(sunday, 'MMM')) {
+    return `${format(monday, 'MMM d')}–${format(sunday, 'MMM d')}`
   }
-  return `${format(sunday, 'd')}–${format(saturday, 'd')}`
+  return `${format(monday, 'd')}–${format(sunday, 'd')}`
 }
 
 /**

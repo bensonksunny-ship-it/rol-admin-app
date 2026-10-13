@@ -816,3 +816,101 @@ exports.syncBaptismSelfDeclaration = onDocumentUpdated('baptism_self_declaration
     },
   }, { merge: true })
 })
+
+// ── RFF external app bridge ─────────────────────────────────────────────────
+// RFF's real data lives in the standalone RFF app's own Firebase project. ROL
+// Admin only *reads* it, and nothing in the RFF project has to change — no
+// ownership, users or security rules. The RFF project's service-account key is
+// stored here as a secret; this function reads RFF's Firestore server-side with
+// it (admin access, so the RFF app's own rules are untouched) and returns the
+// students + programs to signed-in ROL Admin users who have RFF access.
+//   firebase functions:secrets:set RFF_SERVICE_ACCOUNT < rff-service-account.json
+const { defineSecret } = require('firebase-functions/params')
+const RFF_SERVICE_ACCOUNT = defineSecret('RFF_SERVICE_ACCOUNT')
+
+// Collection names in the RFF app's Firestore. Adjust (plus rffMapStudent /
+// rffMapProgram below) to match that app's actual schema.
+const RFF_EXT_PROGRAMS = 'rff_programs'
+const RFF_EXT_STUDENTS = 'rff_students'
+
+function rffNorm(v) {
+  return String(v || '').trim().toLowerCase().replace(/-/g, ' ')
+}
+
+// Server port of src/utils/access.js hasAccess(user, 'RFF') — keep in step.
+function userHasRFFAccess(profile, tokenGlobalRole) {
+  if (tokenGlobalRole === 'FOUNDER' || profile?.globalRole === 'FOUNDER') return true
+  if (String(profile?.role || '').toLowerCase() === 'founder') return true
+  const positions = Array.isArray(profile?.positions) ? profile.positions : []
+  const p = positions.find((x) => x && rffNorm(x.department) === 'rff')
+  if (p) {
+    const role = String(p.role || '').trim().toUpperCase()
+    if (role === 'DIRECTOR' || role === 'COORDINATOR' || role === 'LEADER') return true
+    const pos = String(p.position || '').split(' - ')[0].trim().toLowerCase()
+    if (pos === 'director' || pos === 'coordinator' || pos === 'cell leader') return true
+    if (pos) return false
+  }
+  const depts = (Array.isArray(profile?.departments) ? profile.departments : []).map(rffNorm)
+  if (rffNorm(profile?.department) === 'rff' || depts.includes('rff')) {
+    const r = String(profile?.role || '').trim().toLowerCase()
+    return r === 'director' || r === 'coordinator'
+  }
+  return false
+}
+
+function getRFFAdminApp() {
+  const existing = admin.apps.find((a) => a && a.name === 'rff')
+  if (existing) return existing
+  const raw = RFF_SERVICE_ACCOUNT.value()
+  if (!raw) throw new HttpsError('failed-precondition', 'The RFF app connection is not set up yet (RFF_SERVICE_ACCOUNT).')
+  return admin.initializeApp({ credential: admin.credential.cert(JSON.parse(raw)) }, 'rff')
+}
+
+// Firestore Timestamps don't survive the callable's JSON encoding — send ISO strings.
+function rffIso(v) {
+  if (!v) return null
+  if (typeof v.toDate === 'function') return v.toDate().toISOString()
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+function rffMapProgram(d) {
+  const x = d.data()
+  return { id: d.id, name: String(x.name || '') }
+}
+
+function rffMapStudent(d) {
+  const x = d.data()
+  return {
+    id: d.id,
+    name: String(x.name || ''),
+    programId: String(x.programId || ''),
+    ageOrClass: String(x.ageOrClass || ''),
+    guardianName: String(x.guardianName || ''),
+    guardianPhone: String(x.guardianPhone || ''),
+    admissionDate: rffIso(x.admissionDate),
+    feeAmount: Number(x.feeAmount) || 0,
+    feePaid: !!x.feePaid,
+    feePaidDate: rffIso(x.feePaidDate),
+  }
+}
+
+exports.getRFFData = onCall({ secrets: [RFF_SERVICE_ACCOUNT] }, async (request) => {
+  const uid = request.auth?.uid
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to ROL Admin first.')
+  const snap = await admin.firestore().doc(`users/${uid}`).get()
+  if (!userHasRFFAccess(snap.data() || {}, request.auth.token?.globalRole)) {
+    throw new HttpsError('permission-denied', 'Your ROL Admin account does not have RFF access.')
+  }
+  const rffDb = getRFFAdminApp().firestore()
+  const [p, s] = await Promise.all([
+    rffDb.collection(RFF_EXT_PROGRAMS).get(),
+    rffDb.collection(RFF_EXT_STUDENTS).get(),
+  ])
+  const byName = (a, b) => a.name.localeCompare(b.name)
+  return {
+    programs: p.docs.map(rffMapProgram).sort(byName),
+    students: s.docs.map(rffMapStudent).sort(byName),
+    fetchedAt: new Date().toISOString(),
+  }
+})

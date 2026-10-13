@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useMemo, useState, useCallback } from 'react'
-import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { format as formatDateFns } from 'date-fns'
 import {
@@ -20,17 +19,19 @@ import { formatDisplayDate, formatDMYTime, computeDurationMinutes, formatMeeting
 import { AnimatePresence, motion } from 'framer-motion'
 import { Download, Trash2 } from 'lucide-react'
 import EditReportSheet from './cell/EditReportSheet'
+import BackButton from '../components/BackButton'
 
 const CELL_DEPARTMENT = 'Cell'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Sunday-anchored start-of-week key (YYYY-MM-DD) for a meeting date */
+/** Monday-anchored (ISO, Mon–Sun) start-of-week key (YYYY-MM-DD) for a meeting
+ *  date — the same week band the Hub's Cell Report Status uses (utils/cellWeek). */
 function weekStartKey(dateISO) {
   if (!dateISO) return null
   const d = new Date(String(dateISO).slice(0, 10) + 'T00:00:00')
   if (Number.isNaN(d.getTime())) return null
-  d.setDate(d.getDate() - d.getDay())
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
   const yyyy = d.getFullYear()
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
@@ -518,7 +519,7 @@ export default function CellHistory({ embedded = false }) {
     [cellGroups]
   )
 
-  // Group every report into its Sunday–Saturday week, newest week first, each
+  // Group every report into its Monday–Sunday week, newest week first, each
   // carrying its own quick-analysis numbers for the per-week header badges.
   const weekGroups = useMemo(() => {
     const map = new Map()
@@ -843,9 +844,12 @@ export default function CellHistory({ embedded = false }) {
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Cell History</h1>
-            <p className="text-slate-500 text-sm mt-0.5">Past meeting records</p>
+          <div className="flex items-start gap-2 min-w-0">
+            <BackButton fallback="/department/cell/cell-report" label="Back" className="-ml-2.5" />
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 leading-10">Cell History</h1>
+              <p className="text-slate-500 text-sm">Past meeting records</p>
+            </div>
           </div>
           <div className="flex items-center gap-3 flex-shrink-0 mt-1">
             {(isDirector || isLeader) && (
@@ -857,12 +861,6 @@ export default function CellHistory({ embedded = false }) {
                 + New Entry
               </button>
             )}
-            <Link
-              to="/department/cell/cell-report"
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-800 transition-colors whitespace-nowrap"
-            >
-              ← Cell Report
-            </Link>
           </div>
         </div>
 

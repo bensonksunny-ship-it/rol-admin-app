@@ -1,18 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
-import { ChevronLeft, ChevronDown, Check, Star, Download } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Check, Star, Download, Lock, FileText, Image as ImageIcon } from 'lucide-react'
 import rolccLogo from '../../assets/rolcc_logo BW.JPG'
 import {
   getWorshipApplications,
   addWorshipApplication,
   updateWorshipApplication,
-  deleteWorshipApplication,
   getMergedPeopleDirectory,
   getCellGroups,
   getWorshipTeamMembers,
   addWorshipTeamMember,
   updateWorshipTeamMember,
+  addPerson,
 } from '../../services/firestore'
 
 const DEPARTMENT = 'Worship'
@@ -765,69 +765,71 @@ function ScreeningModal({ app, onClose, onSubmit }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4" onClick={onClose}>
       <form
         onSubmit={handleSubmit}
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5"
+        className="rol-solid bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
       >
-        <div className="flex items-start justify-between mb-2">
+        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600">
               {app.screening ? 'Edit Screening Evaluation' : 'Screening Evaluation'}
             </p>
-            <h3 className="text-lg font-bold text-slate-800">{app.fullName}</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{app.fullName}</h3>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-slate-500 hover:text-slate-800 dark:hover:text-white text-2xl leading-none">×</button>
         </div>
 
-        <Field label="1. Pitch Accuracy &amp; Vocal Control" hint="Can the applicant maintain pitch and key stability while singing?">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 divide-y divide-slate-200 dark:divide-slate-700">
+        <ScreeningItem label="1. Pitch Accuracy &amp; Vocal Control" hint="Can the applicant maintain pitch and key stability while singing?">
           <StarRating value={form.pitchAccuracy} onChange={v => set('pitchAccuracy', v)} />
-        </Field>
-        <Field label="2. Rhythm &amp; Timing" hint="Does the applicant stay in tempo with the metronome or backing track?">
+        </ScreeningItem>
+        <ScreeningItem label="2. Rhythm &amp; Timing" hint="Does the applicant stay in tempo with the metronome or backing track?">
           <StarRating value={form.rhythmTiming} onChange={v => set('rhythmTiming', v)} />
-        </Field>
-        <Field label="3. Live Play &amp; Sing Assessment" hint="Ask the applicant to play their primary instrument and sing simultaneously.">
-          <label className="flex items-center gap-2 text-sm text-slate-700 mb-2">
+        </ScreeningItem>
+        <ScreeningItem label="3. Live Play &amp; Sing Assessment" hint="Ask the applicant to play their primary instrument and sing simultaneously.">
+          <label className="flex items-center gap-2 text-sm text-slate-900 dark:text-white mb-2">
             <input type="checkbox" checked={form.livePlaySingDone} onChange={e => set('livePlaySingDone', e.target.checked)} className="w-4 h-4 accent-emerald-600" />
             Completed the live play-and-sing assessment
           </label>
           <StarRating value={form.livePlaySingScore} onChange={v => set('livePlaySingScore', v)} />
-        </Field>
-        <Field label="4. Ear Training &amp; Harmony" hint="Can the applicant identify or match a simple harmony interval by ear?">
+        </ScreeningItem>
+        <ScreeningItem label="4. Ear Training &amp; Harmony" hint="Can the applicant identify or match a simple harmony interval by ear?">
           <RadioGroup options={['Pass', 'Fail']} value={form.earTraining} onChange={v => set('earTraining', v)} />
-        </Field>
-        <Field label="5. Instrumental Proficiency" hint="How fluid and accurate is their instrumental technique/chord transitions?">
+        </ScreeningItem>
+        <ScreeningItem label="5. Instrumental Proficiency" hint="How fluid and accurate is their instrumental technique/chord transitions?">
           <StarRating value={form.instrumentalProficiency} onChange={v => set('instrumentalProficiency', v)} />
-        </Field>
-        <Field label="6. Dynamic Sensitivity" hint="Does the applicant demonstrate awareness of musical dynamics (soft/loud builds)?">
+        </ScreeningItem>
+        <ScreeningItem label="6. Dynamic Sensitivity" hint="Does the applicant demonstrate awareness of musical dynamics (soft/loud builds)?">
           <RadioGroup options={['Pass', 'Fail']} value={form.dynamicSensitivity} onChange={v => set('dynamicSensitivity', v)} />
-        </Field>
-        <Field label="7. Sight-Reading / Chart Following" hint="Can they follow a basic chord sheet or lead sheet during the live test?">
+        </ScreeningItem>
+        <ScreeningItem label="7. Sight-Reading / Chart Following" hint="Can they follow a basic chord sheet or lead sheet during the live test?">
           <RadioGroup options={['Pass', 'Fail']} value={form.chartFollowing} onChange={v => set('chartFollowing', v)} />
-        </Field>
-        <Field label="8. Stage Presence &amp; Expression" hint="Is their demeanor engaging, relaxed, and worshipful?">
+        </ScreeningItem>
+        <ScreeningItem label="8. Stage Presence &amp; Expression" hint="Is their demeanor engaging, relaxed, and worshipful?">
           <StarRating value={form.stagePresence} onChange={v => set('stagePresence', v)} />
-        </Field>
-        <Field label="9. Coachability &amp; Feedback Response" hint="How well do they adapt when asked to adjust tempo, key, or style on the spot?">
+        </ScreeningItem>
+        <ScreeningItem label="9. Coachability &amp; Feedback Response" hint="How well do they adapt when asked to adjust tempo, key, or style on the spot?">
           <RadioGroup options={['Pass', 'Fail']} value={form.coachability} onChange={v => set('coachability', v)} />
-        </Field>
-        <Field label="10. Overall Readiness &amp; Recommendation *">
+        </ScreeningItem>
+        <ScreeningItem label="10. Overall Readiness &amp; Recommendation *">
           <select
             value={form.recommendation}
             onChange={e => set('recommendation', e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-300"
           >
             <option value="">Select a recommendation…</option>
             {SCREENING_RECOMMENDATIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
           </select>
-        </Field>
-        <Field label="Evaluation notes (optional)">
+        </ScreeningItem>
+        <ScreeningItem label="Evaluation notes (optional)">
           <TextArea rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Additional observations from the screening…" />
-        </Field>
+        </ScreeningItem>
+        </div>
 
-        <div className="flex gap-3 pt-2">
-          <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+        <div className="flex gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-700 shrink-0">
+          <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">
             Cancel
           </button>
           <button type="submit" disabled={!canSubmit || saving}
@@ -836,6 +838,18 @@ function ScreeningModal({ app, onClose, onSubmit }) {
           </button>
         </div>
       </form>
+    </div>
+  )
+}
+
+// One rating criterion inside ScreeningModal — higher-contrast than the shared
+// applicant-facing Field; separators come from the parent's divide-y.
+function ScreeningItem({ label, hint, children }) {
+  return (
+    <div className="py-4">
+      <label className="block text-sm font-semibold text-slate-900 dark:text-white mb-1">{label}</label>
+      {hint && <p className="text-[13px] leading-snug text-slate-600 dark:text-slate-300 mb-2.5">{hint}</p>}
+      {children}
     </div>
   )
 }
@@ -1184,45 +1198,39 @@ const statusBadge = (status) => STATUS_BADGE[status] || ['Pending review', 'bg-a
 const digits = (p) => String(p || '').replace(/\D/g, '').slice(-10)
 const lower = (v) => String(v || '').trim().toLowerCase()
 
+// The People Directory id an application already carries: picked from the
+// directory on the form (directoryPersonId / directoryVisitorId) or set by
+// another flow (personId / peopleDirectoryId).
+function linkedDirectoryIds(app) {
+  return {
+    personId: app.directoryPersonId || app.personId || app.peopleDirectoryId || '',
+    visitorId: app.directoryVisitorId || '',
+  }
+}
+
 /**
  * "Approve & Add to Worship Team": pick the roles they will serve in (pre-ticked
- * from their Musical & Technical Profile) and confirm the People Directory record
- * the team member links to (team members must be linked to one).
+ * from their Musical & Technical Profile). No directory lookup happens here: an
+ * application already linked to a People Directory record shows it locked, and
+ * one that isn't gets matched or created when Approve is clicked (handleApprove).
  */
 function ApproveToTeamModal({ app, onClose, onConfirm }) {
   const [positions, setPositions] = useState(() => (app.primaryInstruments || []).filter((p) => INSTRUMENT_OPTIONS.includes(p)))
-  const [people, setPeople] = useState(null)
-  const [personKey, setPersonKey] = useState('')
-  const [search, setSearch] = useState(app.fullName || '')
   const [memberSince, setMemberSince] = useState(new Date().toISOString().slice(0, 10))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-    getMergedPeopleDirectory().then((list) => {
-      if (cancelled) return
-      setPeople(list)
-      // Best match: the record picked on the form, then phone, then exact name.
-      const match = list.find((p) => (app.directoryPersonId && p.personId === app.directoryPersonId) || (app.directoryVisitorId && p._visitorIds?.includes(app.directoryVisitorId)))
-        || (digits(app.phone).length === 10 && list.find((p) => digits(p.phone) === digits(app.phone)))
-        || list.find((p) => lower(directoryEntryName(p)) === lower(app.fullName))
-      if (match) setPersonKey(match._key)
-    }).catch(() => { if (!cancelled) setPeople([]) })
-    return () => { cancelled = true }
-  }, [app])
-
-  const person = people?.find((p) => p._key === personKey) || null
-  const options = (people || []).filter((p) => p._key === personKey || (lower(search).length >= 2 && lower(directoryEntryName(p)).includes(lower(search)))).slice(0, 30)
+  const linked = linkedDirectoryIds(app)
+  const recordId = linked.personId || linked.visitorId
   const toggle = (p) => setPositions((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
 
   const confirm = async () => {
     setError('')
     if (!positions.length) { setError('Pick at least one role.'); return }
-    if (!person) { setError('Choose their People Directory record.'); return }
+    if (!app.fullName?.trim()) { setError('The application has no name.'); return }
     setBusy(true)
     try {
-      await onConfirm({ positions, memberSince, person })
+      await onConfirm({ positions, memberSince })
     } catch (e) {
       console.error('Approve & add to team failed', e)
       setError(e?.message || 'Could not add them to the team. Please try again.')
@@ -1257,27 +1265,18 @@ function ApproveToTeamModal({ app, onClose, onConfirm }) {
 
           <div>
             <p className="text-xs font-semibold text-slate-600 mb-1">People Directory record</p>
-            {people === null ? (
-              <p className="text-xs text-slate-400">Looking them up…</p>
-            ) : person ? (
-              <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                <p className="text-sm text-emerald-900 min-w-0 truncate">✔ {directoryEntryName(person)}{person.phone ? ` · ${person.phone}` : ''}</p>
-                <button type="button" onClick={() => setPersonKey('')} className="text-xs font-semibold text-emerald-700 hover:underline shrink-0">Change</button>
-              </div>
+            {/* Locked: the name is pre-validated from the application submission. */}
+            <div className="relative">
+              <input type="text" readOnly disabled aria-readonly="true"
+                value={`${app.fullName || ''}${app.phone ? ` · ${app.phone}` : ''}`}
+                title="Pre-validated from the application submission — cannot be edited"
+                className="w-full h-10 pl-3 pr-9 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-semibold cursor-not-allowed truncate" />
+              <Lock size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+            {recordId ? (
+              <p className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-400 truncate flex items-center gap-1"><Check size={12} className="shrink-0" />Linked · ID {recordId}</p>
             ) : (
-              <div className="space-y-2">
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name"
-                  className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm" />
-                <div className="max-h-44 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
-                  {options.length === 0
-                    ? <p className="px-3 py-2 text-xs text-slate-400">No match. Add them to the People Directory first.</p>
-                    : options.map((p) => (
-                      <button key={p._key} type="button" onClick={() => setPersonKey(p._key)} className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50">
-                        {directoryEntryName(p)}{p.phone ? <span className="text-xs text-slate-400"> · {p.phone}</span> : null}
-                      </button>
-                    ))}
-                </div>
-              </div>
+              <p className="mt-1 text-[11px] text-sky-700 dark:text-sky-400">Their People Directory record is matched (phone, then name) or created when you approve.</p>
             )}
           </div>
 
@@ -1287,7 +1286,7 @@ function ApproveToTeamModal({ app, onClose, onConfirm }) {
           </label>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button type="button" disabled={busy || people === null} onClick={confirm}
+          <button type="button" disabled={busy} onClick={confirm}
             className="w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
             {busy ? 'Adding…' : 'Approve & Add to Team'}
           </button>
@@ -1331,10 +1330,10 @@ function DetailCard({ title, tone = 'slate', defaultOpen = false, className = ''
 
 const yesNo = (v) => (v ? 'Yes' : 'No')
 
-function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreening, onApprove }) {
+function ApplicationDetail({ app, onBack, onMarkReviewed, onEditScreening, onApprove }) {
   const [exportingPdf, setExportingPdf] = useState(false)
   const [exportingCard, setExportingCard] = useState(false)
-  const [moreOpen, setMoreOpen] = useState(false)
+  const [downloadOpen, setDownloadOpen] = useState(false)
   const readyForRoster = app.screening?.recommendation === 'Ready for Main Roster'
   const canApprove = !!onApprove && (app.status === 'reviewed' || app.status === 'screened')
   const canMarkReviewed = app.status !== 'reviewed' && app.status !== 'approved'
@@ -1373,11 +1372,43 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
       ? { label: 'Mark as Reviewed', onClick: () => onMarkReviewed(app), cls: 'bg-emerald-600 hover:bg-emerald-700' }
       : null
   const screeningBtn = { label: s ? 'Edit Screening' : 'Take Screening', onClick: () => onEditScreening(app), cls: s ? 'bg-violet-600 hover:bg-violet-700' : 'bg-amber-500 hover:bg-amber-600' }
-  const secondary = [
-    { key: 'pdf', label: exportingPdf ? 'Generating…' : 'Download PDF', onClick: handleDownloadPdf, disabled: exportingPdf, icon: true },
-    readyForRoster && { key: 'card', label: exportingCard ? 'Generating…' : 'Welcome Card', onClick: handleDownloadCard, disabled: exportingCard, icon: true },
-    { key: 'delete', label: 'Delete', onClick: () => onDelete(app), danger: true },
-  ].filter(Boolean)
+  // Both exports live behind one Download icon menu (header on md+, phone bar below).
+  // The Welcome Card stays listed but disabled until screening says "Ready for Main
+  // Roster", so it's discoverable rather than silently missing.
+  const downloads = [
+    { key: 'pdf', label: exportingPdf ? 'Generating…' : 'Download PDF', hint: 'Application details', Icon: FileText, onClick: handleDownloadPdf, disabled: exportingPdf },
+    { key: 'card', label: exportingCard ? 'Generating…' : 'Download Welcome Card', hint: readyForRoster ? 'JPEG image' : 'Needs a "Ready for Main Roster" screening', Icon: ImageIcon, onClick: handleDownloadCard, disabled: exportingCard || !readyForRoster },
+  ]
+  const busyDownloading = exportingPdf || exportingCard
+  const downloadMenu = (placement) => (
+    <AnimatePresence>
+      {downloadOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setDownloadOpen(false)} aria-hidden />
+          <motion.div
+            role="menu"
+            initial={{ opacity: 0, y: placement === 'down' ? -6 : 6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: placement === 'down' ? -6 : 6, scale: 0.97 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            className={`absolute right-0 z-50 w-64 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden ${placement === 'down' ? 'top-full mt-1.5 origin-top-right' : 'bottom-full mb-2 origin-bottom-right'}`}
+          >
+            {downloads.map((item) => (
+              <button key={item.key} type="button" role="menuitem" disabled={item.disabled}
+                onClick={() => { setDownloadOpen(false); item.onClick() }}
+                className="w-full flex items-start gap-2.5 px-3.5 py-2.5 text-left border-b border-slate-100 last:border-b-0 hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed">
+                <item.Icon size={16} className="mt-0.5 shrink-0 text-indigo-600" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-slate-800">{item.label}</span>
+                  <span className="block text-[11px] text-slate-500">{item.hint}</span>
+                </span>
+              </button>
+            ))}
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  )
 
   const quickFacts = [
     app.cellGroup && ['Cell', app.cellGroup],
@@ -1394,8 +1425,8 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
           actions live in the floating bar at the bottom instead. */}
       <div className="md:sticky md:top-[calc(3rem_+_env(safe-area-inset-top,24px))] lg:top-16 z-20 -mx-1 px-1 py-2 mb-3 bg-white/95 backdrop-blur border-b border-slate-100">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={onBack} aria-label="Back to list" className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100">
-            <ChevronLeft size={18} />
+          <button type="button" onClick={onBack} aria-label="Back to list" className="shrink-0 -ml-2.5 w-10 h-10 rounded-xl flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 transition-all active:scale-95">
+            <ArrowLeft size={20} strokeWidth={2.25} />
           </button>
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-bold text-slate-900 truncate">{app.fullName}</h2>
@@ -1405,12 +1436,14 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
             </div>
           </div>
           <div className="hidden md:flex items-center gap-1.5 shrink-0">
-            {secondary.map((b) => (
-              <button key={b.key} type="button" onClick={b.onClick} disabled={b.disabled}
-                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold disabled:opacity-50 transition-colors ${b.danger ? 'border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                {b.icon && <Download size={12} />}{b.label}
+            <div className="relative">
+              <button type="button" onClick={() => setDownloadOpen((o) => !o)} disabled={busyDownloading}
+                aria-label="Download" title="Download" aria-haspopup="menu" aria-expanded={downloadOpen}
+                className={`w-8 h-8 inline-flex items-center justify-center rounded-lg border transition-colors disabled:opacity-60 ${downloadOpen ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                {busyDownloading ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> : <Download size={15} />}
               </button>
-            ))}
+              {downloadMenu('down')}
+            </div>
             <button type="button" onClick={screeningBtn.onClick} className={`px-3 py-1.5 rounded-lg text-white text-xs font-semibold ${screeningBtn.cls}`}>{screeningBtn.label}</button>
             {primary && (
               <button type="button" onClick={primary.onClick} className={`px-3.5 py-1.5 rounded-lg text-white text-xs font-bold shadow-sm ${primary.cls}`}>
@@ -1534,19 +1567,7 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
 
       {/* Phone decision bar — floats above the bottom Departments button. */}
       <div className="md:hidden fixed inset-x-3 z-30" style={{ bottom: 'calc(5.25rem + env(safe-area-inset-bottom, 0px))' }}>
-        {moreOpen && (
-          <>
-            <div className="fixed inset-0" onClick={() => setMoreOpen(false)} aria-hidden />
-            <div className="relative mb-2 ml-auto w-48 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden">
-              {secondary.map((b) => (
-                <button key={b.key} type="button" disabled={b.disabled} onClick={() => { setMoreOpen(false); b.onClick() }}
-                  className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-left text-sm border-b border-slate-100 last:border-b-0 disabled:opacity-50 ${b.danger ? 'text-red-600' : 'text-slate-700'}`}>
-                  {b.icon && <Download size={14} />}{b.label}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        {downloadMenu('up')}
         <div className="relative flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 backdrop-blur p-2 shadow-lg">
           {primary && (
             <button type="button" onClick={primary.onClick} className={`flex-1 min-h-[44px] rounded-xl text-white text-sm font-bold ${primary.cls}`}>
@@ -1557,8 +1578,11 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
             className={`${primary ? '' : 'flex-1 '}min-h-[44px] px-3 rounded-xl text-white text-sm font-semibold ${screeningBtn.cls}`}>
             {s ? 'Edit' : 'Screen'}
           </button>
-          <button type="button" onClick={() => setMoreOpen((o) => !o)} aria-label="More actions" aria-expanded={moreOpen}
-            className="w-11 min-h-[44px] rounded-xl border border-slate-200 text-slate-600 text-lg font-bold">⋯</button>
+          <button type="button" onClick={() => setDownloadOpen((o) => !o)} disabled={busyDownloading}
+            aria-label="Download" aria-haspopup="menu" aria-expanded={downloadOpen}
+            className={`w-11 min-h-[44px] inline-flex items-center justify-center rounded-xl border disabled:opacity-60 ${downloadOpen ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`}>
+            {busyDownloading ? <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" /> : <Download size={18} />}
+          </button>
         </div>
       </div>
     </div>
@@ -1566,13 +1590,23 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onDelete, onEditScreen
 }
 
 // ── Main component ──
-export default function WorshipApplications({ canManageWorship, userProfile }) {
+// `backButton`: optional page-level back control rendered beside the list title.
+// Only shown on the list view — the detail view has its own back-to-list arrow.
+// `embedded`: rendered inside The Team's "Pending Applicant Reviews" panel —
+// approved applications are hidden behind a toggle there, and the host is told
+// about the list (onApplicationsChange, for its count badge) and approvals
+// (onApproved, to reload the roster).
+export default function WorshipApplications({ canManageWorship, userProfile, backButton = null, embedded = false, onApplicationsChange, onApproved }) {
   const [applications, setApplications] = useState([])
   const [loading, setLoading] = useState(true)
+  const [showApproved, setShowApproved] = useState(false)
+
+  useEffect(() => { if (!loading) onApplicationsChange?.(applications) }, [applications, loading])
   const [mode, setMode] = useState('list') // 'list' | 'new' | 'done'
   const [viewing, setViewing] = useState(null)
   const [screeningApp, setScreeningApp] = useState(null)
   const [approvingApp, setApprovingApp] = useState(null)
+  const createdPersonIds = useRef({})
   const [approvedNote, setApprovedNote] = useState('')
 
   useEffect(() => { load() }, [])
@@ -1621,12 +1655,50 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
   // member record, then mark the application approved. A new record's createdAt
   // shows on the Worship page's blue notification ribbon ("New worship team
   // member added") for the department's directors.
-  async function handleApprove({ positions, memberSince, person }) {
+  // People Directory link, resolved here rather than when the modal opens: the
+  // application's own linked id wins; otherwise match by phone, then exact name;
+  // otherwise (no match, or the lookup failed) create the record from the
+  // application's details so the team member is always linked to someone.
+  async function resolveDirectoryLink(app) {
+    const linked = linkedDirectoryIds(app)
+    if (linked.personId || linked.visitorId) return { ...linked, name: app.fullName.trim() }
+    try {
+      const { people } = await getMergedPeopleDirectory()
+      const match = (digits(app.phone).length === 10 && people.find((p) => digits(p.phone) === digits(app.phone)))
+        || people.find((p) => lower(directoryEntryName(p)) === lower(app.fullName))
+      if (match && (match.personId || match._visitorIds?.length)) {
+        return { personId: match.personId || '', visitorId: match._visitorIds?.[0] || '', name: directoryEntryName(match) || app.fullName.trim() }
+      }
+    } catch (e) {
+      console.warn('People Directory lookup failed; creating a new record instead', e)
+    }
+    return null
+  }
+
+  async function handleApprove({ positions, memberSince }) {
     const app = approvingApp
     const by = userProfile?.email || userProfile?.name || ''
-    const name = directoryEntryName(person) || app.fullName
-    const visitorId = person._visitorIds?.[0] || ''
-    const personId = person.personId || ''
+    const person = await resolveDirectoryLink(app)
+    // Reuse a record this session already created for the app, so a retry after a
+    // later step failed doesn't add the same person twice.
+    let createdPersonId = person ? '' : (createdPersonIds.current[app.id] || '')
+    if (!person && !createdPersonId) {
+      createdPersonId = await addPerson({
+        name: app.fullName.trim(),
+        phone: app.phone || '',
+        email: app.email || '',
+        dob: app.dob || '',
+        currentPlace: app.currentPlace || '',
+        nativity: app.comingFrom || '',
+        ministries: ['Worship'],
+        createdSource: 'worship_application',
+      }, by)
+      if (!createdPersonId) throw new Error('Could not create their People Directory record.')
+      createdPersonIds.current[app.id] = createdPersonId
+    }
+    const name = person?.name || app.fullName.trim()
+    const visitorId = person?.visitorId || ''
+    const personId = person?.personId || createdPersonId
     const team = await getWorshipTeamMembers(DEPARTMENT)
     const existing = team.find((m) => (personId && m.personId === personId) || (visitorId && m.visitorId === visitorId) || lower(m.name) === lower(name))
     let teamMemberId
@@ -1641,7 +1713,11 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
     } else {
       teamMemberId = await addWorshipTeamMember(DEPARTMENT, { name, visitorId, personId, positions, memberSince, createdSource: 'worship_application' }, by)
     }
-    const patch = { status: 'approved', approvedAt: new Date().toISOString(), approvedBy: by, approvedPositions: positions, teamMemberId: teamMemberId || '' }
+    const patch = {
+      status: 'approved', approvedAt: new Date().toISOString(), approvedBy: by, approvedPositions: positions, teamMemberId: teamMemberId || '',
+      directoryPersonId: personId || app.directoryPersonId || '',
+      directoryVisitorId: visitorId || app.directoryVisitorId || '',
+    }
     await updateWorshipApplication(app.id, patch)
     setApplications((prev) => prev.map((a) => (a.id === app.id ? { ...a, ...patch } : a)))
     setViewing((v) => (v && v.id === app.id ? { ...v, ...patch } : v))
@@ -1650,18 +1726,7 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
       ? `${name} was already on The Team — their roles were updated.`
       : `✔ ${name} added to The Team as ${positions.join(', ')}.`)
     setTimeout(() => setApprovedNote(''), 6000)
-  }
-
-  async function handleDelete(app) {
-    if (!window.confirm(`Delete ${app.fullName}'s application?`)) return
-    try {
-      await deleteWorshipApplication(app.id)
-      setApplications(prev => prev.filter(a => a.id !== app.id))
-      setViewing(null)
-    } catch (err) {
-      console.error(err)
-      alert('Failed to delete application')
-    }
+    onApproved?.()
   }
 
   if (mode === 'new') {
@@ -1688,7 +1753,7 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
     return (
       <div className="max-w-5xl mx-auto">
         {approvedNote && <p className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">{approvedNote}</p>}
-        <ApplicationDetail app={viewing} onBack={() => setViewing(null)} onMarkReviewed={markReviewed} onDelete={handleDelete} onEditScreening={setScreeningApp}
+        <ApplicationDetail app={viewing} onBack={() => setViewing(null)} onMarkReviewed={markReviewed} onEditScreening={setScreeningApp}
           onApprove={canManageWorship ? setApprovingApp : null} />
         {approvingApp && <ApproveToTeamModal app={approvingApp} onClose={() => setApprovingApp(null)} onConfirm={handleApprove} />}
         {screeningApp && (
@@ -1703,15 +1768,25 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
   }
 
   const pendingCount = applications.filter(a => a.status !== 'reviewed' && a.status !== 'screened' && a.status !== 'approved').length
+  const approvedCount = applications.filter(a => a.status === 'approved').length
+  const listed = embedded && !showApproved ? applications.filter(a => a.status !== 'approved') : applications
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <div className={embedded ? 'space-y-4' : 'max-w-2xl mx-auto space-y-4'}>
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold text-slate-800">Worship Applications</h2>
-          <p className="text-xs text-slate-400">
-            {applications.length} received{pendingCount > 0 ? ` · ${pendingCount} pending review` : ''}
-          </p>
+        <div className="flex items-center gap-2 min-w-0">
+          {backButton}
+          <div className="min-w-0">
+            {!embedded && <h2 className="font-semibold text-slate-800">Worship Applications</h2>}
+            <p className="text-xs text-slate-400">
+              {applications.length} received{pendingCount > 0 ? ` · ${pendingCount} pending review` : ''}
+            </p>
+            {embedded && approvedCount > 0 && (
+              <button type="button" onClick={() => setShowApproved(v => !v)} className="text-xs font-semibold text-indigo-600 hover:underline">
+                {showApproved ? 'Hide approved' : `Show approved (${approvedCount})`}
+              </button>
+            )}
+          </div>
         </div>
         {canManageWorship && (
           <button type="button" onClick={() => setMode('new')}
@@ -1723,13 +1798,15 @@ export default function WorshipApplications({ canManageWorship, userProfile }) {
 
       {loading ? (
         <div className="text-center py-10 text-slate-400 text-sm">Loading…</div>
-      ) : applications.length === 0 ? (
+      ) : listed.length === 0 ? (
         <div className="text-center py-10 text-slate-400 text-sm">
-          No applications yet. Tap "+ New Application" and hand the device to the applicant.
+          {applications.length === 0
+            ? 'No applications yet. Tap "+ New Application" and hand the device to the applicant.'
+            : 'Every application has been decided. Nothing waiting for review.'}
         </div>
       ) : (
         <div className="space-y-2">
-          {applications.map(app => (
+          {listed.map(app => (
             <div
               key={app.id}
               role="button"

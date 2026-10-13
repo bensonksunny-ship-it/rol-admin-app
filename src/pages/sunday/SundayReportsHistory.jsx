@@ -6,6 +6,7 @@ import { getSundayReportSummaries, deleteSundayReport, getCellGroups, bulkImport
 import { formatDisplayDate } from '../../utils/date'
 import { useAuth } from '../../context/AuthContext'
 import SundayReportPrintView from './SundayReportPrintView'
+import BackButton from '../../components/BackButton'
 
 const FIXED_COLS = [
   { key: 'othersCount',         label: 'Others'       },
@@ -685,8 +686,8 @@ export default function SundayReportsHistory() {
   if (!isSundayMinistryDirector) {
     return (
       <div className="p-8 text-slate-600">
-        <Link to="/department/sunday-ministry" className="text-blue-600 hover:underline">← Sunday Ministry</Link>
-        <p className="mt-4">You do not have access to Sunday Ministry.</p>
+        <BackButton fallback="/department/sunday-ministry" className="-ml-2.5" />
+        <p className="mt-2">You do not have access to Sunday Ministry.</p>
       </div>
     )
   }
