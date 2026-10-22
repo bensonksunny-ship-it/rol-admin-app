@@ -3,10 +3,10 @@ import { subscribePendingFinanceUnlockRequests } from '../../services/firestore'
 import { isMonthClosedForFinance } from '../../utils/financeEntryLock'
 import { MonthLockRow } from './FinanceMonthLocksModal'
 
-// Shown on finance screens for the month in view once it closed (10th of the
-// following month): lock state plus Founder unlock buttons, or the Accounts
-// Director's "Request unlock from Founder".
-export default function FinanceMonthLockBanner({ monthKey, unlock, now = new Date() }) {
+// Shown on a finance screen (type 'expense' or 'income') for the month in view
+// once it closed (10th of the following month): lock state plus Founder unlock
+// buttons, or the Accounts Director's unlock request for that type.
+export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unlock, now = new Date() }) {
   const closed = !!monthKey && isMonthClosedForFinance(monthKey, now)
   const [requests, setRequests] = useState([])
   useEffect(() => (closed ? subscribePendingFinanceUnlockRequests(setRequests) : undefined), [closed])
@@ -14,9 +14,10 @@ export default function FinanceMonthLockBanner({ monthKey, unlock, now = new Dat
   return (
     <MonthLockRow
       monthKey={monthKey}
+      type={type}
       unlock={unlock}
       now={now}
-      pendingRequest={requests.find(r => r.month === monthKey) || null}
+      pendingRequest={requests.find(r => r.month === monthKey && (r.type || 'expense') === type) || null}
     />
   )
 }

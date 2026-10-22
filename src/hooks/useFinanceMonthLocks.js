@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { subscribeFinanceMonthUnlocks } from '../services/firestore'
-import { isFinanceMonthLocked } from '../utils/financeEntryLock'
+import { isFinanceMonthLocked, unlockDocId } from '../utils/financeEntryLock'
 
-// Live Founder unlock windows (finance_month_unlocks) plus an isLocked(monthKey)
-// check for the finance team. The Founder is never locked.
+// Live Founder unlock windows (finance_month_unlocks, keyed by doc id — see
+// unlockDocId) plus an isLocked(monthKey, 'expense'|'income') check for the
+// finance team. The Founder is never locked.
 export default function useFinanceMonthLocks(isFounder) {
   const [unlocks, setUnlocks] = useState({})
   // Re-evaluate every minute so an unlock window expiring re-locks the page.
@@ -15,6 +16,7 @@ export default function useFinanceMonthLocks(isFounder) {
     return () => clearInterval(t)
   }, [])
 
-  const isLocked = (monthKey) => !isFounder && isFinanceMonthLocked(monthKey, unlocks[monthKey]?.unlockedUntil, now)
+  const isLocked = (monthKey, type = 'expense') =>
+    !isFounder && isFinanceMonthLocked(monthKey, unlocks[unlockDocId(type, monthKey)]?.unlockedUntil, now)
   return { unlocks, isLocked, now }
 }

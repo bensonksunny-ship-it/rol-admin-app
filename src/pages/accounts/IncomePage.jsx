@@ -3,7 +3,11 @@ import { Navigate } from 'react-router-dom'
 import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
-import { getFinanceIncome, applyFinanceIncomeOps } from '../../services/firestore'
+import { getFinanceIncome, applyFinanceIncomeOps, subscribePendingFinanceUnlockRequests } from '../../services/firestore'
+import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
+import { canManageMonthLocks, unlockDocId } from '../../utils/financeEntryLock'
+import FinanceMonthLockBanner from '../../components/finance/FinanceMonthLockBanner'
+import FinanceMonthLocksModal from '../../components/finance/FinanceMonthLocksModal'
 import { categorizeEntries, matchesCategory, OTHER_INCOME_CATEGORY_OPTIONS, RSM_CATEGORY_OPTIONS, toDate } from './income/incomeCategorize'
 import IncomeSummaryTable from './income/IncomeSummaryTable'
 import OfferingMatrixTable from './income/OfferingMatrixTable'
@@ -50,6 +54,15 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   const { userProfile, hasPermission, isFounder } = useAuth()
   const [internalMonth, setInternalMonth] = useState(startOfMonth(new Date()))
   const activeMonth = controlledMonth || internalMonth
+  // Income locks after the 10th of the next month (enforced in firestore.rules);
+  // Founder unlocks, Accounts Director requests — see FinanceMonthLocksModal.
+  const { unlocks: monthUnlocks, now: lockNow } = useFinanceMonthLocks(isFounder)
+  const showMonthLocks = canManageMonthLocks(userProfile, isFounder)
+  const [monthLocksOpen, setMonthLocksOpen] = useState(false)
+  const [pendingUnlockCount, setPendingUnlockCount] = useState(0)
+  useEffect(() => (showMonthLocks
+    ? subscribePendingFinanceUnlockRequests(rows => setPendingUnlockCount(rows.length))
+    : undefined), [showMonthLocks])
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -280,6 +293,26 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           {toast.msg}
         </div>
       )}
+
+      {/* Income lock for this month (after the 10th of the next month) + Month locks panel */}
+      {showMonthLocks && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setMonthLocksOpen(true)}
+            className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+          >
+            🔒 Month locks{pendingUnlockCount > 0 ? ` (${pendingUnlockCount})` : ''}
+          </button>
+        </div>
+      )}
+      <FinanceMonthLocksModal open={monthLocksOpen} onClose={() => setMonthLocksOpen(false)} />
+      <FinanceMonthLockBanner
+        monthKey={format(activeMonth, 'yyyy-MM')}
+        type="income"
+        unlock={monthUnlocks[unlockDocId('income', format(activeMonth, 'yyyy-MM'))]}
+        now={lockNow}
+      />
 
       {/* Month picker — hidden when a parent owns the picker (controlledMonth with no
           onMonthChange, e.g. EntryPage); shown when the parent syncs month via onMonthChange

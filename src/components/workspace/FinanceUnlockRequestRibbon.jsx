@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import {
   subscribePendingFinanceUnlockRequests, approveFinanceUnlockRequest, declineFinanceUnlockRequest,
 } from '../../services/firestore'
-import { monthKeyLabel } from '../../utils/financeEntryLock'
+import { monthKeyLabel, financeLockTypeLabel } from '../../utils/financeEntryLock'
 import { RIBBON_BAR } from '../../constants/ribbon'
 
 const UNLOCK_OPTIONS = [
@@ -37,7 +37,7 @@ export default function FinanceUnlockRequestRibbon({ myName }) {
       {requests.map((r) => (
         <div key={r.id} className={`${RIBBON_BAR} rounded-xl bg-sky-600 text-white shadow-md justify-between my-3 flex-wrap`}>
           <span className="min-w-0 flex-1 text-sm font-medium tracking-wide">
-            🔒 <b>{r.requestedBy || 'Accounts'}</b> asks to unlock <b>{r.monthLabel || monthKeyLabel(r.month)}</b> expenses
+            🔒 <b>{r.requestedBy || 'Accounts'}</b> asks to unlock <b>{r.monthLabel || monthKeyLabel(r.month)} {financeLockTypeLabel(r.type).toLowerCase()}</b>
             {r.reason ? <>: <i>“{r.reason}”</i></> : ''}
           </span>
           <div className="flex-shrink-0 flex flex-wrap gap-1.5">

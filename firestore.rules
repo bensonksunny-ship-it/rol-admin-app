@@ -935,27 +935,37 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
-    match /finance_income/{docId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // A month's expenses lock after the 10th of the following month (IST) for
-    // everyone but the Founder, unless the Founder has reopened that month —
-    // finance_month_unlocks/{yyyy-MM}.unlockedUntil still in the future.
+    // A month's expenses and income lock after the 10th of the following month
+    // (IST) for everyone but the Founder, unless the Founder has reopened that
+    // month for that type — finance_month_unlocks/{prefix}{yyyy-MM}.unlockedUntil
+    // still in the future (prefix '' = expense, 'income_' = income).
     // Mirrors src/utils/financeEntryLock.js. Dates are stored as IST midnight, so
     // shift by +5:30 before reading year/month.
-    function expenseMonthWritable(ts) {
+    function financeMonthWritable(ts, prefix) {
       let ist = ts + duration.value(330, 'm');
       let y = ist.year();
       let m = ist.month();
       let closeAt = (m == 12 ? timestamp.date(y + 1, 1, 11) : timestamp.date(y, m + 1, 11)) - duration.value(330, 'm');
-      let key = string(y) + '-' + (m < 10 ? '0' + string(m) : string(m));
+      let key = prefix + string(y) + '-' + (m < 10 ? '0' + string(m) : string(m));
       let unlockPath = /databases/$(database)/documents/finance_month_unlocks/$(key);
       return request.time < closeAt
         || (exists(unlockPath) && get(unlockPath).data.unlockedUntil > request.time);
     }
+    function financeDataWritable(data, prefix) {
+      return !('date' in data) || !(data.date is timestamp) || financeMonthWritable(data.date, prefix);
+    }
     function expenseDataWritable(data) {
-      return !('date' in data) || !(data.date is timestamp) || expenseMonthWritable(data.date);
+      return financeDataWritable(data, '');
+    }
+    function incomeDataWritable(data) {
+      return financeDataWritable(data, 'income_');
+    }
+
+    match /finance_income/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isFullAccess() || incomeDataWritable(request.resource.data));
+      allow update: if isSignedIn() && (isFullAccess() || (incomeDataWritable(resource.data) && incomeDataWritable(request.resource.data)));
+      allow delete: if isSignedIn() && (isFullAccess() || incomeDataWritable(resource.data));
     }
 
     match /finance_expense/{docId} {

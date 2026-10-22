@@ -34,6 +34,21 @@ export function isMonthClosedForEntry(monthKey, now = new Date()) {
 // (finance_month_unlocks/{yyyy-MM}.unlockedUntil). Enforced in firestore.rules too.
 export const FINANCE_CLOSE_DAY = 10
 
+// Income and expense lock together but are unlocked separately.
+export const FINANCE_LOCK_TYPES = [
+  { key: 'expense', label: 'Expense' },
+  { key: 'income', label: 'Income' },
+]
+
+export function financeLockTypeLabel(type) {
+  return type === 'income' ? 'Income' : 'Expense'
+}
+
+/** finance_month_unlocks doc id: 'yyyy-MM' for expense (original ids), 'income_yyyy-MM' for income. */
+export function unlockDocId(type, monthKey) {
+  return type === 'income' ? `income_${monthKey}` : monthKey
+}
+
 export function financeCloseDate(monthKey) {
   const [y, m] = String(monthKey).split('-').map(Number)
   return new Date(y, m, FINANCE_CLOSE_DAY)

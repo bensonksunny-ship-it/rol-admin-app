@@ -26,6 +26,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { db, storage, functions, httpsCallable } from '../lib/firebase'
 import { ROLES, deriveRoleFromPositions, departmentNameVariants } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
+import { unlockDocId } from '../utils/financeEntryLock'
 import { normalizeEngagementType } from '../utils/pcsEngagement'
 import { mergeFamilyIntoProfile } from '../utils/familyDetails'
 import { userLinksToCellGroup } from '../utils/cellReportPermissions'
@@ -7464,9 +7465,10 @@ export function subscribeMyFinanceEntryUnlocks(uid, onChange) {
 // approves (unlocking for N days) or declines from My Workspace / Month locks.
 const FINANCE_UNLOCK_REQUESTS = 'finance_unlock_requests'
 
-export async function createFinanceUnlockRequest({ month, monthLabel, reason, by, uid }) {
+export async function createFinanceUnlockRequest({ month, monthLabel, type = 'expense', reason, by, uid }) {
   await addDoc(collection(db, FINANCE_UNLOCK_REQUESTS), {
     month,
+    type,
     monthLabel: monthLabel || '',
     reason: reason || '',
     requestedBy: by || '',
@@ -7487,7 +7489,7 @@ export function subscribePendingFinanceUnlockRequests(onChange) {
 }
 
 export async function approveFinanceUnlockRequest(request, days, by) {
-  await setFinanceMonthUnlock(request.month, days, by)
+  await setFinanceMonthUnlock(request.month, days, by, request.type || 'expense')
   await updateDoc(doc(db, FINANCE_UNLOCK_REQUESTS, request.id), {
     status: 'approved', approvedDays: days, decidedBy: by || '', decidedAt: Timestamp.now(),
   })
@@ -7566,18 +7568,20 @@ export function subscribeFinanceMonthUnlocks(onChange) {
   if (!db) { onChange({}); return () => {} }
   return onSnapshot(collection(db, FINANCE_MONTH_UNLOCKS), (snap) => {
     const out = {}
+    // Keyed by doc id: 'yyyy-MM' (expense) / 'income_yyyy-MM' — see unlockDocId().
     snap.docs.forEach((d) => {
       const data = d.data()
-      out[data.month] = { ...data, unlockedUntil: toDate(data.unlockedUntil), unlockedAt: toDate(data.unlockedAt) }
+      out[d.id] = { ...data, unlockedUntil: toDate(data.unlockedUntil), unlockedAt: toDate(data.unlockedAt) }
     })
     onChange(out)
   }, () => onChange({}))
 }
 
-export async function setFinanceMonthUnlock(month, days, by) {
+export async function setFinanceMonthUnlock(month, days, by, type = 'expense') {
   const until = days > 0 ? Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000)) : Timestamp.now()
-  await setDoc(doc(db, FINANCE_MONTH_UNLOCKS, month), {
+  await setDoc(doc(db, FINANCE_MONTH_UNLOCKS, unlockDocId(type, month)), {
     month,
+    type,
     unlockedUntil: until,
     ...(days > 0
       ? { unlockedBy: by || '', unlockedAt: Timestamp.now(), unlockDays: days, unlockCount: increment(1) }
