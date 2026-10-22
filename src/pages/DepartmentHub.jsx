@@ -5812,24 +5812,28 @@ export default function DepartmentHub() {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {dlightAssignRows.map((row) => {
-                          const options = team.filter((m) => {
-                            if (m.isFormer) return false
+                          const targetKey = subDeptMatchKey(row.subDept)
+                          const inThisSubDept = (m) => {
                             const memberSubDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
                               ? m.subDepartments
                               : (m.subDepartment ? [m.subDepartment] : [])
-                            if (row.subDept && memberSubDepts.length) {
-                              const targetKey = subDeptMatchKey(row.subDept)
-                              if (memberSubDepts.some((s) => subDeptMatchKey(s) === targetKey)) return true
-                            }
-                            // Fallback: match by role text — covers members with no sub-department
-                            // set yet, and members whose custom-named sub-department doesn't line
-                            // up with this duty's name at all (rather than excluding them outright).
-                            // A newly added sub-department has no role text to match: offer the
-                            // members not yet placed in any sub-department instead.
-                            if (row.custom) return memberSubDepts.length === 0
-                            const roleText = (m.role || m.rolePosition || '').toLowerCase()
-                            return roleText.includes((row.subDept || '').toLowerCase().split(' ')[1] || '')
-                          })
+                            return !!row.subDept && memberSubDepts.some((s) => subDeptMatchKey(s) === targetKey)
+                          }
+                          const activeTeam = team.filter((m) => !m.isFormer)
+                          const options = row.custom
+                            // A sub-department the Director added: its own members first, then
+                            // the rest of the active team. Previously only members with NO
+                            // sub-department were offered, so once everyone belonged to one of
+                            // the original four, a new sub-department's row had nobody to pick.
+                            ? [...activeTeam.filter(inThisSubDept), ...activeTeam.filter((m) => !inThisSubDept(m))]
+                            : activeTeam.filter((m) => {
+                              if (inThisSubDept(m)) return true
+                              // Fallback: match by role text — covers members with no sub-department
+                              // set yet, and members whose custom-named sub-department doesn't line
+                              // up with this duty's name at all (rather than excluding them outright).
+                              const roleText = (m.role || m.rolePosition || '').toLowerCase()
+                              return roleText.includes((row.subDept || '').toLowerCase().split(' ')[1] || '')
+                            })
                           const assignedIds = Array.isArray(delightAssignments[row.key])
                             ? delightAssignments[row.key]
                             : (delightAssignments[row.key] ? [delightAssignments[row.key]] : [])

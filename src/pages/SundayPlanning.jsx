@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan, getSundayProgramDefault, getSundayPreServiceEntry, getDlightAssignmentsForDate, getDepartmentTeamMembers, getMediaScheduleByDate } from '../services/firestore'
+import { getSundayPlan, setSundayPlanSection, getWorshipScheduleByDate, publishSundayPlan, unpublishSundayPlan, getSundayProgramDefault, getSundayPreServiceEntry, getDlightAssignmentsForDate, getDlightSubDepartments, getDepartmentTeamMembers, getMediaScheduleByDate } from '../services/firestore'
 import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
@@ -174,7 +174,19 @@ const DLIGHT_ROWS = [
 export function DLitePlanSummary({ selectedDate }) {
   const [assignments, setAssignments] = useState(null)
   const [teamById, setTeamById] = useState({})
+  // Sub-departments the D Light Director added: their duties are saved under
+  // `sub_<docId>` keys (see DepartmentHub's buildDlightAssignRows), labelled here
+  // by the sub-department's current name.
+  const [subDeptNameById, setSubDeptNameById] = useState({})
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    // Best-effort: a viewer without D Light access can't read the list, and
+    // those duties then fall back to a generic label.
+    getDlightSubDepartments()
+      .then((list) => setSubDeptNameById(Object.fromEntries(list.map((sd) => [sd.id, sd.name]))))
+      .catch(() => setSubDeptNameById({}))
+  }, [])
 
   useEffect(() => {
     setLoading(true)
@@ -202,7 +214,14 @@ export function DLitePlanSummary({ selectedDate }) {
     const val = assignments?.[key]
     return Array.isArray(val) ? val.filter(Boolean) : (val ? [val] : [])
   }
-  const assigned = DLIGHT_ROWS.filter((r) => assigneesFor(r.key).length > 0)
+  const presetKeys = new Set(DLIGHT_ROWS.map((r) => r.key))
+  const rows = [
+    ...DLIGHT_ROWS,
+    ...Object.keys(assignments || {})
+      .filter((k) => !presetKeys.has(k))
+      .map((k) => ({ key: k, label: subDeptNameById[k.replace(/^sub_/, '')] || 'Other duty' })),
+  ]
+  const assigned = rows.filter((r) => assigneesFor(r.key).length > 0)
 
   return (
     <div className="bg-white rounded-xl border border-rose-200 border-l-4 border-l-rose-500 p-3 shadow-sm">
