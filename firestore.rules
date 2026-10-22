@@ -970,6 +970,13 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    // Accounts → Founder requests to reopen a locked month; Founder decides.
+    match /finance_unlock_requests/{docId} {
+      allow read: if isSignedIn();
+      allow create: if canAccessDept('Accounts');
+      allow update: if isFullAccess();
+    }
+
     // Founder-only reopen windows for locked finance months (see expenseMonthWritable).
     match /finance_month_unlocks/{monthKey} {
       allow read: if isSignedIn();

@@ -1,4 +1,10 @@
 import { format } from 'date-fns'
+import { getDepartmentRole } from './access'
+
+/** Founder or Accounts Director — who may open the Month locks panel. */
+export function canManageMonthLocks(userProfile, isFounder) {
+  return !!isFounder || getDepartmentRole(userProfile, 'Accounts') === 'DIRECTOR'
+}
 
 // Departments may enter a month's expenses until the 5th of the following month.
 // From the 6th onward that month is closed for department logins unless the

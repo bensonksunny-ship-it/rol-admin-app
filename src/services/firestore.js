@@ -7459,6 +7459,46 @@ export function subscribeMyFinanceEntryUnlocks(uid, onChange) {
   }, () => onChange([]))
 }
 
+// ─── Accounts Director → Founder unlock requests ────────────────────────────
+// The Accounts Director asks the Founder to reopen a locked month; the Founder
+// approves (unlocking for N days) or declines from My Workspace / Month locks.
+const FINANCE_UNLOCK_REQUESTS = 'finance_unlock_requests'
+
+export async function createFinanceUnlockRequest({ month, monthLabel, reason, by, uid }) {
+  await addDoc(collection(db, FINANCE_UNLOCK_REQUESTS), {
+    month,
+    monthLabel: monthLabel || '',
+    reason: reason || '',
+    requestedBy: by || '',
+    requestedByUid: uid || '',
+    status: 'pending',
+    createdAt: Timestamp.now(),
+  })
+}
+
+export function subscribePendingFinanceUnlockRequests(onChange) {
+  if (!db) return () => {}
+  const q = query(collection(db, FINANCE_UNLOCK_REQUESTS), where('status', '==', 'pending'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs
+      .map((d) => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) }))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)))
+  }, () => onChange([]))
+}
+
+export async function approveFinanceUnlockRequest(request, days, by) {
+  await setFinanceMonthUnlock(request.month, days, by)
+  await updateDoc(doc(db, FINANCE_UNLOCK_REQUESTS, request.id), {
+    status: 'approved', approvedDays: days, decidedBy: by || '', decidedAt: Timestamp.now(),
+  })
+}
+
+export async function declineFinanceUnlockRequest(id, by) {
+  await updateDoc(doc(db, FINANCE_UNLOCK_REQUESTS, id), {
+    status: 'declined', decidedBy: by || '', decidedAt: Timestamp.now(),
+  })
+}
+
 // ─── Disputed expenses + Accounts follow-ups ────────────────────────────────
 // A bill the department disapproved (status 'disapproved') or rejected
 // (deptConfirmation 'rejected') is escalated to the Accounts Director's My

@@ -13,6 +13,7 @@ import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon
 import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
 import ExpenseDisputeRibbon from '../components/workspace/ExpenseDisputeRibbon'
+import FinanceUnlockRequestRibbon from '../components/workspace/FinanceUnlockRequestRibbon'
 import QuickActionsWidget from '../components/workspace/QuickActionsWidget'
 import DepartmentAlertRibbons from '../components/workspace/DepartmentAlertRibbons'
 
@@ -86,6 +87,7 @@ export default function MyWorkspace() {
   // reviews, Deacon interview invitations, and applicants' Baptism Self-Declaration requests.
   const addressedRibbons = (
     <>
+      <FinanceUnlockRequestRibbon {...ids} />
       <ExpenseDisputeRibbon {...ids} />
       <CellLeaderApprovalRibbon {...ids} />
       <DeaconInterviewRibbon {...ids} />
