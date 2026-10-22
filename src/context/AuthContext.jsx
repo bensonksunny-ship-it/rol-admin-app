@@ -60,6 +60,8 @@ export function AuthProvider({ children }) {
   // listener so a profile update doesn't drop a claim-only Founder.
   const tokenGlobalRoleRef = useRef(null)
   const [loading, setLoading] = useState(true)
+  // Why users/{uid} couldn't be read at login (error code), or null.
+  const [profileError, setProfileError] = useState(null)
   const [bootstrappedFounder, setBootstrappedFounder] = useState(false)
   const [syncedDepartments, setSyncedDepartments] = useState(false)
   const [syncedDirectory, setSyncedDirectory] = useState(false)
@@ -79,8 +81,18 @@ export function AuthProvider({ children }) {
         }
 
         const profileRef = doc(db, 'users', firebaseUser.uid)
-        const snap = await getDoc(profileRef)
-        const data = snap.exists() ? { id: snap.id, ...snap.data() } : null
+        // A failed read (offline on a fresh device with no cache, rules denial) used to
+        // throw out of this callback and leave the splash spinning forever; record it so
+        // ProtectedRoute can say what went wrong instead.
+        let data = null
+        try {
+          const snap = await getDoc(profileRef)
+          data = snap.exists() ? { id: snap.id, ...snap.data() } : null
+          setProfileError(null)
+        } catch (e) {
+          console.warn('Failed to load user profile:', e)
+          setProfileError(e?.code || e?.message || 'unknown')
+        }
         if (data) {
           // A `positions` field that exists (even as `[]`, e.g. an admin removed someone's
           // last remaining position) means this account is managed through the positions
@@ -197,6 +209,7 @@ export function AuthProvider({ children }) {
       doc(db, 'users', uid),
       (snap) => {
         if (!snap.exists()) return
+        setProfileError(null)
         setUserProfile(mergeUserProfile({ id: snap.id, ...snap.data() }, tokenGlobalRoleRef.current))
       },
       (e) => console.warn('Live profile listener failed:', e)
@@ -257,6 +270,7 @@ export function AuthProvider({ children }) {
     user,
     userProfile,
     loading,
+    profileError,
     signIn,
     signOut,
     hasPermission,
