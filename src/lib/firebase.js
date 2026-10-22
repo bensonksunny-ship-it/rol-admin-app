@@ -38,6 +38,11 @@ if (hasEnvVars) {
         // tab/window at once, and a single-tab manager would make Firestore unusable
         // (throws failed-precondition) in every tab but the first.
         localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+        // Plain HTTP long-polling instead of the streaming WebChannel: some networks /
+        // antivirus web shields / VPNs break the stream (ERR_QUIC_PROTOCOL_ERROR then
+        // "Listen stream transport errored"), so the users/{uid} read never arrives and
+        // the device shows "account not set up". Long-polling gets through those.
+        experimentalForceLongPolling: true,
       })
     } catch (persistErr) {
       console.warn('Persistent Firestore cache unavailable, falling back to default:', persistErr)
