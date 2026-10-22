@@ -291,6 +291,15 @@ export default function DeptExpenseTab({ department }) {
     </p>
   )
 
+  // Whether the Finance Assistant has the physical bill in hand.
+  const renderBillStatus = (e) => (
+    <p className={`text-[11px] mt-1 ${e.receiptConfirmed ? 'text-emerald-700' : 'text-slate-400'}`}>
+      {e.receiptConfirmed
+        ? `🧾 Bill received${e.receiptConfirmedBy ? ` by ${e.receiptConfirmedBy}` : ''}`
+        : '🧾 Bill not yet handed over'}
+    </p>
+  )
+
   // One itemized expense card — used by the "needs your confirmation" panel.
   const renderEntry = (e) => (
     <div key={e.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
@@ -305,6 +314,7 @@ export default function DeptExpenseTab({ department }) {
         </div>
       </div>
       {renderEntryNote(e)}
+      {renderBillStatus(e)}
       {renderEntryActions(e)}
     </div>
   )
@@ -688,6 +698,7 @@ export default function DeptExpenseTab({ department }) {
                         <td className="px-4 py-3 text-slate-800">
                           {e.item || '—'}
                           {renderEntryNote(e)}
+                          {renderBillStatus(e)}
                         </td>
                         <td className="px-4 py-3 text-slate-600">{normalizeDepartmentName(e.department) || department}</td>
                         <td className="px-4 py-3 text-slate-500">{e.billNo || '—'}</td>
@@ -779,6 +790,9 @@ export default function DeptExpenseTab({ department }) {
               {saving ? 'Saving…' : 'Add Expense'}
             </button>
           </div>
+          <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+            🧾 Hand over the original bill to the {FINANCE_ASSISTANT_LABEL} in person. It's ticked as received once they've checked it.
+          </p>
           {formMonthClosed && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               {formMonthFinanceLocked

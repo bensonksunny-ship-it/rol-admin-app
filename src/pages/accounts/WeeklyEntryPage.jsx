@@ -55,7 +55,7 @@ function canAddEntry(entry) {
   return !blockedByDept(entry) && !!entry.receiptConfirmed
 }
 
-// One-click "receipt received" toggle shown at the right of every transaction.
+// One-click "bill received" toggle (physical bill handed in and checked) shown at the right of every transaction.
 function ReceiptButton({ entry, busy, locked, onToggle }) {
   const done = !!entry.receiptConfirmed
   return (
@@ -63,14 +63,14 @@ function ReceiptButton({ entry, busy, locked, onToggle }) {
       type="button"
       onClick={() => onToggle(entry)}
       disabled={busy || locked}
-      title={done ? `Receipt received${entry.receiptConfirmedBy ? ` · ${entry.receiptConfirmedBy}` : ''} — click to undo` : 'Mark receipt as received'}
+      title={done ? `Bill received${entry.receiptConfirmedBy ? ` · ${entry.receiptConfirmedBy}` : ''} — click to undo` : 'Physical bill checked and received'}
       className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium border transition disabled:opacity-50 ${
         done
           ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
           : 'bg-white text-slate-600 border-slate-300 hover:border-emerald-400 hover:text-emerald-700'
       }`}
     >
-      {busy ? '…' : done ? '✓ Receipt' : 'Confirm receipt'}
+      {busy ? '…' : done ? '✓ Bill received' : 'Bill received'}
     </button>
   )
 }
@@ -345,7 +345,7 @@ export default function WeeklyEntryPage() {
         ? { ...e, receiptConfirmed: received, receiptConfirmedBy: received ? actorName : '' }
         : e))
     } catch {
-      setSaveError('Failed to update receipt. Please try again.')
+      setSaveError('Failed to update bill status. Please try again.')
       setTimeout(() => setSaveError(''), 4000)
     } finally {
       setReceiptBusyId(null)
@@ -741,7 +741,7 @@ export default function WeeklyEntryPage() {
           )}
 
           <p className="text-xs text-slate-500">
-            Once every receipt of a department is in for {periodLabel}, confirm its expenses here. This adds all of its remaining bills to accounts.
+            Departments hand over their bills in person. Check each physical bill and tick <b>Bill received</b>. Once every bill of a department is in for {periodLabel}, confirm its expenses. This adds them all to accounts.
           </p>
           {loading ? (
             <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-500 text-sm">Loading…</div>
@@ -761,7 +761,7 @@ export default function WeeklyEntryPage() {
                     </p>
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${allReceipts ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                        Receipts {g.receipts}/{g.rows.length}
+                        Bills received {g.receipts}/{g.rows.length}
                       </span>
                       {g.awaitingDept > 0 && (
                         <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
@@ -782,13 +782,6 @@ export default function WeeklyEntryPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => { setFilterDept(g.dept); setView('entries') }}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                    >
-                      View bills
-                    </button>
                     {isConfirmed ? (
                       <span className="px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-700 text-xs font-semibold">✓ Confirmed</span>
                     ) : (
@@ -796,7 +789,7 @@ export default function WeeklyEntryPage() {
                         type="button"
                         onClick={() => handleConfirmDept(g)}
                         disabled={!ready || confirmingDept === g.dept}
-                        title={ready ? '' : !allReceipts ? 'Confirm every receipt first' : 'Waiting on the department to confirm bills'}
+                        title={ready ? '' : !allReceipts ? 'Tick Bill received for every bill first' : 'Waiting on the department to confirm bills'}
                         className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition"
                       >
                         {confirmingDept === g.dept ? 'Confirming…' : `Confirm ${g.dept} expenses`}
@@ -804,6 +797,28 @@ export default function WeeklyEntryPage() {
                     )}
                   </div>
                 </div>
+
+                {/* Every expense of this department, each with a one-click "bill received"
+                    once the Finance Assistant has the physical bill in hand and checked it. */}
+                <ul className="mt-3 divide-y divide-slate-100 border-t border-slate-100">
+                  {g.rows.map(e => (
+                    <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm text-slate-800 truncate">
+                          {e.item || '—'}
+                          <span className="ml-2 font-semibold tabular-nums">₹{Number(e.amount || 0).toLocaleString('en-IN')}</span>
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {e.date ? format(e.date instanceof Date ? e.date : new Date(e.date), 'dd/MM/yyyy') : '—'}
+                          {e.billNo ? ` · Bill ${e.billNo}` : ''}
+                          {e.receiptConfirmed && e.receiptConfirmedBy ? ` · received by ${e.receiptConfirmedBy}` : ''}
+                        </p>
+                        {blockedByDept(e) && <div className="mt-1"><DeptConfirmBadge entry={e} /></div>}
+                      </div>
+                      <ReceiptButton entry={e} busy={receiptBusyId === e.id} locked={entryLocked(e)} onToggle={handleToggleReceipt} />
+                    </li>
+                  ))}
+                </ul>
               </div>
             )
           })}
@@ -830,7 +845,7 @@ export default function WeeklyEntryPage() {
         <p className="text-sm font-medium text-slate-500">
           Total This {period === 'month' ? 'Month' : 'Week'}
           {missingReceiptCount > 0 && (
-            <span className="block text-xs text-amber-600 mt-0.5">{missingReceiptCount} receipt{missingReceiptCount === 1 ? '' : 's'} not yet received</span>
+            <span className="block text-xs text-amber-600 mt-0.5">{missingReceiptCount} bill{missingReceiptCount === 1 ? '' : 's'} not yet handed over</span>
           )}
         </p>
         <p className="text-2xl font-bold text-rose-600">
@@ -1046,7 +1061,7 @@ export default function WeeklyEntryPage() {
                     <th className="px-4 py-3">Item</th>
                     <th className="px-4 py-3">Bill No</th>
                     <th className="px-4 py-3 text-right">Amount</th>
-                    <th className="px-4 py-3 text-right">Receipt</th>
+                    <th className="px-4 py-3 text-right">Bill</th>
                     <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
